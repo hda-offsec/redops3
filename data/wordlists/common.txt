@@ -1,0 +1,10 @@
+admin
+login
+dashboard
+api
+health
+status
+robots.txt
+backup
+staging
+test

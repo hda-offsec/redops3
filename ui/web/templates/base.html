@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RedOps3</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="app-shell">
+    <div class="container-fluid app-container">
+        <div class="row">
+            <nav id="sidebar" class="col-md-2 d-none d-md-block sidebar vh-100 border-end">
+                <div class="position-sticky pt-3">
+                    <div class="px-3 mb-4">
+                        <h4 class="brand-title"><i class="fas fa-biohazard me-2"></i>RedOps3</h4>
+                        <div class="brand-subtitle">PTES Orchestration Suite</div>
+                    </div>
+
+                    <h6 class="sidebar-heading px-3 mt-4 mb-2 text-body-secondary text-uppercase">
+                        PTES Chain
+                    </h6>
+                    <ul class="nav flex-column">
+                        <li class="nav-item"><a class="nav-link active" href="#"><i class="fas fa-binoculars me-2"></i>Recon</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-list-ul me-2"></i>Enumeration</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-bug me-2"></i>Vulnerability</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-key me-2"></i>Initial Access</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-user-shield me-2"></i>Priv Esc</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-network-wired me-2"></i>Lateral</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-ghost me-2"></i>Post-Ex</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-file-alt me-2"></i>Reporting</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-graduation-cap me-2"></i>Lessons</a></li>
+                    </ul>
+                </div>
+            </nav>
+
+            <main class="col-md-10 ms-sm-auto col-lg-10 px-md-4">
+                <div class="page-header d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-4">
+                    <div>
+                        <div class="page-eyebrow">Mission Control</div>
+                        <h1 class="page-title">{% block title %}Dashboard{% endblock %}</h1>
+                        <div class="page-subtitle">Track, orchestrate, and document every offensive phase.</div>
+                    </div>
+                </div>
+
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

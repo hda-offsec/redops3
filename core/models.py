@@ -1,0 +1,64 @@
+from datetime import datetime
+from core.extensions import db
+
+
+class Target(db.Model):
+    __tablename__ = "targets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    identifier = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    scans = db.relationship("Scan", backref="target", lazy=True)
+
+    def __repr__(self):
+        return f"<Target {self.identifier}>"
+
+
+class Scan(db.Model):
+    __tablename__ = "scans"
+
+    id = db.Column(db.Integer, primary_key=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=False)
+    scan_type = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(20), default="pending")
+    params = db.Column(db.Text, nullable=True)
+    start_time = db.Column(db.DateTime, default=datetime.utcnow)
+    end_time = db.Column(db.DateTime, nullable=True)
+    findings = db.relationship("Finding", backref="scan", lazy=True)
+    logs = db.relationship("ScanLog", backref="scan", lazy=True)
+
+    def __repr__(self):
+        return f"<Scan {self.id} - {self.scan_type}>"
+
+
+class Finding(db.Model):
+    __tablename__ = "findings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
+    severity = db.Column(db.String(20), default="info")
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    tool_source = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ScanLog(db.Model):
+    __tablename__ = "scan_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    message = db.Column(db.Text, nullable=False)
+    level = db.Column(db.String(20), default="INFO")
+
+
+class Suggestion(db.Model):
+    __tablename__ = "suggestions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
+    tool_name = db.Column(db.String(50), nullable=False)
+    command_suggestion = db.Column(db.Text, nullable=False)
+    reason = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
