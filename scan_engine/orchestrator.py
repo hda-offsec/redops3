@@ -1,236 +1,204 @@
-import os
-import shutil
+import threading
+from scan_engine.step01_recon.nmap_scanner import NmapScanner
+from scan_engine.helpers.output_parsers import parse_nmap_open_ports
+from core.analysis import AnalysisEngine
 from datetime import datetime
 
-from scan_engine.helpers.output_parsers import (
-    parse_nmap_open_ports,
-    parse_whatweb_line,
-    parse_nuclei_line,
-    parse_ffuf_line,
-)
-from scan_engine.helpers.target_utils import normalize_target_url
-from scan_engine.step01_recon.nmap_scanner import NmapScanner
-from scan_engine.step02_enum.whatweb_scanner import WhatWebScanner
-from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
-from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
-
-
-WEB_PORTS = {80, 443, 8000, 8080, 8443}
-
-
 class ScanOrchestrator:
-    def __init__(self, scan_id, target, log_fn, finding_fn, suggestion_fn, results_fn):
+    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func):
         self.scan_id = scan_id
         self.target = target
-        self.log = log_fn
-        self.add_finding = finding_fn
-        self.add_suggestion = suggestion_fn
-        self.save_results = results_fn
+        self.log = logger_func # callback to log/emit
+        self.add_finding = finding_func
+        self.add_suggestion = suggestion_func
+        self.save_results = results_func
 
-    def run_pipeline(self, profile="quick"):
-        self.log("Pipeline initialized: recon -> enum -> vuln -> dirbusting", "INFO")
-        self.log(f"Nmap profile selected: {profile}", "INFO")
-
+    def run_pipeline(self, profile='quick'):
+        """
+        Executes the logic pipeline: 
+        1. Run Nmap
+        2. Parse Results
+        3. Analyze & Suggest
+        4. Trigger Next Steps (auto-recon logic can go here)
+        """
+        success = True
+        
+        # --- PHASE 1: Port Scan ---
+        self.log(f"Starting Phase 1: Port Scan ({profile})", "INFO")
+        scanner = NmapScanner(self.target)
+        
+        if profile == 'quick':
+            stream = scanner.stream_quick_scan()
+        else:
+            stream = scanner.stream_full_scan()
+            
+        output_buffer = []
+        for line in stream:
+            line = line.strip()
+            if line:
+                self.log(line, "INFO")
+                output_buffer.append(line)
+        
+        full_output = "\n".join(output_buffer)
+        
+        # --- PHASE 2: Parsing ---
+        self.log("Phase 2: Parsing results...", "INFO")
+        open_ports = parse_nmap_open_ports(full_output)
+        self.log(f"Parsed {len(open_ports)} open ports.", "SUCCESS")
+        
+        # Save structured results
         results = {
             "scan_id": self.scan_id,
             "target": self.target,
-            "started_at": datetime.utcnow().isoformat() + "Z",
-            "phases": {},
-        }
-
-        if not self._ensure_tool("nmap"):
-            self.log("ERROR: 'nmap' binary not found. Please install it.", "ERROR")
-            results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-            self.save_results(self.scan_id, results)
-            return False
-
-        nmap = NmapScanner(self.target)
-        stream = nmap.stream_profile(profile)
-        nmap_output = self._consume_stream("Recon (Nmap)", stream)
-        if nmap_output is None:
-            results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-            self.save_results(self.scan_id, results)
-            return False
-
-        ports = parse_nmap_open_ports("\n".join(nmap_output))
-        self.log(
-            f"Open ports detected: {', '.join(str(p['port']) for p in ports) or 'none'}",
-            "INFO",
-        )
-        results["phases"]["recon"] = {
-            "tool": "nmap",
-            "profile": profile,
-            "open_ports": ports,
-            "raw": nmap_output[:200],
+            "timestamp": datetime.utcnow().isoformat(),
+            "phases": {
+                "recon": {
+                    "tool": "nmap",
+                    "open_ports": open_ports,
+                    "raw_output": full_output
+                }
+            }
         }
         self.save_results(self.scan_id, results)
 
-        for port_info in ports:
+        # --- PHASE 3: Analysis & Suggestions ---
+        self.log("Phase 3: Analysis & Suggestion Generation", "INFO")
+        
+        web_ports = []
+
+        if open_ports:
+            # Create a summary finding
             self.add_finding(
-                tool="nmap",
+                title=f"Port Scan Results: {len(open_ports)} Open Ports",
+                description=str(open_ports),
                 severity="info",
-                title=f"Port {port_info['port']}/tcp open",
-                description=f"Service: {port_info['service']}",
+                tool="nmap"
             )
-
-        self._suggest_from_ports(ports)
-
-        web_ports = [p["port"] for p in ports if p["port"] in WEB_PORTS]
-        if not web_ports:
-            self.log("No web ports detected; skipping web enum/vuln/dirbusting.", "WARN")
-            results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-            self.save_results(self.scan_id, results)
-            return True
-
-        for port in web_ports:
-            target_url = normalize_target_url(self.target, port=port)
-            self.log(f"Web target selected: {target_url}", "INFO")
-
-            if self._ensure_tool("whatweb"):
-                whatweb = WhatWebScanner(target_url)
-                whatweb_output = self._consume_stream("Enum (WhatWeb)", whatweb.stream_scan())
-                if whatweb_output is None:
-                    results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-                    self.save_results(self.scan_id, results)
-                    return False
-                whatweb_summary = {}
-                for line in whatweb_output:
-                    parsed = parse_whatweb_line(line)
-                    if parsed:
-                        whatweb_summary.update(parsed)
-                results["phases"].setdefault("enum", {})
-                results["phases"]["enum"]["whatweb"] = {
-                    "target": target_url,
-                    "summary": whatweb_summary,
-                    "raw": whatweb_output[:200],
-                }
-                self.save_results(self.scan_id, results)
-            else:
-                self.log("Skipping WhatWeb: binary not found.", "WARN")
-
-            if self._ensure_tool("nuclei"):
-                nuclei = NucleiScanner(target_url)
-                nuclei_output = self._consume_stream("Vuln (Nuclei)", nuclei.stream_scan())
-                if nuclei_output is None:
-                    results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-                    self.save_results(self.scan_id, results)
-                    return False
-                vuln_findings = []
-                for line in nuclei_output:
-                    parsed = parse_nuclei_line(line)
-                    if not parsed:
-                        continue
-                    vuln_findings.append(parsed)
-                    self.add_finding(
-                        tool="nuclei",
-                        severity=parsed["severity"],
-                        title=parsed["title"],
-                        description=None,
+            
+            for p in open_ports:
+                port = p['port']
+                svc = p['service_name']
+                
+                # Check for Web
+                if 'http' in svc or port in [80, 443, 8080, 8443]:
+                    web_ports.append(port)
+                    rsn = f"Web service found on port {port}"
+                    self.add_suggestion(
+                         tool="ffuf",
+                         command=f"ffuf -u http://{self.target}:{port}/FUZZ -w common.txt",
+                         reason=rsn
                     )
-                results["phases"].setdefault("vuln", {})
-                results["phases"]["vuln"]["nuclei"] = {
-                    "target": target_url,
-                    "findings": vuln_findings,
-                    "raw": nuclei_output[:200],
-                }
-                self.save_results(self.scan_id, results)
+                
+                if 'smb' in svc or port == 445:
+                    self.add_suggestion(
+                        tool="enum4linux",
+                        command=f"enum4linux -a {self.target}",
+                        reason="SMB Service detected"
+                    )
+        
+        # --- PHASE 4: Auto-Enumeration (Web) ---
+        if web_ports:
+            self.log(f"Phase 4: Starting Auto-Recon for {len(web_ports)} web ports...", "INFO")
+            from scan_engine.step02_enum.web_scanner import WebReconScanner
+            
+            web_scanner = WebReconScanner(self.target)
+            if not web_scanner.check_tools():
+                self.log("Skipping Web Recon: 'whatweb' not installed.", "WARN")
             else:
-                self.log("Skipping Nuclei: binary not found.", "WARN")
+                for port in web_ports:
+                    proto = 'https' if port in [443, 8443] else 'http'
+                    self.log(f"Fingerprinting {proto}://{self.target}:{port} with WhatWeb...", "INFO")
+                    
+                    try:
+                        ww_stream = web_scanner.stream_whatweb(port, proto)
+                        ww_output = []
+                        for line in ww_stream:
+                            line = line.strip()
+                            if line:
+                                self.log(line, "INFO")
+                                ww_output.append(line)
+                        
+                        # Save findings from WhatWeb (simple Parsing)
+                        full_ww = "\n".join(ww_output)
+                        if "Title" in full_ww or "HTTPServer" in full_ww:
+                            self.add_finding(
+                                title=f"Web Tech Stack ({port})",
+                                description=f"WhatWeb Output:\n{full_ww}",
+                                severity="low",
+                                tool="whatweb"
+                            )
+                            # Add to detailed results
+                            if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                            if 'whatweb' not in results['phases']['enum']: results['phases']['enum']['whatweb'] = {'summary': {}}
+                            
+                            results['phases']['enum']['whatweb'][str(port)] = full_ww
+                            self.save_results(self.scan_id, results) # Update results incrementally
 
-            if self._ensure_tool("ffuf"):
-                wordlist = self._resolve_wordlist()
-                if not wordlist:
-                    self.log("Skipping ffuf: no wordlist configured.", "WARN")
-                else:
-                    ffuf = FfufScanner(target_url, wordlist)
-                    ffuf_output = self._consume_stream("Dirbusting (ffuf)", ffuf.stream_scan())
-                    if ffuf_output is None:
-                        results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-                        self.save_results(self.scan_id, results)
-                        return False
-                    endpoints = []
-                    for line in ffuf_output:
-                        parsed = parse_ffuf_line(line)
-                        if not parsed:
-                            continue
-                        endpoints.append(parsed)
-                        self.add_finding(
-                            tool="ffuf",
-                            severity="info",
-                            title=f"Endpoint discovered: {parsed['path']}",
-                            description=f"Status {parsed['status']} Size {parsed['size']}",
-                        )
-                    results["phases"].setdefault("dirbusting", {})
-                    results["phases"]["dirbusting"]["ffuf"] = {
-                        "target": target_url,
-                        "endpoints": endpoints,
-                        "raw": ffuf_output[:200],
-                    }
-                    self.save_results(self.scan_id, results)
+                    except Exception as e:
+                        self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")
+        
+        # --- PHASE 5: Automated Vulnerability Scanning (Nuclei) ---
+        if web_ports:
+            self.log(f"Phase 5: Starting Vulnerability Assessment for {len(web_ports)} targets...", "INFO")
+            from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
+            
+            vuln_scanner = NucleiScanner(self.target)
+            if not vuln_scanner.check_tools():
+                self.log("Skipping Vuln Scan: 'nuclei' not installed. Install with 'brew install nuclei'", "WARN")
+                # Add Suggestion to install
+                self.add_suggestion(
+                     tool="setup",
+                     command="brew install nuclei",
+                     reason="Automated vulnerability assessment tool missing"
+                )
             else:
-                self.log("Skipping ffuf: binary not found.", "WARN")
+                 for port in web_ports:
+                    proto = 'https' if port in [443, 8443] else 'http'
+                    self.log(f"Nuclei Scanning {proto}://{self.target}:{port}...", "INFO")
+                    
+                    try:
+                        nuc_stream = vuln_scanner.stream_vuln_scan(port, proto)
+                        
+                        vuln_count = 0
+                        for line in nuc_stream:
+                            line = line.strip()
+                            if line:
+                                # Nuclei format: [dns-waf-detect] [medium] ...
+                                # We'll try to guess severity by checking string
+                                sev = "info"
+                                if "[critical]" in line.lower(): sev = "critical"
+                                elif "[high]" in line.lower(): sev = "high"
+                                elif "[medium]" in line.lower(): sev = "medium"
+                                elif "[low]" in line.lower(): sev = "low"
+                                
+                                self.log(line, "WARN" if sev in ["critical", "high"] else "INFO")
+                                
+                                # Add finding if >= medium
+                                if sev in ["critical", "high", "medium"]:
+                                    vuln_count += 1
+                                    self.add_finding(
+                                        title=f"Vulnerability Found ({sev.upper()})",
+                                        description=f"Nuclei Output:\n{line}",
+                                        severity=sev,
+                                        tool="nuclei"
+                                    )
+                                    # Add to detailed results structure
+                                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                    if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
+                                    
+                                    results['phases']['vuln']['nuclei']['findings'].append({
+                                        "severity": sev,
+                                        "title": line,
+                                        "port": port
+                                    })
+                                    self.save_results(self.scan_id, results)
 
-        results["completed_at"] = datetime.utcnow().isoformat() + "Z"
-        self.save_results(self.scan_id, results)
-        self.log("Pipeline completed.", "SUCCESS")
-        return True
+                        if vuln_count > 0:
+                            self.log(f"Alert: {vuln_count} vulnerabilities identified on port {port}!", "ERROR")
+                        else:
+                            self.log(f"No critical vulnerabilities found on port {port}.", "SUCCESS")
+                            
+                    except Exception as e:
+                        self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")
 
-    def _consume_stream(self, label, stream):
-        self.log(f"Starting {label}", "INFO")
-        output_lines = []
-        exit_code = None
-
-        for event in stream:
-            if event["type"] == "stdout":
-                line = event["line"].strip()
-                if line:
-                    output_lines.append(line)
-                    self.log(line, "INFO")
-            elif event["type"] == "exit":
-                exit_code = event["code"]
-
-        if exit_code is None:
-            self.log(f"{label} did not return an exit code.", "ERROR")
-            return None
-        if exit_code != 0:
-            self.log(f"{label} failed (exit {exit_code}).", "ERROR")
-            return None
-
-        self.log(f"{label} completed.", "SUCCESS")
-        return output_lines
-
-    def _ensure_tool(self, binary_name):
-        return shutil.which(binary_name) is not None
-
-    def _resolve_wordlist(self):
-        env_wordlist = os.getenv("WORDLIST_PATH")
-        if env_wordlist and os.path.exists(env_wordlist):
-            return env_wordlist
-
-        default_wordlist = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "data", "wordlists", "common.txt"
-        )
-        if os.path.exists(default_wordlist):
-            return default_wordlist
-        return None
-
-    def _suggest_from_ports(self, ports):
-        port_set = {p["port"] for p in ports}
-        if 22 in port_set:
-            self.add_suggestion(
-                tool="ssh",
-                command="ssh -v <user>@<target>",
-                reason="SSH port open; validate authentication methods and banner.",
-            )
-        if 445 in port_set or 139 in port_set:
-            self.add_suggestion(
-                tool="smb",
-                command="smbclient -L //<target> -N",
-                reason="SMB port open; enumerate shares and signing.",
-            )
-        if 3389 in port_set:
-            self.add_suggestion(
-                tool="rdp",
-                command="xfreerdp /v:<target>",
-                reason="RDP detected; check exposure and NLA.",
-            )
+        return success

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>RedOps3 Mission Report - {{ scan.target.identifier }}</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #333;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+
+        .header {
+            border-bottom: 2px solid #ff2a2a;
+            padding-bottom: 20px;
+            margin-bottom: 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .brand {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff2a2a;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .meta {
+            color: #666;
+            font-size: 14px;
+            text-align: right;
+        }
+
+        h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            border-left: 5px solid #ff2a2a;
+            padding-left: 15px;
+            margin-top: 40px;
+            color: #000;
+        }
+
+        .summary-box {
+            background: #f4f4f4;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 30px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .bg-critical {
+            background-color: #721c24;
+        }
+
+        .bg-high {
+            background-color: #dc3545;
+        }
+
+        .bg-medium {
+            background-color: #fd7e14;
+        }
+
+        .bg-low {
+            background-color: #ffc107;
+            color: #333;
+        }
+
+        .bg-info {
+            background-color: #17a2b8;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        table th {
+            text-align: left;
+            background: #eee;
+            padding: 10px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        table td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .code-block {
+            background: #222;
+            color: #00ff9d;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: monospace;
+        }
+
+        .footer {
+            margin-top: 60px;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="brand">RedOps<span style="color: black;">3</span> // REPORT</div>
+        <div class="meta">
+            Generated: {{ generated_at }}<br>
+            Scan ID: #{{ scan.id }}<br>
+            Profile: {{ scan.scan_type|upper }}
+        </div>
+    </div>
+
+    <h1>Target: {{ scan.target.identifier }}</h1>
+
+    <div class="summary-box">
+        <h3>Executive Summary</h3>
+        <p>A reconnaissance operation was performed on <strong>{{ scan.target.identifier }}</strong> starting at {{
+            scan.start_time }}.
+            The operation successfully identified <strong>{{ findings|length }}</strong> potential items of interest.
+        </p>
+
+        <div style="display: flex; gap: 20px; margin-top: 20px;">
+            <div><strong>Duration:</strong> {{ duration }}</div>
+            <div><strong>Status:</strong> {{ scan.status|upper }}</div>
+        </div>
+    </div>
+
+    <h2>1. Network Surface (Open Ports)</h2>
+    {% if results and results.phases.recon.open_ports %}
+    <table>
+        <thead>
+            <tr>
+                <th>Port</th>
+                <th>Protocol</th>
+                <th>Service</th>
+                <th>Version</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for port in results.phases.recon.open_ports %}
+            <tr>
+                <td><strong>{{ port.port }}</strong></td>
+                <td>TCP</td>
+                <td>{{ port.service_name }}</td>
+                <td>{{ port.version or 'Unknown' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No open ports identified or raw scan data unavailable.</p>
+    {% endif %}
+
+    <h2>2. Findings Detail</h2>
+    {% if findings %}
+    {% for finding in findings %}
+    <div style="margin-bottom: 30px;">
+        <h4>
+            <span class="badge bg-{{ finding.severity|lower }}">{{ finding.severity|upper }}</span>
+            {{ finding.title }}
+        </h4>
+        <p>{{ finding.description }}</p>
+        <small class="text-muted">Source: {{ finding.tool_source }}</small>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p>No specific findings recorded.</p>
+    {% endif %}
+
+    <h2>3. Attack Path Suggestions</h2>
+    {% if suggestions %}
+    <table>
+        <thead>
+            <tr>
+                <th width="20%">Tool</th>
+                <th>Actionable Command / Recommendation</th>
+                <th width="30%">Reason</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for suggestion in suggestions %}
+            <tr>
+                <td><strong>{{ suggestion.tool_name }}</strong></td>
+                <td><code
+                        style="background: #eee; padding: 2px 4px; border-radius: 3px;">{{ suggestion.command_suggestion }}</code>
+                </td>
+                <td>{{ suggestion.reason }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No automated suggestions generated.</p>
+    {% endif %}
+
+    <div class="footer">
+        Generated by RedOps3 Framework. Confidential & Proprietary.
+    </div>
+</body>
+
+</html>

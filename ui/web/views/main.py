@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 from urllib.parse import urlparse
 import os
 import shutil
+from datetime import datetime
 
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, db
 from core.results_store import load_results, save_results
@@ -145,88 +146,66 @@ def _add_suggestion(scan_id, tool, command, reason=None):
 
 def background_scan(scan_id, target_identifier, scan_type, app):
     from datetime import datetime
-
+    
+    # Map UI types to internal profiles
+    # 'quick' -> nmap -F + parse + suggest
+    # 'full' -> nmap -p- + parse + suggest
+    # 'vuln' -> nmap --script vuln + parse + suggest
+    
     with app.app_context():
         scan = Scan.query.get(scan_id)
-        scan.status = "running"
+        scan.status = 'running'
         db.session.commit()
+        
+        _log_and_emit(scan.id, f"Initializing Orchestrated Scan: {scan_type.upper()}", "INFO")
 
-        _log_and_emit(scan.id, f"Starting {scan_type} scan for {target_identifier}", "INFO")
+        # -- ORCHESTRATOR SETUP --
+        from scan_engine.orchestrator import ScanOrchestrator
+        from core.results_store import save_results
+        
+        def add_finding_cb(**kwargs):
+            # Helper to add finding inside existing context
+            if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
+            f = Finding(**kwargs)
+            db.session.add(f)
+            db.session.commit()
+            _log_and_emit(scan.id, f"Finding: {kwargs.get('title')}", "WARN")
 
-        success = False
+        def add_suggestion_cb(**kwargs):
+            if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
+            s = Suggestion(**kwargs)
+            db.session.add(s)
+            db.session.commit()
+            _log_and_emit(scan.id, f"Suggestion: Try {kwargs.get('tool_name')}", "SUCCESS")
 
-        if scan_type in {"pipeline", "pipeline_full"}:
-            profile = "quick" if scan_type == "pipeline" else "full"
-            try:
-                orchestrator = ScanOrchestrator(
-                    scan.id,
-                    target_identifier,
-                    lambda msg, level="INFO": _log_and_emit(scan.id, msg, level),
-                    lambda **kwargs: _add_finding(scan.id, **kwargs),
-                    lambda **kwargs: _add_suggestion(scan.id, **kwargs),
-                    save_results,
-                )
-                success = orchestrator.run_pipeline(profile=profile)
-            except Exception as exc:
-                _log_and_emit(scan.id, f"Pipeline exception: {str(exc)}", "ERROR")
-                success = False
-        else:
-            scanner = NmapScanner(target_identifier)
+        orchestrator = ScanOrchestrator(
+            scan_id=scan.id,
+            target=target_identifier,
+            logger_func=lambda msg, lvl: _log_and_emit(scan.id, msg, lvl),
+            finding_func=add_finding_cb,
+            suggestion_func=add_suggestion_cb,
+            results_func=save_results
+        )
+        
+        # Execute Pipeline
+        try:
+             # Map 'scan_type' from UI to profile expected by orchestrator
+             # in orchestrator.py currently it handles 'quick' or 'full'
+             # Let's pass the raw scan_type and ensure orchestrator handles it or mapped
+             profile = scan_type
+             if scan_type not in ['quick', 'full']: 
+                 profile = 'quick' # fallback for now or update orchestrator
+             
+             success = orchestrator.run_pipeline(profile=profile)
+        except Exception as e:
+             _log_and_emit(scan.id, f"Pipeline Error: {str(e)}", "ERROR")
+             success = False
 
-            if not shutil.which("nmap"):
-                _log_and_emit(scan.id, "ERROR: 'nmap' binary not found.", "ERROR")
-                scan.status = "failed"
-                db.session.commit()
-                return
-
-            if NmapScanner.requires_root(scan_type) and os.geteuid() != 0:
-                _log_and_emit(
-                    scan.id,
-                    f"ERROR: Nmap profile '{scan_type}' requires sudo/root privileges.",
-                    "ERROR",
-                )
-                scan.status = "failed"
-                db.session.commit()
-                return
-
-            stream = scanner.stream_profile(scan_type)
-            output_lines = []
-            exit_code = None
-            for event in stream:
-                if event["type"] == "stdout":
-                    line = event["line"].strip()
-                    if line:
-                        output_lines.append(line)
-                        _log_and_emit(scan.id, line, "INFO")
-                elif event["type"] == "exit":
-                    exit_code = event["code"]
-
-            success = exit_code == 0
-            if not success:
-                _log_and_emit(scan.id, f"Nmap failed (exit {exit_code}).", "ERROR")
-            else:
-                ports = parse_nmap_open_ports("\n".join(output_lines))
-                results = {
-                    "scan_id": scan.id,
-                    "target": target_identifier,
-                    "started_at": scan.start_time.isoformat() + "Z",
-                    "completed_at": datetime.utcnow().isoformat() + "Z",
-                    "phases": {
-                        "recon": {
-                            "tool": "nmap",
-                            "profile": scan_type,
-                            "open_ports": ports,
-                            "raw": output_lines[:200],
-                        }
-                    },
-                }
-                save_results(scan.id, results)
-
-        scan.status = "completed" if success else "failed"
+        scan.status = 'completed' if success else 'failed'
         scan.end_time = datetime.utcnow()
         db.session.commit()
-
-        _log_and_emit(scan.id, "Scan completed successfully." if success else "Scan failed.", "SUCCESS" if success else "ERROR")
+        
+        _log_and_emit(scan.id, "Operation Concluded.", "SUCCESS" if success else "ERROR")
 
 
 @main_bp.route("/scan/new", methods=["POST"])
@@ -259,3 +238,35 @@ def new_scan():
 
     flash(f"Started {scan_type} scan for {target_input}", "success")
     return redirect(url_for("main.index"))
+
+@main_bp.route("/scan/<int:scan_id>/notes", methods=["POST"])
+def update_notes(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    notes = request.form.get("notes")
+    scan.notes = notes
+    db.session.commit()
+    flash("Operator notes updated.", "success")
+    return redirect(url_for("main.scan_detail", scan_id=scan.id))
+
+@main_bp.route("/scan/<int:scan_id>/report")
+def scan_report(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    results = load_results(scan_id)
+    findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.severity.asc()).all()
+    suggestions = Suggestion.query.filter_by(scan_id=scan_id).all()
+    
+    # Calculate duration
+    duration = "N/A"
+    if scan.end_time and scan.start_time:
+        delta = scan.end_time - scan.start_time
+        duration = str(delta).split('.')[0]
+
+    return render_template(
+        "reports/standard_report.html",
+        scan=scan,
+        results=results,
+        findings=findings,
+        suggestions=suggestions,
+        generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        duration=duration
+    )

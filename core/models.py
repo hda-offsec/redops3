@@ -26,6 +26,7 @@ class Scan(db.Model):
     end_time = db.Column(db.DateTime, nullable=True)
     findings = db.relationship("Finding", backref="scan", lazy=True)
     logs = db.relationship("ScanLog", backref="scan", lazy=True)
+    notes = db.Column(db.Text, nullable=True)
 
     def __repr__(self):
         return f"<Scan {self.id} - {self.scan_type}>"
