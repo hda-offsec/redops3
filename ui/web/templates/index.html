@@ -1,285 +1,143 @@
 {% extends "base.html" %}
 
-{% block title %}Mission Control{% endblock %}
+{% block title %}Target Acquisition{% endblock %}
 
 {% block content %}
 <div class="row g-4">
-    <div class="col-12">
-        <div class="card panel-card">
-            <div class="card-header panel-header">
-                <i class="fas fa-crosshairs me-2"></i>Launch Operation
+    <!-- TARGET & LAUNCH CARD -->
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fas fa-crosshairs"></i> Operation Launcher
             </div>
             <div class="card-body">
-                <form action="{{ url_for('main.new_scan') }}" method="POST" class="row g-3 align-items-center">
-                    <div class="col-12 col-lg-5">
-                        <label class="visually-hidden" for="target">Target IP/Hostname</label>
+                <form action="{{ url_for('main.new_scan') }}" method="POST" class="row g-3 align-items-end">
+                    <div class="col-md-6">
+                        <label for="target" class="form-label text-muted small text-uppercase">Target
+                            Identification</label>
                         <div class="input-group">
-                            <span class="input-group-text input-icon"><i class="fas fa-network-wired"></i></span>
-                            <input type="text" class="form-control form-control-glass" id="target" name="target" placeholder="Enter target (e.g., 10.10.11.24)" required>
+                            <span class="input-group-text bg-dark border-secondary text-muted"><i
+                                    class="fas fa-terminal"></i></span>
+                            <input type="text" class="form-control" id="target" name="target"
+                                placeholder="IP Address / Hostname" style="letter-spacing: 1px;" required>
                         </div>
                     </div>
-                    <div class="col-12 col-lg-4">
-                        <select class="form-select form-control-glass" name="scan_type">
-                            <option value="pipeline" selected>Pipeline (Recon -> Enum -> Vuln -> Dirbusting)</option>
-                            <option value="pipeline_full">Pipeline Full (Full Nmap + All Phases)</option>
-                            <option value="quick">Nmap Quick (Top 100)</option>
-                            <option value="full">Nmap Full (All Ports + Scripts)</option>
-                            <option value="udp">Nmap UDP (Top 100 UDP, requires sudo)</option>
-                            <option value="vuln">Nmap Vuln (NSE vuln scripts)</option>
-                            <option value="os">Nmap OS Detection (requires sudo)</option>
-                            <option value="discovery">Nmap Discovery (Ping sweep)</option>
-                            <option value="stealth">Nmap Stealth (SYN, requires sudo)</option>
-                            <option value="web">Nmap Web Recon (HTTP scripts)</option>
+                    <div class="col-md-4">
+                        <label for="scan_type" class="form-label text-muted small text-uppercase">Op Profile</label>
+                        <select class="form-select" name="scan_type" id="scan_type">
+                            <option value="quick" selected>QUICK RECON (T4/Top100)</option>
+                            <option value="full">FULL SPECTRUM (All Ports)</option>
+                            <option value="vuln">VULNERABILITY ASSESSMENT</option>
+                            <option value="web">WEB ENUMERATION</option>
                         </select>
                     </div>
-                    <div class="col-12 col-lg-3">
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-danger w-100 h-100" style="min-height: 48px;">
+                            <i class="fas fa-rocket me-2"></i>ENGAGE
+                        </button>
+                    </div>
+
+                    <div class="col-12 mt-3">
                         <div class="form-check">
-                            <input class="form-check-input form-check-input-glass" type="checkbox" value="1" id="confirm_auth" name="confirm_auth">
-                            <label class="form-check-label text-muted" for="confirm_auth">
-                                I confirm I have explicit authorization
+                            <input class="form-check-input" type="checkbox" id="confirm_auth" name="confirm_auth"
+                                required>
+                            <label class="form-check-label text-muted small" for="confirm_auth">
+                                I verify that I have explicit authorization to test this target.
                             </label>
                         </div>
-                    </div>
-                    <div class="col-12">
-                        <button type="submit" class="btn btn-accent">Start Scan</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
-    {% if latest_scan %}
-    <div class="col-12">
-        <div class="card panel-card">
-            <div class="card-header panel-header d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-satellite-dish me-2"></i>Latest Operation</span>
-                <span class="badge status-pill status-{{ latest_scan.status }}">{{ latest_scan.status }}</span>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <div class="meta-label">Target</div>
-                        <div class="meta-value">{{ latest_scan.target.identifier }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label">Type</div>
-                        <div class="meta-value text-uppercase">{{ latest_scan.scan_type }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label">Started</div>
-                        <div class="meta-value">{{ latest_scan.start_time.strftime('%H:%M:%S') }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label">Findings</div>
-                        <div class="meta-value">{{ latest_findings|length }}</div>
-                    </div>
-                </div>
-                <div class="severity-strip mt-4">
-                    <div class="severity-item critical">Critical {{ severity_counts['critical'] }}</div>
-                    <div class="severity-item high">High {{ severity_counts['high'] }}</div>
-                    <div class="severity-item medium">Medium {{ severity_counts['medium'] }}</div>
-                    <div class="severity-item low">Low {{ severity_counts['low'] }}</div>
-                    <div class="severity-item info">Info {{ severity_counts['info'] }}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
-    <div class="col-lg-8">
-        <div class="row g-4">
-            <div class="col-12">
-                <div class="card panel-card">
-                    <div class="card-header panel-header"><i class="fas fa-binoculars me-2"></i>Recon (Nmap)</div>
-                    <div class="card-body">
-                        {% if latest_results %}
-                        {% set recon = latest_results.get('phases', {}).get('recon', {}) %}
-                        {% set open_ports = recon.get('open_ports', []) %}
-                        {% if open_ports %}
-                        <table class="table table-sm table-dark table-borderless mb-0">
-                            <thead><tr><th>Port</th><th>Service</th></tr></thead>
-                            <tbody>
-                                {% for port in open_ports %}
-                                <tr><td>{{ port.port }}</td><td>{{ port.service }}</td></tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                        {% else %}
-                        <div class="text-muted">No open ports detected yet.</div>
-                        {% endif %}
-                        {% else %}
-                        <div class="text-muted">Run a pipeline scan to populate recon results.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="card panel-card">
-                    <div class="card-header panel-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
-                    <div class="card-body">
-                        {% if latest_results %}
-                        {% set summary = latest_results.get('phases', {}).get('enum', {}).get('whatweb', {}).get('summary', {}) %}
-                        {% if summary %}
-                        <div class="tag-grid">
-                            {% for key, value in summary.items() %}
-                            <div class="tag-item">
-                                <span class="tag-key">{{ key }}</span>
-                                <span class="tag-value">{{ value }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No enumeration summary available.</div>
-                        {% endif %}
-                        {% else %}
-                        <div class="text-muted">Run a pipeline scan to populate enumeration results.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="card panel-card">
-                    <div class="card-header panel-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)</div>
-                    <div class="card-body">
-                        {% if latest_results %}
-                        {% set vuln_findings = latest_results.get('phases', {}).get('vuln', {}).get('nuclei', {}).get('findings', []) %}
-                        {% if vuln_findings %}
-                        <div class="result-list">
-                            {% for finding in vuln_findings[:10] %}
-                            <div class="result-row">
-                                <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
-                                <span class="result-text">{{ finding.title }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No vulnerabilities reported yet.</div>
-                        {% endif %}
-                        {% else %}
-                        <div class="text-muted">Run a pipeline scan to populate vulnerability results.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12">
-                <div class="card panel-card">
-                    <div class="card-header panel-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
-                    <div class="card-body">
-                        {% if latest_results %}
-                        {% set endpoints = latest_results.get('phases', {}).get('dirbusting', {}).get('ffuf', {}).get('endpoints', []) %}
-                        {% if endpoints %}
-                        <div class="result-list">
-                            {% for endpoint in endpoints[:12] %}
-                            <div class="result-row">
-                                <span class="badge bg-secondary">/{{ endpoint.path }}</span>
-                                <span class="result-text">Status {{ endpoint.status }} · Size {{ endpoint.size }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No endpoints discovered yet.</div>
-                        {% endif %}
-                        {% else %}
-                        <div class="text-muted">Run a pipeline scan to populate dirbusting results.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
+    <!-- SYSTEM STATUS CARD -->
     <div class="col-lg-4">
-        <div class="card panel-card mb-4">
-            <div class="card-header panel-header"><i class="fas fa-route me-2"></i>PTES Chain</div>
-            <div class="card-body ptes-grid">
-                <div class="ptes-step active">1. Reconnaissance</div>
-                <div class="ptes-step active">2. Enumeration</div>
-                <div class="ptes-step active">3. Vulnerability Mapping</div>
-                <div class="ptes-step muted">4. Initial Access</div>
-                <div class="ptes-step muted">5. Privilege Escalation</div>
-                <div class="ptes-step muted">6. Lateral Movement</div>
-                <div class="ptes-step muted">7. Post-Exploitation</div>
-                <div class="ptes-step muted">8. Reporting</div>
-                <div class="ptes-step muted">9. Lessons Learned</div>
-            </div>
-        </div>
-
-        <div class="card panel-card mb-4">
-            <div class="card-header panel-header"><i class="fas fa-bell me-2"></i>Key Findings</div>
-            <div class="card-body">
-                {% if latest_findings %}
-                <div class="result-list">
-                    {% for finding in latest_findings[:8] %}
-                    <div class="result-row">
-                        <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
-                        <span class="result-text">{{ finding.title }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="text-muted">No findings recorded yet.</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="card panel-card mb-4">
-            <div class="card-header panel-header"><i class="fas fa-lightbulb me-2"></i>Suggestions</div>
-            <div class="card-body">
-                {% if latest_suggestions %}
-                <div class="result-list">
-                    {% for suggestion in latest_suggestions %}
-                    <div class="result-row">
-                        <span class="badge bg-secondary">{{ suggestion.tool_name }}</span>
-                        <span class="result-text">{{ suggestion.command_suggestion }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="text-muted">No suggestions yet.</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="card panel-card">
-            <div class="card-header panel-header"><i class="fas fa-server me-2"></i>System Status</div>
-            <div class="card-body">
-                <ul class="list-unstyled mb-0">
-                    <li class="d-flex justify-content-between mb-2"><span>Database</span><span class="text-success">Connected</span></li>
-                    <li class="d-flex justify-content-between mb-2"><span>API Status</span><span class="text-success">Online</span></li>
-                    <li class="d-flex justify-content-between"><span>Targets Tracked</span><span>{{ targets|length if targets else 0 }}</span></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-12">
-        <div class="card panel-card">
-            <div class="card-header panel-header d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-satellite-dish me-2"></i>Recent Operations</span>
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fas fa-microchip"></i> System Status
             </div>
             <div class="card-body p-0">
-                <table class="table table-hover mb-0 table-glass">
-                    <thead><tr><th>ID</th><th>Target</th><th>Type</th><th>Status</th><th>Time</th></tr></thead>
+                <table class="table table-dark table-borderless table-sm mb-0">
+                    <tbody>
+                        <tr>
+                            <td class="px-3 py-2 text-muted">Core Engine</td>
+                            <td class="px-3 py-2 text-end text-success">ONLINE</td>
+                        </tr>
+                        <tr>
+                            <td class="px-3 py-2 text-muted">Database</td>
+                            <td class="px-3 py-2 text-end text-success">CONNECTED</td>
+                        </tr>
+                        <tr>
+                            <td class="px-3 py-2 text-muted">Active Threads</td>
+                            <td class="px-3 py-2 text-end text-cyber">4</td>
+                        </tr>
+                        <tr>
+                            <td class="px-3 py-2 text-muted">Targets Tracked</td>
+                            <td class="px-3 py-2 text-end">{{ targets|length if targets else 0 }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="p-3 border-top border-secondary">
+                    <small class="text-muted d-block mb-1">STORAGE</small>
+                    <div class="progress bg-dark border border-secondary" style="height: 6px;">
+                        <div class="progress-bar bg-info" role="progressbar" style="width: 12%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RECENT OPERATIONS -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="fas fa-history"></i> Mission Log</span>
+                <span class="badge bg-secondary">{{ recent_scans|length }} RECENT</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-dark">
+                        <tr>
+                            <th class="ps-3">ID</th>
+                            <th>Target</th>
+                            <th>Profile</th>
+                            <th>Status</th>
+                            <th>Timestamp</th>
+                            <th></th>
+                        </tr>
+                    </thead>
                     <tbody>
                         {% if recent_scans %}
                         {% for scan in recent_scans %}
                         <tr>
-                            <td><a class="link-light text-decoration-none" href="{{ url_for('main.scan_detail', scan_id=scan.id) }}">#{{ scan.id }}</a></td>
-                            <td>{{ scan.target.identifier }}</td>
-                            <td>{{ scan.scan_type }}</td>
+                            <td class="ps-3"><span class="font-monospace text-muted">#{{ scan.id }}</span></td>
+                            <td class="font-monospace fw-bold text-cyber">{{ scan.target.identifier }}</td>
+                            <td class="text-uppercase small">{{ scan.scan_type }}</td>
                             <td>
-                                <span class="badge {% if scan.status == 'completed' %}bg-success{% elif scan.status == 'running' %}bg-warning text-dark{% elif scan.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">
-                                    {{ scan.status }}
-                                </span>
+                                {% if scan.status == 'completed' %}
+                                <span class="badge bg-success">COMPLETED</span>
+                                {% elif scan.status == 'running' %}
+                                <span class="badge bg-warning text-dark blink-animation">RUNNING</span>
+                                {% elif scan.status == 'failed' %}
+                                <span class="badge bg-danger">FAILED</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ scan.status }}</span>
+                                {% endif %}
                             </td>
-                            <td>{{ scan.start_time.strftime('%H:%M:%S') }}</td>
+                            <td class="text-muted small font-monospace">{{ scan.start_time.strftime('%H:%M:%S') }}</td>
+                            <td class="text-end pe-3">
+                                <button class="btn btn-sm btn-outline-secondary"><i class="fas fa-eye"></i></button>
+                            </td>
                         </tr>
                         {% endfor %}
                         {% else %}
-                        <tr><td colspan="5" class="text-center text-muted py-4">No recent scans found.</td></tr>
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <i class="fas fa-folder-open fa-2x mb-3 opacity-25"></i>
+                                <p class="mb-0">No operations recorded.</p>
+                            </td>
+                        </tr>
                         {% endif %}
                     </tbody>
                 </table>
@@ -287,23 +145,33 @@
         </div>
     </div>
 
-    <div class="col-12">
-        <div class="card panel-card">
-            <div class="card-header panel-header d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-terminal me-2"></i>Live Operations Log</span>
-                {% if latest_scan %}<span class="text-muted small">Scan #{{ latest_scan.id }}</span>{% endif %}
+    <!-- LIVE TERMINAL -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fas fa-terminal"></i> Live Telemetry
             </div>
-            <div class="card-body font-monospace log-console" id="log-container" data-scan-id="{{ latest_scan.id if latest_scan else '' }}">
+            <div id="log-container" class="card-body font-monospace p-3"
+                style="height: 400px; overflow-y: auto; font-size: 0.8rem;">
                 {% if logs %}
                 {% for log in logs %}
-                <div>
-                    <span class="text-muted">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
-                    <span class="{% if log.level == 'INFO' %}text-secondary{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %}">{{ log.level }}</span>
+                <div class="mb-1 text-break">
+                    <span class="text-muted opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
+                    <span class="
+                            {% if log.level == 'INFO' %}text-info
+                            {% elif log.level == 'SUCCESS' %}text-success
+                            {% elif log.level == 'WARN' %}text-warning
+                            {% elif log.level == 'ERROR' %}text-danger
+                            {% else %}text-secondary{% endif %}
+                        ">[{{ log.level }}]</span>
                     {{ log.message }}
                 </div>
                 {% endfor %}
                 {% else %}
-                <div class="text-muted" id="no-logs">No logs available. Start a scan to see activity.</div>
+                <div class="text-muted text-center pt-5 mt-5">
+                    <i class="fas fa-satellite-dish fa-spin fa-2x mb-3 opacity-25"></i>
+                    <br>Awaiting Telemetry...
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -322,31 +190,28 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
+        // Scroll to bottom on load
         scrollToBottom();
 
         socket.on('new_log', function (data) {
-            var currentScanId = logContainer.dataset.scanId;
-            if (currentScanId && data.scan_id && data.scan_id.toString() !== currentScanId) {
-                return;
-            }
-            if (!currentScanId && data.scan_id) {
-                logContainer.dataset.scanId = data.scan_id.toString();
+            // Remove "awaiting telemetry" placeholder if present
+            if (logContainer.querySelector('.text-center')) {
                 logContainer.innerHTML = '';
             }
 
-            var noLogs = document.getElementById("no-logs");
-            if (noLogs) {
-                noLogs.remove();
-            }
-
             var div = document.createElement("div");
+            div.className = "mb-1 text-break";
+
+            // Determine class based on level
             var textClass = "text-secondary";
             if (data.level === "SUCCESS") textClass = "text-success";
             else if (data.level === "WARN") textClass = "text-warning";
             else if (data.level === "ERROR") textClass = "text-danger";
+            else if (data.level === "INFO") textClass = "text-info";
 
-            div.innerHTML = '<span class="text-muted">[' + data.timestamp + ']</span> ' +
-                '<span class="' + textClass + '">' + data.level + '</span> ' + data.message;
+            div.innerHTML = '<span class="text-muted opacity-50">[' + data.timestamp + ']</span> ' +
+                '<span class="' + textClass + '">[' + data.level + ']</span> ' +
+                data.message;
 
             logContainer.appendChild(div);
             scrollToBottom();
