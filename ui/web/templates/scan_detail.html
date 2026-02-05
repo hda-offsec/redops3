@@ -213,6 +213,24 @@
 </div>
 
 <div class="col-lg-4">
+    <!-- RAW OUTPUT (DEBUG) -->
+    <div class="card panel-card mb-4 text-secondary" style="font-size: 0.8rem;">
+        <div class="card-header panel-header py-1" data-bs-toggle="collapse" data-bs-target="#rawOutput"
+            style="cursor: pointer; opacity: 0.7;">
+            <i class="fas fa-terminal me-2"></i>Raw Nmap View
+        </div>
+        <div id="rawOutput" class="collapse">
+            <div class="card-body bg-black p-2">
+                {% if results and results.phases and results.phases.recon and results.phases.recon.raw_output %}
+                <pre class="m-0"
+                    style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 0.7rem;">{{ results.phases.recon.raw_output }}</pre>
+                {% else %}
+                <div class="text-muted">No raw output captured yet.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
     <div class="card panel-card mb-4">
         <div class="card-header panel-header"><i class="fas fa-bell me-2"></i>Findings</div>
         <div class="card-body">

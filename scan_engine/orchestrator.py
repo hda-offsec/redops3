@@ -33,12 +33,15 @@ class ScanOrchestrator:
         stream = scanner.stream_profile(profile)
             
         output_buffer = []
-        for line in stream:
-            line = line.strip()
-            if line:
-                self.log(line, "INFO")
-                output_buffer.append(line)
-        
+        for event in stream:
+            if event["type"] == "stdout":
+                msg = event["line"].strip()
+                if msg:
+                    self.log(msg, "INFO")
+                    output_buffer.append(msg)
+            elif event["type"] == "exit":
+                self.log(f"Phase 1 finished with exit code {event['code']}", "INFO")
+            
         full_output = "\n".join(output_buffer)
         
         # --- PHASE 2: Parsing ---
@@ -123,11 +126,14 @@ class ScanOrchestrator:
                     try:
                         ww_stream = web_scanner.stream_whatweb(port, proto)
                         ww_output = []
-                        for line in ww_stream:
-                            line = line.strip()
-                            if line:
-                                self.log(line, "INFO")
-                                ww_output.append(line)
+                        for event in ww_stream:
+                            if event["type"] == "stdout":
+                                msg = event["line"].strip()
+                                if msg:
+                                    self.log(msg, "INFO")
+                                    ww_output.append(msg)
+                            elif event["type"] == "exit":
+                                self.log(f"WhatWeb on port {port} finished with code {event['code']}", "INFO")
                         
                         # Save findings from WhatWeb (simple Parsing)
                         full_ww = "\n".join(ww_output)
@@ -171,38 +177,41 @@ class ScanOrchestrator:
                         nuc_stream = vuln_scanner.stream_vuln_scan(port, proto)
                         
                         vuln_count = 0
-                        for line in nuc_stream:
-                            line = line.strip()
-                            if line:
-                                # Nuclei format: [dns-waf-detect] [medium] ...
-                                # We'll try to guess severity by checking string
-                                sev = "info"
-                                if "[critical]" in line.lower(): sev = "critical"
-                                elif "[high]" in line.lower(): sev = "high"
-                                elif "[medium]" in line.lower(): sev = "medium"
-                                elif "[low]" in line.lower(): sev = "low"
-                                
-                                self.log(line, "WARN" if sev in ["critical", "high"] else "INFO")
-                                
-                                # Add finding if >= medium
-                                if sev in ["critical", "high", "medium"]:
-                                    vuln_count += 1
-                                    self.add_finding(
-                                        title=f"Vulnerability Found ({sev.upper()})",
-                                        description=f"Nuclei Output:\n{line}",
-                                        severity=sev,
-                                        tool="nuclei"
-                                    )
-                                    # Add to detailed results structure
-                                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                                    if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
+                        for event in nuc_stream:
+                            if event["type"] == "stdout":
+                                line = event["line"].strip()
+                                if line:
+                                    # Nuclei format: [dns-waf-detect] [medium] ...
+                                    # We'll try to guess severity by checking string
+                                    sev = "info"
+                                    if "[critical]" in line.lower(): sev = "critical"
+                                    elif "[high]" in line.lower(): sev = "high"
+                                    elif "[medium]" in line.lower(): sev = "medium"
+                                    elif "[low]" in line.lower(): sev = "low"
                                     
-                                    results['phases']['vuln']['nuclei']['findings'].append({
-                                        "severity": sev,
-                                        "title": line,
-                                        "port": port
-                                    })
-                                    self.save_results(self.scan_id, results)
+                                    self.log(line, "WARN" if sev in ["critical", "high"] else "INFO")
+                                    
+                                    # Add finding if >= medium
+                                    if sev in ["critical", "high", "medium"]:
+                                        vuln_count += 1
+                                        self.add_finding(
+                                            title=f"Vulnerability Found ({sev.upper()})",
+                                            description=f"Nuclei Output:\n{line}",
+                                            severity=sev,
+                                            tool="nuclei"
+                                        )
+                                        # Add to detailed results structure
+                                        if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                        if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
+                                        
+                                        results['phases']['vuln']['nuclei']['findings'].append({
+                                            "severity": sev,
+                                            "title": line,
+                                            "port": port
+                                        })
+                                        self.save_results(self.scan_id, results)
+                            elif event["type"] == "exit":
+                                self.log(f"Nuclei on port {port} finished with code {event['code']}", "INFO")
 
                         if vuln_count > 0:
                             self.log(f"Alert: {vuln_count} vulnerabilities identified on port {port}!", "ERROR")

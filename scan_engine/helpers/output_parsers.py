@@ -6,27 +6,27 @@ def parse_nmap_open_ports(nmap_output):
     In a real scenario, parsing XML output (-oX) is much more reliable.
     """
     open_ports = []
-    # Regex specifically for finding open ports lines in standard output
-    # Matches: PORT/PROTO STATE SERVICE VERSION
-    # Example: 80/tcp open http nginx 1.18.0
-    # Improved regex to handle variable whitespace and optional version
-    regex = re.compile(r"^\s*(\d+)/(\w+)\s+open\s+([\w\-\?]+)(?:\s+(.*))?", re.MULTILINE)
-    
-    # Also support | grep able format just in case
-    # Host: 127.0.0.1 ()	Ports: 80/open/tcp//http//nginx 1.18.0/
+    # Ultra-permissive regex to capture any open port line
+    # Matches: 80/tcp  open  http     Apache 2.4
+    # Matches: 80/tcp  open  unknown
+    regex = re.compile(r"^\s*(\d+)/(\w+)\s+open\s+(\S+)(?:\s+(.*))?", re.MULTILINE)
     
     matches = regex.findall(nmap_output)
     
     for match in matches:
         port = int(match[0])
-        # protocol = match[1] # e.g. tcp
+        # protocol = match[1]
         service = match[2]
-        version = match[3] if len(match) > 3 else ""
+        # Clean up version (sometimes nmap puts extra spaces or pipe chars)
+        version = match[3].strip() if len(match) > 3 and match[3] else ""
+        
+        # Fallback: if version is empty but service is huge, maybe regex split wrong?
+        # Nmap -sV output is column aligned, usually reliable.
         
         open_ports.append({
             "port": port,
             "service_name": service,
-            "version": version.strip()
+            "version": version
         })
         
     return open_ports
