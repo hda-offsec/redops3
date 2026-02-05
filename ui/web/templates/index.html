@@ -127,7 +127,10 @@
                             </td>
                             <td class="text-muted small font-monospace">{{ scan.start_time.strftime('%H:%M:%S') }}</td>
                             <td class="text-end pe-3">
-                                <button class="btn btn-sm btn-outline-secondary"><i class="fas fa-eye"></i></button>
+                                <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}"
+                                    class="btn btn-sm btn-outline-cyber">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
                             </td>
                         </tr>
                         {% endfor %}

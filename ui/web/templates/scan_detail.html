@@ -9,6 +9,9 @@
             <div class="card-header panel-header d-flex justify-content-between align-items-center">
                 <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview</span>
                 <div>
+                    <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-cyber me-2">
+                        <i class="fas fa-home"></i> Mission Control
+                    </a>
                     <a href="{{ url_for('main.scan_report', scan_id=scan.id) }}" target="_blank"
                         class="btn btn-sm btn-outline-danger me-2">
                         <i class="fas fa-file-pdf"></i> Report
@@ -81,36 +84,64 @@
                                 </thead>
                                 <tbody>
                                     {% for port in results.phases.recon.open_ports %}
-                                    <tr style="border-bottom: 1px solid #333;">
+                                    <tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle;">
                                         <td class="p-3">
-                                            <span class="badge bg-secondary text-uppercase">{{ port.service_name
-                                                }}</span>
+                                            <span
+                                                class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"
+                                                style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                                <i class="fas fa-server me-1 opacity-50"></i>{{ port.service_name }}
+                                            </span>
                                         </td>
-                                        <td class="p-3 font-monospace text-info">{{ port.port }}/tcp</td>
                                         <td class="p-3">
-                                            {% if port.version %}
-                                            <span class="text-white">{{ port.version }}</span>
+                                            <code class="text-info fw-bold"
+                                                style="font-size: 0.9rem; background: rgba(0,240,255,0.05); padding: 2px 6px; border-radius: 4px;">{{ port.port }}/tcp</code>
+                                        </td>
+                                        <td class="p-3">
+                                            {% if port.version and port.version != "Unknown" %}
+                                            <span class="text-light opacity-75 small font-monospace">{{ port.version
+                                                }}</span>
                                             {% else %}
-                                            <span class="text-muted fst-italic">Unknown</span>
+                                            <span class="text-muted fst-italic small">Fingerprinting...</span>
                                             {% endif %}
                                         </td>
                                         <td class="p-3">
-                                            <!-- Auto-match tech from WhatWeb if available for this port -->
+                                            {% set port_key = port.port|string %}
                                             {% if results.phases.enum and results.phases.enum.whatweb and
-                                            results.phases.enum.whatweb[port.port|string] %}
-                                            <small class="text-secondary d-block"
-                                                style="max-height: 40px; overflow: hidden;">
-                                                {{ results.phases.enum.whatweb[port.port|string]|truncate(50) }}
-                                            </small>
+                                            results.phases.enum.whatweb[port_key] %}
+                                            {% set ww = results.phases.enum.whatweb[port_key] %}
+                                            <div class="d-flex flex-wrap gap-2">
+                                                {% if "Title[" in ww %}
+                                                <span
+                                                    class="badge rounded-pill bg-dark border border-secondary text-info shadow-sm py-1 px-2"
+                                                    title="HTML Page Title">
+                                                    <i class="fas fa-heading me-1 opacity-50"></i>{{
+                                                    ww.split('Title[')[1].split(']')[0] }}
+                                                </span>
+                                                {% endif %}
+                                                {% if "HTTPServer[" in ww %}
+                                                <span
+                                                    class="badge rounded-pill bg-dark border border-secondary text-warning shadow-sm py-1 px-2">
+                                                    <i class="fas fa-microchip me-1 opacity-50"></i>{{
+                                                    ww.split('HTTPServer[')[1].split(']')[0] }}
+                                                </span>
+                                                {% endif %}
+                                                {% if "Cloudflare" in ww %}
+                                                <span
+                                                    class="badge rounded-pill bg-info-subtle text-info border border-info-subtle py-1 px-2"><i
+                                                        class="fab fa-cloudflare me-1"></i>WAF</span>
+                                                {% endif %}
+                                            </div>
                                             {% else %}
-                                            <span class="text-muted">-</span>
+                                            <span class="text-muted small">-</span>
                                             {% endif %}
                                         </td>
                                         <td class="p-3 text-end">
-                                            {% if 'http' in port.service_name %}
-                                            <a href="http://{{ scan.target.identifier }}:{{ port.port }}"
-                                                target="_blank" class="btn btn-xs btn-outline-info">
-                                                <i class="fas fa-external-link-alt"></i> Visit
+                                            {% if 'http' in port.service_name or port.port in [80, 443, 8080, 8443] %}
+                                            {% set proto = 'https' if port.port in [443, 8443] else 'http' %}
+                                            <a href="{{ proto }}://{{ scan.target.identifier }}:{{ port.port }}"
+                                                target="_blank" class="btn btn-xs btn-outline-info"
+                                                title="Visit Web Service">
+                                                <i class="fas fa-external-link-alt me-1"></i>Visit
                                             </a>
                                             {% endif %}
                                         </td>
@@ -310,7 +341,7 @@
         const scanStatus = "{{ scan.status }}";
         if (scanStatus === "running" || scanStatus === "pending") {
             console.log("Scan is active. Enabling auto-refresh (15s)...");
-            setTimeout(function() {
+            setTimeout(function () {
                 window.location.reload();
             }, 15000); // 15 seconds
         }
