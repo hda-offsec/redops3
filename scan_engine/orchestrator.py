@@ -36,12 +36,21 @@ class ScanOrchestrator:
         self.log(f"Starting Phase 1: Port Scan ({profile})", "INFO")
         scanner = NmapScanner(self.target)
         
+        if not scanner.check_tools():
+            self.log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")
+            return False
+
         if profile not in ['quick', 'full', 'deep', 'vuln']:
             profile = 'quick'
             
         cmd_list = scanner.command_for_profile(profile)
         self.log(f"Executing: {' '.join(cmd_list)}", "DEBUG")
-        stream = scanner.stream_profile(profile)
+        
+        try:
+            stream = scanner.stream_profile(profile)
+        except Exception as e:
+            self.log(f"Failed to start nmap: {str(e)}", "ERROR")
+            return False
             
         output_buffer = []
         for event in stream:
@@ -51,7 +60,7 @@ class ScanOrchestrator:
                     self.log(msg, "INFO")
                     output_buffer.append(msg)
             elif event["type"] == "exit":
-                self.log(f"Phase 1 finished with exit code {event['code']}", "INFO")
+                self.log(f"Phase 1 finished with exit code {event['code']}", "SUCCESS" if event['code'] == 0 else "WARN")
             
         full_output = "\n".join(output_buffer)
         

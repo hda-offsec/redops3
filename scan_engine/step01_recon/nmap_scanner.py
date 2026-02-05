@@ -8,22 +8,17 @@ class NmapScanner:
     PROFILES = {
         "quick": {
             "label": "Quick Scan",
-            "command": ["nmap", "-T4", "-F", "--stats-every", "10s"],
-            "requires_root": False,
-        },
-        "quick": {
-            "label": "Quick Scan",
-            "command": ["nmap", "-T4", "-F", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-T4", "-F", "--stats-every", "10s"],
             "requires_root": False,
         },
         "deep": {
             "label": "Deep Audit (Red Team Standard)",
-            "command": ["nmap", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "full": {
             "label": "Full TCP Scan",
-            "command": ["nmap", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "udp": {
@@ -70,6 +65,10 @@ class NmapScanner:
 
     def __init__(self, target):
         self.target = target
+
+    def check_tools(self):
+        import shutil
+        return shutil.which("nmap") is not None
 
     def command_for_profile(self, profile):
         profile_info = self.PROFILES.get(profile, self.PROFILES["quick"])
