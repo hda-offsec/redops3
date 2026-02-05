@@ -10,8 +10,9 @@ class AttackVectorMapper:
     def analyze_service(service_name, version, port):
         vectors = []
         
-        service_name = service_name.lower()
-        version = version.lower()
+        # Ensure we have strings even if nmap returns None
+        service_name = (service_name or "").lower()
+        version = (version or "").lower()
         
         # --- HTTP/HTTPS Logic ---
         if 'http' in service_name or port in [80, 443, 8080, 8443]:

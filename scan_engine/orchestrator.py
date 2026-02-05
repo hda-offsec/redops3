@@ -112,7 +112,7 @@ class ScanOrchestrator:
             for p in open_ports:
                 port = p['port']
                 svc = p['service_name']
-                ver = p.get('version', '')
+                ver = p.get('version') or ""
                 
                 # 1. Identify Web Ports for later phases
                 if 'http' in svc or port in [80, 443, 8080, 8443]:
