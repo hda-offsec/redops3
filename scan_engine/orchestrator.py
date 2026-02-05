@@ -23,14 +23,20 @@ class ScanOrchestrator:
         """
         success = True
         
-        # --- INITIALIZATION: Clear old ghost results ---
-        initial_results = {
-            "scan_id": self.scan_id,
-            "target": self.target,
-            "status": "running",
-            "phases": {"recon": {"open_ports": [], "raw_output": ""}}
-        }
-        self.save_results(self.scan_id, initial_results)
+        try:
+            # --- INITIALIZATION: Clear old ghost results ---
+            self.log("Initializing results structure...", "DEBUG")
+            initial_results = {
+                "scan_id": self.scan_id,
+                "target": self.target,
+                "status": "running",
+                "phases": {"recon": {"open_ports": [], "raw_output": ""}}
+            }
+            self.save_results(self.scan_id, initial_results)
+            self.log("Results initialized successfully", "DEBUG")
+        except Exception as e:
+            self.log(f"Failed to initialize results: {str(e)}", "ERROR")
+            return False
 
         # --- PHASE 1: Port Scan ---
         self.log(f"Starting Phase 1: Port Scan ({profile})", "INFO")
