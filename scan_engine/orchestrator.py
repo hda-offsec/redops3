@@ -27,10 +27,10 @@ class ScanOrchestrator:
         self.log(f"Starting Phase 1: Port Scan ({profile})", "INFO")
         scanner = NmapScanner(self.target)
         
-        if profile == 'quick':
-            stream = scanner.stream_quick_scan()
-        else:
-            stream = scanner.stream_full_scan()
+        if profile not in ['quick', 'full', 'deep', 'vuln']:
+            profile = 'quick' # safety fallback
+            
+        stream = scanner.stream_profile(profile)
             
         output_buffer = []
         for line in stream:
