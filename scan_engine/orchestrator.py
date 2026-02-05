@@ -25,7 +25,7 @@ class ScanOrchestrator:
         
         try:
             # --- INITIALIZATION: Clear old ghost results ---
-            self.log("Initializing results structure...", "DEBUG")
+            self.log("Initializing local results structure...", "INFO")
             initial_results = {
                 "scan_id": self.scan_id,
                 "target": self.target,
@@ -33,14 +33,15 @@ class ScanOrchestrator:
                 "phases": {"recon": {"open_ports": [], "raw_output": ""}}
             }
             self.save_results(self.scan_id, initial_results)
-            self.log("Results initialized successfully", "DEBUG")
+            self.log("Local workspace prepared.", "INFO")
         except Exception as e:
             self.log(f"Failed to initialize results: {str(e)}", "ERROR")
             return False
 
         # --- PHASE 1: Port Scan ---
-        self.log(f"Starting Phase 1: Port Scan ({profile})", "INFO")
+        self.log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
         scanner = NmapScanner(self.target)
+
         
         if not scanner.check_tools():
             self.log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")

@@ -105,18 +105,32 @@ def _normalize_target(value):
 
 
 def _log_and_emit(scan_id, msg, level="INFO"):
-    log = ScanLog(scan_id=scan_id, message=msg, level=level)
-    db.session.add(log)
-    db.session.commit()
-    socketio.emit(
-        "new_log",
-        {
-            "message": msg,
-            "level": level,
-            "timestamp": log.timestamp.strftime("%H:%M:%S"),
-            "scan_id": scan_id,
-        },
-    )
+    """
+    Logs to database and emits to socket. 
+    Wrapped in try/except to avoid crashing the whole pipeline if DB is locked.
+    """
+    try:
+        log = ScanLog(scan_id=scan_id, message=msg, level=level)
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        # If DB is locked, we still want the user to see the log via socket if possible
+        print(f"[ERROR] DB Log Failed (ID: {scan_id}): {e}")
+        db.session.rollback()
+
+    try:
+        socketio.emit(
+            "new_log",
+            {
+                "message": msg,
+                "level": level,
+                "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
+                "scan_id": scan_id,
+            },
+        )
+    except Exception as e:
+        print(f"[ERROR] Socket Emit Failed: {e}")
+
 
 
 def _add_finding(scan_id, tool, severity, title, description=None):
@@ -160,23 +174,27 @@ def background_scan(scan_id, target_identifier, scan_type, app):
         _log_and_emit(scan.id, f"Initializing Orchestrated Scan: {scan_type.upper()}", "INFO")
 
         # -- ORCHESTRATOR SETUP --
-        from scan_engine.orchestrator import ScanOrchestrator
-        from core.results_store import save_results
-        
         def add_finding_cb(**kwargs):
-            # Helper to add finding inside existing context
-            if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
-            f = Finding(**kwargs)
-            db.session.add(f)
-            db.session.commit()
-            _log_and_emit(scan.id, f"Finding: {kwargs.get('title')}", "WARN")
+            try:
+                if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
+                f = Finding(**kwargs)
+                db.session.add(f)
+                db.session.commit()
+                _log_and_emit(scan.id, f"Finding detected: {kwargs.get('title')}", "WARN")
+            except Exception as e:
+                print(f"[ERROR] Failed to save finding: {e}")
+                db.session.rollback()
 
         def add_suggestion_cb(**kwargs):
-            if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
-            s = Suggestion(**kwargs)
-            db.session.add(s)
-            db.session.commit()
-            _log_and_emit(scan.id, f"Suggestion: Try {kwargs.get('tool_name')}", "SUCCESS")
+            try:
+                if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
+                s = Suggestion(**kwargs)
+                db.session.add(s)
+                db.session.commit()
+                _log_and_emit(scan.id, f"Suggestion: Try {kwargs.get('tool_name')}", "SUCCESS")
+            except Exception as e:
+                print(f"[ERROR] Failed to save suggestion: {e}")
+                db.session.rollback()
 
         orchestrator = ScanOrchestrator(
             scan_id=scan.id,
