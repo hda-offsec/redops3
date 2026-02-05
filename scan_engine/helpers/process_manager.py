@@ -55,37 +55,15 @@ class ProcessManager:
                 shell=use_shell,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                universal_newlines=True,
                 cwd=cwd,
-                bufsize=0,  # Unbuffered for real-time output
+                bufsize=1,  # Line buffered
             )
 
-            # Read output byte by byte to avoid buffering issues
-            output_buffer = b""
-            while True:
-                byte = process.stdout.read(1)
-                if not byte:
-                    break
-                    
-                output_buffer += byte
-                
-                # Yield on newline or carriage return (nmap uses \r for progress)
-                if byte in (b'\n', b'\r'):
-                    try:
-                        line = output_buffer.decode('utf-8', errors='replace').strip()
-                        if line:
-                            yield {"type": "stdout", "line": line}
-                        output_buffer = b""
-                    except Exception:
-                        output_buffer = b""
-
-            # Yield any remaining buffered content
-            if output_buffer:
-                try:
-                    line = output_buffer.decode('utf-8', errors='replace').strip()
-                    if line:
-                        yield {"type": "stdout", "line": line}
-                except Exception:
-                    pass
+            # Use iter() for non-blocking readline
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    yield {"type": "stdout", "line": line.rstrip('\n\r')}
 
             process.stdout.close()
             return_code = process.wait()
