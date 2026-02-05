@@ -23,13 +23,24 @@ class ScanOrchestrator:
         """
         success = True
         
+        # --- INITIALIZATION: Clear old ghost results ---
+        initial_results = {
+            "scan_id": self.scan_id,
+            "target": self.target,
+            "status": "running",
+            "phases": {"recon": {"open_ports": [], "raw_output": ""}}
+        }
+        self.save_results(self.scan_id, initial_results)
+
         # --- PHASE 1: Port Scan ---
         self.log(f"Starting Phase 1: Port Scan ({profile})", "INFO")
         scanner = NmapScanner(self.target)
         
         if profile not in ['quick', 'full', 'deep', 'vuln']:
-            profile = 'quick' # safety fallback
+            profile = 'quick'
             
+        cmd_list = scanner.command_for_profile(profile)
+        self.log(f"Executing: {' '.join(cmd_list)}", "DEBUG")
         stream = scanner.stream_profile(profile)
             
         output_buffer = []
