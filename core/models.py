@@ -64,7 +64,7 @@ class Loot(db.Model):
     __tablename__ = "loots"
 
     id = db.Column(db.Integer, primary_key=True)
-    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=True)
     scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True)
     type = db.Column(db.String(50), nullable=False) # credential, file, token
     content = db.Column(db.Text, nullable=False) # username:password or file path

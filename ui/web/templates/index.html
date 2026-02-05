@@ -177,24 +177,26 @@
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         // --- CHARTS ---
-        const ctx = document.getElementById('severityChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
-                datasets: [{
-                    data: [{{ severity_stats.critical }}, {{ severity_stats.high }}, {{ severity_stats.medium }}, {{ severity_stats.low }}, {{ severity_stats.info }}],
-        backgroundColor: ['#ff2a2a', '#ff9d00', '#ffbd00', '#00f3ff', '#888'],
-        borderWidth: 0,
-        hoverOffset: 4
-                }]
-            },
+        const stats = {{ severity_stats| tojson | safe
+    }};
+    const ctx = document.getElementById('severityChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
+            datasets: [{
+                data: [stats.critical, stats.high, stats.medium, stats.low, stats.info],
+                backgroundColor: ['#ff2a2a', '#ff9d00', '#ffbd00', '#00f3ff', '#888'],
+                borderWidth: 0,
+                hoverOffset: 4
+            }]
+        },
         options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        cutout: '70%'
-    }
-        });
+            responsive: true,
+            plugins: { legend: { display: false } },
+            cutout: '70%'
+        }
+    });
 
     // --- SOCKET LOGS ---
     var socket = io();

@@ -148,6 +148,16 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
     db.session.add(finding)
     db.session.commit()
     
+    _log_and_emit(scan_id, f"Finding detected: {title}", "WARN")
+    
+    # Real-time finding emission for the specific scan detail page
+    socketio.emit("new_finding", {
+        "scan_id": scan_id,
+        "title": title,
+        "severity": severity,
+        "tool": tool
+    })
+
     # Global Alert for Critical Issues
     if severity.lower() == 'critical':
         socketio.emit('global_notification', {
@@ -189,18 +199,15 @@ def background_scan(scan_id, target_identifier, scan_type, app):
         # -- ORCHESTRATOR SETUP --
         def add_finding_cb(**kwargs):
             try:
-                if 'scan_id' not in kwargs: kwargs['scan_id'] = scan.id
-                f = Finding(**kwargs)
-                db.session.add(f)
-                db.session.commit()
-                _log_and_emit(scan.id, f"Finding detected: {kwargs.get('title')}", "WARN")
-                # Real-time finding emission
-                socketio.emit("new_finding", {
-                    "scan_id": scan.id,
-                    "title": f.title,
-                    "severity": f.severity,
-                    "tool": f.tool_source
-                })
+                # Use the helper to ensure global notifications and model consistency
+                _add_finding(
+                    scan_id=scan.id,
+                    tool=kwargs.get('tool_source', 'orchestrator'),
+                    severity=kwargs.get('severity', 'info'),
+                    title=kwargs.get('title', 'Untitled Finding'),
+                    description=kwargs.get('description'),
+                    screenshot_path=kwargs.get('screenshot_path')
+                )
             except Exception as e:
                 print(f"[ERROR] Failed to save finding: {e}")
                 db.session.rollback()

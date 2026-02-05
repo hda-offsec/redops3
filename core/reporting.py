@@ -79,7 +79,12 @@ def generate_scan_report(scan_id, scan_obj, findings):
     
     for f in findings:
         # Severity Badge
-        color = (255, 42, 42) if f.severity.lower() == 'high' else (255, 165, 0) if f.severity.lower() == 'medium' else (0, 240, 255)
+        sev = f.severity.lower()
+        if sev == 'critical': color = (200, 0, 0)
+        elif sev == 'high': color = (255, 42, 42)
+        elif sev == 'medium': color = (255, 165, 0)
+        else: color = (0, 100, 200)
+        
         pdf.set_text_color(*color)
         pdf.set_font("helvetica", "B", 12)
         pdf.cell(0, 10, f"[{f.severity.upper()}] {f.title}", ln=True)
