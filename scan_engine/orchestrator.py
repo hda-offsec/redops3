@@ -115,8 +115,15 @@ class ScanOrchestrator:
                 ver = p.get('version') or ""
                 
                 # 1. Identify Web Ports for later phases
-                if 'http' in svc or port in [80, 443, 8080, 8443]:
+                is_web = 'http' in svc or port in [80, 443, 8080, 8443]
+                if is_web:
                     web_ports.append(port)
+                    # Trigger Screenshot
+                    self.log(f"Phase 3+: Capturing screenshot for port {port}...", "INFO")
+                    from core.screenshots import take_service_screenshot
+                    shot_path = take_service_screenshot(self.scan_id, port, self.target)
+                else:
+                    shot_path = None
 
                 # 2. Get Expert Analysis
                 vectors = AttackVectorMapper.analyze_service(svc, ver, port)
@@ -131,7 +138,8 @@ class ScanOrchestrator:
                         title=f"{v['name']} (Port {port})",
                         description=f"{v['description']}\n\nACTIONABLE INTEL:\n{v['action']}",
                         severity=v['risk'].lower(),
-                        tool_source="RedOps-Intel"
+                        tool_source="RedOps-Intel",
+                        screenshot_path=shot_path if v['category'] == 'WEB' else None
                     )
                     
                     # Store vectors in results for UI/Brain display

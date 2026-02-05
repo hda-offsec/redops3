@@ -2,10 +2,25 @@ from datetime import datetime
 from core.extensions import db
 
 
+class Mission(db.Model):
+    __tablename__ = "missions"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), default="active") # active, archived
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    targets = db.relationship("Target", backref="mission", lazy=True)
+    loots = db.relationship("Loot", backref="mission", lazy=True)
+
+    def __repr__(self):
+        return f"<Mission {self.name}>"
+
+
 class Target(db.Model):
     __tablename__ = "targets"
 
     id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=True)
     identifier = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     scans = db.relationship("Scan", backref="target", lazy=True)
@@ -41,6 +56,19 @@ class Finding(db.Model):
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     tool_source = db.Column(db.String(50))
+    screenshot_path = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Loot(db.Model):
+    __tablename__ = "loots"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True)
+    type = db.Column(db.String(50), nullable=False) # credential, file, token
+    content = db.Column(db.Text, nullable=False) # username:password or file path
+    context = db.Column(db.String(255), nullable=True) # where it was found
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

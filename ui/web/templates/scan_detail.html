@@ -12,10 +12,14 @@
                     <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-cyber me-2">
                         <i class="fas fa-home"></i> Mission Control
                     </a>
-                    <a href="{{ url_for('main.scan_report', scan_id=scan.id) }}" target="_blank"
-                        class="btn btn-sm btn-outline-danger me-2">
-                        <i class="fas fa-file-pdf"></i> Report
+                    <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
+                        class="btn btn-sm btn-outline-danger me-2 shadow-danger">
+                        <i class="fas fa-file-pdf"></i> Generate PDF
                     </a>
+                    <button class="btn btn-sm btn-outline-warning text-dark me-2" data-bs-toggle="modal"
+                        data-bs-target="#harvestLootModal">
+                        <i class="fas fa-sack-dollar"></i> Harvest Loot
+                    </button>
                     <span class="badge status-pill status-{{ scan.status }}">{{ scan.status }}</span>
                 </div>
             </div>
@@ -286,9 +290,18 @@
             {% if findings %}
             <div class="result-list">
                 {% for finding in findings %}
-                <div class="result-row">
-                    <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
-                    <span class="result-text">{{ finding.title }}</span>
+                <div class="result-row flex-column align-items-start">
+                    <div class="d-flex w-100 justify-content-between">
+                        <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
+                        <span class="result-text fw-bold">{{ finding.title }}</span>
+                    </div>
+                    {% if finding.screenshot_path %}
+                    <div class="mt-2 w-100">
+                        <img src="{{ url_for('static', filename=finding.screenshot_path) }}"
+                            class="img-fluid rounded border border-secondary shadow-sm"
+                            style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)">
+                    </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -304,9 +317,15 @@
             {% if suggestions %}
             <div class="result-list">
                 {% for suggestion in suggestions %}
-                <div class="result-row">
-                    <span class="badge bg-secondary">{{ suggestion.tool_name }}</span>
-                    <span class="result-text">{{ suggestion.command_suggestion }}</span>
+                <div class="result-row d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="badge bg-secondary me-2">{{ suggestion.tool_name }}</span>
+                        <span class="result-text font-monospace small">{{ suggestion.command_suggestion }}</span>
+                    </div>
+                    <button class="btn btn-xs btn-outline-warning"
+                        onclick='verifyFinding({{ suggestion.command_suggestion|tojson|safe }})'>
+                        <i class="fas fa-play me-1"></i>Verify
+                    </button>
                 </div>
                 {% endfor %}
             </div>
@@ -350,7 +369,47 @@
 </div>
 </div>
 
-<!-- Node Detail Modal -->
+<!-- Harvest Loot Modal -->
+<div class="modal fade" id="harvestLootModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark border-secondary shadow-lg">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-warning"><i class="fas fa-sack-dollar me-2"></i>Harvest Mission Loot</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                    aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('main.loot_add', scan_id=scan.id) }}" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Loot Type</label>
+                        <select name="type" class="form-select bg-black text-light border-secondary">
+                            <option value="credential">Credential (User/Pass)</option>
+                            <option value="token">Token / API Key</option>
+                            <option value="file">Sensitive File Path</option>
+                            <option value="other">Other Asset</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Content</label>
+                        <textarea name="content"
+                            class="form-control bg-black text-light border-secondary font-monospace" rows="2"
+                            placeholder="admin:P@ssword123" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Context (Where did you find it?)</label>
+                        <input type="text" name="context" class="form-control bg-black text-light border-secondary"
+                            placeholder="e.g. /etc/passwd or login form">
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-warning">Store in Vault</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <div class="modal fade" id="nodeDetailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content bg-dark border-secondary shadow-lg">
@@ -558,6 +617,22 @@
     updateUI(initialResults);
     {% endif %}
 
+    // --- VERIFICATION LOGIC ---
+    window.verifyFinding = function (command) {
+        console.log("Triggering verification for: " + command);
+        fetch('/scan/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scan_id: scanId, command: command })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    // Small toast or notification could go here
+                }
+            });
+    };
+
     // --- COLLABORATIVE NOTES (MARKDOWN) ---
     const notesTextarea = document.querySelector('textarea[name="notes"]');
     if (notesTextarea) {
@@ -583,7 +658,7 @@
         const previewHeader = document.createElement('div');
         previewHeader.className = "d-flex justify-content-between align-items-center mb-2 mt-3";
         previewHeader.innerHTML = `<h6 class="mb-0 text-secondary small"><i class="fas fa-eye me-2"></i>Operator Brief Preview</h6>
-                                      <span class="badge bg-secondary-subtle text-secondary" style="font-size: 0.6rem;">MARKDOWN LIVE</span>`;
+                                          <span class="badge bg-secondary-subtle text-secondary" style="font-size: 0.6rem;">MARKDOWN LIVE</span>`;
 
         const previewDiv = document.createElement('div');
         previewDiv.className = "markdown-preview p-3 bg-black rounded border border-secondary text-light mb-3";
@@ -594,11 +669,11 @@
         previewHeader.parentNode.insertBefore(previewDiv, previewHeader.nextSibling);
 
         function updatePreview() {
-            previewDiv.innerHTML = marked.parse(notesTextarea.value || "*No mission notes recorded yet. Support full Markdown & Checklists.*");
+            previewDiv.innerHTML = marked.parse(notesTextarea.value || "*No mission notes recorded yet.*");
         }
 
         notesTextarea.addEventListener('input', updatePreview);
-        updatePreview(); // Initial call
+        updatePreview();
     }
     });
 </script>

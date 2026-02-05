@@ -4,8 +4,9 @@ import os
 import shutil
 from datetime import datetime
 
-from core.models import Target, Scan, Finding, Suggestion, ScanLog, db
+from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
 from core.results_store import load_results, save_results
+from core.reporting import generate_scan_report
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
@@ -290,8 +291,16 @@ def update_notes(scan_id):
 @main_bp.route("/scan/<int:scan_id>/report")
 def scan_report(scan_id):
     scan = Scan.query.get_or_404(scan_id)
+    findings = Finding.query.filter_by(scan_id=scan.id).all()
     results = load_results(scan_id)
-    findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.severity.asc()).all()
+    
+    format = request.args.get('format', 'html')
+    if format == 'pdf':
+        from flask import send_from_directory
+        import os
+        filename = generate_scan_report(scan_id, scan, findings)
+        return send_from_directory(os.path.join(current_app.root_path, "data/reports"), filename)
+
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).all()
     
     # Calculate duration
@@ -309,3 +318,70 @@ def scan_report(scan_id):
         generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         duration=duration
     )
+
+@main_bp.route("/missions")
+def mission_list():
+    missions = Mission.query.order_by(Mission.created_at.desc()).all()
+    return render_template("missions/list.html", missions=missions)
+
+@main_bp.route("/mission/new", methods=["POST"])
+def mission_new():
+    name = request.form.get("name")
+    desc = request.form.get("description")
+    mission = Mission(name=name, description=desc)
+    db.session.add(mission)
+    db.session.commit()
+    flash(f"Mission '{name}' created successfully.", "success")
+    return redirect(url_for("main.mission_list"))
+
+@main_bp.route("/loot")
+def loot_list():
+    loots = Loot.query.order_by(Loot.created_at.desc()).all()
+    return render_template("loots/list.html", loots=loots)
+
+@main_bp.route("/scan/<int:scan_id>/loot/add", methods=["POST"])
+def loot_add(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    loot_type = request.form.get("type")
+    content = request.form.get("content")
+    context = request.form.get("context")
+    
+    loot = Loot(
+        mission_id=scan.target.mission_id if scan.target.mission_id else None,
+        scan_id=scan_id,
+        type=loot_type,
+        content=content,
+        context=context
+    )
+    db.session.add(loot)
+    db.session.commit()
+    flash("Loot added to mission database.", "success")
+    return redirect(url_for("main.scan_detail", scan_id=scan_id))
+
+@main_bp.route("/scan/verify", methods=["POST"])
+def verify_finding():
+    data = request.json
+    scan_id = data.get("scan_id")
+    command = data.get("command")
+    
+    if not command:
+        return {"status": "error", "message": "No command provided"}, 400
+
+    def run_verification(sid, cmd, app):
+        with app.app_context():
+            from subprocess import Popen, PIPE, STDOUT
+            _log_and_emit(sid, f"Starting Verification: {cmd}", "INFO")
+            try:
+                process = Popen(cmd, shell=True, stdout=PIPE, stderr=STDOUT, text=True)
+                for line in process.stdout:
+                    if line.strip():
+                        _log_and_emit(sid, f"[Verify] {line.strip()}", "INFO")
+                process.wait()
+                _log_and_emit(sid, "Verification Task Completed.", "SUCCESS")
+            except Exception as e:
+                _log_and_emit(sid, f"Verification Failed: {str(e)}", "ERROR")
+
+    app_obj = current_app._get_current_object()
+    socketio.start_background_task(run_verification, scan_id, command, app_obj)
+    
+    return {"status": "ok", "message": "Verification started"}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Loot Database{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card panel-card">
+            <div class="card-header panel-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-trophy me-2"></i>Mission Loot (Credentials & Assets)</span>
+                <span class="badge bg-warning text-dark">{{ loots|length }} Found</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover mb-0">
+                        <thead>
+                            <tr class="text-muted small text-uppercase">
+                                <th class="p-3">Type</th>
+                                <th class="p-3">Content (Sensitive)</th>
+                                <th class="p-3">Context / Origin</th>
+                                <th class="p-3">Mission</th>
+                                <th class="p-3">Found On</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for loot in loots %}
+                            <tr>
+                                <td class="p-3">
+                                    <span
+                                        class="badge {% if loot.type == 'credential' %}bg-danger{% elif loot.type == 'token' %}bg-warning text-dark{% else %}bg-info{% endif %} text-uppercase"
+                                        style="font-size: 0.6rem;">
+                                        {{ loot.type }}
+                                    </span>
+                                </td>
+                                <td class="p-3">
+                                    <code class="text-light bg-black p-1 rounded">{{ loot.content }}</code>
+                                    <button class="btn btn-link btn-xs text-muted"
+                                        onclick="navigator.clipboard.writeText('{{ loot.content }}')"><i
+                                            class="fas fa-copy"></i></button>
+                                </td>
+                                <td class="p-3 text-muted small">{{ loot.context or 'N/A' }}</td>
+                                <td class="p-3">
+                                    {% if loot.mission %}
+                                    <span class="text-info">{{ loot.mission.name }}</span>
+                                    {% else %}
+                                    <span class="text-muted">Orphaned</span>
+                                    {% endif %}
+                                </td>
+                                <td class="p-3 text-muted small">{{ loot.created_at.strftime('%H:%M:%S %Y-%m-%d') }}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="p-5 text-center text-muted">
+                                    <i class="fas fa-search fa-3x mb-3 opacity-20"></i>
+                                    <p>The vault is empty. No loot has been harvested yet.</p>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
