@@ -106,7 +106,7 @@ class ScanOrchestrator:
                 title=f"Port Scan Results: {len(open_ports)} Open Ports",
                 description=str(open_ports),
                 severity="info",
-                tool="nmap"
+                tool_source="nmap"
             )
 
             for p in open_ports:
@@ -130,13 +130,13 @@ class ScanOrchestrator:
                         title=f"{v['name']} (Port {port})",
                         description=f"{v['description']}\n\nACTIONABLE INTEL:\n{v['action']}",
                         severity=v['risk'].lower(),
-                        tool="RedOps-Intel"
+                        tool_source="RedOps-Intel"
                     )
                     
                     # Convert action to suggestion if possible (simplified for now)
                     self.add_suggestion(
-                        tool="Assessment",
-                        command=v['action'],
+                        tool_name="Assessment",
+                        command_suggestion=v['action'],
                         reason=f"Vector: {v['name']}"
                     )
         
@@ -172,7 +172,7 @@ class ScanOrchestrator:
                                 title=f"Web Tech Stack ({port})",
                                 description=f"WhatWeb Output:\n{full_ww}",
                                 severity="low",
-                                tool="whatweb"
+                                tool_source="whatweb"
                             )
                             # Add to detailed results
                             if 'enum' not in results['phases']: results['phases']['enum'] = {}
@@ -194,8 +194,8 @@ class ScanOrchestrator:
                 self.log("Skipping Vuln Scan: 'nuclei' not installed. Install with 'brew install nuclei'", "WARN")
                 # Add Suggestion to install
                 self.add_suggestion(
-                     tool="setup",
-                     command="brew install nuclei",
+                     tool_name="setup",
+                     command_suggestion="brew install nuclei",
                      reason="Automated vulnerability assessment tool missing"
                 )
             else:
@@ -228,7 +228,7 @@ class ScanOrchestrator:
                                             title=f"Vulnerability Found ({sev.upper()})",
                                             description=f"Nuclei Output:\n{line}",
                                             severity=sev,
-                                            tool="nuclei"
+                                            tool_source="nuclei"
                                         )
                                         # Add to detailed results structure
                                         if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
