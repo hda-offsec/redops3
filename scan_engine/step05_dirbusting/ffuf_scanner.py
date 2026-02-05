@@ -1,4 +1,5 @@
 import logging
+import shutil
 from scan_engine.helpers.process_manager import ProcessManager
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,12 @@ class FfufScanner:
         self.wordlist_path = wordlist_path
         self.threads = threads
 
+    def check_tools(self):
+        return shutil.which("ffuf") is not None
+
     def stream_scan(self):
+        # -s for silent mode to output only results
+        # -of md is also an option but we parse stdout line by line
         command = [
             "ffuf",
             "-u",
@@ -21,6 +27,8 @@ class FfufScanner:
             str(self.threads),
             "-mc",
             "200,204,301,302,307,401,403",
+            "-s" 
         ]
-        logger.info("Starting ffuf scan for %s", self.target_url)
+        logger.info("Starting ffuf scan: %s", " ".join(command))
         return ProcessManager.stream_command(command)
+

@@ -251,4 +251,70 @@ class ScanOrchestrator:
                     except Exception as e:
                         self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")
 
+        # --- PHASE 6: Automated Dirbusting (ffuf) ---
+        if web_ports:
+            self.log("Phase 6: Starting Automated Dirbusting (ffuf)...", "INFO")
+            from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
+            import os
+            
+            # Default wordlist path
+            wordlist = os.path.join(os.getcwd(), "data", "wordlists", "common.txt")
+            if not os.path.exists(wordlist):
+                # Create a minimal wordlist if it doesn't exist
+                os.makedirs(os.path.dirname(wordlist), exist_ok=True)
+                with open(wordlist, "w") as f:
+                    f.write("admin\nlogin\napi\nrobots.txt\n.env\n.git\ndashboard\n")
+            
+            for port in web_ports:
+                proto = 'https' if port in [443, 8443] else 'http'
+                target_url = f"{proto}://{self.target}:{port}"
+                self.log(f"Fuzzing {target_url}...", "INFO")
+                
+                scanner6 = FfufScanner(target_url, wordlist)
+                if not scanner6.check_tools():
+                    self.log("Skipping ffuf: tool not installed.", "WARN")
+                    break # Usually either it's installed or not for all ports
+                
+                try:
+                    ffuf_stream = scanner6.stream_scan()
+                    found_items = []
+                    
+                    for event in ffuf_stream:
+                        if event["type"] == "stdout":
+                            line = event["line"].strip()
+                            if line:
+                                # Simple check for success (ffuf output with -s is usually just the found path)
+                                # But let's be safe, if it contains '200' or similar headers
+                                # Actually with -s it just prints the findings
+                                self.log(f"[DIR] Found: {line}", "WARN")
+                                found_items.append(line)
+                                
+                                # Add finding for each discovery
+                                self.add_finding(
+                                    title=f"Directory Discovered: {line}",
+                                    description=f"Endpoint found during fuzzing of {target_url}",
+                                    severity="low",
+                                    tool_source="ffuf"
+                                )
+                        elif event["type"] == "exit":
+                             self.log(f"ffuf for {target_url} finished with code {event['code']}", "INFO")
+
+                    if found_items:
+                        if 'dirbusting' not in results['phases']: 
+                            results['phases']['dirbusting'] = {'ffuf': {'endpoints': []}}
+                        
+                        for item in found_items:
+                            # Attempt to clean / leading if present
+                            clean_item = item.lstrip('/')
+                            results['phases']['dirbusting']['ffuf']['endpoints'].append({
+                                "path": clean_item,
+                                "status": "200", # ffuf with -s only shows successful hits
+                                "size": "N/A"
+                            })
+                        
+                        self.save_results(self.scan_id, results)
+
+                except Exception as e:
+                    self.log(f"Error during ffuf scan on port {port}: {str(e)}", "ERROR")
+
         return success
