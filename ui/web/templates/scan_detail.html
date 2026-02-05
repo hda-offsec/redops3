@@ -128,102 +128,88 @@
                     </div>
                 </div>
             </div>
-            <tr>
-                <td>{{ port.port }}</td>
-                <td>{{ port.service }}</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-            </table>
-            {% else %}
-            <div class="text-muted">No open ports detected.</div>
-            {% endif %}
-            {% else %}
-            <div class="text-muted">No structured results available.</div>
-            {% endif %}
-        </div>
-    </div>
-</div>
 
-<div class="col-12">
-    <div class="card panel-card">
-        <div class="card-header panel-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
-        <div class="card-body">
-            {% if results %}
-            {% set summary = results.get('phases', {}).get('enum', {}).get('whatweb', {}).get('summary', {})
-            %}
-            {% if summary %}
-            <div class="tag-grid">
-                {% for key, value in summary.items() %}
-                <div class="tag-item">
-                    <span class="tag-key">{{ key }}</span>
-                    <span class="tag-value">{{ value }}</span>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="text-muted">No enumeration summary available.</div>
-            {% endif %}
-            {% else %}
-            <div class="text-muted">No structured results available.</div>
-            {% endif %}
         </div>
-    </div>
-</div>
 
-<div class="col-12">
-    <div class="card panel-card">
-        <div class="card-header panel-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)
-        </div>
-        <div class="card-body">
-            {% if results %}
-            {% set vuln_findings = results.get('phases', {}).get('vuln', {}).get('nuclei',
-            {}).get('findings', []) %}
-            {% if vuln_findings %}
-            <div class="result-list">
-                {% for finding in vuln_findings %}
-                <div class="result-row">
-                    <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
-                    <span class="result-text">{{ finding.title }}</span>
+        <div class="col-12">
+            <div class="card panel-card">
+                <div class="card-header panel-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
+                <div class="card-body">
+                    {% if results %}
+                    {% set summary = results.get('phases', {}).get('enum', {}).get('whatweb', {}).get('summary', {})
+                    %}
+                    {% if summary %}
+                    <div class="tag-grid">
+                        {% for key, value in summary.items() %}
+                        <div class="tag-item">
+                            <span class="tag-key">{{ key }}</span>
+                            <span class="tag-value">{{ value }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No enumeration summary available.</div>
+                    {% endif %}
+                    {% else %}
+                    <div class="text-muted">No structured results available.</div>
+                    {% endif %}
                 </div>
-                {% endfor %}
             </div>
-            {% else %}
-            <div class="text-muted">No vulnerabilities reported.</div>
-            {% endif %}
-            {% else %}
-            <div class="text-muted">No structured results available.</div>
-            {% endif %}
         </div>
-    </div>
-</div>
 
-<div class="col-12">
-    <div class="card panel-card">
-        <div class="card-header panel-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
-        <div class="card-body">
-            {% if results %}
-            {% set endpoints = results.get('phases', {}).get('dirbusting', {}).get('ffuf',
-            {}).get('endpoints', []) %}
-            {% if endpoints %}
-            <div class="result-list">
-                {% for endpoint in endpoints %}
-                <div class="result-row">
-                    <span class="badge bg-secondary">/{{ endpoint.path }}</span>
-                    <span class="result-text">Status {{ endpoint.status }} · Size {{ endpoint.size }}</span>
+        <div class="col-12">
+            <div class="card panel-card">
+                <div class="card-header panel-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)
                 </div>
-                {% endfor %}
+                <div class="card-body">
+                    {% if results %}
+                    {% set vuln_findings = results.get('phases', {}).get('vuln', {}).get('nuclei',
+                    {}).get('findings', []) %}
+                    {% if vuln_findings %}
+                    <div class="result-list">
+                        {% for finding in vuln_findings %}
+                        <div class="result-row">
+                            <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
+                            <span class="result-text">{{ finding.title }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No vulnerabilities reported.</div>
+                    {% endif %}
+                    {% else %}
+                    <div class="text-muted">No structured results available.</div>
+                    {% endif %}
+                </div>
             </div>
-            {% else %}
-            <div class="text-muted">No endpoints discovered.</div>
-            {% endif %}
-            {% else %}
-            <div class="text-muted">No structured results available.</div>
-            {% endif %}
+        </div>
+
+        <div class="col-12">
+            <div class="card panel-card">
+                <div class="card-header panel-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
+                <div class="card-body">
+                    {% if results %}
+                    {% set endpoints = results.get('phases', {}).get('dirbusting', {}).get('ffuf',
+                    {}).get('endpoints', []) %}
+                    {% if endpoints %}
+                    <div class="result-list">
+                        {% for endpoint in endpoints %}
+                        <div class="result-row">
+                            <span class="badge bg-secondary">/{{ endpoint.path }}</span>
+                            <span class="result-text">Status {{ endpoint.status }} · Size {{ endpoint.size }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No endpoints discovered.</div>
+                    {% endif %}
+                    {% else %}
+                    <div class="text-muted">No structured results available.</div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </div>
-</div>
-</div>
 </div>
 
 <div class="col-lg-4">
