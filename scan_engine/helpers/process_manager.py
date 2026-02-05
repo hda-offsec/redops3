@@ -48,19 +48,49 @@ class ProcessManager:
     def stream_command(command, cwd=None):
         command, use_shell = ProcessManager._prepare_command(command)
         logger.info("Streaming command: %s", ProcessManager._display_command(command))
-        process = subprocess.Popen(
-            command,
-            shell=use_shell,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=cwd,
-            bufsize=1,
-        )
+        
+        try:
+            process = subprocess.Popen(
+                command,
+                shell=use_shell,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=cwd,
+                bufsize=0,  # Unbuffered for real-time output
+            )
 
-        for line in process.stdout:
-            yield {"type": "stdout", "line": line}
+            # Read output byte by byte to avoid buffering issues
+            output_buffer = b""
+            while True:
+                byte = process.stdout.read(1)
+                if not byte:
+                    break
+                    
+                output_buffer += byte
+                
+                # Yield on newline or carriage return (nmap uses \r for progress)
+                if byte in (b'\n', b'\r'):
+                    try:
+                        line = output_buffer.decode('utf-8', errors='replace').strip()
+                        if line:
+                            yield {"type": "stdout", "line": line}
+                        output_buffer = b""
+                    except Exception:
+                        output_buffer = b""
 
-        process.stdout.close()
-        return_code = process.wait()
-        yield {"type": "exit", "code": return_code}
+            # Yield any remaining buffered content
+            if output_buffer:
+                try:
+                    line = output_buffer.decode('utf-8', errors='replace').strip()
+                    if line:
+                        yield {"type": "stdout", "line": line}
+                except Exception:
+                    pass
+
+            process.stdout.close()
+            return_code = process.wait()
+            yield {"type": "exit", "code": return_code}
+            
+        except Exception as e:
+            logger.error(f"Stream command failed: {e}")
+            yield {"type": "error", "message": str(e)}

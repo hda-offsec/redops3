@@ -61,6 +61,9 @@ class ScanOrchestrator:
                     output_buffer.append(msg)
             elif event["type"] == "exit":
                 self.log(f"Phase 1 finished with exit code {event['code']}", "SUCCESS" if event['code'] == 0 else "WARN")
+            elif event["type"] == "error":
+                self.log(f"Stream error: {event['message']}", "ERROR")
+                return False
             
         full_output = "\n".join(output_buffer)
         
