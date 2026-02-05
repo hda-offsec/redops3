@@ -15,57 +15,59 @@ from core.extensions import socketio
 main_bp = Blueprint("main", __name__)
 
 
+@main_bp.route("/terminal")
+def terminal():
+    return render_template("terminal.html")
+
 @main_bp.route("/")
 def index():
-    recent_scans = Scan.query.order_by(Scan.start_time.desc()).limit(5).all()
+    recent_scans = Scan.query.order_by(Scan.start_time.desc()).limit(10).all()
     targets = Target.query.all()
+    missions = Mission.query.all()
+    loots = Loot.query.all()
+    
+    # --- CISO ANALYTICS ---
+    all_findings = Finding.query.all()
+    severity_stats = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    for f in all_findings:
+        sev = (f.severity or "info").lower()
+        if sev in severity_stats:
+            severity_stats[sev] += 1
+            
+    # Scan history trend (last 7 days - simplified)
+    # In a real app we'd use group_by(func.date(Scan.start_time))
+    
+    # Latest Telemetry
     latest_scan = Scan.query.order_by(Scan.start_time.desc()).first()
-    latest_results = load_results(latest_scan.id) if latest_scan else None
-    latest_findings = (
-        Finding.query.filter_by(scan_id=latest_scan.id)
-        .order_by(Finding.id.desc())
-        .limit(15)
-        .all()
-        if latest_scan
-        else []
-    )
-    latest_suggestions = (
-        Suggestion.query.filter_by(scan_id=latest_scan.id)
-        .order_by(Suggestion.id.desc())
-        .limit(10)
-        .all()
-        if latest_scan
-        else []
-    )
     recent_logs = (
         ScanLog.query.filter_by(scan_id=latest_scan.id)
-        .order_by(ScanLog.timestamp.desc())
-        .limit(200)
+        .order_by(ScanLog.id.desc())
+        .limit(100)
         .all()
         if latest_scan
         else []
     )
-
-    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-    for finding in latest_findings:
-        sev = (finding.severity or "info").lower()
-        if sev in severity_counts:
-            severity_counts[sev] += 1
-        else:
-            severity_counts["info"] += 1
 
     return render_template(
         "index.html",
         recent_scans=recent_scans,
         targets=targets,
-        latest_scan=latest_scan,
-        latest_results=latest_results,
-        latest_findings=latest_findings,
-        latest_suggestions=latest_suggestions,
-        logs=recent_logs,
-        severity_counts=severity_counts,
+        missions=missions,
+        loots=loots,
+        severity_stats=severity_stats,
+        total_findings=len(all_findings),
+        logs=recent_logs
     )
 
+
+from scan_engine.step00_osint.passive_scanner import OSINTTool
+
+@main_bp.route("/scan/<int:scan_id>/osint")
+def scan_osint(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    tool = OSINTTool()
+    intel = tool.passive_recon(scan.target.identifier)
+    return render_template("scans/osint_results.html", scan=scan, intel=intel)
 
 @main_bp.route("/scan/<int:scan_id>")
 def scan_detail(scan_id):
@@ -134,16 +136,26 @@ def _log_and_emit(scan_id, msg, level="INFO"):
 
 
 
-def _add_finding(scan_id, tool, severity, title, description=None):
+def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None):
     finding = Finding(
         scan_id=scan_id,
         severity=severity,
         title=title,
         description=description,
         tool_source=tool,
+        screenshot_path=screenshot_path
     )
     db.session.add(finding)
     db.session.commit()
+    
+    # Global Alert for Critical Issues
+    if severity.lower() == 'critical':
+        socketio.emit('global_notification', {
+            'title': '🚨 CRITICAL VULNERABILITY',
+            'message': f'{title} found on scan #{scan_id}',
+            'severity': 'critical'
+        })
+    
     return finding
 
 
@@ -318,6 +330,38 @@ def scan_report(scan_id):
         generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         duration=duration
     )
+
+@main_bp.route("/mission/<int:mission_id>/map")
+def mission_map(mission_id):
+    mission = Mission.query.get_or_404(mission_id)
+    targets = Target.query.filter_by(mission_id=mission_id).all()
+    
+    # Bundle all relevant scan data for these targets
+    graph_data = {"nodes": [], "edges": []}
+    
+    # Mission node
+    graph_data["nodes"].append({"id": f"m{mission.id}", "label": mission.name, "group": "mission", "level": 0})
+    
+    for t in targets:
+        graph_data["nodes"].append({"id": f"t{t.id}", "label": t.identifier, "group": "target", "level": 1})
+        graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
+        
+        # Add icons for critical findings on this target
+        latest_scan = Scan.query.filter_by(target_id=t.id).order_by(Scan.id.desc()).first()
+        if latest_scan:
+            findings = Finding.query.filter_by(scan_id=latest_scan.id).all()
+            for f in findings:
+                f_id = f"f{f.id}"
+                graph_data["nodes"].append({
+                    "id": f_id, 
+                    "label": f.title[:20] + "...", 
+                    "group": f.severity.lower(),
+                    "level": 2,
+                    "title": f.description
+                })
+                graph_data["edges"].append({"from": f"t{t.id}", "to": f_id})
+
+    return render_template("missions/map.html", mission=mission, graph_data=graph_data)
 
 @main_bp.route("/missions")
 def mission_list():

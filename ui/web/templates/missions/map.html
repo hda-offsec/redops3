@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Strategic Map: {{ mission.name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card bg-black border-cyber shadow-lg" style="height: 80vh;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-project-diagram me-2"></i>Mission Attack Surface</span>
+                <div class="btn-group">
+                    <button class="btn btn-xs btn-outline-cyber" onclick="network.stabilize()"><i
+                            class="fas fa-sync"></i> Re-Align</button>
+                    <button class="btn btn-xs btn-outline-cyber" onclick="togglePhysics()"><i class="fas fa-atom"></i>
+                        <span id="phys-status">Static</span></button>
+                </div>
+            </div>
+            <div id="strategic-map" class="card-body p-0"></div>
+        </div>
+    </div>
+</div>
+
+<!-- INFO OVERLAY -->
+<div id="node-info-panel" class="position-absolute p-3 bg-black border border-secondary shadow-lg d-none"
+    style="top: 100px; right: 50px; width: 300px; z-index: 1000; opacity: 0.9;">
+    <h6 id="panel-title" class="text-cyber border-bottom border-secondary pb-2"></h6>
+    <div id="panel-body" class="small text-muted mb-3"></div>
+    <div id="panel-actions"></div>
+</div>
+
+<style>
+    #strategic-map {
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle, #0a0b0c 0%, #000 100%);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script>
+    let network;
+    let physicsEnabled = false;
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const data = {{ graph_data| tojson | safe
+    }};
+    const container = document.getElementById('strategic-map');
+
+    const nodes = new vis.DataSet(data.nodes.map(n => {
+        let color = "#333";
+        let shape = "dot";
+        let size = 15;
+
+        if (n.group === "mission") { color = "#ff2a2a"; shape = "hexagon"; size = 40; }
+        if (n.group === "target") { color = "#00f3ff"; shape = "dot"; size = 25; }
+        if (n.group === "critical") { color = "#ff2a2a"; shape = "star"; size = 20; }
+        if (n.group === "high") { color = "#ff9d00"; shape = "triangle"; size = 18; }
+        if (n.group === "medium") { color = "#ffbd00"; shape = "diamond"; size = 15; }
+
+        return {
+            ...n, color, shape, size,
+            font: { color: "#fff", size: 12, face: "JetBrains Mono" },
+            borderWidth: 2,
+            shadow: { enabled: true, color: color, size: 10 }
+        };
+    }));
+
+    const edges = new vis.DataSet(data.edges.map(e => ({
+        ...e,
+        color: { color: "#444", highlight: "#00f3ff" },
+        width: 1,
+        length: 150
+    })));
+
+    const options = {
+        physics: {
+            enabled: physicsEnabled,
+            barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 150 }
+        },
+        interaction: {
+            hover: true,
+            tooltipDelay: 200
+        },
+        groups: {
+            critical: { color: "#ff2a2a" },
+            high: { color: "#ff9d00" },
+            medium: { color: "#ffbd00" },
+            low: { color: "#00f3ff" }
+        }
+    };
+
+    network = new vis.Network(container, { nodes, edges }, options);
+
+    // Events
+    network.on("click", function (params) {
+        const panel = document.getElementById('node-info-panel');
+        if (params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            const node = nodes.get(nodeId);
+
+            document.getElementById('panel-title').innerText = node.label;
+            document.getElementById('panel-body').innerText = node.title || "Entity within strategic scope.";
+
+            let actions = "";
+            if (node.group === "target") {
+                actions = `<button class="btn btn-xs btn-danger w-100">ENGAGE CIBLE</button>`;
+            }
+            document.getElementById('panel-actions').innerHTML = actions;
+
+            panel.classList.remove('d-none');
+        } else {
+            panel.classList.add('d-none');
+        }
+    });
+    });
+
+    function togglePhysics() {
+        physicsEnabled = !physicsEnabled;
+        network.setOptions({ physics: { enabled: physicsEnabled } });
+        document.getElementById('phys-status').innerText = physicsEnabled ? "Active" : "Static";
+    }
+</script>
+{% endblock %}

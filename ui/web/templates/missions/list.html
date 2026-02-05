@@ -36,7 +36,15 @@
                                 </td>
                                 <td class="p-3 text-muted small">{{ mission.created_at.strftime('%Y-%m-%d') }}</td>
                                 <td class="p-3 text-end">
-                                    <a href="#" class="btn btn-xs btn-outline-info">View Specs</a>
+                                    <div class="btn-group">
+                                        <a href="{{ url_for('main.mission_map', mission_id=mission.id) }}"
+                                            class="btn btn-xs btn-outline-cyber">
+                                            <i class="fas fa-project-diagram me-1"></i>Map
+                                        </a>
+                                        <a href="#" class="btn btn-xs btn-outline-info">
+                                            <i class="fas fa-list me-1"></i>Specs
+                                        </a>
+                                    </div>
                                 </td>
                             </tr>
                             {% else %}

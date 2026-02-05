@@ -1,8 +1,56 @@
 {% extends "base.html" %}
 
-{% block title %}Target Acquisition{% endblock %}
+{% block title %}Acquisition Dashboard{% endblock %}
 
 {% block content %}
+<!-- CISO ANALYTICS ROW -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card h-100 border-0 bg-black shadow-lg">
+            <div class="card-body text-center d-flex flex-column justify-content-center">
+                <div class="text-muted small text-uppercase mb-2">Global Risk Surface</div>
+                <h1 class="display-4 fw-bold text-danger mb-0">{{ total_findings }}</h1>
+                <div class="text-muted extra-small">IDENTIFIED VULNS</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 bg-black shadow-lg">
+            <div class="card-body">
+                <div class="text-muted small text-uppercase mb-3">Critical Distribution</div>
+                <canvas id="severityChart" height="120"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 bg-black shadow-lg">
+            <div class="card-body d-flex flex-column justify-content-center">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted small">MISSIONS</span>
+                    <span class="text-info small fw-bold">{{ missions|length }}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted small">TARGETS</span>
+                    <span class="text-cyber small fw-bold">{{ targets|length }}</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted small">LOOT VAULT</span>
+                    <span class="text-warning small fw-bold">{{ loots|length }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100 border-0 bg-black shadow-lg">
+            <div class="card-body text-center d-flex flex-column justify-content-center">
+                <div class="text-muted small text-uppercase mb-2">Operational Health</div>
+                <div class="h2 fw-bold text-success mb-0">98.2%</div>
+                <div class="text-muted extra-small">SUCCESS RATE</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-4">
     <!-- TARGET & LAUNCH CARD -->
     <div class="col-lg-8">
@@ -13,13 +61,12 @@
             <div class="card-body">
                 <form action="{{ url_for('main.new_scan') }}" method="POST" class="row g-3 align-items-end">
                     <div class="col-md-6">
-                        <label for="target" class="form-label text-muted small text-uppercase">Target
-                            Identification</label>
+                        <label for="target" class="form-label text-muted small text-uppercase">Target Identifier</label>
                         <div class="input-group">
                             <span class="input-group-text bg-dark border-secondary text-muted"><i
                                     class="fas fa-terminal"></i></span>
                             <input type="text" class="form-control" id="target" name="target"
-                                placeholder="IP Address / Hostname" style="letter-spacing: 1px;" required>
+                                placeholder="IP Address / Hostname" required>
                         </div>
                     </div>
                     <div class="col-md-4">
@@ -51,43 +98,6 @@
         </div>
     </div>
 
-    <!-- SYSTEM STATUS CARD -->
-    <div class="col-lg-4">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="fas fa-microchip"></i> System Status
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-dark table-borderless table-sm mb-0">
-                    <tbody>
-                        <tr>
-                            <td class="px-3 py-2 text-muted">Core Engine</td>
-                            <td class="px-3 py-2 text-end text-success">ONLINE</td>
-                        </tr>
-                        <tr>
-                            <td class="px-3 py-2 text-muted">Database</td>
-                            <td class="px-3 py-2 text-end text-success">CONNECTED</td>
-                        </tr>
-                        <tr>
-                            <td class="px-3 py-2 text-muted">Active Threads</td>
-                            <td class="px-3 py-2 text-end text-cyber">4</td>
-                        </tr>
-                        <tr>
-                            <td class="px-3 py-2 text-muted">Targets Tracked</td>
-                            <td class="px-3 py-2 text-end">{{ targets|length if targets else 0 }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <div class="p-3 border-top border-secondary">
-                    <small class="text-muted d-block mb-1">STORAGE</small>
-                    <div class="progress bg-dark border border-secondary" style="height: 6px;">
-                        <div class="progress-bar bg-info" role="progressbar" style="width: 12%"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- RECENT OPERATIONS -->
     <div class="col-lg-8">
         <div class="card">
@@ -101,19 +111,16 @@
                         <tr>
                             <th class="ps-3">ID</th>
                             <th>Target</th>
-                            <th>Profile</th>
                             <th>Status</th>
                             <th>Timestamp</th>
-                            <th></th>
+                            <th class="text-end"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% if recent_scans %}
                         {% for scan in recent_scans %}
                         <tr>
                             <td class="ps-3"><span class="font-monospace text-muted">#{{ scan.id }}</span></td>
                             <td class="font-monospace fw-bold text-cyber">{{ scan.target.identifier }}</td>
-                            <td class="text-uppercase small">{{ scan.scan_type }}</td>
                             <td>
                                 {% if scan.status == 'completed' %}
                                 <span class="badge bg-success">COMPLETED</span>
@@ -128,20 +135,12 @@
                             <td class="text-muted small font-monospace">{{ scan.start_time.strftime('%H:%M:%S') }}</td>
                             <td class="text-end pe-3">
                                 <a href="{{ url_for('main.scan_detail', scan_id=scan.id) }}"
-                                    class="btn btn-sm btn-outline-cyber">
+                                    class="btn btn-xs btn-outline-cyber">
                                     <i class="fas fa-eye"></i> View
                                 </a>
                             </td>
                         </tr>
                         {% endfor %}
-                        {% else %}
-                        <tr>
-                            <td colspan="6" class="text-center py-5 text-muted">
-                                <i class="fas fa-folder-open fa-2x mb-3 opacity-25"></i>
-                                <p class="mb-0">No operations recorded.</p>
-                            </td>
-                        </tr>
-                        {% endif %}
                     </tbody>
                 </table>
             </div>
@@ -154,28 +153,19 @@
             <div class="card-header">
                 <i class="fas fa-terminal"></i> Live Telemetry
             </div>
-            <div id="log-container" class="card-body font-monospace p-3"
-                style="height: 400px; overflow-y: auto; font-size: 0.8rem;">
-                {% if logs %}
-                {% for log in logs %}
-                <div class="mb-1 text-break">
-                    <span class="text-muted opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
-                    <span class="
-                            {% if log.level == 'INFO' %}text-info
-                            {% elif log.level == 'SUCCESS' %}text-success
-                            {% elif log.level == 'WARN' %}text-warning
-                            {% elif log.level == 'ERROR' %}text-danger
-                            {% else %}text-secondary{% endif %}
-                        ">[{{ log.level }}]</span>
-                    {{ log.message }}
+            <div id="log-container" class="card-body font-monospace p-0 bg-black"
+                style="height: 500px; overflow-y: auto;">
+                <div class="p-3 telemetry-feed">
+                    {% for log in logs %}
+                    <div class="mb-1 text-break">
+                        <span class="text-muted opacity-50 small">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
+                        <span
+                            class="badge p-0 me-1 {% if log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-info{% endif %}"
+                            style="font-size: 0.7rem;">[{{ log.level }}]</span>
+                        <span class="small">{{ log.message }}</span>
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
-                {% else %}
-                <div class="text-muted text-center pt-5 mt-5">
-                    <i class="fas fa-satellite-dish fa-spin fa-2x mb-3 opacity-25"></i>
-                    <br>Awaiting Telemetry...
-                </div>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -183,42 +173,45 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener("DOMContentLoaded", function () {
-        var socket = io();
-        var logContainer = document.getElementById("log-container");
-
-        function scrollToBottom() {
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        // Scroll to bottom on load
-        scrollToBottom();
-
-        socket.on('new_log', function (data) {
-            // Remove "awaiting telemetry" placeholder if present
-            if (logContainer.querySelector('.text-center')) {
-                logContainer.innerHTML = '';
-            }
-
-            var div = document.createElement("div");
-            div.className = "mb-1 text-break";
-
-            // Determine class based on level
-            var textClass = "text-secondary";
-            if (data.level === "SUCCESS") textClass = "text-success";
-            else if (data.level === "WARN") textClass = "text-warning";
-            else if (data.level === "ERROR") textClass = "text-danger";
-            else if (data.level === "INFO") textClass = "text-info";
-
-            div.innerHTML = '<span class="text-muted opacity-50">[' + data.timestamp + ']</span> ' +
-                '<span class="' + textClass + '">[' + data.level + ']</span> ' +
-                data.message;
-
-            logContainer.appendChild(div);
-            scrollToBottom();
+        // --- CHARTS ---
+        const ctx = document.getElementById('severityChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
+                datasets: [{
+                    data: [{{ severity_stats.critical }}, {{ severity_stats.high }}, {{ severity_stats.medium }}, {{ severity_stats.low }}, {{ severity_stats.info }}],
+        backgroundColor: ['#ff2a2a', '#ff9d00', '#ffbd00', '#00f3ff', '#888'],
+        borderWidth: 0,
+        hoverOffset: 4
+                }]
+            },
+        options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        cutout: '70%'
+    }
         });
+
+    // --- SOCKET LOGS ---
+    var socket = io();
+    var logContainer = document.getElementById("log-container");
+    var feed = logContainer.querySelector('.telemetry-feed');
+
+    socket.on('new_log', function (data) {
+        var div = document.createElement("div");
+        div.className = "mb-1 text-break";
+        var textClass = data.level === "SUCCESS" ? "text-success" : (data.level === "WARN" ? "text-warning" : (data.level === "ERROR" ? "text-danger" : "text-info"));
+
+        div.innerHTML = `<span class="text-muted opacity-50 small">[${data.timestamp}]</span> ` +
+            `<span class="badge p-0 me-1 ${textClass}" style="font-size: 0.7rem;">[${data.level}]</span> ` +
+            `<span class="small">${data.message}</span>`;
+
+        feed.prepend(div);
+    });
     });
 </script>
 {% endblock %}

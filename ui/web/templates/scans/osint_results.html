@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}OSINT Intelligence: {{ scan.target.identifier }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-md-8">
+        <div class="card bg-black border-cyber">
+            <div class="card-header"><i class="fas fa-search-plus me-2"></i>Passive Reconnaissance Results</div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <label class="text-muted small text-uppercase">Organization</label>
+                        <div class="h5 text-info">{{ intel.shodan.data.organization }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="text-muted small text-uppercase">ISP / Cloud</label>
+                        <div class="h5 text-cyber">{{ intel.shodan.data.isp }}</div>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="text-muted small text-uppercase">Known Vulnerabilities (Public Records)</label>
+                    <ul class="list-group list-group-flush bg-transparent">
+                        {% for vuln in intel.shodan.data.vulnerabilities %}
+                        <li class="list-group-item bg-transparent text-danger border-secondary">
+                            <i class="fas fa-exclamation-triangle me-2"></i>{{ vuln }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+
+                <div class="alert alert-dark border-secondary">
+                    <i class="fas fa-info-circle me-2 text-info"></i> OSINT gathering completed via passive providers.
+                    No packets were sent to the target during this phase.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card bg-black border-secondary h-100">
+            <div class="card-header"><i class="fas fa-shield-alt me-2"></i>Target Reputation</div>
+            <div class="card-body text-center d-flex flex-column justify-content-center">
+                <div class="display-1 mb-3"><i class="fas fa-fingerprint text-muted opacity-50"></i></div>
+                <div class="h3">{{ intel.reputation }}</div>
+                <div class="text-muted small mt-2">Reputation score based on historical blacklists and abuse records.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

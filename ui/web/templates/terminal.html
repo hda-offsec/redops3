@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Tactical Operations Terminal{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card bg-black border-cyber shadow-lg">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-terminal me-2"></i>Operator Console</span>
+                <span class="badge bg-danger blink-animation">LIVE SESSION</span>
+            </div>
+            <div class="card-body p-0">
+                <div id="terminal-container" style="height: 600px; padding: 10px;"></div>
+            </div>
+            <div class="card-footer bg-dark border-top border-secondary small text-muted">
+                <i class="fas fa-info-circle me-1"></i> Use this terminal to interact with localized recon utilities.
+                Commands are audited.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const term = new Terminal({
+            cursorBlink: true,
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 14,
+            theme: {
+                background: '#000000',
+                foreground: '#00f3ff',
+                cursor: '#ff2a2a'
+            }
+        });
+
+        const container = document.getElementById('terminal-container');
+        term.open(container);
+
+        term.writeln('\x1b[1;31mRedOps3 Tactical Terminal\x1b[0m');
+        term.writeln('Operator authenticated. Session initialized.');
+        term.write('\r\n$ ');
+
+        let currentLine = '';
+
+        term.onData(e => {
+            switch (e) {
+                case '\r': // Enter
+                    term.write('\r\n');
+                    handleCommand(currentLine);
+                    currentLine = '';
+                    break;
+                case '\u007F': // Backspace
+                    if (currentLine.length > 0) {
+                        currentLine = currentLine.slice(0, -1);
+                        term.write('\b \b');
+                    }
+                    break;
+                default:
+                    if (e >= ' ' && e <= '~') {
+                        currentLine += e;
+                        term.write(e);
+                    }
+            }
+        });
+
+        function handleCommand(cmd) {
+            const socket = io();
+            if (cmd.trim() === 'help') {
+                term.writeln('Available Utilities:');
+                term.writeln('  - scan <target>    : Fast port scan');
+                term.writeln('  - osint <target>  : Passive intel gathering');
+                term.writeln('  - clear            : Clear display');
+                term.writeln('  - exit             : Terminate session');
+            } else if (cmd.trim() === 'clear') {
+                term.clear();
+            } else if (cmd.trim() === 'exit') {
+                window.location.href = '/';
+            } else if (cmd.startsWith('scan ')) {
+                term.writeln('Engaging target: ' + cmd.split(' ')[1]);
+                // Here we could emit a socket event to trigger real backend work
+            } else {
+                term.writeln('Command not found: ' + cmd);
+            }
+            term.write('\r\n$ ');
+        }
+    });
+</script>
+{% endblock %}

@@ -12,14 +12,19 @@
                     <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-cyber me-2">
                         <i class="fas fa-home"></i> Mission Control
                     </a>
-                    <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
-                        class="btn btn-sm btn-outline-danger me-2 shadow-danger">
-                        <i class="fas fa-file-pdf"></i> Generate PDF
-                    </a>
-                    <button class="btn btn-sm btn-outline-warning text-dark me-2" data-bs-toggle="modal"
-                        data-bs-target="#harvestLootModal">
-                        <i class="fas fa-sack-dollar"></i> Harvest Loot
-                    </button>
+                    <div class="mission-ops d-flex gap-2">
+                        <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
+                            class="btn btn-xs btn-outline-cyber">
+                            <i class="fas fa-file-pdf me-1"></i>Generate PDF
+                        </a>
+                        <a href="{{ url_for('main.scan_osint', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
+                            <i class="fas fa-search-plus me-1"></i>OSINT Intel
+                        </a>
+                        <button class="btn btn-xs btn-outline-warning" data-bs-toggle="modal"
+                            data-bs-target="#lootModal">
+                            <i class="fas fa-hand-holding-usd me-1"></i>Harvest Loot
+                        </button>
+                    </div>
                     <span class="badge status-pill status-{{ scan.status }}">{{ scan.status }}</span>
                 </div>
             </div>
