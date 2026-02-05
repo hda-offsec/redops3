@@ -120,10 +120,11 @@ class ScanOrchestrator:
 
                 # 2. Get Expert Analysis
                 vectors = AttackVectorMapper.analyze_service(svc, ver, port)
+                p['priority_score'] = max([v['score'] for v in vectors]) if vectors else 0
                 
                 for v in vectors:
                     # Log actionable intelligence
-                    self.log(f"[{v['category']}] {v['name']} detected on port {port}", "WARN" if v['risk'] in ['High', 'CRITICAL'] else "INFO")
+                    self.log(f"[{v['category']}] {v['name']} detected on port {port} (Priority: {v['score']})", "WARN" if v['score'] >= 80 else "INFO")
                     
                     # Create highly specific suggestions/findings
                     self.add_finding(
@@ -133,12 +134,21 @@ class ScanOrchestrator:
                         tool_source="RedOps-Intel"
                     )
                     
-                    # Convert action to suggestion if possible (simplified for now)
+                    # Store vectors in results for UI/Brain display
+                    if 'intel' not in results['phases']: results['phases']['intel'] = {}
+                    if str(port) not in results['phases']['intel']: results['phases']['intel'][str(port)] = []
+                    results['phases']['intel'][str(port)].append(v)
+
+                    # Convert action to suggestion
                     self.add_suggestion(
                         tool_name="Assessment",
                         command_suggestion=v['action'],
-                        reason=f"Vector: {v['name']}"
+                        reason=f"Vector: {v['name']} (Score: {v['score']})"
                     )
+            
+            # Sync back results with scores
+            results['phases']['recon']['open_ports'] = open_ports
+            self.save_results(self.scan_id, results)
         
         # --- PHASE 4: Auto-Enumeration (Web) ---
         if web_ports:

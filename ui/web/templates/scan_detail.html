@@ -74,8 +74,9 @@
                             <table class="table table-dark table-hover mb-0"
                                 style="border-collapse: separate; border-spacing: 0;">
                                 <thead style="background: #222;">
-                                    <tr>
+                                    <tr class="text-muted small text-uppercase">
                                         <th class="p-3">Service</th>
+                                        <th class="p-3">Risk Score</th>
                                         <th class="p-3">Port</th>
                                         <th class="p-3">Version Fingerprint</th>
                                         <th class="p-3">Context / Technology</th>
@@ -83,14 +84,31 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for port in results.phases.recon.open_ports %}
-                                    <tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle;">
+                                    {% for port in results.phases.recon.open_ports|sort(attribute='priority_score',
+                                    reverse=True) %}
+                                    <tr
+                                        style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; {% if port.priority_score and port.priority_score >= 80 %}background: rgba(255, 42, 42, 0.05);{% endif %}">
                                         <td class="p-3">
                                             <span
                                                 class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"
                                                 style="font-size: 0.72rem; letter-spacing: 0.5px;">
                                                 <i class="fas fa-server me-1 opacity-50"></i>{{ port.service_name }}
                                             </span>
+                                        </td>
+                                        <td class="p-3">
+                                            {% set score = port.priority_score or 0 %}
+                                            <div class="d-flex align-items-center">
+                                                <div class="progress bg-dark border border-secondary"
+                                                    style="height: 6px; width: 40px; margin-right: 10px;">
+                                                    <div class="progress-bar {% if score >= 85 %}bg-danger shadow-danger{% elif score >= 50 %}bg-warning{% else %}bg-info{% endif %}"
+                                                        role="progressbar" style="width: {{ score }}%"></div>
+                                                </div>
+                                                <span
+                                                    class="badge {% if score >= 85 %}text-danger fw-bold{% elif score >= 50 %}text-warning{% else %}text-info{% endif %} font-monospace"
+                                                    style="font-size: 0.8rem;">
+                                                    {{ score }}<small class="opacity-50">/100</small>
+                                                </span>
+                                            </div>
                                         </td>
                                         <td class="p-3">
                                             <code class="text-info fw-bold"
