@@ -181,6 +181,13 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                 db.session.add(f)
                 db.session.commit()
                 _log_and_emit(scan.id, f"Finding detected: {kwargs.get('title')}", "WARN")
+                # Real-time finding emission
+                socketio.emit("new_finding", {
+                    "scan_id": scan.id,
+                    "title": f.title,
+                    "severity": f.severity,
+                    "tool": f.tool_source
+                })
             except Exception as e:
                 print(f"[ERROR] Failed to save finding: {e}")
                 db.session.rollback()
@@ -192,9 +199,23 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                 db.session.add(s)
                 db.session.commit()
                 _log_and_emit(scan.id, f"Suggestion: Try {kwargs.get('tool_name')}", "SUCCESS")
+                # Real-time suggestion emission
+                socketio.emit("new_suggestion", {
+                    "scan_id": scan.id,
+                    "tool_name": s.tool_name,
+                    "command": s.command_suggestion
+                })
             except Exception as e:
                 print(f"[ERROR] Failed to save suggestion: {e}")
                 db.session.rollback()
+
+        def results_update_cb(scan_id, data):
+            save_results(scan_id, data)
+            # Emit the partial/full results update to the UI
+            socketio.emit("results_update", {
+                "scan_id": scan_id,
+                "data": data
+            })
 
         orchestrator = ScanOrchestrator(
             scan_id=scan.id,
@@ -202,7 +223,7 @@ def background_scan(scan_id, target_identifier, scan_type, app):
             logger_func=lambda msg, lvl: _log_and_emit(scan.id, msg, lvl),
             finding_func=add_finding_cb,
             suggestion_func=add_suggestion_cb,
-            results_func=save_results
+            results_func=results_update_cb
         )
         
         # Execute Pipeline

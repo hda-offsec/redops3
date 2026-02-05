@@ -83,7 +83,7 @@
                                         <th class="p-3 text-end">Action</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="recon-matrix-body">
                                     {% for port in results.phases.recon.open_ports|sort(attribute='priority_score',
                                     reverse=True) %}
                                     <tr
@@ -350,100 +350,256 @@
 </div>
 </div>
 
-<!-- Vis.js Library -->
+<!-- Node Detail Modal -->
+<div class="modal fade" id="nodeDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark border-secondary shadow-lg">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title font-monospace text-info" id="nodeDetailTitle">Node Details</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                    aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="nodeDetailBody">
+                <!-- Details will be injected here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Vis.js & Markdown Libraries -->
 <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <script type="text/javascript">
     document.addEventListener("DOMContentLoaded", function () {
-        // --- AUTO REFRESH LOGIC ---
-        const scanStatus = "{{ scan.status }}";
-        if (scanStatus === "running" || scanStatus === "pending") {
-            console.log("Scan is active. Enabling auto-refresh (15s)...");
-            setTimeout(function () {
-                window.location.reload();
-            }, 15000); // 15 seconds
-        }
-
-        console.log("Initializing Graph...");
-
-        // --- DATA PREPARATION ---
+        const scanId = "{{ scan.id }}";
         const targetLabel = "{{ scan.target.identifier }}";
+        const socket = io();
 
-        const nodesArray = [];
-        const edgesArray = [];
+        console.log("Initializing Real-Time Sync for Scan #" + scanId);
 
-        // Add Target Node
-        nodesArray.push({ id: 0, label: targetLabel, color: "#ff2a2a", shape: "hexagon", size: 40, font: { color: "#fff", face: "Rajdhani" } });
+        // --- NETWORK GRAPH INITIALIZATION ---
+        let network = null;
+        let nodes = new vis.DataSet([]);
+        let edges = new vis.DataSet([]);
 
-        // Add Data from Server (Jinja Injection)
-        {% if results and results.phases and results.phases.recon and results.phases.recon.open_ports %}
-        {% for port in results.phases.recon.open_ports %}
-        nodesArray.push({
-            id: "p{{ port.port }}",
-            label: "{{ port.port }}\n{{ port.service_name }}",
-            color: "#00f0ff",
-            shape: "dot",
-            size: 15,
-            font: { color: "#fff", face: "Rajdhani" }
-        });
-        edgesArray.push({ from: 0, to: "p{{ port.port }}", color: { color: "#333" } });
-
-        {% if port.version %}
-        nodesArray.push({
-            id: "v{{ port.port }}",
-            label: "{{ port.version|replace('"', '\\"') }}",
-            color: "#0f0",
-            shape: "box",
-            font: { color: "#000", face: "Rajdhani", size: 12 }
-        });
-        edgesArray.push({ from: "p{{ port.port }}", to: "v{{ port.port }}", length: 100 });
-        {% endif %}
-        {% endfor %}
-        {% endif %}
-
-        {% if results and results.phases and results.phases.vuln and results.phases.vuln.nuclei and results.phases.vuln.nuclei.findings %}
-        {% for finding in results.phases.vuln.nuclei.findings %}
-        nodesArray.push({
-            id: "vuln{{ loop.index }}",
-            label: "{{ finding.title|replace('"', '\\"')|truncate(20) }}",
-            color: "#ff0000",
-            shape: "triangle",
-            size: 20,
-            font: { color: "#fff" }
-        });
-        edgesArray.push({ from: "p{{ finding.port }}", to: "vuln{{ loop.index }}", color: { color: "#ff0000" }, dashes: true });
-        {% endfor %}
-        {% endif %}
-
-        // Render Graph
-        const container = document.getElementById("network-graph");
-        if (nodesArray.length > 1) {
-            const data = { nodes: nodesArray, edges: edgesArray };
+        function initGraph() {
+            const container = document.getElementById("network-graph");
+            const data = { nodes: nodes, edges: edges };
             const options = {
                 nodes: {
                     borderWidth: 2,
-                    shadow: true
+                    shadow: true,
+                    font: { color: "#fff", face: "Space Grotesk" }
+                },
+                edges: {
+                    smooth: { type: 'continuous' }
                 },
                 physics: {
                     stabilization: false,
-                    barnesHut: {
-                        gravitationalConstant: -3000,
-                        springConstant: 0.04,
-                        springLength: 95
-                    }
+                    barnesHut: { gravitationalConstant: -3000, springConstant: 0.04, springLength: 95 }
                 },
-                layout: {
-                    randomSeed: 2
-                },
-                interaction: {
-                    hover: true,
-                    zoomView: true
-                }
+                interaction: { hover: true, zoomView: true }
             };
-            new vis.Network(container, data, options);
-        } else {
-            container.innerHTML = '<div class="d-flex align-items-center justify-content-center h-100 text-muted">No visual data available.</div>';
+            network = new vis.Network(container, data, options);
+
+            // Handle Node Clicks
+            network.on("click", function (params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    showNodeDetails(nodeId);
+                }
+            });
         }
+
+        function showNodeDetails(nodeId) {
+            const node = nodes.get(nodeId);
+            const title = document.getElementById("nodeDetailTitle");
+            const body = document.getElementById("nodeDetailBody");
+
+            title.innerText = node.label.replace("\n", " ");
+
+            let content = `<div class="p-4">`;
+            if (nodeId.toString().startsWith('p')) {
+                const portNum = nodeId.replace('p', '');
+                content += `
+                    <div class="d-flex align-items-center mb-4">
+                        <div class="display-4 text-info fw-bold me-3">${portNum}</div>
+                        <div>
+                            <div class="text-uppercase text-muted small">Port Status</div>
+                            <div class="badge bg-success">OPEN / ACTIVE</div>
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <div class="p-3 bg-black rounded border border-secondary text-center">
+                                <i class="fas fa-server fa-2x text-secondary mb-2"></i>
+                                <div class="small text-muted">Service</div>
+                                <div class="fw-bold">${node.label.split('\n')[1] || 'Unknown'}</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-3 bg-black rounded border border-secondary text-center">
+                                <i class="fas fa-bolt fa-2x text-warning mb-2"></i>
+                                <div class="small text-muted">Risk Profile</div>
+                                <div class="fw-bold text-warning">HIGH</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <h6 class="text-secondary small text-uppercase">Recommended Action</h6>
+                        <div class="alert alert-info border-info-subtle bg-info-subtle text-info-emphasis py-2 small">
+                            Check "Intelligence" section for specific CVE payloads and TTPs for this port.
+                        </div>
+                    </div>
+                `;
+            } else if (nodeId.toString().startsWith('v')) {
+                content += `
+                    <div class="text-center mb-4">
+                        <i class="fas fa-microchip fa-3x text-success mb-3"></i>
+                        <h5>Service Version Found</h5>
+                        <div class="font-monospace text-success h4">${node.label}</div>
+                    </div>
+                    <p class="text-muted">Exact version match found via Nmap fingerprinting. Used by the Intelligence Engine to map potential CVEs.</p>
+                 `;
+            } else {
+                content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
+            }
+            content += `</div>`;
+
+            body.innerHTML = content;
+            const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
+            modal.show();
+        }
+
+        // --- DATA SYNC LOGIC ---
+        function updateUI(results) {
+            if (!results || !results.phases) return;
+
+            // 1. Update Recon Matrix (Table)
+            const matrixBody = document.querySelector("#recon-matrix-body");
+            if (matrixBody && results.phases.recon && results.phases.recon.open_ports) {
+                let html = "";
+                const ports = results.phases.recon.open_ports.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+
+                ports.forEach(port => {
+                    const score = port.priority_score || 0;
+                    const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
+                    const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
+                    const bgStyle = score >= 85 ? 'background: rgba(255, 42, 42, 0.05);' : '';
+
+                    html += `<tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
+                        <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"><i class="fas fa-server me-1 opacity-50"></i>${port.service_name}</span></td>
+                        <td class="p-3">
+                            <div class="d-flex align-items-center">
+                                <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
+                                    <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
+                                </div>
+                                <span class="badge ${scoreClass} font-monospace">${score}<small class="opacity-50">/100</small></span>
+                            </div>
+                        </td>
+                        <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
+                        <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
+                        <td class="p-3"><span class="text-muted small">Updated via live sync</span></td>
+                        <td class="p-3 text-end">
+                            ${(port.port == 80 || port.port == 443 || port.port == 8080) ? `<a href="http://${targetLabel}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
+                        </td>
+                    </tr>`;
+                });
+                matrixBody.innerHTML = html;
+            }
+
+            // 2. Update Graph Nodes
+            if (results.phases.recon && results.phases.recon.open_ports) {
+                if (!network) initGraph();
+
+                // Add Target Node if missing
+                if (!nodes.get(0)) nodes.add({ id: 0, label: targetLabel, color: "#ff2a2a", shape: "hexagon", size: 40 });
+
+                results.phases.recon.open_ports.forEach(port => {
+                    const pId = "p" + port.port;
+                    if (!nodes.get(pId)) {
+                        nodes.add({ id: pId, label: port.port + "\n" + port.service_name, color: "#00f0ff", shape: "dot", size: 15 });
+                        edges.add({ from: 0, to: pId, color: { color: "#333" } });
+                    }
+                    if (port.version && port.version !== "Unknown") {
+                        const vId = "v" + port.port;
+                        if (!nodes.get(vId)) {
+                            nodes.add({ id: vId, label: port.version, color: "#0f0", shape: "box", font: { color: "#000", size: 11 } });
+                            edges.add({ from: pId, to: vId, length: 100 });
+                        }
+                    }
+                });
+            }
+        }
+
+        // --- SOCKET LISTENERS ---
+        socket.on("results_update", function (msg) {
+            if (msg.scan_id == scanId) {
+                console.log("Results updated received.");
+                updateUI(msg.data);
+            }
+        });
+
+        socket.on("new_log", function (data) {
+            if (data.scan_id == scanId) {
+                const consoleDiv = document.querySelector(".log-console");
+                const div = document.createElement("div");
+                const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
+                div.innerHTML = `<span class="text-muted">[${data.timestamp}]</span> <span class="${levelClass}">${data.level}</span> ${data.message}`;
+                consoleDiv.prepend(div);
+            }
+        });
+
+        // Initial render
+        {% if results %}
+        const initialResults = {{ results| tojson | safe
+    }};
+    updateUI(initialResults);
+    {% endif %}
+
+    // --- COLLABORATIVE NOTES (MARKDOWN) ---
+    const notesTextarea = document.querySelector('textarea[name="notes"]');
+    if (notesTextarea) {
+        // Add Toolbar
+        const toolbar = document.createElement('div');
+        toolbar.className = "mb-2 btn-group";
+        toolbar.innerHTML = `
+                <button type="button" class="btn btn-xs btn-outline-secondary" onclick="insertAtCursor('### ')">H3</button>
+                <button type="button" class="btn btn-xs btn-outline-secondary" onclick="insertAtCursor('- [ ] ')">Task</button>
+                <button type="button" class="btn btn-xs btn-outline-secondary" onclick="insertAtCursor('\`\`\`bash\\n\\n\`\`\`')">Code</button>
+            `;
+        notesTextarea.parentNode.insertBefore(toolbar, notesTextarea);
+
+        window.insertAtCursor = function (text) {
+            const start = notesTextarea.selectionStart;
+            const end = notesTextarea.selectionEnd;
+            notesTextarea.value = notesTextarea.value.substring(0, start) + text + notesTextarea.value.substring(end);
+            notesTextarea.focus();
+            notesTextarea.selectionStart = notesTextarea.selectionEnd = start + text.length;
+            updatePreview();
+        };
+
+        const previewHeader = document.createElement('div');
+        previewHeader.className = "d-flex justify-content-between align-items-center mb-2 mt-3";
+        previewHeader.innerHTML = `<h6 class="mb-0 text-secondary small"><i class="fas fa-eye me-2"></i>Operator Brief Preview</h6>
+                                      <span class="badge bg-secondary-subtle text-secondary" style="font-size: 0.6rem;">MARKDOWN LIVE</span>`;
+
+        const previewDiv = document.createElement('div');
+        previewDiv.className = "markdown-preview p-3 bg-black rounded border border-secondary text-light mb-3";
+        previewDiv.style.minHeight = "120px";
+        previewDiv.style.fontSize = "0.85rem";
+
+        notesTextarea.parentNode.insertBefore(previewHeader, notesTextarea.nextSibling);
+        previewHeader.parentNode.insertBefore(previewDiv, previewHeader.nextSibling);
+
+        function updatePreview() {
+            previewDiv.innerHTML = marked.parse(notesTextarea.value || "*No mission notes recorded yet. Support full Markdown & Checklists.*");
+        }
+
+        notesTextarea.addEventListener('input', updatePreview);
+        updatePreview(); // Initial call
+    }
     });
 </script>
 {% endblock %}
