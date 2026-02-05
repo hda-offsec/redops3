@@ -306,6 +306,15 @@
 
 <script type="text/javascript">
     document.addEventListener("DOMContentLoaded", function () {
+        // --- AUTO REFRESH LOGIC ---
+        const scanStatus = "{{ scan.status }}";
+        if (scanStatus === "running" || scanStatus === "pending") {
+            console.log("Scan is active. Enabling auto-refresh (15s)...");
+            setTimeout(function() {
+                window.location.reload();
+            }, 15000); // 15 seconds
+        }
+
         console.log("Initializing Graph...");
 
         // --- DATA PREPARATION ---

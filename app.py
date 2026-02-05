@@ -47,6 +47,12 @@ if __name__ == "__main__":
         os.makedirs(os.path.join(app.root_path, "data", "wordlists"), exist_ok=True)
 
         db.create_all()
-        print("Database initialized.")
+        
+        # Enable WAL mode for SQLite to prevent "database is locked" errors
+        if "sqlite" in app.config["SQLALCHEMY_DATABASE_URI"]:
+            with db.engine.connect() as conn:
+                conn.execute(db.text("PRAGMA journal_mode=WAL;"))
+                
+        print("Database initialized (WAL mode enabled).")
 
     socketio.run(app, debug=True, host="0.0.0.0", port=5001, allow_unsafe_werkzeug=True)
