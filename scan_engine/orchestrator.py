@@ -61,39 +61,50 @@ class ScanOrchestrator:
         }
         self.save_results(self.scan_id, results)
 
-        # --- PHASE 3: Analysis & Suggestions ---
-        self.log("Phase 3: Analysis & Suggestion Generation", "INFO")
+        # --- PHASE 3: Deep Analysis & Attack Vector Mapping ---
+        self.log("Phase 3: Querying Intelligence Engine for Attack Vectors...", "INFO")
+        from core.intelligence import AttackVectorMapper
         
         web_ports = []
-
+        
         if open_ports:
-            # Create a summary finding
+            # Report open ports summary
             self.add_finding(
                 title=f"Port Scan Results: {len(open_ports)} Open Ports",
                 description=str(open_ports),
                 severity="info",
                 tool="nmap"
             )
-            
+
             for p in open_ports:
                 port = p['port']
                 svc = p['service_name']
+                ver = p.get('version', '')
                 
-                # Check for Web
+                # 1. Identify Web Ports for later phases
                 if 'http' in svc or port in [80, 443, 8080, 8443]:
                     web_ports.append(port)
-                    rsn = f"Web service found on port {port}"
-                    self.add_suggestion(
-                         tool="ffuf",
-                         command=f"ffuf -u http://{self.target}:{port}/FUZZ -w common.txt",
-                         reason=rsn
-                    )
+
+                # 2. Get Expert Analysis
+                vectors = AttackVectorMapper.analyze_service(svc, ver, port)
                 
-                if 'smb' in svc or port == 445:
+                for v in vectors:
+                    # Log actionable intelligence
+                    self.log(f"[{v['category']}] {v['name']} detected on port {port}", "WARN" if v['risk'] in ['High', 'CRITICAL'] else "INFO")
+                    
+                    # Create highly specific suggestions/findings
+                    self.add_finding(
+                        title=f"{v['name']} (Port {port})",
+                        description=f"{v['description']}\n\nACTIONABLE INTEL:\n{v['action']}",
+                        severity=v['risk'].lower(),
+                        tool="RedOps-Intel"
+                    )
+                    
+                    # Convert action to suggestion if possible (simplified for now)
                     self.add_suggestion(
-                        tool="enum4linux",
-                        command=f"enum4linux -a {self.target}",
-                        reason="SMB Service detected"
+                        tool="Assessment",
+                        command=v['action'],
+                        reason=f"Vector: {v['name']}"
                     )
         
         # --- PHASE 4: Auto-Enumeration (Web) ---

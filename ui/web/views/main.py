@@ -193,7 +193,7 @@ def background_scan(scan_id, target_identifier, scan_type, app):
              # in orchestrator.py currently it handles 'quick' or 'full'
              # Let's pass the raw scan_type and ensure orchestrator handles it or mapped
              profile = scan_type
-             if scan_type not in ['quick', 'full']: 
+             if scan_type not in ['quick', 'full', 'deep', 'vuln']: 
                  profile = 'quick' # fallback for now or update orchestrator
              
              success = orchestrator.run_pipeline(profile=profile)
@@ -237,7 +237,7 @@ def new_scan():
     socketio.start_background_task(background_scan, scan.id, target.identifier, scan_type, app_obj)
 
     flash(f"Started {scan_type} scan for {target_input}", "success")
-    return redirect(url_for("main.index"))
+    return redirect(url_for("main.scan_detail", scan_id=scan.id))
 
 @main_bp.route("/scan/<int:scan_id>/notes", methods=["POST"])
 def update_notes(scan_id):

@@ -11,6 +11,16 @@ class NmapScanner:
             "command": ["nmap", "-T4", "-F", "--stats-every", "10s"],
             "requires_root": False,
         },
+        "quick": {
+            "label": "Quick Scan",
+            "command": ["nmap", "-T4", "-F", "--stats-every", "10s"],
+            "requires_root": False,
+        },
+        "deep": {
+            "label": "Deep Audit (Red Team Standard)",
+            "command": ["nmap", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
+            "requires_root": False,
+        },
         "full": {
             "label": "Full TCP Scan",
             "command": ["nmap", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
