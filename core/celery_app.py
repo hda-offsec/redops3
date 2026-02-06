@@ -1,5 +1,9 @@
-from celery import Celery
 import os
+try:
+    import redis
+except ImportError:
+    raise ImportError("The 'redis' library is required for Celery but not found. Please run: pip install redis")
+from celery import Celery
 
 def make_celery(app_name=__name__):
     # Use 127.0.0.1 for local redis
