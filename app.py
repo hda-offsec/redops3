@@ -22,8 +22,9 @@ def create_app():
     db.init_app(app)
     socketio.init_app(app)
 
-    from ui.web.views.main import main_bp
-    app.register_blueprint(main_bp)
+    with app.app_context():
+        from ui.web.views.main import main_bp
+        app.register_blueprint(main_bp)
 
     return app
 
