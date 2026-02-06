@@ -1,15 +1,4 @@
 import os
-import sys
-
-# DEBUG: Check for redis conflict
-try:
-    import redis
-    print(f"DEBUG: redis module: {redis}")
-    print(f"DEBUG: redis file: {getattr(redis, '__file__', 'unknown')}")
-    print(f"DEBUG: has Redis: {hasattr(redis, 'Redis')}")
-except Exception as e:
-    print(f"DEBUG: redis import failed: {e}")
-
 from flask import Flask
 from dotenv import load_dotenv
 from core.extensions import db, socketio

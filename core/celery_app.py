@@ -1,17 +1,8 @@
 from celery import Celery
 import os
-import sys
-
-# Force redis import to check for conflicts
-try:
-    import redis
-    if not hasattr(redis, 'Redis'):
-        print(f"DEBUG: Conflict detected! redis module is {redis} from {getattr(redis, '__file__', 'unknown')}")
-except ImportError:
-    print("DEBUG: redis library not found")
 
 def make_celery(app_name=__name__):
-    # Use 127.0.0.1 instead of localhost for better compatibility
+    # Use 127.0.0.1 for local redis
     redis_url = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
     celery = Celery(
         app_name,
