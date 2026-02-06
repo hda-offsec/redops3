@@ -42,6 +42,7 @@ class Scan(db.Model):
     findings = db.relationship("Finding", backref="scan", lazy=True)
     logs = db.relationship("ScanLog", backref="scan", lazy=True)
     notes = db.Column(db.Text, nullable=True)
+    geolocation_data = db.Column(db.JSON, nullable=True)
 
     def __repr__(self):
         return f"<Scan {self.id} - {self.scan_type}>"

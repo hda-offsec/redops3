@@ -55,6 +55,27 @@
                     <div class="severity-item low">Low {{ severity_counts['low'] }}</div>
                     <div class="severity-item info">Info {{ severity_counts['info'] }}</div>
                 </div>
+
+                {% if scan.geolocation_data %}
+                <div class="mt-4 p-3 bg-black border border-secondary rounded shadow-sm">
+                    <div class="row align-items-center">
+                        <div class="col-md-1 text-center">
+                            <i class="fas fa-globe-africa fa-2x text-cyber"></i>
+                        </div>
+                        <div class="col-md-11">
+                            <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
+                            <div class="d-flex gap-4">
+                                <div class="font-monospace small"><span class="text-muted">LOCATION:</span> {{
+                                    scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
+                                <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
+                                    scan.geolocation_data.isp }}</div>
+                                <div class="font-monospace small"><span class="text-muted">COORDS:</span> {{
+                                    scan.geolocation_data.lat }}, {{ scan.geolocation_data.lon }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>

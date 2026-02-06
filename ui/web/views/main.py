@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, jsonify
 from urllib.parse import urlparse
 import os
 import shutil
@@ -18,6 +18,20 @@ main_bp = Blueprint("main", __name__)
 @main_bp.route("/terminal")
 def terminal():
     return render_template("terminal.html")
+
+
+@main_bp.route("/api/dependencies")
+def check_dependencies():
+    import shutil
+    tools = ["nmap", "nuclei", "ffuf", "whatweb", "node", "python3"]
+    status = {}
+    for t in tools:
+        path = shutil.which(t)
+        status[t] = {
+            "found": path is not None,
+            "path": path or "Not Found"
+        }
+    return jsonify(status)
 
 @main_bp.route("/")
 def index():
@@ -350,7 +364,13 @@ def mission_map(mission_id):
     graph_data["nodes"].append({"id": f"m{mission.id}", "label": mission.name, "group": "mission", "level": 0})
     
     for t in targets:
-        graph_data["nodes"].append({"id": f"t{t.id}", "label": t.identifier, "group": "target", "level": 1})
+        # Get latest scan for this target to obtain geolocation
+        scan = Scan.query.filter_by(target_id=t.id).order_by(Scan.id.desc()).first()
+        label = t.identifier
+        if scan and scan.geolocation_data:
+            label += f"\n({scan.geolocation_data.get('country', '??')})"
+            
+        graph_data["nodes"].append({"id": f"t{t.id}", "label": label, "group": "target", "level": 1, "title": f"ISP: {scan.geolocation_data.get('isp')}" if scan and scan.geolocation_data else ""})
         graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
         
         # Add icons for critical findings on this target

@@ -20,17 +20,24 @@ class OSINTTool:
 
         if self.shodan_key:
             try:
-                # Actual Shodan logic would go here
-                pass
+                # Real Shodan API Call
+                res = requests.get(f"https://api.shodan.io/shodan/host/{target}?key={self.shodan_key}")
+                if res.status_code == 200:
+                    data = res.json()
+                    intelligence["shodan"]["data"] = {
+                        "organization": data.get("org", "N/A"),
+                        "isp": data.get("isp", "N/A"),
+                        "asn": data.get("asn", "N/A"),
+                        "vulnerabilities": data.get("vulns", [])
+                    }
+                    intelligence["shodan"]["status"] = "Success"
+                    intelligence["reputation"] = "Checked (Shodan)"
+                else:
+                    intelligence["shodan"]["status"] = f"API Error: {res.status_code}"
             except Exception as e:
-                intelligence["shodan"]["status"] = f"Error: {str(e)}"
+                intelligence["shodan"]["status"] = f"Network Error: {str(e)}"
         else:
-            # Simulate some data for demo purposes
-            intelligence["shodan"]["data"] = {
-                "organization": "Dummy Corp",
-                "isp": "Cloud Provider X",
-                "asn": "AS12345",
-                "vulnerabilities": ["CVE-2023-1234 (Simulated)"]
-            }
+            intelligence["shodan"]["status"] = "No Shodan API Key configured in Environment."
+            intelligence["shodan"]["data"] = None
         
         return intelligence

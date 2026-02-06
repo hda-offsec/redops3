@@ -42,10 +42,11 @@
     </div>
     <div class="col-md-3">
         <div class="card h-100 border-0 bg-black shadow-lg">
-            <div class="card-body text-center d-flex flex-column justify-content-center">
-                <div class="text-muted small text-uppercase mb-2">Operational Health</div>
-                <div class="h2 fw-bold text-success mb-0">98.2%</div>
-                <div class="text-muted extra-small">SUCCESS RATE</div>
+            <div class="card-body">
+                <div class="text-muted small text-uppercase mb-2">Core Arsenal Connectivity</div>
+                <div id="dependency-list" class="mt-2">
+                    <div class="spinner-border spinner-border-sm text-cyber" role="status"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -120,7 +121,15 @@
                         {% for scan in recent_scans %}
                         <tr>
                             <td class="ps-3"><span class="font-monospace text-muted">#{{ scan.id }}</span></td>
-                            <td class="font-monospace fw-bold text-cyber">{{ scan.target.identifier }}</td>
+                            <td class="font-monospace fw-bold text-cyber">
+                                {{ scan.target.identifier }}
+                                {% if scan.geolocation_data %}
+                                <span class="badge bg-dark border border-secondary text-muted extra-small ms-1"
+                                    style="font-size: 0.6rem;">
+                                    {{ scan.geolocation_data.country }}
+                                </span>
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if scan.status == 'completed' %}
                                 <span class="badge bg-success">COMPLETED</span>
@@ -197,6 +206,25 @@
             cutout: '70%'
         }
     });
+
+    // --- DEPENDENCY CHECKER ---
+    fetch('/api/dependencies')
+        .then(res => res.json())
+        .then(data => {
+            const list = document.getElementById('dependency-list');
+            list.innerHTML = '';
+            Object.keys(data).forEach(tool => {
+                const status = data[tool];
+                const dotClass = status.found ? 'text-success' : 'text-danger';
+                const icon = status.found ? 'fa-check-circle' : 'fa-times-circle';
+                list.innerHTML += `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small text-muted font-monospace"><i class="fas ${icon} ${dotClass} me-2"></i>${tool}</span>
+                            <span class="extra-small opacity-50">${status.found ? 'ONLINE' : 'MISSING'}</span>
+                        </div>
+                    `;
+            });
+        });
 
     // --- SOCKET LOGS ---
     var socket = io();

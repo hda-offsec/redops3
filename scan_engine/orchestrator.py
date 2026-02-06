@@ -24,6 +24,21 @@ class ScanOrchestrator:
         success = True
         
         try:
+            # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
+            self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
+            from core.intelligence import AttackVectorMapper
+            geo = AttackVectorMapper.get_ip_geolocation(self.target)
+            if geo:
+                self.log(f"Target located: {geo.get('city')}, {geo.get('country')} ({geo.get('isp')})", "SUCCESS")
+                # Update Scan model directly
+                from core.models import Scan, db
+                scan_obj = Scan.query.get(self.scan_id)
+                if scan_obj:
+                    scan_obj.geolocation_data = geo
+                    db.session.commit()
+            else:
+                self.log("Geolocation lookup failed or target is local.", "WARN")
+
             # --- INITIALIZATION: Clear old ghost results ---
             self.log("Initializing local results structure...", "INFO")
             initial_results = {
