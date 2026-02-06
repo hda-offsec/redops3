@@ -25,29 +25,50 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
         
         def _log_and_emit(scan_id, msg, level="INFO"):
             try:
+                from core.extensions import socketio
                 log = ScanLog(scan_id=scan_id, message=msg, level=level)
                 db.session.add(log)
                 db.session.commit()
+                
+                # Emit to Socket.IO (Room: scan_<id>)
+                socketio.emit('new_log', {
+                    'scan_id': scan_id,
+                    'message': msg,
+                    'level': level,
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }, room=f"scan_{scan_id}")
             except Exception as e:
                 db.session.rollback()
-                print(f"DB Log Error: {e}")
+                print(f"Log/Emit Error: {e}")
             print(f"[{level}] Scan {scan_id}: {msg}")
 
         def add_finding_cb(**kwargs):
             try:
+                from core.extensions import socketio
+                severity = kwargs.get('severity', 'info')
+                title = kwargs.get('title', 'Untitled Finding')
+                
                 finding = Finding(
                     scan_id=scan_id,
-                    severity=kwargs.get('severity', 'info'),
-                    title=kwargs.get('title', 'Untitled Finding'),
+                    severity=severity,
+                    title=title,
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),
                     screenshot_path=kwargs.get('screenshot_path')
                 )
                 db.session.add(finding)
                 db.session.commit()
+
+                # Global Alert for Critical Issues from the worker
+                if severity.lower() == 'critical':
+                    socketio.emit('global_notification', {
+                        'title': '🚨 CRITICAL VULNERABILITY',
+                        'message': f'{title} found on scan #{scan_id}',
+                        'severity': 'critical'
+                    })
             except Exception as e:
                 db.session.rollback()
-                print(f"Finding Save Error: {e}")
+                print(f"Finding Save/Emit Error: {e}")
 
         def add_suggestion_cb(**kwargs):
             try:
@@ -61,6 +82,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
 
         def results_update_cb(scan_id, data):
             save_results(scan_id, data)
+            try:
+                from core.extensions import socketio
+                socketio.emit('results_update', {
+                    'scan_id': scan_id,
+                    'results': data
+                }, room=f"scan_{scan_id}")
+            except Exception as e:
+                print(f"Results Emit Error: {e}")
 
         orchestrator = ScanOrchestrator(
             scan_id=scan_id,
