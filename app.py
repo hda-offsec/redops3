@@ -2,6 +2,7 @@ import os
 from flask import Flask
 from dotenv import load_dotenv
 from core.extensions import db, socketio
+from core.celery_app import celery
 
 # Import models so they are registered with SQLAlchemy
 from core import models

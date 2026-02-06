@@ -11,6 +11,7 @@ from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
+from core.tasks import run_scan_task
 
 main_bp = Blueprint("main", __name__)
 
@@ -23,7 +24,7 @@ def terminal():
 @main_bp.route("/api/dependencies")
 def check_dependencies():
     import shutil
-    tools = ["nmap", "nuclei", "ffuf", "whatweb", "node", "python3"]
+    tools = ["nmap", "nuclei", "ffuf", "whatweb", "subfinder", "katana", "sqlmap", "dnsrecon"]
     status = {}
     for t in tools:
         path = shutil.which(t)
@@ -306,8 +307,8 @@ def new_scan():
     db.session.add(scan)
     db.session.commit()
 
-    app_obj = current_app._get_current_object()
-    socketio.start_background_task(background_scan, scan.id, target.identifier, scan_type, app_obj)
+    # Launch via Celery
+    run_scan_task.delay(scan.id, target.identifier, scan_type)
 
     flash(f"Started {scan_type} scan for {target_input}", "success")
     return redirect(url_for("main.scan_detail", scan_id=scan.id))

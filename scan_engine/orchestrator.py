@@ -1,5 +1,7 @@
 import threading
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
+from scan_engine.step01_recon.dns_scanner import DNSScanner
+from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from core.analysis import AnalysisEngine
 from datetime import datetime
@@ -52,6 +54,19 @@ class ScanOrchestrator:
         except Exception as e:
             self.log(f"Failed to initialize results: {str(e)}", "ERROR")
             return False
+
+        # --- PHASE 0.5: DNS Enumeration ---
+        self.log("Phase 0.5: Starting DNS Enumeration...", "INFO")
+        dns_scanner = DNSScanner(self.target)
+        dns_results = dns_scanner.enumerate_all()
+        if dns_results["subdomains"]:
+            self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
+            self.add_finding(
+                title=f"DNS Discovery: {len(dns_results['subdomains'])} Subdomains",
+                description="\n".join(dns_results["subdomains"]),
+                severity="info",
+                tool_source="subfinder"
+            )
 
         # --- PHASE 1: Port Scan ---
         self.log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
@@ -216,6 +231,33 @@ class ScanOrchestrator:
 
                     except Exception as e:
                         self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")
+
+                    # --- KATANA CRAWLING ---
+                    self.log(f"Deep Crawling {proto}://{self.target}:{port} with Katana...", "INFO")
+                    try:
+                        katana = KatanaScanner(self.target)
+                        kt_stream = katana.stream_katana(port, proto)
+                        endpoints = []
+                        for event in kt_stream:
+                            if event["type"] == "stdout":
+                                line = event["line"].strip()
+                                if line:
+                                    endpoints.append(line)
+                        
+                        if endpoints:
+                            self.log(f"Katana discovered {len(endpoints)} endpoints.", "SUCCESS")
+                            self.add_finding(
+                                title=f"Crawling Results ({port})",
+                                description=f"Discovered {len(endpoints)} URLs/Endpoints.",
+                                severity="info",
+                                tool_source="katana"
+                            )
+                            # Update results
+                            if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                            results['phases']['enum']['katana'] = {str(port): endpoints[:100]} # limit UI display
+                            self.save_results(self.scan_id, results)
+                    except Exception as e:
+                        self.log(f"Katana error on port {port}: {str(e)}", "ERROR")
         
         # --- PHASE 5: Automated Vulnerability Scanning (Nuclei) ---
         if web_ports:
