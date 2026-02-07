@@ -13,8 +13,8 @@ class DNSScanner:
 
     def run_dnsrecon(self):
         """Run dnsrecon for standard enumeration"""
-        command = ["dnsrecon", "-d", self.target, "-t", "std", "--json"]
-        # dnsrecon output is often to a file or stdout, we'll try to capture it
+        output_file = f"data/results/dns_{self.target}.json"
+        command = ["dnsrecon", "-d", self.target, "-t", "std", "--json", output_file]
         return ProcessManager.run_command(command)
 
     def run_subfinder(self):

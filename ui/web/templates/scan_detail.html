@@ -460,6 +460,10 @@
         const scanId = "{{ scan.id }}";
         const targetLabel = "{{ scan.target.identifier }}";
         const socket = io();
+        socket.on('connect', () => {
+            console.log("Socket connected, joining room: scan_" + scanId);
+            socket.emit('join_scan', { scan_id: scanId });
+        });
 
         console.log("Initializing Real-Time Sync for Scan #" + scanId);
 
@@ -622,12 +626,19 @@
         socket.on("results_update", function (msg) {
             if (msg.scan_id == scanId) {
                 console.log("Results updated received.");
-                updateUI(msg.data);
+                updateUI(msg.results);
             }
         });
 
         socket.on("new_log", function (data) {
             if (data.scan_id == scanId) {
+                // Update status badge if pending
+                const statusBadge = document.querySelector(".badge-status");
+                if (statusBadge && statusBadge.innerText.toLowerCase().includes("pending")) {
+                    statusBadge.innerText = "running";
+                    statusBadge.className = "badge bg-primary-subtle text-primary border border-primary-subtle badge-status text-uppercase";
+                }
+
                 const consoleDiv = document.querySelector(".log-console");
                 const div = document.createElement("div");
                 const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
