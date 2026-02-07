@@ -5,6 +5,11 @@ class KatanaScanner:
     def __init__(self, target):
         self.target = target
 
+    def check_tools(self):
+        import shutil
+        if shutil.which('katana'): return True
+        return os.path.exists(os.path.expanduser("~/go/bin/katana"))
+
     def stream_katana(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}"
         

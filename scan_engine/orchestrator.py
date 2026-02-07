@@ -261,31 +261,39 @@ class ScanOrchestrator:
                         self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")
 
                     # --- KATANA CRAWLING ---
-                    self.log(f"Deep Crawling {proto}://{self.target}:{port} with Katana...", "INFO")
-                    try:
-                        katana = KatanaScanner(self.target)
-                        kt_stream = katana.stream_katana(port, proto)
-                        endpoints = []
-                        for event in kt_stream:
-                            if event["type"] == "stdout":
-                                line = event["line"].strip()
-                                if line:
-                                    endpoints.append(line)
-                        
-                        if endpoints:
-                            self.log(f"Katana discovered {len(endpoints)} endpoints.", "SUCCESS")
-                            self.add_finding(
-                                title=f"Crawling Results ({port})",
-                                description=f"Discovered {len(endpoints)} URLs/Endpoints.",
-                                severity="info",
-                                tool_source="katana"
-                            )
-                            # Update results
-                            if 'enum' not in results['phases']: results['phases']['enum'] = {}
-                            results['phases']['enum']['katana'] = {str(port): endpoints[:100]} # limit UI display
-                            self.save_results(self.scan_id, results)
-                    except Exception as e:
-                        self.log(f"Katana error on port {port}: {str(e)}", "ERROR")
+                    katana = KatanaScanner(self.target)
+                    if not katana.check_tools():
+                        self.log("Skipping Katana: tool not installed. Install with 'install_tools.sh'", "WARN")
+                        self.add_suggestion(
+                            tool_name="setup",
+                            command_suggestion="./install_tools.sh",
+                            reason="Deep crawling capability missing (Katana)"
+                        )
+                    else:
+                        self.log(f"Deep Crawling {proto}://{self.target}:{port} with Katana...", "INFO")
+                        try:
+                            kt_stream = katana.stream_katana(port, proto)
+                            endpoints = []
+                            for event in kt_stream:
+                                if event["type"] == "stdout":
+                                    line = event["line"].strip()
+                                    if line:
+                                        endpoints.append(line)
+                            
+                            if endpoints:
+                                self.log(f"Katana discovered {len(endpoints)} endpoints.", "SUCCESS")
+                                self.add_finding(
+                                    title=f"Crawling Results ({port})",
+                                    description=f"Discovered {len(endpoints)} URLs/Endpoints.",
+                                    severity="info",
+                                    tool_source="katana"
+                                )
+                                # Update results
+                                if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                                results['phases']['enum']['katana'] = {str(port): endpoints[:100]} # limit UI display
+                                self.save_results(self.scan_id, results)
+                        except Exception as e:
+                            self.log(f"Katana error on port {port}: {str(e)}", "ERROR")
         
         # --- PHASE 5: Automated Vulnerability Scanning (Nuclei) ---
         if web_ports:
