@@ -32,6 +32,8 @@ python3 -m pip uninstall -y fpdf pypdf &> /dev/null || true
 # Install missing dependencies
 echo "Ensuring dependencies are installed..."
 python3 -m pip install -r requirements.txt
+# Force reinstall fpdf2 to restore the namespace if it was wiped
+python3 -m pip install --force-reinstall fpdf2
 
 echo "Starting Celery Worker (Pool: solo)..."
 export PYTHONPATH=$PYTHONPATH:.
