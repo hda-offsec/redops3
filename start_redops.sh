@@ -31,8 +31,8 @@ python3 -m pip install -r requirements.txt
 
 echo "Starting Celery Worker..."
 export PYTHONPATH=$PYTHONPATH:.
-# Using eventlet for better concurrency with SocketIO
-celery -A core.tasks.celery worker --loglevel=info --detach -P eventlet
+# Using threads pool instead of eventlet for Python 3.13 compatibility
+celery -A core.tasks.celery worker --loglevel=info --detach -P threads
 
 echo "Starting Redops Flask App..."
 python3 app.py
