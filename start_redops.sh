@@ -25,14 +25,19 @@ sudo redis-server --daemonize yes || echo "Redis might be already running..."
 # Ensure we are in the right directory
 cd "$(dirname "$0")"
 
-# Install missing dependencies in the current environment
+# Uninstall fpdf to avoid namespace conflict with fpdf2
+echo "Cleaning up PDF library conflicts..."
+python3 -m pip uninstall -y fpdf pypdf &> /dev/null || true
+
+# Install missing dependencies
 echo "Ensuring dependencies are installed..."
 python3 -m pip install -r requirements.txt
 
-echo "Starting Celery Worker..."
+echo "Starting Celery Worker (Pool: solo)..."
 export PYTHONPATH=$PYTHONPATH:.
-# Using threads pool instead of eventlet for Python 3.13 compatibility
-celery -A core.tasks.celery worker --loglevel=info --detach -P threads
+# Solo pool is the most stable on Python 3.13 / Kali
+celery -A core.tasks.celery worker --loglevel=info --detach -P solo --logfile=data/celery.log
 
 echo "Starting Redops Flask App..."
+# Force threading to avoid eventlet try-load
 python3 app.py
