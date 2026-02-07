@@ -8,48 +8,49 @@ class NmapScanner:
     PROFILES = {
         "quick": {
             "label": "Quick Scan",
-            "command": ["nmap", "-n", "-T4", "-F", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-v", "-T4", "-F", "--stats-every", "10s"],
             "requires_root": False,
         },
         "deep": {
             "label": "Deep Audit (Red Team Standard)",
-            "command": ["nmap", "-n", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-v", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "full": {
             "label": "Full TCP Scan",
-            "command": ["nmap", "-n", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-v", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "udp": {
             "label": "Top UDP Ports",
-            "command": ["nmap", "-sU", "--top-ports", "100", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "-sU", "--top-ports", "100", "-T4", "--stats-every", "10s"],
             "requires_root": True,
         },
         "vuln": {
             "label": "NSE Vuln Scan",
-            "command": ["nmap", "--script", "vuln", "-sV", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "--script", "vuln", "-sV", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "os": {
             "label": "OS Detection",
-            "command": ["nmap", "-O", "-sV", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "-O", "-sV", "-T4", "--stats-every", "10s"],
             "requires_root": True,
         },
         "discovery": {
             "label": "Host Discovery",
-            "command": ["nmap", "-sn", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "-sn", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "stealth": {
             "label": "Stealth Scan",
-            "command": ["nmap", "-sS", "-sV", "-T2", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "-sS", "-sV", "-T2", "--stats-every", "10s"],
             "requires_root": True,
         },
         "web": {
             "label": "Web Recon",
             "command": [
                 "nmap",
+                "-v",
                 "-sV",
                 "-p",
                 "80,443,8000,8080,8443",

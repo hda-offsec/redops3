@@ -21,7 +21,10 @@ class DNSScanner:
         """Run subfinder for subdomain discovery"""
         # We check if subfinder is in path or in $HOME/go/bin
         subfinder_path = "subfinder"
-        if not os.path.exists(subfinder_path):
+        
+        # Try finding in system path first
+        import shutil
+        if not shutil.which(subfinder_path):
             home_go = os.path.expanduser("~/go/bin/subfinder")
             if os.path.exists(home_go):
                 subfinder_path = home_go
@@ -29,22 +32,28 @@ class DNSScanner:
         command = [subfinder_path, "-d", self.target, "-silent"]
         return ProcessManager.run_command(command)
 
-    def enumerate_all(self):
+    def enumerate_all(self, logger=None):
         results = {
             "subdomains": [],
             "records": []
         }
         
-        # Subfinder
+        # Subfinder logic
+        if logger: logger("Checking for subdomains via Subfinder...", "INFO")
         success, stdout, stderr, code = self.run_subfinder()
         if success:
-            results["subdomains"] = [line.strip() for line in stdout.splitlines() if line.strip()]
+            found = [line.strip() for line in stdout.splitlines() if line.strip()]
+            results["subdomains"] = found
+            if logger: logger(f"Subfinder finished. Found {len(found)} subdomains.", "SUCCESS")
+        else:
+            if logger: logger("Subfinder failed or find nothing.", "WARN")
             
         # DNSRecon
+        if logger: logger("Enumerating DNS records via DNSRecon...", "INFO")
         success, stdout, stderr, code = self.run_dnsrecon()
         if success:
-            # DNSRecon often outputs a lot of text before/after JSON or in a file
-            # For now we just log that it ran
-            pass
+            if logger: logger("DNSRecon enumeration complete.", "SUCCESS")
+        else:
+            if logger: logger("DNSRecon enumeration skipped or failed.", "WARN")
             
         return results

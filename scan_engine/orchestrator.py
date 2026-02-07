@@ -1,3 +1,4 @@
+import re
 import threading
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.step01_recon.dns_scanner import DNSScanner
@@ -58,7 +59,7 @@ class ScanOrchestrator:
         # --- PHASE 0.5: DNS Enumeration ---
         self.log("Phase 0.5: Starting DNS Enumeration...", "INFO")
         dns_scanner = DNSScanner(self.target)
-        dns_results = dns_scanner.enumerate_all()
+        dns_results = dns_scanner.enumerate_all(logger=self.log)
         if dns_results["subdomains"]:
             self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
             self.add_finding(
@@ -90,18 +91,45 @@ class ScanOrchestrator:
             return False
             
         output_buffer = []
+        discovered_ports = []
         for event in stream:
             if event["type"] == "stdout":
-                msg = event["line"].strip()
-                if msg:
-                    self.log(msg, "INFO")
-                    output_buffer.append(msg)
+                line = event["line"].strip()
+                if line:
+                    # Detect real-time port discovery (from Nmap -v)
+                    if "Discovered open port" in line:
+                        self.log(f"🔥 {line}", "SUCCESS")
+                        # Extract port/proto: "Discovered open port 80/tcp on 1.2.3.4"
+                        port_match = re.search(r"port (\d+)/(tcp|udp)", line)
+                        if port_match:
+                            p_num = int(port_match.group(1))
+                            discovered_ports.append({
+                                "port": p_num,
+                                "service_name": "probing...",
+                                "version": "detecting..."
+                            })
+                            # Send intermediate update to UI
+                            self.save_results(self.scan_id, {
+                                "phases": {
+                                    "recon": {
+                                        "open_ports": discovered_ports,
+                                        "raw_output": "\n".join(output_buffer[-50:]) # Send last 50 lines only for speed
+                                    }
+                                }
+                            })
+
+                    # Detect progress stats
+                    elif "Stats:" in line:
+                        self.log(line, "INFO")
+                    else:
+                        self.log(line, "INFO")
+                    output_buffer.append(line)
             elif event["type"] == "exit":
                 self.log(f"Phase 1 finished with exit code {event['code']}", "SUCCESS" if event['code'] == 0 else "WARN")
             elif event["type"] == "error":
                 self.log(f"Stream error: {event['message']}", "ERROR")
                 return False
-            
+
         full_output = "\n".join(output_buffer)
         
         # --- PHASE 2: Parsing ---
