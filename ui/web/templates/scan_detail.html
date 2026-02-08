@@ -143,8 +143,100 @@
                     </div>
                 </div>
             </div>
+            <!-- THREAT MATRIX -->
+            <div class="col-12">
+                <div class="card glass-panel mb-4">
+                    <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-biohazard me-2"></i>Threat Matrix (High Value Targets)</span>
+                        {% if severity_counts['critical'] + severity_counts['high'] > 0 %}
+                        <span class="badge bg-danger shadow-sm animate__animated animate__pulse animate__infinite">{{
+                            severity_counts['critical'] + severity_counts['high'] }} Critical/High Issues</span>
+                        {% else %}
+                        <span class="badge bg-success shadow-sm"><i class="fas fa-check me-1"></i>Secure</span>
+                        {% endif %}
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-dark table-sm mb-0 text-center align-middle small table-hover">
+                            <thead>
+                                <tr class="text-muted text-uppercase" style="background: rgba(255,255,255,0.05);">
+                                    <th class="py-2 border-secondary">Port/Service</th>
+                                    <th class="py-2 border-secondary">Technology Stack</th>
+                                    <th class="py-2 border-secondary">Threat Detection</th>
+                                    <th class="py-2 border-secondary">Data Exposure Risk</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if results and results.phases and results.phases.recon and
+                                results.phases.recon.open_ports %}
+                                {% for port in results.phases.recon.open_ports %}
+                                {% if (port.priority_score and port.priority_score >= 50) or port.port in [80, 443,
+                                8080] %}
+                                <tr class="border-secondary">
+                                    <td class="font-monospace text-info border-secondary">
+                                        <span class="badge bg-secondary me-1">{{ port.port }}</span> {{
+                                        port.service_name }}
+                                    </td>
+                                    <td class="border-secondary">
+                                        {% set port_key = port.port|string %}
+                                        {% if results.phases.enum and results.phases.enum.whatweb and
+                                        results.phases.enum.whatweb[port_key] %}
+                                        {% set ww = results.phases.enum.whatweb[port_key] %}
+                                        <!-- Simple inline badges for the matrix -->
+                                        {% if "WordPress" in ww %}<span class="badge bg-primary" title="WordPress"><i
+                                                class="fab fa-wordpress"></i> WP</span>{% endif %}
+                                        {% if "Apache" in ww %}<span class="badge bg-danger" title="Apache"><i
+                                                class="fas fa-server"></i> Apache</span>{% endif %}
+                                        {% if "Nginx" in ww %}<span class="badge bg-success" title="Nginx"><i
+                                                class="fas fa-server"></i> Nginx</span>{% endif %}
+                                        {% if "PHP" in ww %}<span class="badge bg-info text-dark" title="PHP"><i
+                                                class="fab fa-php"></i> PHP</span>{% endif %}
+                                        {% if "Microsoft-IIS" in ww %}<span class="badge bg-info" title="IIS"><i
+                                                class="fab fa-windows"></i> IIS</span>{% endif %}
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="border-secondary">
+                                        {% if port.priority_score >= 80 %}
+                                        <span class="badge bg-danger w-100 shadow-danger">CRITICAL / HIGH</span>
+                                        {% elif port.priority_score >= 50 %}
+                                        <span class="badge bg-warning text-dark w-100">MEDIUM / SUSPICIOUS</span>
+                                        {% else %}
+                                        <span class="badge bg-success w-100 opacity-50">LOW / AUDIT</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="border-secondary">
+                                        {% set sensitive = false %}
+                                        {% if results.phases.enum and results.phases.enum.katana and
+                                        results.phases.enum.katana[port_key] %}
+                                        {% for ep in results.phases.enum.katana[port_key] %}
+                                        {% if ".env" in ep or "admin" in ep %}{% set sensitive = true %}{% endif %}
+                                        {% endfor %}
+                                        {% endif %}
 
-            <!-- RECON MATRIX -->
+                                        {% if sensitive %}
+                                        <span class="text-danger fw-bold"><i
+                                                class="fas fa-exclamation-triangle me-1"></i>Exposed Secrets</span>
+                                        {% else %}
+                                        <span class="text-muted text-opacity-50"><i class="fas fa-check me-1"></i>No
+                                            leaks detected</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="4" class="py-3 text-muted">No high-risk services identified yet.</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+
             <div class="col-12">
                 <div class="card glass-panel">
                     <div class="card-header glass-header"><i class="fas fa-th me-2"></i>Recon Matrix (Deep Audit)</div>
@@ -204,29 +296,77 @@
                                         </td>
                                         <td class="p-3">
                                             {% set port_key = port.port|string %}
-                                            {% if results.phases.enum and results.phases.enum.whatweb and
-                                            results.phases.enum.whatweb[port_key] %}
-                                            {% set ww = results.phases.enum.whatweb[port_key] %}
-                                            <div class="d-flex flex-wrap gap-2">
-                                                {% if "Title[" in ww %}
+                                            <div class="d-flex flex-wrap gap-1">
+                                                <!-- Service Badge -->
                                                 <span
-                                                    class="badge rounded-pill bg-dark border border-secondary text-info shadow-sm py-1 px-2"
-                                                    title="HTML Page Title">
-                                                    <i class="fas fa-heading me-1 opacity-50"></i>{{
-                                                    ww.split('Title[')[1].split(']')[0] }}
+                                                    class="badge border border-secondary bg-dark text-light font-monospace opacity-75">
+                                                    {{ port.service_name|upper }}
+                                                </span>
+
+                                                <!-- Dynamic Tech Badges -->
+                                                {% if results.phases.enum and results.phases.enum.whatweb and
+                                                results.phases.enum.whatweb[port_key] %}
+                                                {% set ww = results.phases.enum.whatweb[port_key] %}
+
+                                                <!-- CMS Detection -->
+                                                {% if "WordPress" in ww %}
+                                                <span
+                                                    class="badge bg-primary bg-gradient border border-primary text-white shadow-sm"
+                                                    title="CMS Detected">
+                                                    <i class="fab fa-wordpress me-1"></i>WordPress
                                                 </span>
                                                 {% endif %}
-                                                {% if "HTTPServer[" in ww %}
+                                                {% if "Drupal" in ww %}
                                                 <span
-                                                    class="badge rounded-pill bg-dark border border-secondary text-warning shadow-sm py-1 px-2">
-                                                    <i class="fas fa-microchip me-1 opacity-50"></i>{{
-                                                    ww.split('HTTPServer[')[1].split(']')[0] }}
+                                                    class="badge bg-info bg-gradient border border-info text-white shadow-sm">
+                                                    <i class="fab fa-drupal me-1"></i>Drupal
                                                 </span>
+                                                {% endif %}
+                                                {% if "Joomla" in ww %}
+                                                <span
+                                                    class="badge bg-warning bg-gradient border border-warning text-dark shadow-sm">
+                                                    <i class="fab fa-joomla me-1"></i>Joomla
+                                                </span>
+                                                {% endif %}
+
+                                                <!-- Server Tech -->
+                                                {% if "Apache" in ww %}
+                                                <span
+                                                    class="badge bg-danger bg-opacity-75 border border-danger text-light">
+                                                    <i class="fas fa-server me-1"></i>Apache
+                                                </span>
+                                                {% endif %}
+                                                {% if "Nginx" in ww %}
+                                                <span
+                                                    class="badge bg-success bg-opacity-75 border border-success text-light">
+                                                    <i class="fas fa-server me-1"></i>Nginx
+                                                </span>
+                                                {% endif %}
+                                                {% if "Microsoft-IIS" in ww %}
+                                                <span class="badge bg-info bg-opacity-75 border border-info text-light">
+                                                    <i class="fab fa-windows me-1"></i>IIS
+                                                </span>
+                                                {% endif %}
+
+                                                <!-- Langs -->
+                                                {% if "PHP" in ww %}
+                                                <span class="badge bg-info bg-opacity-50 border border-info text-light">
+                                                    <i class="fab fa-php me-1"></i>PHP
+                                                </span>
+                                                {% endif %}
+
+                                                <!-- Extract Title if strictly needed, or leave it cleaner -->
+                                                {% if "Title[" in ww %}
+                                                <span class="badge bg-dark border border-secondary text-muted small"
+                                                    title="{{ ww.split('Title[')[1].split(']')[0] }}">
+                                                    <i class="fas fa-heading"></i>
+                                                </span>
+                                                {% endif %}
+                                                {% else %}
+                                                <!-- No WhatWeb Data -->
+                                                <span class="text-muted small opacity-25">-</span>
                                                 {% endif %}
                                             </div>
-                                            {% else %}
-                                            <span class="text-muted small">-</span>
-                                            {% endif %}
                                         </td>
                                         <td class="p-3 text-end">
                                             {% if 'http' in port.service_name or port.port in [80, 443, 8080, 8443] %}
@@ -364,12 +504,47 @@
                                 <div id="collapse-katana-{{ port }}" class="accordion-collapse collapse"
                                     aria-labelledby="heading-katana-{{ port }}" data-bs-parent="#accordionKatana">
                                     <div class="accordion-body p-0">
-                                        <div class="p-2" style="max-height: 200px; overflow-y: auto;">
+                                        <div class="p-2" style="max-height: 300px; overflow-y: auto;">
                                             {% for ep in endpoints %}
+                                            {% set ep_lower = ep|lower %}
+                                            {% set is_crit = ".env" in ep_lower or ".git" in ep_lower or "config" in
+                                            ep_lower or ".bak" in ep_lower or ".sql" in ep_lower or ".db" in ep_lower %}
+                                            {% set is_admin = "admin" in ep_lower or "login" in ep_lower or "dashboard"
+                                            in ep_lower or "setup" in ep_lower %}
+                                            {% set is_js = ".js" in ep_lower %}
+                                            {% set is_img = ".jpg" in ep_lower or ".png" in ep_lower or ".gif" in
+                                            ep_lower or ".svg" in ep_lower or ".ico" in ep_lower or ".css" in ep_lower
+                                            %}
+
                                             <div
-                                                class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
+                                                class="small font-monospace mb-1 border-bottom border-dark pb-1 text-break d-flex align-items-center">
+                                                {% if is_crit %}
+                                                <i class="fas fa-radiation text-danger me-2" title="CRITICAL ASSET"></i>
+                                                <a href="{{ ep }}" target="_blank"
+                                                    class="text-decoration-none text-danger fw-bold hover-action">{{ ep
+                                                    }}</a>
+                                                {% elif is_admin %}
+                                                <i class="fas fa-user-shield text-warning me-2"
+                                                    title="Admin Interface"></i>
+                                                <a href="{{ ep }}" target="_blank"
+                                                    class="text-decoration-none text-warning hover-action">{{ ep }}</a>
+                                                {% elif is_js %}
+                                                <i class="fab fa-js text-info opacity-50 me-2" style="width: 16px;"></i>
+                                                <a href="{{ ep }}" target="_blank"
+                                                    class="text-decoration-none text-info opacity-75 hover-action">{{ ep
+                                                    }}</a>
+                                                {% elif is_img %}
+                                                <i class="fas fa-image text-secondary opacity-25 me-2"
+                                                    style="width: 16px;"></i>
+                                                <a href="{{ ep }}" target="_blank"
+                                                    class="text-decoration-none text-secondary opacity-50 hover-action">{{
+                                                    ep }}</a>
+                                                {% else %}
+                                                <i class="fas fa-link text-muted opacity-25 me-2"
+                                                    style="width: 16px;"></i>
                                                 <a href="{{ ep }}" target="_blank"
                                                     class="text-decoration-none text-cyber hover-action">{{ ep }}</a>
+                                                {% endif %}
                                             </div>
                                             {% endfor %}
                                         </div>
