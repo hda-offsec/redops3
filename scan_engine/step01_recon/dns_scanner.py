@@ -8,9 +8,21 @@ class DNSScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("dnsrecon") is not None
 
-    def run_dnsrecon(self):
+    def parse_results(self, output_file):
+        """Parse DNSRecon JSON output file"""
+        try:
+            with open(output_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        return []
+
+    def run_dnsrecon(self, output_file=None):
         """Run dnsrecon for standard enumeration"""
-        output_file = f"data/results/dns_{self.target}.json"
+        if output_file is None:
+            output_file = f"data/results/dns_{self.target}.json"
         command = ["dnsrecon", "-d", self.target, "-t", "std", "--json", output_file]
         return ProcessManager.run_command(command)
 
@@ -38,10 +50,20 @@ class DNSScanner:
             if logger: logger("Subfinder failed or find nothing.", "WARN")
             
         # DNSRecon
+        output_file = f"data/results/dns_{self.target}.json"
+
         if logger: logger("Enumerating DNS records via DNSRecon...", "INFO")
-        success, stdout, stderr, code = self.run_dnsrecon()
+        success, stdout, stderr, code = self.run_dnsrecon(output_file)
         if success:
             if logger: logger("DNSRecon enumeration complete.", "SUCCESS")
+
+            # Parse results
+            records = self.parse_results(output_file)
+            if records:
+                results["records"] = records
+                if logger: logger(f"Parsed {len(records)} DNS records.", "SUCCESS")
+            else:
+                if logger: logger("No DNS records parsed from output.", "WARN")
         else:
             if logger: logger("DNSRecon enumeration skipped or failed.", "WARN")
             
