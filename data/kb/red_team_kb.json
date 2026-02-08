@@ -198,5 +198,27 @@
                 "action": "PoC: user/register?element_parents=account/mail/%23value&ajax_form=1&_wrapper_format=drupal_ajax"
             }
         ]
+    },
+    "cloud": {
+        "awselb": [
+            {
+                "match": "all",
+                "name": "AWS ELB Detected",
+                "risk": "MEDIUM",
+                "score": 60,
+                "desc": "Site is behind an AWS Elastic Load Balancer",
+                "action": "Attempt to find real origin IP via Censys/Shodan. Test for X-Forwarded-For bypass."
+            }
+        ],
+        "waf": [
+            {
+                "match": "all",
+                "name": "Web Application Firewall",
+                "risk": "MEDIUM",
+                "score": 50,
+                "desc": "Active WAF filtering detected",
+                "action": "Use wafw00f for identification. Attempt fragmentation or encoding bypasses."
+            }
+        ]
     }
 }

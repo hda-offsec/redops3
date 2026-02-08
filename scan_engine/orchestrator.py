@@ -190,7 +190,32 @@ class ScanOrchestrator:
                 tool_source="subfinder"
             )
 
-            # --- Subdomain Takeover Check ---
+            # --- PHASE 0.7: Subdomain Fingerprinting ---
+            if dns_results["subdomains"]:
+                self.log(f"Phase 0.7: Fingerprinting {len(dns_results['subdomains'])} subdomains...", "INFO")
+                import requests
+                for sub in dns_results["subdomains"]:
+                    try:
+                        # Quick check on 80/443
+                        for proto in ['http', 'https']:
+                            url = f"{proto}://{sub}"
+                            try:
+                                r = requests.head(url, timeout=3, verify=False)
+                                server = r.headers.get('Server', 'Unknown')
+                                self.log(f"  [+] {url} is ALIVE (Server: {server})", "SUCCESS")
+                                self.add_finding(
+                                    title=f"Live Subdomain: {sub}",
+                                    description=f"Protocol: {proto.upper()}\nServer: {server}",
+                                    severity="info",
+                                    tool_source="dns_recon"
+                                )
+                                break # If one proto works, move to next sub
+                            except:
+                                continue
+                    except Exception as e:
+                        self.log(f"Fingerprinting failed for {sub}: {e}", "DEBUG")
+
+            # --- PHASE 0.8: Potential Takeover Check ---
             try:
                 takeover_scanner = TakeoverScanner(self.target)
                 if takeover_scanner.check_tools():
@@ -597,12 +622,14 @@ class ScanOrchestrator:
                                         if "is behind" in line:
                                             waf_result = line.split("is behind")[-1].strip()
                                             self.log(f"🛡️ WAF Detected: {waf_result}", "SUCCESS")
+                                            summary_line = ProcessManager.strip_ansi(line)
                                             self.add_finding(
                                                 title=f"WAF Detected ({port})",
-                                                description=line,
+                                                description=summary_line,
                                                 severity="info",
                                                 tool_source="wafw00f"
                                             )
+                                            waf_result = summary_line
                                 
                                 if 'enum' not in results['phases']: results['phases']['enum'] = {}
                                 results['phases']['enum']['waf'] = results['phases']['enum'].get('waf', {})
@@ -610,6 +637,13 @@ class ScanOrchestrator:
                                 self.save_results(self.scan_id, results)
                         except Exception as e:
                             self.log(f"WAF Detection failed: {e}", "ERROR")
+
+                        # --- SECURITY HEADERS ANALYSIS ---
+                        try:
+                            self.log(f"Phase 4b+: Analyzing Security Headers on {proto}://{self.target}:{port}...", "INFO")
+                            self._analyze_security_headers(self.target, port, proto, results)
+                        except Exception as e:
+                            self.log(f"Security headers analysis failed: {e}", "ERROR")
 
                         # --- PARAMETER DISCOVERY (ARJUN) ---
                         try:
@@ -922,7 +956,6 @@ class ScanOrchestrator:
                                     "status": "200", 
                                     "size": "N/A"
                                 })
-                            
                             self.save_results(self.scan_id, results) # Update results
 
                     except Exception as e:
@@ -931,5 +964,45 @@ class ScanOrchestrator:
                 self.log(f"Phase 6 (Dirbusting) failed: {e}", "ERROR")
 
         self._emit_progress(100, "Operation Completed")
-        self._emit_progress(100, "Operation Completed")
         return success
+
+    def _analyze_security_headers(self, target, port, proto, results):
+        import requests
+        url = f"{proto}://{target}:{port}"
+        try:
+            # Disable SSL verification since many local/dev targets use self-signed certs
+            resp = requests.get(url, timeout=10, verify=False, allow_redirects=True)
+            headers = resp.headers
+            
+            missing = []
+            if 'Content-Security-Policy' not in headers: missing.append("Content-Security-Policy (CSP)")
+            if 'Strict-Transport-Security' not in headers: missing.append("Strict-Transport-Security (HSTS)")
+            if 'X-Frame-Options' not in headers: missing.append("X-Frame-Options (Clickjacking protection)")
+            if 'X-Content-Type-Options' not in headers: missing.append("X-Content-Type-Options (MIME-Sniffing protection)")
+            
+            if missing:
+                desc = "The following security headers are missing:\n\n* " + "\n* ".join(missing)
+                self.add_finding(
+                    title=f"Missing Security Headers ({port})",
+                    description=desc,
+                    severity="low",
+                    tool_source="header_audit"
+                )
+                
+                # Logic for WAF Bypass suggestion
+                server_header = headers.get('Server', '').lower()
+                if 'awselb' in server_header or 'aws' in server_header:
+                    self.add_suggestion(
+                        tool_name="waf-bypass",
+                        command_suggestion=f"ffuf -u {url}/FUZZ -H 'X-Forwarded-For: 127.0.0.1' ...",
+                        reason="AWS ELB detected. Try Host Header injection or X-Forwarded-For spoofing to bypass WAF rules."
+                    )
+            
+            # Store in results
+            if 'enum' not in results['phases']: results['phases']['enum'] = {}
+            results['phases']['enum']['headers'] = results['phases']['enum'].get('headers', {})
+            results['phases']['enum']['headers'][str(port)] = dict(headers)
+            self.save_results(self.scan_id, results)
+
+        except Exception as e:
+            self.log(f"Header analysis request failed: {e}", "DEBUG")
