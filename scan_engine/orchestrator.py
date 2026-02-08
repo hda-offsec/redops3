@@ -16,6 +16,14 @@ class ScanOrchestrator:
         self.add_suggestion = suggestion_func
         self.save_results = results_func
 
+    def _emit_progress(self, percent, phase_name):
+        self.save_results(self.scan_id, {
+            "progress": {
+                "percent": percent,
+                "current_phase": phase_name
+            }
+        })
+
     def run_pipeline(self, profile='quick'):
         """
         Executes the logic pipeline: 
@@ -28,6 +36,7 @@ class ScanOrchestrator:
         
         try:
             # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
+            self._emit_progress(5, "Geolocation Init")
             self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
             from core.intelligence import AttackVectorMapper
             geo = AttackVectorMapper.get_ip_geolocation(self.target)
@@ -57,6 +66,7 @@ class ScanOrchestrator:
             return False
 
         # --- PHASE 0.5: DNS Enumeration ---
+        self._emit_progress(10, "DNS Enumeration")
         self.log("Phase 0.5: Starting DNS Enumeration...", "INFO")
         dns_scanner = DNSScanner(self.target)
         dns_results = dns_scanner.enumerate_all(logger=self.log)
@@ -70,6 +80,7 @@ class ScanOrchestrator:
             )
 
         # --- PHASE 1: Port Scan ---
+        self._emit_progress(20, "Port Scanning (nmap)")
         self.log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
         scanner = NmapScanner(self.target)
 
@@ -176,6 +187,7 @@ class ScanOrchestrator:
         full_output = "\n".join(output_buffer)
         
         # --- PHASE 2: Parsing ---
+        self._emit_progress(40, "Packet Analysis")
         self.log("Phase 2: Parsing results...", "INFO")
         open_ports = parse_nmap_open_ports(full_output)
         self.log(f"Parsed {len(open_ports)} open ports.", "SUCCESS")
@@ -196,6 +208,7 @@ class ScanOrchestrator:
         self.save_results(self.scan_id, results)
 
         # --- PHASE 3: Deep Analysis & Attack Vector Mapping ---
+        self._emit_progress(50, "Intel Mapping")
         try:
             self.log("Phase 3: Querying Intelligence Engine for Attack Vectors...", "INFO")
             from core.intelligence import AttackVectorMapper
@@ -270,6 +283,7 @@ class ScanOrchestrator:
             self.log(f"Phase 3 (Analysis) encountered an error: {e}", "ERROR")
         
         # --- PHASE 4: Auto-Enumeration (Web) ---
+        self._emit_progress(60, "Web Enumeration")
         if web_ports:
             try:
                 self.log(f"Phase 4: Starting Auto-Recon for {len(web_ports)} web ports...", "INFO")
@@ -297,6 +311,29 @@ class ScanOrchestrator:
                             
                             # Save findings from WhatWeb (simple Parsing)
                             full_ww = "\n".join(ww_output)
+                            
+                            # --- IMPROVED PARSING FOR UI ---
+                            # Extract useful tech stack info into a summary dict
+                            tech_summary = {}
+                            
+                            # Default regex to extract widely used Technology names
+                            # Simple logic: extract Title[...] HTTPServer[...] Country[...]
+                            
+                            title_match = re.search(r"Title\[(.*?)\]", full_ww)
+                            if title_match: tech_summary['Title'] = title_match.group(1)
+                            
+                            server_match = re.search(r"HTTPServer\[(.*?)\]", full_ww)
+                            if server_match: tech_summary['Server'] = server_match.group(1)
+                            
+                            country_match = re.search(r"Country\[(.*?)\]", full_ww)
+                            if country_match: tech_summary['Country'] = country_match.group(1)
+                            
+                            ip_match = re.search(r"IP\[(.*?)\]", full_ww)
+                            if ip_match: tech_summary['IP'] = ip_match.group(1)
+                            
+                            # Also regex generic text like "Apache[2.4.41]"
+                            # This is harder to do safely without clutter, let's stick to key items above for the summary box
+                            
                             if "Title" in full_ww or "HTTPServer" in full_ww:
                                 self.add_finding(
                                     title=f"Web Tech Stack ({port})",
@@ -309,6 +346,12 @@ class ScanOrchestrator:
                                 if 'whatweb' not in results['phases']['enum']: results['phases']['enum']['whatweb'] = {'summary': {}}
                                 
                                 results['phases']['enum']['whatweb'][str(port)] = full_ww
+                                # Merge into main summary (UI expects flat object but we have multiple ports...)
+                                # The UI code iterates Object.entries(summary). If we have multiple ports, keys might collide.
+                                # Let's prefix keys with port if we have multiple.
+                                for k, v in tech_summary.items():
+                                    results['phases']['enum']['whatweb']['summary'][f"{k} ({port})"] = v
+                                    
                                 self.save_results(self.scan_id, results) # Update results incrementally
 
                         except Exception as e:
@@ -356,6 +399,7 @@ class ScanOrchestrator:
                 self.log(f"Phase 4 (Web Enum) failed: {e}", "ERROR")
         
         # --- PHASE 5: Automated Vulnerability Scanning (Nuclei) ---
+        self._emit_progress(80, "Vulnerability Assessment")
         if web_ports:
             try:
                 self.log(f"Phase 5: Starting Vulnerability Assessment for {len(web_ports)} targets...", "INFO")
@@ -363,13 +407,7 @@ class ScanOrchestrator:
                 
                 vuln_scanner = NucleiScanner(self.target)
                 if not vuln_scanner.check_tools():
-                    self.log("Skipping Vuln Scan: 'nuclei' not installed. Install with 'brew install nuclei'", "WARN")
-                    # Add Suggestion to install
-                    self.add_suggestion(
-                        tool_name="setup",
-                        command_suggestion="brew install nuclei",
-                        reason="Automated vulnerability assessment tool missing"
-                    )
+                    self.log("Skipping Vuln Scan: 'nuclei' not installed.", "WARN")
                 else:
                     for port in web_ports:
                         proto = 'https' if port in [443, 8443] else 'http'
@@ -383,8 +421,6 @@ class ScanOrchestrator:
                                 if event["type"] == "stdout":
                                     line = event["line"].strip()
                                     if line:
-                                        # Nuclei format: [dns-waf-detect] [medium] ...
-                                        # We'll try to guess severity by checking string
                                         sev = "info"
                                         if "[critical]" in line.lower(): sev = "critical"
                                         elif "[high]" in line.lower(): sev = "high"
@@ -393,7 +429,6 @@ class ScanOrchestrator:
                                         
                                         self.log(line, "WARN" if sev in ["critical", "high"] else "INFO")
                                         
-                                        # Add finding if >= medium
                                         if sev in ["critical", "high", "medium"]:
                                             vuln_count += 1
                                             self.add_finding(
@@ -402,7 +437,6 @@ class ScanOrchestrator:
                                                 severity=sev,
                                                 tool_source="nuclei"
                                             )
-                                            # Add to detailed results structure
                                             if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
                                             if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
                                             
@@ -415,17 +449,13 @@ class ScanOrchestrator:
                                 elif event["type"] == "exit":
                                     self.log(f"Nuclei on port {port} finished with code {event['code']}", "INFO")
 
-                            if vuln_count > 0:
-                                self.log(f"Alert: {vuln_count} vulnerabilities identified on port {port}!", "ERROR")
-                            else:
-                                self.log(f"No critical vulnerabilities found on port {port}.", "SUCCESS")
-                                
                         except Exception as e:
                             self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")
             except Exception as e:
                 self.log(f"Phase 5 (Vuln Scan) failed: {e}", "ERROR")
 
         # --- PHASE 6: Automated Dirbusting (ffuf) ---
+        self._emit_progress(90, "Fuzzing")
         if web_ports:
             try:
                 self.log("Phase 6: Starting Automated Dirbusting (ffuf)...", "INFO")
@@ -458,9 +488,6 @@ class ScanOrchestrator:
                             if event["type"] == "stdout":
                                 line = event["line"].strip()
                                 if line:
-                                    # Simple check for success (ffuf output with -s is usually just the found path)
-                                    # But let's be safe, if it contains '200' or similar headers
-                                    # Actually with -s it just prints the findings
                                     self.log(f"[DIR] Found: {line}", "WARN")
                                     found_items.append(line)
                                     
@@ -481,9 +508,16 @@ class ScanOrchestrator:
                             for item in found_items:
                                 # Attempt to clean / leading if present
                                 clean_item = item.lstrip('/')
+                                # Ensure we don't duplicate existing endpoints structure if appending
+                                # Actually we are appending to a fresh list in memory `found_items` then updating result dict
+                                # But `results['phases']['dirbusting']['ffuf']['endpoints']` might reset per port loop iteration if we re-init
+                                # Fix: init list outside loop or check exist
+                                if 'endpoints' not in results['phases']['dirbusting']['ffuf']:
+                                     results['phases']['dirbusting']['ffuf']['endpoints'] = []
+                                
                                 results['phases']['dirbusting']['ffuf']['endpoints'].append({
                                     "path": clean_item,
-                                    "status": "200", # ffuf with -s only shows successful hits
+                                    "status": "200", 
                                     "size": "N/A"
                                 })
                             
@@ -494,6 +528,6 @@ class ScanOrchestrator:
             except Exception as e:
                 self.log(f"Phase 6 (Dirbusting) failed: {e}", "ERROR")
 
-        return success
-
+        self._emit_progress(100, "Operation Completed")
+        self._emit_progress(100, "Operation Completed")
         return success

@@ -4,473 +4,424 @@
 
 {% block content %}
 <div class="row g-4">
-    <!-- SCAN PROGRESS TOAST -->
-    <div id="scan-toast" style="width: auto; max-width: 400px; right: 2rem; bottom: 2rem;">
-        <div class="scan-pulse"></div>
-        <div>
-            <div class="scan-text">SCAN IN PROGRESS</div>
-            <div class="scan-subtext text-truncate" style="max-width: 300px;">Executing offensive modules...</div>
+    <div class="col-md-6">
+        <div class="meta-label text-muted small text-uppercase mb-1">Status</div>
+        <div class="d-flex align-items-center mb-1">
+            <div class="spinner-border spinner-border-sm text-cyber me-2 {% if scan.status != 'running' %}d-none{% endif %}"
+                id="scan-spinner" role="status"></div>
+            <span class="meta-value font-monospace text-uppercase" id="scan-status-text">{{ scan.status }}</span>
+            <span class="ms-auto small font-monospace text-muted" id="scan-phase-text">initializing...</span>
         </div>
-    </div>
-
-    <!-- HEADER / OVERVIEW PANEL -->
-    <div class="col-12">
-        <div class="card glass-panel">
-            <div class="card-header glass-header d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview</span>
-                <div>
-                    <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-cyber me-2">
-                        <i class="fas fa-home"></i> Mission Control
-                    </a>
-                    <div class="mission-ops d-flex gap-2" style="display: inline-flex !important;">
-                        <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
-                            class="btn btn-xs btn-outline-cyber">
-                            <i class="fas fa-file-pdf me-1"></i>Report
-                        </a>
-                        <a href="{{ url_for('main.scan_osint', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
-                            <i class="fas fa-search-plus me-1"></i>OSINT
-                        </a>
-                        <button class="btn btn-xs btn-outline-warning" data-bs-toggle="modal"
-                            data-bs-target="#harvestLootModal">
-                            <i class="fas fa-hand-holding-usd me-1"></i>Loot
-                        </button>
-                    </div>
-                    <span class="badge status-pill status-{{ scan.status }} ms-2">{{ scan.status }}</span>
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Target</div>
-                        <div class="meta-value fw-bold text-cyber">{{ scan.target.identifier }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Type</div>
-                        <div class="meta-value text-uppercase fw-bold">{{ scan.scan_type }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Duration</div>
-                        <div class="meta-value font-monospace">
-                            {% if scan.end_time and scan.start_time %}
-                            {{ (scan.end_time - scan.start_time)|string|truncate(7, true, '') }}
-                            {% else %}
-                            Running...
-                            {% endif %}
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Status</div>
-                        <div class="meta-value font-monospace text-uppercase">{{ scan.status }}</div>
-                    </div>
-                </div>
-
-                <div class="severity-strip mt-4 d-flex gap-1 flex-wrap">
-                    <div
-                        class="severity-item critical px-3 py-1 bg-black border border-danger text-danger rounded-1 small fw-bold">
-                        CRITICAL: {{ severity_counts['critical'] }}
-                    </div>
-                    <div
-                        class="severity-item high px-3 py-1 bg-black border border-warning text-warning rounded-1 small fw-bold">
-                        HIGH: {{ severity_counts['high'] }}
-                    </div>
-                    <div
-                        class="severity-item medium px-3 py-1 bg-black border border-info text-info rounded-1 small fw-bold">
-                        MEDIUM: {{ severity_counts['medium'] }}
-                    </div>
-                    <div
-                        class="severity-item low px-3 py-1 bg-black border border-secondary text-secondary rounded-1 small fw-bold">
-                        LOW: {{ severity_counts['low'] }}
-                    </div>
-                    <div
-                        class="severity-item info px-3 py-1 bg-black border border-secondary text-muted rounded-1 small">
-                        INFO: {{ severity_counts['info'] }}
-                    </div>
-                </div>
-
-                {% if scan.geolocation_data %}
-                <div class="mt-4 p-3 bg-black border border-secondary rounded shadow-sm">
-                    <div class="row align-items-center">
-                        <div class="col-md-1 text-center">
-                            <i class="fas fa-globe-africa fa-2x text-cyber"></i>
-                        </div>
-                        <div class="col-md-11">
-                            <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
-                            <div class="d-flex gap-4">
-                                <div class="font-monospace small"><span class="text-muted">LOCATION:</span> {{
-                                    scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
-                                <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
-                                    scan.geolocation_data.isp }}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
+        <div class="progress bg-dark border border-secondary" style="height: 6px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-cyber" id="scan-progress-bar"
+                role="progressbar"
+                style="width: {% if scan.status == 'completed' %}100{% elif scan.status == 'running' %}5{% else %}0{% endif %}%">
             </div>
         </div>
     </div>
+</div>
 
-    <!-- MAIN DASHBOARD CONTENT -->
-    <div class="col-lg-8">
-        <div class="row g-4">
-            <!-- NETWORK MAP VISUALIZATION -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-project-diagram me-2"></i>Attack Surface Map
-                    </div>
-                    <div class="card-body" style="padding: 0;">
-                        <div id="network-graph"
-                            style="height: 400px; background: rgba(0,0,0,0.5); border-radius: 0 0 4px 4px;"></div>
-                    </div>
+<div class="severity-strip mt-4 d-flex gap-1 flex-wrap">
+    <div class="severity-item critical px-3 py-1 bg-black border border-danger text-danger rounded-1 small fw-bold">
+        CRITICAL: {{ severity_counts['critical'] }}
+    </div>
+    <div class="severity-item high px-3 py-1 bg-black border border-warning text-warning rounded-1 small fw-bold">
+        HIGH: {{ severity_counts['high'] }}
+    </div>
+    <div class="severity-item medium px-3 py-1 bg-black border border-info text-info rounded-1 small fw-bold">
+        MEDIUM: {{ severity_counts['medium'] }}
+    </div>
+    <div class="severity-item low px-3 py-1 bg-black border border-secondary text-secondary rounded-1 small fw-bold">
+        LOW: {{ severity_counts['low'] }}
+    </div>
+    <div class="severity-item info px-3 py-1 bg-black border border-secondary text-muted rounded-1 small">
+        INFO: {{ severity_counts['info'] }}
+    </div>
+</div>
+
+{% if scan.geolocation_data %}
+<div class="mt-4 p-3 bg-black border border-secondary rounded shadow-sm">
+    <div class="row align-items-center">
+        <div class="col-md-1 text-center">
+            <i class="fas fa-globe-africa fa-2x text-cyber"></i>
+        </div>
+        <div class="col-md-11">
+            <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
+            <div class="d-flex gap-4">
+                <div class="font-monospace small"><span class="text-muted">LOCATION:</span> {{
+                    scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
+                <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
+                    scan.geolocation_data.isp }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+</div>
+</div>
+</div>
+
+<!-- MAIN DASHBOARD CONTENT -->
+<div class="col-lg-8">
+    <div class="row g-4">
+        <!-- NETWORK MAP VISUALIZATION -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-project-diagram me-2"></i>Attack Surface Map
+                </div>
+                <div class="card-body" style="padding: 0;">
+                    <div id="network-graph"
+                        style="height: 400px; background: rgba(0,0,0,0.5); border-radius: 0 0 4px 4px;"></div>
                 </div>
             </div>
+        </div>
 
-            <!-- RECON MATRIX -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-th me-2"></i>Recon Matrix (Deep Audit)</div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-dark table-hover mb-0"
-                                style="border-collapse: separate; border-spacing: 0;">
-                                <thead style="background: rgba(0,0,0,0.3);">
-                                    <tr class="text-muted small text-uppercase">
-                                        <th class="p-3">Service</th>
-                                        <th class="p-3">Risk Score</th>
-                                        <th class="p-3">Port</th>
-                                        <th class="p-3">Version Fingerprint</th>
-                                        <th class="p-3">Context / Technology</th>
-                                        <th class="p-3 text-end">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="recon-matrix-body">
-                                    {% if results and results.phases and results.phases.recon and
-                                    results.phases.recon.open_ports %}
-                                    {% for port in results.phases.recon.open_ports|sort(attribute='priority_score',
-                                    reverse=True) %}
-                                    <tr
-                                        style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; {% if port.priority_score and port.priority_score >= 80 %}background: rgba(255, 42, 42, 0.05);{% endif %}">
-                                        <td class="p-3">
+        <!-- RECON MATRIX -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-th me-2"></i>Recon Matrix (Deep Audit)</div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover mb-0"
+                            style="border-collapse: separate; border-spacing: 0;">
+                            <thead style="background: rgba(0,0,0,0.3);">
+                                <tr class="text-muted small text-uppercase">
+                                    <th class="p-3">Service</th>
+                                    <th class="p-3">Risk Score</th>
+                                    <th class="p-3">Port</th>
+                                    <th class="p-3">Version Fingerprint</th>
+                                    <th class="p-3">Context / Technology</th>
+                                    <th class="p-3 text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recon-matrix-body">
+                                {% if results and results.phases and results.phases.recon and
+                                results.phases.recon.open_ports %}
+                                {% for port in results.phases.recon.open_ports|sort(attribute='priority_score',
+                                reverse=True) %}
+                                <tr
+                                    style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; {% if port.priority_score and port.priority_score >= 80 %}background: rgba(255, 42, 42, 0.05);{% endif %}">
+                                    <td class="p-3">
+                                        <span
+                                            class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"
+                                            style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                            <i class="fas fa-server me-1 opacity-50"></i>{{ port.service_name }}
+                                        </span>
+                                    </td>
+                                    <td class="p-3">
+                                        {% set score = port.priority_score or 0 %}
+                                        <div class="d-flex align-items-center">
+                                            <div class="progress bg-dark border border-secondary"
+                                                style="height: 6px; width: 40px; margin-right: 10px;">
+                                                <div class="progress-bar {% if score >= 85 %}bg-danger shadow-danger{% elif score >= 50 %}bg-warning{% else %}bg-info{% endif %}"
+                                                    role="progressbar" style="width: {{ score }}%"></div>
+                                            </div>
                                             <span
-                                                class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"
-                                                style="font-size: 0.72rem; letter-spacing: 0.5px;">
-                                                <i class="fas fa-server me-1 opacity-50"></i>{{ port.service_name }}
+                                                class="badge {% if score >= 85 %}text-danger fw-bold{% elif score >= 50 %}text-warning{% else %}text-info{% endif %} font-monospace"
+                                                style="font-size: 0.8rem;">
+                                                {{ score }}<small class="opacity-50">/100</small>
                                             </span>
-                                        </td>
-                                        <td class="p-3">
-                                            {% set score = port.priority_score or 0 %}
-                                            <div class="d-flex align-items-center">
-                                                <div class="progress bg-dark border border-secondary"
-                                                    style="height: 6px; width: 40px; margin-right: 10px;">
-                                                    <div class="progress-bar {% if score >= 85 %}bg-danger shadow-danger{% elif score >= 50 %}bg-warning{% else %}bg-info{% endif %}"
-                                                        role="progressbar" style="width: {{ score }}%"></div>
-                                                </div>
-                                                <span
-                                                    class="badge {% if score >= 85 %}text-danger fw-bold{% elif score >= 50 %}text-warning{% else %}text-info{% endif %} font-monospace"
-                                                    style="font-size: 0.8rem;">
-                                                    {{ score }}<small class="opacity-50">/100</small>
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td class="p-3">
-                                            <code class="text-info fw-bold"
-                                                style="font-size: 0.9rem; background: rgba(0,240,255,0.05); padding: 2px 6px; border-radius: 4px;">{{ port.port }}/tcp</code>
-                                        </td>
-                                        <td class="p-3">
-                                            {% if port.version and port.version != "Unknown" %}
-                                            <span class="text-light opacity-75 small font-monospace">{{ port.version
-                                                }}</span>
-                                            {% else %}
-                                            <span class="text-muted fst-italic small">Fingerprinting...</span>
-                                            {% endif %}
-                                        </td>
-                                        <td class="p-3">
-                                            {% set port_key = port.port|string %}
-                                            {% if results.phases.enum and results.phases.enum.whatweb and
-                                            results.phases.enum.whatweb[port_key] %}
-                                            {% set ww = results.phases.enum.whatweb[port_key] %}
-                                            <div class="d-flex flex-wrap gap-2">
-                                                {% if "Title[" in ww %}
-                                                <span
-                                                    class="badge rounded-pill bg-dark border border-secondary text-info shadow-sm py-1 px-2"
-                                                    title="HTML Page Title">
-                                                    <i class="fas fa-heading me-1 opacity-50"></i>{{
-                                                    ww.split('Title[')[1].split(']')[0] }}
-                                                </span>
-                                                {% endif %}
-                                                {% if "HTTPServer[" in ww %}
-                                                <span
-                                                    class="badge rounded-pill bg-dark border border-secondary text-warning shadow-sm py-1 px-2">
-                                                    <i class="fas fa-microchip me-1 opacity-50"></i>{{
-                                                    ww.split('HTTPServer[')[1].split(']')[0] }}
-                                                </span>
-                                                {% endif %}
-                                            </div>
-                                            {% else %}
-                                            <span class="text-muted small">-</span>
-                                            {% endif %}
-                                        </td>
-                                        <td class="p-3 text-end">
-                                            {% if 'http' in port.service_name or port.port in [80, 443, 8080, 8443] %}
-                                            {% set proto = 'https' if port.port in [443, 8443] else 'http' %}
-                                            <a href="{{ proto }}://{{ scan.target.identifier }}:{{ port.port }}"
-                                                target="_blank" class="btn btn-xs btn-outline-info"
-                                                title="Visit Web Service">
-                                                <i class="fas fa-external-link-alt me-1"></i>Visit
-                                            </a>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                    {% else %}
-                                    <tr>
-                                        <td colspan="6" class="p-4 text-center text-muted">
-                                            <i class="fas fa-search fa-2x mb-3"></i>
-                                            <p>No attack surface identified yet. Scan in progress or target
-                                                unresponsive.</p>
-                                        </td>
-                                    </tr>
-                                    {% endif %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ENUM RESULTS (WhatWeb) -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
-                    <div class="card-body" id="whatweb-results">
-                        {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb and
-                        results.phases.enum.whatweb.summary %}
-                        <div class="tag-grid d-flex flex-wrap gap-2">
-                            {% for key, value in results.phases.enum.whatweb.summary.items() %}
-                            <div class="tag-item px-2 py-1 bg-black border border-secondary rounded small">
-                                <span class="tag-key text-muted me-1">{{ key }}:</span>
-                                <span class="tag-value text-cyber">{{ value }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No enumeration summary available.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <!-- DEEP CRAWLING (Katana) - NEW -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana-DS)
-                    </div>
-                    <div class="card-body" id="katana-results">
-                        {% if results and results.phases.enum and results.phases.enum.katana %}
-                        <div class="accordion" id="accordionKatana">
-                            {% for port, endpoints in results.phases.enum.katana.items() %}
-                            <div class="accordion-item bg-black border-secondary">
-                                <h2 class="accordion-header" id="heading-katana-{{ port }}">
-                                    <button
-                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
-                                        type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapse-katana-{{ port }}" aria-expanded="false"
-                                        aria-controls="collapse-katana-{{ port }}">
-                                        <span class="badge bg-info me-2">Port {{ port }}</span>
-                                        <span class="font-monospace small text-muted">{{ endpoints|length }} Endpoints
-                                            Discovered</span>
-                                    </button>
-                                </h2>
-                                <div id="collapse-katana-{{ port }}" class="accordion-collapse collapse"
-                                    aria-labelledby="heading-katana-{{ port }}" data-bs-parent="#accordionKatana">
-                                    <div class="accordion-body p-0">
-                                        <div class="p-2" style="max-height: 200px; overflow-y: auto;">
-                                            {% for ep in endpoints %}
-                                            <div
-                                                class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
-                                                <a href="{{ ep }}" target="_blank"
-                                                    class="text-decoration-none text-cyber hover-action">{{ ep }}</a>
-                                            </div>
-                                            {% endfor %}
                                         </div>
+                                    </td>
+                                    <td class="p-3">
+                                        <code class="text-info fw-bold"
+                                            style="font-size: 0.9rem; background: rgba(0,240,255,0.05); padding: 2px 6px; border-radius: 4px;">{{ port.port }}/tcp</code>
+                                    </td>
+                                    <td class="p-3">
+                                        {% if port.version and port.version != "Unknown" %}
+                                        <span class="text-light opacity-75 small font-monospace">{{ port.version
+                                            }}</span>
+                                        {% else %}
+                                        <span class="text-muted fst-italic small">Fingerprinting...</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="p-3">
+                                        {% set port_key = port.port|string %}
+                                        {% if results.phases.enum and results.phases.enum.whatweb and
+                                        results.phases.enum.whatweb[port_key] %}
+                                        {% set ww = results.phases.enum.whatweb[port_key] %}
+                                        <div class="d-flex flex-wrap gap-2">
+                                            {% if "Title[" in ww %}
+                                            <span
+                                                class="badge rounded-pill bg-dark border border-secondary text-info shadow-sm py-1 px-2"
+                                                title="HTML Page Title">
+                                                <i class="fas fa-heading me-1 opacity-50"></i>{{
+                                                ww.split('Title[')[1].split(']')[0] }}
+                                            </span>
+                                            {% endif %}
+                                            {% if "HTTPServer[" in ww %}
+                                            <span
+                                                class="badge rounded-pill bg-dark border border-secondary text-warning shadow-sm py-1 px-2">
+                                                <i class="fas fa-microchip me-1 opacity-50"></i>{{
+                                                ww.split('HTTPServer[')[1].split(']')[0] }}
+                                            </span>
+                                            {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted small">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="p-3 text-end">
+                                        {% if 'http' in port.service_name or port.port in [80, 443, 8080, 8443] %}
+                                        {% set proto = 'https' if port.port in [443, 8443] else 'http' %}
+                                        <a href="{{ proto }}://{{ scan.target.identifier }}:{{ port.port }}"
+                                            target="_blank" class="btn btn-xs btn-outline-info"
+                                            title="Visit Web Service">
+                                            <i class="fas fa-external-link-alt me-1"></i>Visit
+                                        </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="p-4 text-center text-muted">
+                                        <i class="fas fa-search fa-2x mb-3"></i>
+                                        <p>No attack surface identified yet. Scan in progress or target
+                                            unresponsive.</p>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ENUM RESULTS (WhatWeb) -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
+                <div class="card-body" id="whatweb-results">
+                    {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb and
+                    results.phases.enum.whatweb.summary %}
+                    <div class="tag-grid d-flex flex-wrap gap-2">
+                        {% for key, value in results.phases.enum.whatweb.summary.items() %}
+                        <div class="tag-item px-2 py-1 bg-black border border-secondary rounded small">
+                            <span class="tag-key text-muted me-1">{{ key }}:</span>
+                            <span class="tag-value text-cyber">{{ value }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No enumeration summary available.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- DEEP CRAWLING (Katana) - NEW -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana-DS)
+                </div>
+                <div class="card-body" id="katana-results">
+                    {% if results and results.phases.enum and results.phases.enum.katana %}
+                    <div class="accordion" id="accordionKatana">
+                        {% for port, endpoints in results.phases.enum.katana.items() %}
+                        <div class="accordion-item bg-black border-secondary">
+                            <h2 class="accordion-header" id="heading-katana-{{ port }}">
+                                <button
+                                    class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                    type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-{{ port }}"
+                                    aria-expanded="false" aria-controls="collapse-katana-{{ port }}">
+                                    <span class="badge bg-info me-2">Port {{ port }}</span>
+                                    <span class="font-monospace small text-muted">{{ endpoints|length }} Endpoints
+                                        Discovered</span>
+                                </button>
+                            </h2>
+                            <div id="collapse-katana-{{ port }}" class="accordion-collapse collapse"
+                                aria-labelledby="heading-katana-{{ port }}" data-bs-parent="#accordionKatana">
+                                <div class="accordion-body p-0">
+                                    <div class="p-2" style="max-height: 200px; overflow-y: auto;">
+                                        {% for ep in endpoints %}
+                                        <div
+                                            class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
+                                            <a href="{{ ep }}" target="_blank"
+                                                class="text-decoration-none text-cyber hover-action">{{ ep }}</a>
+                                        </div>
+                                        {% endfor %}
                                     </div>
                                 </div>
                             </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No crawling results yet.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <!-- NUCLEI RESULTS -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)
-                    </div>
-                    <div class="card-body" id="nuclei-results">
-                        {% if results and results.phases and results.phases.vuln and results.phases.vuln.nuclei and
-                        results.phases.vuln.nuclei.findings %}
-                        <div class="result-list">
-                            {% for finding in results.phases.vuln.nuclei.findings %}
-                            <div
-                                class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between">
-                                <span class="badge severity-badge {{ finding.severity }} me-2 text-uppercase">{{
-                                    finding.severity }}</span>
-                                <span class="result-text flex-grow-1">{{ finding.title }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No vulnerabilities reported.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <!-- FFUF RESULTS -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
-                    <div class="card-body" id="ffuf-results">
-                        {% if results and results.phases and results.phases.dirbusting and
-                        results.phases.dirbusting.ffuf and results.phases.dirbusting.ffuf.endpoints %}
-                        <div class="result-list">
-                            {% for endpoint in results.phases.dirbusting.ffuf.endpoints %}
-                            <div
-                                class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between">
-                                <span class="badge bg-secondary font-monospace">/{{ endpoint.path }}</span>
-                                <span class="result-text small text-muted">Status {{ endpoint.status }} · Size {{
-                                    endpoint.size }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <div class="text-muted">No endpoints discovered.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <!-- EXECUTION LOG (MOVED HERE) -->
-            <div class="col-12">
-                <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-terminal me-2"></i>Execution Log</div>
-                    <div class="card-body font-monospace log-console"
-                        style="max-height: 400px; min-height: 300px; overflow-y: auto; background: #000;">
-                        {% if logs %}
-                        {% for log in logs %}
-                        <div>
-                            <span class="text-muted opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
-                            <span
-                                class="{% if log.level == 'INFO' %}text-secondary{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %}">{{
-                                log.level }}</span>
-                            {{ log.message }}
                         </div>
                         {% endfor %}
-                        {% else %}
-                        <div class="text-muted">No logs recorded.</div>
-                        {% endif %}
                     </div>
+                    {% else %}
+                    <div class="text-muted">No crawling results yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- NUCLEI RESULTS -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)
+                </div>
+                <div class="card-body" id="nuclei-results">
+                    {% if results and results.phases and results.phases.vuln and results.phases.vuln.nuclei and
+                    results.phases.vuln.nuclei.findings %}
+                    <div class="result-list">
+                        {% for finding in results.phases.vuln.nuclei.findings %}
+                        <div
+                            class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between">
+                            <span class="badge severity-badge {{ finding.severity }} me-2 text-uppercase">{{
+                                finding.severity }}</span>
+                            <span class="result-text flex-grow-1">{{ finding.title }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No vulnerabilities reported.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- FFUF RESULTS -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
+                <div class="card-body" id="ffuf-results">
+                    {% if results and results.phases and results.phases.dirbusting and
+                    results.phases.dirbusting.ffuf and results.phases.dirbusting.ffuf.endpoints %}
+                    <div class="result-list">
+                        {% for endpoint in results.phases.dirbusting.ffuf.endpoints %}
+                        <div
+                            class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between">
+                            <span class="badge bg-secondary font-monospace">/{{ endpoint.path }}</span>
+                            <span class="result-text small text-muted">Status {{ endpoint.status }} · Size {{
+                                endpoint.size }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No endpoints discovered.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- EXECUTION LOG (MOVED HERE) -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-terminal me-2"></i>Execution Log</div>
+                <div class="card-body font-monospace log-console"
+                    style="max-height: 400px; min-height: 300px; overflow-y: auto; background: #000;">
+                    {% if logs %}
+                    {% for log in logs %}
+                    <div>
+                        <span class="text-muted opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
+                        <span
+                            class="{% if log.level == 'INFO' %}text-secondary{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %}">{{
+                            log.level }}</span>
+                        {{ log.message }}
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-muted">No logs recorded.</div>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- SIDEBAR / UTILITIES -->
-    <div class="col-lg-4">
-        <!-- RAW OUTPUT -->
-        <div class="card glass-panel mb-4 text-secondary" style="font-size: 0.8rem;">
-            <div class="card-header glass-header py-1" data-bs-toggle="collapse" data-bs-target="#rawOutput"
-                style="cursor: pointer; opacity: 0.7;">
-                <i class="fas fa-terminal me-2"></i>Raw Nmap View
-            </div>
-            <div id="rawOutput" class="collapse">
-                <div class="card-body bg-black p-2">
-                    <pre class="m-0"
-                        style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 0.7rem;">{{ results.phases.recon.raw_output if results and results.phases and results.phases.recon else 'No raw output.' }}</pre>
-                </div>
-            </div>
+<!-- SIDEBAR / UTILITIES -->
+<div class="col-lg-4">
+    <!-- RAW OUTPUT -->
+    <div class="card glass-panel mb-4 text-secondary" style="font-size: 0.8rem;">
+        <div class="card-header glass-header py-1" data-bs-toggle="collapse" data-bs-target="#rawOutput"
+            style="cursor: pointer; opacity: 0.7;">
+            <i class="fas fa-terminal me-2"></i>Raw Nmap View
         </div>
-
-        <!-- FINDINGS -->
-        <div class="card glass-panel mb-4">
-            <div class="card-header glass-header"><i class="fas fa-bell me-2"></i>Findings</div>
-            <div class="card-body" id="findings-container" style="max-height: 600px; overflow-y: auto;">
-                {% if findings %}
-                <div class="result-list">
-                    {% for finding in findings %}
-                    <div
-                        class="result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight">
-                        <div class="d-flex w-100 justify-content-between mb-2">
-                            <span class="badge severity-badge {{ finding.severity }} text-uppercase">{{ finding.severity
-                                }}</span>
-                            <span class="result-text fw-bold text-break">{{ finding.title }}</span>
-                        </div>
-                        {% if finding.description %}
-                        <div class="mt-1 small text-muted text-break" style="white-space: pre-wrap;">{{
-                            finding.description }}</div>
-                        {% endif %}
-                        {% if finding.screenshot_path %}
-                        <div class="mt-2 w-100">
-                            <img src="{{ url_for('static', filename=finding.screenshot_path) }}"
-                                class="img-fluid rounded border border-secondary shadow-sm"
-                                style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)">
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="text-muted">No findings recorded.</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- SUGGESTIONS -->
-        <div class="card glass-panel mb-4">
-            <div class="card-header glass-header"><i class="fas fa-lightbulb me-2"></i>Suggestions</div>
-            <div class="card-body" id="suggestions-container">
-                {% if suggestions %}
-                <div class="result-list">
-                    {% for suggestion in suggestions %}
-                    <div
-                        class="result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded">
-                        <div>
-                            <span class="badge bg-secondary me-2">{{ suggestion.tool_name }}</span>
-                            <span class="result-text font-monospace small">{{ suggestion.command_suggestion }}</span>
-                            {% if suggestion.reason %}
-                            <div class="mt-1 x-small text-muted opacity-50">{{ suggestion.reason }}</div>
-                            {% endif %}
-                        </div>
-                        <button class="btn btn-xs btn-outline-warning"
-                            onclick='verifyFinding({{ suggestion.command_suggestion|tojson|safe }})'>
-                            <i class="fas fa-play me-1"></i>
-                        </button>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="text-muted">No suggestions recorded.</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- NOTES -->
-        <div class="card glass-panel mb-4">
-            <div class="card-header glass-header"><i class="fas fa-sticky-note me-2"></i>Operator Notes (War Room)</div>
-            <div class="card-body">
-                <form action="{{ url_for('main.update_notes', scan_id=scan.id) }}" method="POST">
-                    <textarea name="notes" class="form-control bg-dark text-light border-secondary mb-2" rows="6"
-                        placeholder="Document your findings... Markdown supported">{{ scan.notes or '' }}</textarea>
-                    <div class="text-end">
-                        <button type="submit" class="btn btn-sm btn-outline-success">Save Notes</button>
-                    </div>
-                </form>
+        <div id="rawOutput" class="collapse">
+            <div class="card-body bg-black p-2">
+                <pre class="m-0"
+                    style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 0.7rem;">{{ results.phases.recon.raw_output if results and results.phases and results.phases.recon else 'No raw output.' }}</pre>
             </div>
         </div>
     </div>
+
+    <!-- FINDINGS -->
+    <div class="card glass-panel mb-4">
+        <div class="card-header glass-header"><i class="fas fa-bell me-2"></i>Findings</div>
+        <div class="card-body" id="findings-container" style="max-height: 600px; overflow-y: auto;">
+            {% if findings %}
+            <div class="result-list">
+                {% for finding in findings %}
+                <div
+                    class="result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight">
+                    <div class="d-flex w-100 justify-content-between mb-2">
+                        <span class="badge severity-badge {{ finding.severity }} text-uppercase">{{ finding.severity
+                            }}</span>
+                        <span class="result-text fw-bold text-break">{{ finding.title }}</span>
+                    </div>
+                    {% if finding.description %}
+                    <div class="mt-1 small text-muted text-break" style="white-space: pre-wrap;">{{
+                        finding.description }}</div>
+                    {% endif %}
+                    {% if finding.screenshot_path %}
+                    <div class="mt-2 w-100">
+                        <img src="{{ url_for('static', filename=finding.screenshot_path) }}"
+                            class="img-fluid rounded border border-secondary shadow-sm"
+                            style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)">
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted">No findings recorded.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- SUGGESTIONS -->
+    <div class="card glass-panel mb-4">
+        <div class="card-header glass-header"><i class="fas fa-lightbulb me-2"></i>Suggestions</div>
+        <div class="card-body" id="suggestions-container">
+            {% if suggestions %}
+            <div class="result-list">
+                {% for suggestion in suggestions %}
+                <div
+                    class="result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded">
+                    <div>
+                        <span class="badge bg-secondary me-2">{{ suggestion.tool_name }}</span>
+                        <span class="result-text font-monospace small">{{ suggestion.command_suggestion }}</span>
+                        {% if suggestion.reason %}
+                        <div class="mt-1 x-small text-muted opacity-50">{{ suggestion.reason }}</div>
+                        {% endif %}
+                    </div>
+                    <button class="btn btn-xs btn-outline-warning"
+                        onclick='verifyFinding({{ suggestion.command_suggestion|tojson|safe }})'>
+                        <i class="fas fa-play me-1"></i>
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted">No suggestions recorded.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- NOTES -->
+    <div class="card glass-panel mb-4">
+        <div class="card-header glass-header"><i class="fas fa-sticky-note me-2"></i>Operator Notes (War Room)</div>
+        <div class="card-body">
+            <form action="{{ url_for('main.update_notes', scan_id=scan.id) }}" method="POST">
+                <textarea name="notes" class="form-control bg-dark text-light border-secondary mb-2" rows="6"
+                    placeholder="Document your findings... Markdown supported">{{ scan.notes or '' }}</textarea>
+                <div class="text-end">
+                    <button type="submit" class="btn btn-sm btn-outline-success">Save Notes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 </div>
 
 <!-- Modal: Harvest Loot -->
@@ -624,7 +575,7 @@
                 highlightPTES(data.message);
 
                 if (data.message.includes("Scan finished") || data.message.includes("Phase 9 finished")) {
-                    toggleScanToast(false);
+                    // toggleScanToast(false); // Removed toast
                     const statusPill = document.querySelector('.status-pill');
                     if (statusPill) {
                         statusPill.innerText = 'finished';
@@ -727,23 +678,124 @@
                 const wwDiv = document.querySelector("#whatweb-results");
                 const summary = results.phases.enum.whatweb.summary || {};
                 if (wwDiv && Object.keys(summary).length > 0) {
-                    let html = '<div class="tag-grid d-flex flex-wrap gap-2">';
-                    for (const [key, value] of Object.entries(summary)) {
-                        html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${key}:</span><span class="tag-value text-cyber">${value}</span></div>`;
-                    }
-                    html += '</div>';
-                    wwDiv.innerHTML = html;
-                }
-            }
+                    // Progress Update Listener
+                    socket.on("progress_update", function (data) {
+                        if (data.scan_id == scanId) {
+                            // Update Progress Bar
+                            const bar = document.getElementById('scan-progress-bar');
+                            const phaseText = document.getElementById('scan-phase-text');
+                            const statusText = document.getElementById('scan-status-text');
+                            const spinner = document.getElementById('scan-spinner');
 
-            // 4. Update Katana (Deep Crawl)
-            if (results.phases.enum && results.phases.enum.katana) {
-                const katDiv = document.querySelector("#katana-results");
-                const kResults = results.phases.enum.katana;
-                if (katDiv && Object.keys(kResults).length > 0) {
-                    let html = '<div class="accordion" id="accordionKatana">';
-                    for (const [port, endpoints] of Object.entries(kResults)) {
-                        html += `
+                            if (bar) {
+                                bar.style.width = data.percent + '%';
+                                bar.setAttribute('aria-valuenow', data.percent);
+                            }
+                            if (phaseText) phaseText.innerText = data.current_phase;
+
+                            if (data.percent >= 100) {
+                                if (statusText) statusText.innerText = 'completed';
+                                if (spinner) spinner.classList.add('d-none');
+                                if (bar) {
+                                    bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                                    bar.classList.add('bg-success');
+                                }
+                            } else {
+                                if (statusText) statusText.innerText = 'running';
+                                if (spinner) spinner.classList.remove('d-none');
+                            }
+                        }
+                    });
+
+                    window.updateUI = function (results) {
+                        if (!results) return;
+
+                        // 0. Update Progress if present in full snapshot
+                        if (results.progress) {
+                            const bar = document.getElementById('scan-progress-bar');
+                            const phaseText = document.getElementById('scan-phase-text');
+                            if (bar) bar.style.width = results.progress.percent + '%';
+                            if (phaseText) phaseText.innerText = results.progress.current_phase;
+                        }
+
+                        if (!results.phases) return;
+
+                        // 1. Update Recon Matrix (Table)
+                        const matrixBody = document.querySelector("#recon-matrix-body");
+                        if (matrixBody && results.phases.recon && results.phases.recon.open_ports) {
+                            let html = "";
+                            const ports = results.phases.recon.open_ports.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+
+                            ports.forEach(port => {
+                                const score = port.priority_score || 0;
+                                const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
+                                const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
+                                const bgStyle = score >= 85 ? 'background: rgba(255, 42, 42, 0.05);' : '';
+                                // Check if http/https logic is consistent with Jinja template
+                                const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
+                                const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
+
+                                html += `<tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
+                        <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"><i class="fas fa-server me-1 opacity-50"></i>${port.service_name}</span></td>
+                        <td class="p-3">
+                            <div class="d-flex align-items-center">
+                                <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
+                                    <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
+                                </div>
+                                <span class="badge ${scoreClass} font-monospace">${score}<small class="opacity-50">/100</small></span>
+                            </div>
+                        </td>
+                        <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
+                        <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
+                        <td class="p-3"><span class="text-muted small">Updated via live sync</span></td>
+                        <td class="p-3 text-end">
+                            ${isWeb ? `<a href="${proto}://${targetLabel}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
+                        </td>
+                    </tr>`;
+                            });
+                            matrixBody.innerHTML = html;
+                        }
+
+                        // 2. Update Graph Nodes
+                        if (results.phases.recon && results.phases.recon.open_ports) {
+                            if (!network) initGraph();
+                            if (!nodes.get(0)) nodes.add({ id: 0, label: targetLabel, color: "#ff2a2a", shape: "hexagon", size: 40 });
+                            results.phases.recon.open_ports.forEach(port => {
+                                const pId = "p" + port.port;
+                                if (!nodes.get(pId)) {
+                                    nodes.add({ id: pId, label: port.port + "\n" + port.service_name, color: "#00f0ff", shape: "dot", size: 15 });
+                                    edges.add({ from: 0, to: pId, color: { color: "#333" } });
+                                }
+                            });
+                        }
+
+                        // 3. Update ENUM (WhatWeb)
+                        if (results.phases.enum && results.phases.enum.whatweb) {
+                            const wwDiv = document.querySelector("#whatweb-results");
+                            const summary = results.phases.enum.whatweb.summary || {};
+
+                            // If summary might be nested per port like { 'Title (80)': 'Foo', ... } or flat
+                            // The backend now produces a 'summary' dict.
+
+                            if (wwDiv && Object.keys(summary).length > 0) {
+                                let html = '<div class="tag-grid d-flex flex-wrap gap-2">';
+                                for (const [key, value] of Object.entries(summary)) {
+                                    // Clean up any extra brackets/formatting if raw
+                                    html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${key}:</span><span class="tag-value text-cyber">${value}</span></div>`;
+                                }
+                                html += '</div>';
+                                wwDiv.innerHTML = html;
+                            }
+                        }
+
+                        // 4. Update Katana (Deep Crawl)
+                        if (results.phases.enum && results.phases.enum.katana) {
+                            const katDiv = document.querySelector("#katana-results");
+                            const kResults = results.phases.enum.katana;
+                            if (katDiv && Object.keys(kResults).length > 0) {
+                                let html = '<div class="accordion" id="accordionKatana">';
+                                for (const [port, endpoints] of Object.entries(kResults)) {
+                                    html += `
                             <div class="accordion-item bg-black border-secondary">
                                 <h2 class="accordion-header" id="heading-katana-${port}">
                                     <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse"
@@ -756,62 +808,89 @@
                                     data-bs-parent="#accordionKatana">
                                     <div class="accordion-body p-0">
                                         <div class="p-2" style="max-height: 200px; overflow-y: auto;">`;
-                        endpoints.forEach(ep => {
-                            html += `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
+                                    endpoints.forEach(ep => {
+                                        html += `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
                                         <a href="${ep}" target="_blank" class="text-decoration-none text-cyber hover-action">${ep}</a>
                                       </div>`;
-                        });
-                        html += `     </div>
+                                    });
+                                    html += `     </div>
                                     </div>
                                 </div>
                             </div>`;
-                    }
-                    html += '</div>';
-                    katDiv.innerHTML = html;
-                }
-            }
+                                }
+                                html += '</div>';
+                                katDiv.innerHTML = html;
+                            }
+                        }
 
-            // 5. Update VULN (Nuclei)
-            if (results.phases.vuln && results.phases.vuln.nuclei) {
-                const nucDiv = document.querySelector("#nuclei-results");
-                const findings = results.phases.vuln.nuclei.findings || [];
-                if (nucDiv && findings.length > 0) {
-                    let html = '<div class="result-list">';
-                    findings.forEach(f => {
-                        html += `<div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between">
+                        // 5. Update Dirbusting (ffuf)
+                        if (results.phases.dirbusting && results.phases.dirbusting.ffuf && results.phases.dirbusting.ffuf.endpoints) {
+                            const ffufDiv = document.querySelector("#ffuf-results");
+                            const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
+                            if (ffufDiv && endpoints.length > 0) {
+                                let html = '<div class="table-responsive"><table class="table table-dark table-hover table-sm small mb-0"><thead><tr><th>Code</th><th>Path</th><th>Size</th></tr></thead><tbody>';
+                                endpoints.forEach(ep => {
+                                    // Try to color code HTTP status
+                                    let statusClass = "text-secondary";
+                                    if (ep.status.startsWith("2")) statusClass = "text-success";
+                                    if (ep.status.startsWith("3")) statusClass = "text-info";
+                                    if (ep.status.startsWith("4")) statusClass = "text-warning";
+
+                                    html += `<tr>
+                               <td><span class="badge bg-black border border-secondary ${statusClass}">${ep.status}</span></td>
+                               <td class="font-monospace text-break">/${ep.path}</td>
+                               <td class="text-muted">${ep.size || '-'}</td>
+                           </tr>`;
+                                });
+                                html += '</tbody></table></div>';
+                                ffufDiv.innerHTML = html;
+                            } else if (ffufDiv) {
+                                ffufDiv.innerHTML = '<span class="text-muted small fst-italic">No endpoints discovered.</span>';
+                            }
+                        }
+
+                        // 6. Update VULN (Nuclei)
+                        if (results.phases.vuln && results.phases.vuln.nuclei) {
+                            const nucDiv = document.querySelector("#nuclei-results");
+                            const findings = results.phases.vuln.nuclei.findings || [];
+                            if (nucDiv && findings.length > 0) {
+                                let html = '<div class="result-list">';
+                                findings.forEach(f => {
+                                    html += `<div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between">
                                 <span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span>
                                 <span class="result-text flex-grow-1">${f.title}</span>
                             </div>`;
-                    });
-                    html += '</div>';
-                    nucDiv.innerHTML = html;
+                                });
+                                html += '</div>';
+                                nucDiv.innerHTML = html;
+                            }
+                        }
+                    };
+
+                    // Initial Data Load
+                    {% if results %}
+                    const initialResults = {{ results| tojson | safe
                 }
-            }
-        };
+            };
+            // Delay slightly to ensure DOM ready
+            setTimeout(() => {
+                updateUI(initialResults);
+            }, 500);
+            {% endif %}
 
-        // Initial Data Load
-        {% if results %}
-        const initialResults = {{ results| tojson | safe
-    }};
-    // Delay slightly to ensure DOM ready
-    setTimeout(() => {
-        updateUI(initialResults);
-    }, 500);
-    {% endif %}
+            function showNodeDetails(nodeId) {
+                const node = nodes.get(nodeId);
+                const title = document.getElementById("nodeDetailTitle");
+                const body = document.getElementById("nodeDetailBody");
 
-    function showNodeDetails(nodeId) {
-        const node = nodes.get(nodeId);
-        const title = document.getElementById("nodeDetailTitle");
-        const body = document.getElementById("nodeDetailBody");
+                if (!node) return;
 
-        if (!node) return;
+                title.innerText = node.label.replace("\n", " ");
 
-        title.innerText = node.label.replace("\n", " ");
-
-        let content = `<div class="p-4">`;
-        if (nodeId.toString().startsWith('p')) {
-            const portNum = nodeId.replace('p', '');
-            content += `
+                let content = `<div class="p-4">`;
+                if (nodeId.toString().startsWith('p')) {
+                    const portNum = nodeId.replace('p', '');
+                    content += `
                     <div class="d-flex align-items-center mb-4">
                         <div class="display-4 text-info fw-bold me-3">${portNum}</div>
                         <div>
@@ -842,8 +921,8 @@
                         </div>
                     </div>
                 `;
-        } else if (nodeId.toString().startsWith('v')) {
-            content += `
+                } else if (nodeId.toString().startsWith('v')) {
+                    content += `
                     <div class="text-center mb-4">
                         <i class="fas fa-microchip fa-3x text-success mb-3"></i>
                         <h5>Service Version Found</h5>
@@ -851,28 +930,28 @@
                     </div>
                     <p class="text-muted">Exact version match found via Nmap fingerprinting. Used by the Intelligence Engine to map potential CVEs.</p>
                  `;
-        } else {
-            content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
-        }
-        content += `</div>`;
-        body.innerHTML = content;
-        const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
-        modal.show();
-    }
+                } else {
+                    content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
+                }
+                content += `</div>`;
+                body.innerHTML = content;
+                const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
+                modal.show();
+            }
 
-    // Markdown Logic
-    const notesTextarea = document.querySelector('textarea[name="notes"]');
-    if (notesTextarea) {
-        // Simple preview
-        const preview = document.createElement('div');
-        preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
-        notesTextarea.parentNode.insertBefore(preview, notesTextarea.nextSibling);
-        notesTextarea.addEventListener('input', () => {
-            preview.innerHTML = marked.parse(notesTextarea.value);
+            // Markdown Logic
+            const notesTextarea = document.querySelector('textarea[name="notes"]');
+            if (notesTextarea) {
+                // Simple preview
+                const preview = document.createElement('div');
+                preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
+                notesTextarea.parentNode.insertBefore(preview, notesTextarea.nextSibling);
+                notesTextarea.addEventListener('input', () => {
+                    preview.innerHTML = marked.parse(notesTextarea.value);
+                });
+                preview.innerHTML = marked.parse(notesTextarea.value || "*No notes*");
+            }
+
         });
-        preview.innerHTML = marked.parse(notesTextarea.value || "*No notes*");
-    }
-
-    });
 </script>
 {% endblock %}
