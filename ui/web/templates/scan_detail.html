@@ -76,6 +76,26 @@
             </div>
         </div>
 
+        <!-- DNS INTELLIGENCE -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-sitemap me-2"></i>DNS Intelligence</div>
+                <div class="card-body" id="dns-results">
+                    {% if results and results.phases and results.phases.dns and results.phases.dns.subdomains %}
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for sub in results.phases.dns.subdomains %}
+                        <div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">
+                            {{ sub }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No subdomains discovered.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
         <!-- RECON MATRIX -->
         <div class="col-12">
             <div class="card glass-panel">
@@ -185,6 +205,49 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ATTACK VECTOR ANALYSIS -->
+        <div class="col-12">
+            <div class="card glass-panel">
+                <div class="card-header glass-header"><i class="fas fa-brain me-2"></i>Attack Vector Analysis (Intel Engine)</div>
+                <div class="card-body" id="intel-results">
+                    {% if results and results.phases and results.phases.intel %}
+                    <div class="accordion" id="accordionIntel">
+                        {% for port, vectors in results.phases.intel.items() %}
+                        <div class="accordion-item bg-black border-secondary">
+                            <h2 class="accordion-header" id="heading-intel-{{ port }}">
+                                <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse"
+                                    data-bs-target="#collapse-intel-{{ port }}" aria-expanded="false" aria-controls="collapse-intel-{{ port }}">
+                                    <span class="badge bg-warning me-2">Port {{ port }}</span>
+                                    <span class="font-monospace small text-muted">{{ vectors|length }} Vectors Identified</span>
+                                </button>
+                            </h2>
+                            <div id="collapse-intel-{{ port }}" class="accordion-collapse collapse" aria-labelledby="heading-intel-{{ port }}"
+                                data-bs-parent="#accordionIntel">
+                                <div class="accordion-body p-0">
+                                    <div class="p-2">
+                                        {% for v in vectors %}
+                                        <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="fw-bold text-info small">{{ v.name }}</span>
+                                                <span class="badge {% if v.score >= 80 %}bg-danger{% else %}bg-secondary{% endif %}">Score: {{ v.score }}</span>
+                                            </div>
+                                            <div class="small text-muted mb-1">{{ v.description }}</div>
+                                            <div class="font-monospace x-small text-warning bg-black p-1 rounded">Action: {{ v.action }}</div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted">No specific attack vectors mapped.</div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -720,6 +783,20 @@
 
                         if (!results.phases) return;
 
+                        // NEW: Update DNS
+                        if (results.phases.dns && results.phases.dns.subdomains) {
+                             const dnsDiv = document.querySelector("#dns-results");
+                             const subs = results.phases.dns.subdomains;
+                             if (dnsDiv && subs.length > 0) {
+                                 let html = '<div class="d-flex flex-wrap gap-2">';
+                                 subs.forEach(sub => {
+                                     html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">${sub}</div>`;
+                                 });
+                                 html += '</div>';
+                                 dnsDiv.innerHTML = html;
+                             }
+                        }
+
                         // 1. Update Recon Matrix (Table)
                         const matrixBody = document.querySelector("#recon-matrix-body");
                         if (matrixBody && results.phases.recon && results.phases.recon.open_ports) {
@@ -767,6 +844,45 @@
                                     edges.add({ from: 0, to: pId, color: { color: "#333" } });
                                 }
                             });
+                        }
+
+                        // NEW: Update Intel
+                        if (results.phases.intel) {
+                            const intelDiv = document.querySelector("#intel-results");
+                            const intelData = results.phases.intel; // dict { port: [vectors] }
+                            if (intelDiv && Object.keys(intelData).length > 0) {
+                                let html = '<div class="accordion" id="accordionIntel">';
+                                for (const [port, vectors] of Object.entries(intelData)) {
+                                    html += `
+                                    <div class="accordion-item bg-black border-secondary">
+                                        <h2 class="accordion-header" id="heading-intel-${port}">
+                                            <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse"
+                                                data-bs-target="#collapse-intel-${port}" aria-expanded="false" aria-controls="collapse-intel-${port}">
+                                                <span class="badge bg-warning me-2">Port ${port}</span>
+                                                <span class="font-monospace small text-muted">${vectors.length} Vectors Identified</span>
+                                            </button>
+                                        </h2>
+                                        <div id="collapse-intel-${port}" class="accordion-collapse collapse" aria-labelledby="heading-intel-${port}"
+                                            data-bs-parent="#accordionIntel">
+                                            <div class="accordion-body p-0">
+                                                <div class="p-2">`;
+                                    vectors.forEach(v => {
+                                        const scoreClass = v.score >= 80 ? 'bg-danger' : 'bg-secondary';
+                                        html += `
+                                        <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="fw-bold text-info small">${v.name}</span>
+                                                <span class="badge ${scoreClass}">Score: ${v.score}</span>
+                                            </div>
+                                            <div class="small text-muted mb-1">${v.description}</div>
+                                            <div class="font-monospace x-small text-warning bg-black p-1 rounded">Action: ${v.action}</div>
+                                        </div>`;
+                                    });
+                                    html += `</div></div></div></div>`;
+                                }
+                                html += '</div>';
+                                intelDiv.innerHTML = html;
+                            }
                         }
 
                         // 3. Update ENUM (WhatWeb)
