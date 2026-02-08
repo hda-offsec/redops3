@@ -87,3 +87,30 @@ class NmapScanner:
     @classmethod
     def profile_label(cls, profile):
         return cls.PROFILES.get(profile, {}).get("label", profile)
+
+    def stream_scan(self, args):
+        """
+        Stream an arbitrary Nmap command.
+        args: List of arguments (e.g. ['-sS', '-p80'])
+        Does NOT auto-append target, caller must include it or I will append it if missing?
+        Actually standard is to append target at end.
+        But 'args' from profile might not include target.
+        Let's allow args to be the FULL command list EXCLUDING 'nmap' binary, 
+        or just the flags.
+        Steps:
+        1. Prepend 'nmap' if not present.
+        2. Append target if not present (risky if not checking).
+        Let's assume args are just the flags.
+        """
+        # Ensure we don't have 'nmap' twice
+        cmd = ["nmap"] + args
+        if self.target not in cmd:
+            cmd.append(self.target)
+            
+        # Add basic formatting flags if not present
+        if "-v" not in cmd: cmd.insert(1, "-v")
+        if "--stats-every" not in cmd: 
+            cmd.extend(["--stats-every", "10s"])
+            
+        logger.info("Starting Custom Nmap scan: %s", " ".join(cmd))
+        return ProcessManager.stream_command(cmd)

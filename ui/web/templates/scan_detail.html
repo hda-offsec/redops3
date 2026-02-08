@@ -5,11 +5,11 @@
 {% block content %}
 <div class="row g-4">
     <!-- SCAN PROGRESS TOAST -->
-    <div id="scan-toast">
+    <div id="scan-toast" style="width: auto; max-width: 400px; right: 2rem; bottom: 2rem;">
         <div class="scan-pulse"></div>
         <div>
             <div class="scan-text">SCAN IN PROGRESS</div>
-            <div class="scan-subtext">Executing offensive modules...</div>
+            <div class="scan-subtext text-truncate" style="max-width: 300px;">Executing offensive modules...</div>
         </div>
     </div>
 
@@ -25,14 +25,14 @@
                     <div class="mission-ops d-flex gap-2" style="display: inline-flex !important;">
                         <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
                             class="btn btn-xs btn-outline-cyber">
-                            <i class="fas fa-file-pdf me-1"></i>Generate PDF
+                            <i class="fas fa-file-pdf me-1"></i>Report
                         </a>
                         <a href="{{ url_for('main.scan_osint', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
-                            <i class="fas fa-search-plus me-1"></i>OSINT Intel
+                            <i class="fas fa-search-plus me-1"></i>OSINT
                         </a>
                         <button class="btn btn-xs btn-outline-warning" data-bs-toggle="modal"
                             data-bs-target="#harvestLootModal">
-                            <i class="fas fa-hand-holding-usd me-1"></i>Harvest Loot
+                            <i class="fas fa-hand-holding-usd me-1"></i>Loot
                         </button>
                     </div>
                     <span class="badge status-pill status-{{ scan.status }} ms-2">{{ scan.status }}</span>
@@ -49,31 +49,42 @@
                         <div class="meta-value text-uppercase fw-bold">{{ scan.scan_type }}</div>
                     </div>
                     <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Start</div>
-                        <div class="meta-value font-monospace">{{ scan.start_time.strftime('%H:%M:%S') }}</div>
+                        <div class="meta-label text-muted small text-uppercase">Duration</div>
+                        <div class="meta-value font-monospace">
+                            {% if scan.end_time and scan.start_time %}
+                            {{ (scan.end_time - scan.start_time)|string|truncate(7, true, '') }}
+                            {% else %}
+                            Running...
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">End</div>
-                        <div class="meta-value font-monospace">{% if scan.end_time %}{{
-                            scan.end_time.strftime('%H:%M:%S') }}{% else %}—{% endif %}</div>
+                        <div class="meta-label text-muted small text-uppercase">Status</div>
+                        <div class="meta-value font-monospace text-uppercase">{{ scan.status }}</div>
                     </div>
                 </div>
 
-                <div class="severity-strip mt-4 d-flex gap-1">
+                <div class="severity-strip mt-4 d-flex gap-1 flex-wrap">
                     <div
-                        class="severity-item critical px-3 py-1 bg-black border border-danger text-danger rounded-1 small">
-                        Critical {{ severity_counts['critical'] }}</div>
+                        class="severity-item critical px-3 py-1 bg-black border border-danger text-danger rounded-1 small fw-bold">
+                        CRITICAL: {{ severity_counts['critical'] }}
+                    </div>
                     <div
-                        class="severity-item high px-3 py-1 bg-black border border-warning text-warning rounded-1 small">
-                        High {{ severity_counts['high'] }}</div>
-                    <div class="severity-item medium px-3 py-1 bg-black border border-info text-info rounded-1 small">
-                        Medium {{ severity_counts['medium'] }}</div>
+                        class="severity-item high px-3 py-1 bg-black border border-warning text-warning rounded-1 small fw-bold">
+                        HIGH: {{ severity_counts['high'] }}
+                    </div>
                     <div
-                        class="severity-item low px-3 py-1 bg-black border border-secondary text-secondary rounded-1 small">
-                        Low {{ severity_counts['low'] }}</div>
+                        class="severity-item medium px-3 py-1 bg-black border border-info text-info rounded-1 small fw-bold">
+                        MEDIUM: {{ severity_counts['medium'] }}
+                    </div>
+                    <div
+                        class="severity-item low px-3 py-1 bg-black border border-secondary text-secondary rounded-1 small fw-bold">
+                        LOW: {{ severity_counts['low'] }}
+                    </div>
                     <div
                         class="severity-item info px-3 py-1 bg-black border border-secondary text-muted rounded-1 small">
-                        Info {{ severity_counts['info'] }}</div>
+                        INFO: {{ severity_counts['info'] }}
+                    </div>
                 </div>
 
                 {% if scan.geolocation_data %}
@@ -89,8 +100,6 @@
                                     scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
                                 <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
                                     scan.geolocation_data.isp }}</div>
-                                <div class="font-monospace small"><span class="text-muted">COORDS:</span> {{
-                                    scan.geolocation_data.lat }}, {{ scan.geolocation_data.lon }}</div>
                             </div>
                         </div>
                     </div>
@@ -228,7 +237,7 @@
                 </div>
             </div>
 
-            <!-- ENUM RESULTS -->
+            <!-- ENUM RESULTS (WhatWeb) -->
             <div class="col-12">
                 <div class="card glass-panel">
                     <div class="card-header glass-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
@@ -245,6 +254,51 @@
                         </div>
                         {% else %}
                         <div class="text-muted">No enumeration summary available.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- DEEP CRAWLING (Katana) - NEW -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana-DS)
+                    </div>
+                    <div class="card-body" id="katana-results">
+                        {% if results and results.phases.enum and results.phases.enum.katana %}
+                        <div class="accordion" id="accordionKatana">
+                            {% for port, endpoints in results.phases.enum.katana.items() %}
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header" id="heading-katana-{{ port }}">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-katana-{{ port }}" aria-expanded="false"
+                                        aria-controls="collapse-katana-{{ port }}">
+                                        <span class="badge bg-info me-2">Port {{ port }}</span>
+                                        <span class="font-monospace small text-muted">{{ endpoints|length }} Endpoints
+                                            Discovered</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-katana-{{ port }}" class="accordion-collapse collapse"
+                                    aria-labelledby="heading-katana-{{ port }}" data-bs-parent="#accordionKatana">
+                                    <div class="accordion-body p-0">
+                                        <div class="p-2" style="max-height: 200px; overflow-y: auto;">
+                                            {% for ep in endpoints %}
+                                            <div
+                                                class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
+                                                <a href="{{ ep }}" target="_blank"
+                                                    class="text-decoration-none text-cyber hover-action">{{ ep }}</a>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-muted">No crawling results yet.</div>
                         {% endif %}
                     </div>
                 </div>
@@ -298,6 +352,29 @@
                     </div>
                 </div>
             </div>
+
+            <!-- EXECUTION LOG (MOVED HERE) -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-terminal me-2"></i>Execution Log</div>
+                    <div class="card-body font-monospace log-console"
+                        style="max-height: 400px; min-height: 300px; overflow-y: auto; background: #000;">
+                        {% if logs %}
+                        {% for log in logs %}
+                        <div>
+                            <span class="text-muted opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
+                            <span
+                                class="{% if log.level == 'INFO' %}text-secondary{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %}">{{
+                                log.level }}</span>
+                            {{ log.message }}
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-muted">No logs recorded.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -320,19 +397,20 @@
         <!-- FINDINGS -->
         <div class="card glass-panel mb-4">
             <div class="card-header glass-header"><i class="fas fa-bell me-2"></i>Findings</div>
-            <div class="card-body" id="findings-container">
+            <div class="card-body" id="findings-container" style="max-height: 600px; overflow-y: auto;">
                 {% if findings %}
                 <div class="result-list">
                     {% for finding in findings %}
                     <div
-                        class="result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded">
+                        class="result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight">
                         <div class="d-flex w-100 justify-content-between mb-2">
                             <span class="badge severity-badge {{ finding.severity }} text-uppercase">{{ finding.severity
                                 }}</span>
-                            <span class="result-text fw-bold">{{ finding.title }}</span>
+                            <span class="result-text fw-bold text-break">{{ finding.title }}</span>
                         </div>
                         {% if finding.description %}
-                        <div class="mt-1 small text-muted">{{ finding.description }}</div>
+                        <div class="mt-1 small text-muted text-break" style="white-space: pre-wrap;">{{
+                            finding.description }}</div>
                         {% endif %}
                         {% if finding.screenshot_path %}
                         <div class="mt-2 w-100">
@@ -385,31 +463,11 @@
             <div class="card-body">
                 <form action="{{ url_for('main.update_notes', scan_id=scan.id) }}" method="POST">
                     <textarea name="notes" class="form-control bg-dark text-light border-secondary mb-2" rows="6"
-                        placeholder="Document your findings...">{{ scan.notes or '' }}</textarea>
+                        placeholder="Document your findings... Markdown supported">{{ scan.notes or '' }}</textarea>
                     <div class="text-end">
                         <button type="submit" class="btn btn-sm btn-outline-success">Save Notes</button>
                     </div>
                 </form>
-            </div>
-        </div>
-
-        <!-- EXECUTION LOG -->
-        <div class="card glass-panel">
-            <div class="card-header glass-header"><i class="fas fa-terminal me-2"></i>Execution Log</div>
-            <div class="card-body font-monospace log-console" style="max-height: 400px; overflow-y: auto;">
-                {% if logs %}
-                {% for log in logs %}
-                <div>
-                    <span class="text-muted">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
-                    <span
-                        class="{% if log.level == 'INFO' %}text-secondary{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %}">{{
-                        log.level }}</span>
-                    {{ log.message }}
-                </div>
-                {% endfor %}
-                {% else %}
-                <div class="text-muted">No logs recorded.</div>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -678,7 +736,42 @@
                 }
             }
 
-            // 4. Update VULN (Nuclei)
+            // 4. Update Katana (Deep Crawl)
+            if (results.phases.enum && results.phases.enum.katana) {
+                const katDiv = document.querySelector("#katana-results");
+                const kResults = results.phases.enum.katana;
+                if (katDiv && Object.keys(kResults).length > 0) {
+                    let html = '<div class="accordion" id="accordionKatana">';
+                    for (const [port, endpoints] of Object.entries(kResults)) {
+                        html += `
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header" id="heading-katana-${port}">
+                                    <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-katana-${port}" aria-expanded="false" aria-controls="collapse-katana-${port}">
+                                        <span class="badge bg-info me-2">Port ${port}</span>
+                                        <span class="font-monospace small text-muted">${endpoints.length} Endpoints Discovered</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-katana-${port}" class="accordion-collapse collapse" aria-labelledby="heading-katana-${port}"
+                                    data-bs-parent="#accordionKatana">
+                                    <div class="accordion-body p-0">
+                                        <div class="p-2" style="max-height: 200px; overflow-y: auto;">`;
+                        endpoints.forEach(ep => {
+                            html += `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
+                                        <a href="${ep}" target="_blank" class="text-decoration-none text-cyber hover-action">${ep}</a>
+                                      </div>`;
+                        });
+                        html += `     </div>
+                                    </div>
+                                </div>
+                            </div>`;
+                    }
+                    html += '</div>';
+                    katDiv.innerHTML = html;
+                }
+            }
+
+            // 5. Update VULN (Nuclei)
             if (results.phases.vuln && results.phases.vuln.nuclei) {
                 const nucDiv = document.querySelector("#nuclei-results");
                 const findings = results.phases.vuln.nuclei.findings || [];

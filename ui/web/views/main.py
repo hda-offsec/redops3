@@ -63,6 +63,7 @@ def index():
         else []
     )
 
+    from core.scan_profiles import SCAN_PROFILES
     return render_template(
         "index.html",
         recent_scans=recent_scans,
@@ -71,7 +72,8 @@ def index():
         loots=loots,
         severity_stats=severity_stats,
         total_findings=len(all_findings),
-        logs=recent_logs
+        logs=recent_logs,
+        scan_profiles=SCAN_PROFILES
     )
 
 
@@ -137,15 +139,16 @@ def _log_and_emit(scan_id, msg, level="INFO"):
         db.session.rollback()
 
     try:
-        socketio.emit(
-            "new_log",
-            {
-                "message": msg,
-                "level": level,
-                "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
-                "scan_id": scan_id,
-            },
-        )
+        if socketio:
+            socketio.emit(
+                "new_log",
+                {
+                    "message": msg,
+                    "level": level,
+                    "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
+                    "scan_id": scan_id,
+                },
+            )
     except Exception as e:
         print(f"[ERROR] Socket Emit Failed: {e}")
 
@@ -166,20 +169,21 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
     _log_and_emit(scan_id, f"Finding detected: {title}", "WARN")
     
     # Real-time finding emission for the specific scan detail page
-    socketio.emit("new_finding", {
-        "scan_id": scan_id,
-        "title": title,
-        "severity": severity,
-        "tool": tool
-    })
-
-    # Global Alert for Critical Issues
-    if severity.lower() == 'critical':
-        socketio.emit('global_notification', {
-            'title': '🚨 CRITICAL VULNERABILITY',
-            'message': f'{title} found on scan #{scan_id}',
-            'severity': 'critical'
+    if socketio:
+        socketio.emit("new_finding", {
+            "scan_id": scan_id,
+            "title": title,
+            "severity": severity,
+            "tool": tool
         })
+
+        # Global Alert for Critical Issues
+        if severity.lower() == 'critical':
+            socketio.emit('global_notification', {
+                'title': '🚨 CRITICAL VULNERABILITY',
+                'message': f'{title} found on scan #{scan_id}',
+                'severity': 'critical'
+            })
     
     return finding
 
@@ -198,14 +202,13 @@ def _add_suggestion(scan_id, tool, command, reason=None):
 
 def background_scan(scan_id, target_identifier, scan_type, app):
     from datetime import datetime
-    
-    # Map UI types to internal profiles
-    # 'quick' -> nmap -F + parse + suggest
-    # 'full' -> nmap -p- + parse + suggest
-    # 'vuln' -> nmap --script vuln + parse + suggest
+    from core.scan_profiles import SCAN_PROFILES
     
     with app.app_context():
         scan = Scan.query.get(scan_id)
+        if not scan:
+             print(f"Scan {scan_id} not found!")
+             return
         scan.status = 'running'
         db.session.commit()
         
@@ -235,11 +238,12 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                 db.session.commit()
                 _log_and_emit(scan.id, f"Suggestion: Try {kwargs.get('tool_name')}", "SUCCESS")
                 # Real-time suggestion emission
-                socketio.emit("new_suggestion", {
-                    "scan_id": scan.id,
-                    "tool_name": s.tool_name,
-                    "command": s.command_suggestion
-                })
+                if socketio:
+                    socketio.emit("new_suggestion", {
+                        "scan_id": scan.id,
+                        "tool_name": s.tool_name,
+                        "command": s.command_suggestion
+                    })
             except Exception as e:
                 print(f"[ERROR] Failed to save suggestion: {e}")
                 db.session.rollback()
@@ -247,10 +251,11 @@ def background_scan(scan_id, target_identifier, scan_type, app):
         def results_update_cb(scan_id, data):
             save_results(scan_id, data)
             # Emit the partial/full results update to the UI
-            socketio.emit("results_update", {
-                "scan_id": scan_id,
-                "data": data
-            })
+            if socketio:
+                socketio.emit("results_update", {
+                    "scan_id": scan_id,
+                    "data": data
+                })
 
         orchestrator = ScanOrchestrator(
             scan_id=scan.id,
@@ -263,14 +268,34 @@ def background_scan(scan_id, target_identifier, scan_type, app):
         
         # Execute Pipeline
         try:
-             # Map 'scan_type' from UI to profile expected by orchestrator
-             # in orchestrator.py currently it handles 'quick' or 'full'
-             # Let's pass the raw scan_type and ensure orchestrator handles it or mapped
-             profile = scan_type
-             if scan_type not in ['quick', 'full', 'deep', 'vuln']: 
-                 profile = 'quick' # fallback for now or update orchestrator
+             # Look up args from profile dict
+             profile_args = None
              
-             success = orchestrator.run_pipeline(profile=profile)
+             # Flatten profiles to find the matching key
+             scan_args = ""
+             for category, profiles in SCAN_PROFILES.items():
+                 if scan_type in profiles:
+                     scan_args = profiles[scan_type]['args']
+                     break
+             
+             # If exact key match failed, maybe scan_type is legacy (quick/full)
+             if not scan_args:
+                  if scan_type == 'quick': scan_args = "-T4 --top-ports 100"
+                  elif scan_type == 'full': scan_args = "-p- -T4"
+                  elif scan_type == 'vuln': scan_args = "--script vuln"
+                  else: scan_args = "-F" # default fallback
+             
+             # Pass the raw args to orchestrator
+             # Note: Orchestrator currently expects a profile KEY (string) or needs refactoring.
+             # The orchestrator uses NmapScanner which likely expects a list of args or a profile key.
+             # Let's inspect orchestrator logic again.
+             # It calls `scanner.command_for_profile(profile)`.
+             # So we should pass the scan_type key, but Orchestrator needs to know about SCAN_PROFILES?
+             # Or we refactor Orchestrator to accept raw args.
+             
+             # Let's pass the scan_type as profile, and Update Orchestrator to import SCAN_PROFILES.
+             success = orchestrator.run_pipeline(profile=scan_type)
+             
         except Exception as e:
              _log_and_emit(scan.id, f"Pipeline Error: {str(e)}", "ERROR")
              success = False
@@ -456,4 +481,23 @@ def verify_finding():
     app_obj = current_app._get_current_object()
     socketio.start_background_task(run_verification, scan_id, command, app_obj)
     
-    return {"status": "ok", "message": "Verification started"}
+@main_bp.route("/settings/clear_logs", methods=["POST"])
+def clear_logs():
+    try:
+        # Clear operational data but keep targets/missions if possible?
+        # User said "supprimes les Mission LOG"
+        # Let's clear Scan, Finding, Suggestion, ScanLog
+        num_scans = db.session.query(Scan).delete()
+        num_findings = db.session.query(Finding).delete()
+        num_suggestions = db.session.query(Suggestion).delete()
+        num_logs = db.session.query(ScanLog).delete()
+        
+        # Optionally clear targets/missions? Maybe not targets.
+        
+        db.session.commit()
+        flash(f"Mission Log Purged ({num_scans} scans removed). Environment reset.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to clear logs: {str(e)}", "error")
+        
+    return redirect(url_for("main.index"))
