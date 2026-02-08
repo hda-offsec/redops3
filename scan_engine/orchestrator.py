@@ -1,6 +1,7 @@
 import re
 import threading
 import os
+from datetime import datetime
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.step01_recon.dns_scanner import DNSScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
@@ -13,7 +14,6 @@ from core.intelligence import AttackVectorMapper
 from core.models import Scan, db
 from core.scan_profiles import SCAN_PROFILES
 from core.screenshots import take_service_screenshot
-from datetime import datetime
 
 class ScanOrchestrator:
     def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func):
