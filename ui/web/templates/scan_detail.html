@@ -766,15 +766,38 @@
             // 3. Update ENUM (WhatWeb)
             if (results.phases.enum && results.phases.enum.whatweb) {
                 const wwDiv = document.querySelector("#whatweb-results");
-                const summary = results.phases.enum.whatweb.summary || {};
+                const wwData = results.phases.enum.whatweb;
+                const summary = wwData.summary || {};
 
-                if (wwDiv && Object.keys(summary).length > 0) {
-                    let html = '<div class="tag-grid d-flex flex-wrap gap-2">';
+                let html = "";
+
+                // Render Summary tags if exist
+                if (Object.keys(summary).length > 0) {
+                    html += '<div class="tag-grid d-flex flex-wrap gap-2 mb-3">';
                     for (const [key, value] of Object.entries(summary)) {
                         html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${key}:</span><span class="tag-value text-cyber">${value}</span></div>`;
                     }
                     html += '</div>';
-                    wwDiv.innerHTML = html;
+                }
+
+                // Render raw port details if present
+                for (const [key, value] of Object.entries(wwData)) {
+                    if (key !== "summary") {
+                        // Try to highlight Title if possible
+                        let displayVal = value;
+                        if (typeof value === 'string') {
+                            displayVal = value.replace(/Title\[(.*?)\]/g, '<span class="text-info fw-bold">Title[$1]</span>');
+                            displayVal = displayVal.replace(/HTTPServer\[(.*?)\]/g, '<span class="text-warning">Server[$1]</span>');
+                            displayVal = displayVal.replace(/IP\[(.*?)\]/g, '<span class="text-secondary">IP[$1]</span>');
+                        }
+                        html += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-secondary pb-1 mb-2 text-break">
+                                <span class="badge bg-secondary me-2">Port ${key}</span> ${displayVal}
+                          </div>`;
+                    }
+                }
+
+                if (wwDiv) {
+                    wwDiv.innerHTML = html || '<span class="text-muted small fst-italic">No web technologies detected.</span>';
                 }
             }
 
@@ -812,7 +835,6 @@
                     let html = '<div class="table-responsive"><table class="table table-dark table-hover table-sm small mb-0"><thead><tr><th>Code</th><th>Path</th><th>Size</th></tr></thead><tbody>';
                     endpoints.forEach(ep => {
                         let statusClass = "text-secondary";
-                        // Safe string conv
                         const statusStr = String(ep.status);
                         if (statusStr.startsWith("2")) statusClass = "text-success";
                         if (statusStr.startsWith("3")) statusClass = "text-info";
@@ -845,7 +867,9 @@
     }};
     // Delay slightly to ensure DOM ready
     setTimeout(() => {
-        updateUI(initialResults);
+        if (typeof updateUI === 'function') {
+            updateUI(initialResults);
+        }
     }, 500);
     {% endif %}
 

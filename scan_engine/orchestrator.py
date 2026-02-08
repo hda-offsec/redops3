@@ -452,7 +452,13 @@ class ScanOrchestrator:
                     target_url = f"{proto}://{self.target}:{port}"
                     self.log(f"Fuzzing {target_url}...", "INFO")
                     
-                    scanner6 = FfufScanner(target_url, wordlist=wordlist)
+                    try:
+                        scanner6 = FfufScanner(target_url, wordlist=wordlist)
+                    except TypeError:
+                        # Fallback if FfufScanner.__init__ doesn't accept wordlist (version mismatch)
+                        self.log("Legacy FfufScanner signature detected. Using default wordlist.", "WARN")
+                        scanner6 = FfufScanner(target_url)
+
                     if not scanner6.check_tools():
                         self.log("Skipping ffuf: tool not installed.", "WARN")
                         break # Usually either it's installed or not for all ports
