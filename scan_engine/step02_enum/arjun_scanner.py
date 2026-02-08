@@ -10,11 +10,11 @@ class ArjunScanner:
 
     def stream_arjun(self, port, protocol='http'):
         """
-        Runs arjun for parameter discovery
+        Runs arjun for parameter discovery.
+        --fast for speed.
         """
         url = f"{protocol}://{self.target}:{port}"
-        # -u: URL
-        # --passive: use passive sources if possible (optional)
-        command = ["arjun", "-u", url, "--stable"]
+        # Using --fast for quicker discovery
+        command = ["arjun", "-u", url, "--fast"]
         
         return ProcessManager.stream_command(command)

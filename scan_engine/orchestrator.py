@@ -618,12 +618,25 @@ class ScanOrchestrator:
                                 self.log(f"Phase 4c: Discovering hidden parameters on {proto}://{self.target}:{port}...", "INFO")
                                 ar_stream = arjun.stream_arjun(port, proto)
                                 params_found = []
+                                
+                                import time
+                                start_time = time.time()
+                                timeout = 600 # 10 minutes max for arjun
+                                
                                 for event in ar_stream:
+                                    if time.time() - start_time > timeout:
+                                        self.log(f"Arjun scan timed out after {timeout}s", "WARN")
+                                        break
+                                        
                                     if event["type"] == "stdout":
                                         line = event["line"].strip()
-                                        if "parameters found:" in line.lower() or "heuristic" in line.lower():
-                                            self.log(f"Arjun: {line}", "SUCCESS")
-                                            params_found.append(line)
+                                        if line:
+                                            # Log everything to debug so UI doesn't look stuck
+                                            self.log(f"Arjun Scan: {line}", "DEBUG")
+                                            
+                                            if "parameters found:" in line.lower() or "heuristic" in line.lower():
+                                                self.log(f"🎯 Arjun: {line}", "SUCCESS")
+                                                params_found.append(line)
                                 
                                 if params_found:
                                     self.add_finding(
