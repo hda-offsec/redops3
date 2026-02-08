@@ -1,28 +1,17 @@
-import shutil
 from scan_engine.helpers.process_manager import ProcessManager
 
 class NucleiScanner:
     def __init__(self, target):
         self.target = target
 
-    def get_path(self):
-        import os
-        path = "nuclei"
-        home_go = os.path.expanduser("~/go/bin/nuclei")
-        if os.path.exists(home_go):
-            path = home_go
-        return path
-
     def check_tools(self):
-        import os
-        if shutil.which('nuclei'): return True
-        return os.path.exists(os.path.expanduser("~/go/bin/nuclei"))
+        return ProcessManager.find_binary_path("nuclei") is not None
 
     def stream_vuln_scan(self, port, protocol='http'):
         """
         Runs Nuclei on the target
         """
-        path = self.get_path()
+        path = ProcessManager.find_binary_path("nuclei") or "nuclei"
         url = f"{protocol}://{self.target}:{port}"
         # We assume standard nuclei workflow: basic templates for cves/token-spray
         # -s critical,high will focus only on dangerous findings

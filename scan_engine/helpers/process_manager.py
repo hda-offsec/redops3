@@ -1,11 +1,32 @@
 import subprocess
 import logging
 import shlex
+import os
+import shutil
 
 logger = logging.getLogger(__name__)
 
 
 class ProcessManager:
+    @staticmethod
+    def find_binary_path(binary_name):
+        """
+        Resolves the path to a binary.
+        Prioritizes system PATH, then checks ~/go/bin.
+        Returns the full path if found, otherwise None.
+        """
+        # Check system PATH
+        path = shutil.which(binary_name)
+        if path:
+            return path
+
+        # Check Go bin path
+        go_bin = os.path.expanduser(f"~/go/bin/{binary_name}")
+        if os.path.exists(go_bin):
+            return go_bin
+
+        return None
+
     @staticmethod
     def _prepare_command(command):
         if isinstance(command, (list, tuple)):
