@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 from urllib.parse import urlparse
 import os
 import shutil
+import functools
 from datetime import datetime
 
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
@@ -21,9 +22,8 @@ def terminal():
     return render_template("terminal.html")
 
 
-@main_bp.route("/api/dependencies")
-def check_dependencies():
-    import shutil
+@functools.lru_cache(maxsize=1)
+def _get_tool_status():
     tools = ["nmap", "nuclei", "ffuf", "whatweb", "subfinder", "katana", "sqlmap", "dnsrecon"]
     status = {}
     for t in tools:
@@ -32,7 +32,13 @@ def check_dependencies():
             "found": path is not None,
             "path": path or "Not Found"
         }
-    return jsonify(status)
+    return status
+
+
+@main_bp.route("/api/dependencies")
+def check_dependencies():
+    return jsonify(_get_tool_status())
+
 
 @main_bp.route("/")
 def index():
