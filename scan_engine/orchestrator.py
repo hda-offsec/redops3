@@ -428,6 +428,8 @@ class ScanOrchestrator:
                             if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
                             
                             found_any = False
+                            unsaved_changes = False
+                            vuln_count = 0
                             for event in nuc_stream:
                                 if event['type'] == 'stdout':
                                     line = event['line'].strip()
@@ -464,6 +466,10 @@ class ScanOrchestrator:
                             
                             if not found_any:
                                 self.log(f"No vulnerabilities found on port {port}.", "SUCCESS")
+
+                            # Final save if we have pending updates
+                            if unsaved_changes:
+                                self.save_results(self.scan_id, results)
 
                         except Exception as e:
                             self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")
