@@ -116,30 +116,7 @@ class ScanOrchestrator:
         self.log(f"Executing Nmap with: {' '.join(scan_args)}", "DEBUG")
         
         try:
-            # We need to bypass the 'stream_profile' logic of NmapScanner if we want raw args
-            # Or we can update NmapScanner. For now, let's assume NmapScanner has a method 
-            # or we use a lower level call. 
-            # Looking at NmapScanner (not shown but assumed), it likely has `stream_scan(args)`.
-            # If `stream_profile` translates key to args, we might need to change it.
-            # Let's try to use `stream_scan` if it exists, or pass the args directly.
-            
-            # Since I cannot see NmapScanner source right now (I saw it earlier in searches but didn't view it),
-            # I will assume `stream_command` or similar exists, or I will subclass/modify logic here.
-            # Actually, `scanner.stream_profile(profile)` was used. 
-            # I'll rely on `scanner.run_custom(args)` if it exists.
-            # Let's check `scan_engine/step01_recon/nmap_scanner.py` quickly.
-            # For now, I'll pass the *args list* to valid existing method or assume stream_scan accepts list.
-            
-            # HACK: If NmapScanner doesn't support raw args list easily, 
-            # I will reconstruct the list manually.
-            
             stream = scanner.stream_scan(scan_args)
-            
-        except AttributeError:
-             # If stream_scan doesn't exist, we might have to use stream_profile with a hack or fix NmapScanner.
-             # Let's assume `stream_scan` is the generic one.
-             self.log("Falling back to legacy profile logic...", "WARN")
-             stream = scanner.stream_profile('quick')
         except Exception as e:
             self.log(f"Failed to start nmap: {str(e)}", "ERROR")
             return False
