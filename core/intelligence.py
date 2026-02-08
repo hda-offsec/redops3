@@ -79,7 +79,6 @@ class AttackVectorMapper:
         Otherwise, runs synchronously.
         """
         def _fetch():
-            import requests
             try:
                 # We don't need an API key for the basic JSON endpoint up to 45 requests/min
                 res = requests.get(f"http://ip-api.com/json/{target}?fields=status,message,country,city,isp,lat,lon", timeout=5)
