@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 import os
 import shutil
 from datetime import datetime
+import shlex
+from subprocess import Popen, PIPE, STDOUT
 
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
 from core.results_store import load_results, save_results
@@ -14,6 +16,8 @@ from core.extensions import socketio
 from core.tasks import run_scan_task
 
 main_bp = Blueprint("main", __name__)
+
+ALLOWED_TOOLS = {"nmap", "nuclei", "ffuf", "whatweb", "subfinder", "katana", "sqlmap", "dnsrecon", "curl", "ping"}
 
 
 @main_bp.route("/terminal")
@@ -466,10 +470,14 @@ def verify_finding():
 
     def run_verification(sid, cmd, app):
         with app.app_context():
-            from subprocess import Popen, PIPE, STDOUT
             _log_and_emit(sid, f"Starting Verification: {cmd}", "INFO")
             try:
-                process = Popen(cmd, shell=True, stdout=PIPE, stderr=STDOUT, text=True)
+                args = shlex.split(cmd)
+                if not args or args[0] not in ALLOWED_TOOLS:
+                    _log_and_emit(sid, f"Verification Failed: Command '{args[0] if args else 'empty'}' not allowed.", "ERROR")
+                    return
+
+                process = Popen(args, shell=False, stdout=PIPE, stderr=STDOUT, text=True)
                 for line in process.stdout:
                     if line.strip():
                         _log_and_emit(sid, f"[Verify] {line.strip()}", "INFO")
@@ -481,6 +489,8 @@ def verify_finding():
     app_obj = current_app._get_current_object()
     socketio.start_background_task(run_verification, scan_id, command, app_obj)
     
+    return jsonify({"status": "success", "message": "Verification task started."})
+
 @main_bp.route("/settings/clear_logs", methods=["POST"])
 def clear_logs():
     try:
