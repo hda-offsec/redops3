@@ -15,42 +15,56 @@ class JSSecretScanner:
             "Slack Token": r'xox[baprs]-[0-9]{12}-[0-9]{12}-[a-zA-Z0-9]{24}',
             "Generic Secret": r'(?i)(secret|password|passwd|pwd|private|credential)["\']\s*[:=]\s*["\']([a-zA-Z0-9_\-\.@#$%^&*!]{6,})["\']',
             "Firebase URL": r'https://[a-z0-9-]+\.firebaseio\.com',
-            "Slack Webhook": r'https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}'
+            "Slack Webhook": r'https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}',
+            "Heroku API Key": r'[hH][eE][rR][oO][kK][uU].*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+            "MailChimp API Key": r'[0-9a-fA-F]{32}-us[0-9]{1,2}',
+            "Stripe Secret Key": r'sk_live_[0-9a-zA-Z]{24}',
+            "Square Access Token": r'sqOatp-[0-9A-Za-z\-_]{22}',
+            "Twilio API Key": r'SK[0-9a-fA-F]{32}'
         }
+        self.endpoint_pattern = r'(?:"| \')((?:/|[a-zA-Z]+://)[^"\'\s<>]{3,})(?:"| \')'
 
     def scan_url(self, url):
-        """Fetches a JS file and scans it for secrets"""
-        findings = []
+        """Fetches a JS file and scans it for secrets and endpoints"""
+        results = {"secrets": [], "endpoints": []}
         try:
-            # Add reasonable timeout and verify=False for dev/target environments
             response = requests.get(url, timeout=10, verify=False)
             if response.status_code == 200:
                 content = response.text
+                # Scan for Secrets
                 for name, pattern in self.patterns.items():
                     matches = re.finditer(pattern, content)
                     for match in matches:
-                        match_text = match.group(0)
-                        # Avoid highlighting too much for the UI, truncate if long
-                        findings.append({
+                        results["secrets"].append({
                             "type": name,
-                            "match": match_text[:100],
+                            "match": match.group(0)[:100],
                             "line_context": content[max(0, match.start()-30):min(len(content), match.end()+30)].replace("\n", " ").strip()
                         })
+                # Scan for Endpoints
+                endpoints = re.findall(self.endpoint_pattern, content)
+                for ep in endpoints:
+                    # Filter for likely endpoints
+                    if any(x in ep for x in ["/", "http", "api", "v1", "v2"]):
+                        results["endpoints"].append(ep)
+                results["endpoints"] = list(set(results["endpoints"])) # unique
         except Exception:
             pass
-        return findings
+        return results
 
     def scan_list(self, urls, logger=None):
         """Scans a list of URLs and returns a summary of findings"""
-        all_findings = {}
+        all_results = {"secrets": {}, "endpoints": []}
         js_urls = [u for u in urls if u.endswith('.js')]
         
-        if logger: logger(f"JS Secret Scan: Auditing {len(js_urls)} JavaScript files...", "INFO")
+        if logger: logger(f"JS Advanced Analysis: Auditing {len(js_urls)} JavaScript files...", "INFO")
         
         for url in js_urls:
-            findings = self.scan_url(url)
-            if findings:
-                all_findings[url] = findings
-                if logger: logger(f"💰 Found {len(findings)} potential secrets in {url}", "WARN")
+            res = self.scan_url(url)
+            if res["secrets"]:
+                all_results["secrets"][url] = res["secrets"]
+                if logger: logger(f"💰 Found {len(res['secrets'])} potential secrets in {url}", "WARN")
+            if res["endpoints"]:
+                all_results["endpoints"].extend(res["endpoints"])
                 
-        return all_findings
+        all_results["endpoints"] = list(set(all_results["endpoints"]))
+        return all_results

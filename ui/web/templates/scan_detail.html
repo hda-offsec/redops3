@@ -248,6 +248,53 @@
             </div>
             {% endif %}
 
+            <!-- GITHUB LEAKS -->
+            {% if results and results.phases and results.phases.osint and results.phases.osint.github %}
+            <div class="col-12">
+                <div class="card glass-panel border-danger">
+                    <div class="card-header glass-header text-danger"><i class="fab fa-github me-2"></i>GitHub Code
+                        Leaks / Mentions</div>
+                    <div class="card-body">
+                        <div class="list-group list-group-flush bg-transparent">
+                            {% for leak in results.phases.osint.github %}
+                            <a href="{{ leak.url }}" target="_blank"
+                                class="list-group-item bg-transparent border-secondary text-light hover-action py-3">
+                                <div class="d-flex justify-content-between">
+                                    <h6 class="mb-1 text-info"><i class="fas fa-code-branch me-2"></i>{{ leak.repository
+                                        }}</h6>
+                                    <small class="text-muted">{{ leak.owner }}</small>
+                                </div>
+                                <p class="mb-1 small font-monospace text-muted">{{ leak.path }}</p>
+                                <small class="text-cyber">View on GitHub <i
+                                        class="fas fa-external-link-alt ms-1"></i></small>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- EMAIL DISCOVERY -->
+            {% if results and results.phases and results.phases.osint and results.phases.osint.emails %}
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-envelope me-2"></i>Discovered Email Addresses
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for email in results.phases.osint.emails %}
+                            <div
+                                class="px-3 py-2 bg-black border border-secondary rounded-pill small font-monospace text-info">
+                                <i class="fas fa-user-circle me-2 opacity-50"></i>{{ email }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- VULNERABILITY CLASSES DASHBOARD -->
             <div class="col-12">
                 <div class="card glass-panel mb-4">
@@ -861,6 +908,71 @@
                             <div class="text-danger fw-bold mb-1"><i
                                     class="fas fa-exclamation-triangle me-2"></i>Critical Finding</div>
                             <code class="text-light">{{ tk }}</code>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- JS INTELLIGENCE (SECRETS) -->
+            {% if results and results.phases and results.phases.enum and results.phases.enum.js_secrets %}
+            <div class="col-12">
+                <div class="card glass-panel border-warning">
+                    <div class="card-header glass-header text-warning"><i class="fas fa-key me-2"></i>JS Secret Analysis
+                        (Potential Leaks)</div>
+                    <div class="card-body">
+                        <div class="accordion" id="accordionJS">
+                            {% for port, files in results.phases.enum.js_secrets.items() %}
+                            {% for url, items in files.items() %}
+                            <div class="accordion-item bg-black border-secondary mb-2">
+                                <h2 class="accordion-header" id="heading-js-{{ loop.index }}">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-js-{{ port }}-{{ loop.index }}">
+                                        <span class="badge bg-danger me-2">P{{ port }}</span>
+                                        <span class="font-monospace small text-truncate" style="max-width: 80%;">{{ url
+                                            }}</span>
+                                        <span class="badge bg-warning text-dark ms-2">{{ items|length }} Secrets</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-js-{{ port }}-{{ loop.index }}" class="accordion-collapse collapse"
+                                    data-bs-parent="#accordionJS">
+                                    <div class="accordion-body p-2">
+                                        {% for item in items %}
+                                        <div class="p-2 mb-2 bg-dark rounded border border-secondary">
+                                            <div class="d-flex justify-content-between mb-1">
+                                                <span class="badge bg-danger x-small">{{ item.type }}</span>
+                                                <code class="text-info x-small">{{ item.match }}</code>
+                                            </div>
+                                            <div class="x-small text-muted font-monospace">Context: ...{{
+                                                item.line_context }}...</div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- WPRECON / WPScan -->
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.wpscan %}
+            <div class="col-12">
+                <div class="card glass-panel border-primary">
+                    <div class="card-header glass-header text-primary"><i class="fab fa-wordpress me-2"></i>CMS Audit:
+                        WordPress specialized Scan</div>
+                    <div class="card-body">
+                        {% for port, summary in results.phases.vuln.wpscan.items() %}
+                        <div class="p-3 bg-black border border-secondary rounded mb-2">
+                            <div class="badge bg-primary mb-2">Port {{ port }} Output</div>
+                            <pre class="text-light small font-monospace mb-0"
+                                style="max-height: 250px; overflow: auto; white-space: pre-wrap;">{{ summary }}</pre>
                         </div>
                         {% endfor %}
                     </div>

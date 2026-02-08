@@ -15,6 +15,8 @@ from scan_engine.step02_enum.arjun_scanner import ArjunScanner
 from scan_engine.step02_enum.js_scanner import JSSecretScanner
 from scan_engine.step00_osint.cloud_scanner import CloudScanner
 from scan_engine.step00_osint.favicon_scanner import FaviconScanner
+from scan_engine.step00_osint.github_scanner import GitHubScanner
+from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
@@ -52,6 +54,42 @@ class ScanOrchestrator:
         success = True
         
         try:
+            # Define the main results structure early
+            results = {
+                "scan_id": self.scan_id,
+                "target": self.target,
+                "status": "running",
+                "timestamp": datetime.utcnow().isoformat(),
+                "phases": {
+                    "recon": {"open_ports": [], "raw_output": ""},
+                    "dns": {"subdomains": []},
+                    "intel": {},
+                    "osint": {
+                        "cloud": [],
+                        "favicon": {},
+                        "github": [],
+                        "emails": []
+                    },
+                    "enum": {
+                        "whatweb": {"summary": {}},
+                        "katana": {},
+                        "waf": {},
+                        "arjun": {},
+                        "js_secrets": {},
+                        "api": {}
+                    },
+                    "vuln": {
+                        "nuclei": {"findings": []},
+                        "takeover": [],
+                        "wpscan": {}
+                    },
+                    "dirbusting": {
+                        "ffuf": {"endpoints": []}
+                    }
+                }
+            }
+            self.save_results(self.scan_id, results)
+
             # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
             self._emit_progress(5, "Geolocation Init")
             self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
@@ -94,41 +132,38 @@ class ScanOrchestrator:
             except Exception as e:
                 self.log(f"Cloud Audit failed: {e}", "WARN")
 
-            # --- INITIALIZATION: Clear old ghost results ---
-            self.log("Initializing local results structure...", "INFO")
+            # --- PHASE 0.2: GitHub Leaks & Email Discovery ---
+            try:
+                # GitHub Leaks
+                github_scanner = GitHubScanner(self.target)
+                github_leaks = github_scanner.search_leaks(logger=self.log)
+                if github_leaks:
+                    results['phases']['osint']['github'] = github_leaks
+                    self.save_results(self.scan_id, results)
+                    for leak in github_leaks:
+                        self.add_finding(
+                            title=f"GitHub Leak Found: {leak['repository']}",
+                            description=f"File: {leak['path']}\nURL: {leak['url']}",
+                            severity="medium",
+                            tool_source="GitHub-Scanner"
+                        )
+                
+                # Email Discovery
+                email_scanner = EmailScanner(self.target)
+                emails = email_scanner.scan(logger=self.log)
+                if emails:
+                    results['phases']['osint']['emails'] = emails
+                    self.save_results(self.scan_id, results)
+                    self.add_finding(
+                        title=f"OSINT: {len(emails)} Emails Found",
+                        description="\n".join(emails[:20]),
+                        severity="info",
+                        tool_source="EmailScanner"
+                    )
+            except Exception as e:
+                self.log(f"OSINT Discovery modules failed: {e}", "WARN")
 
-            # Define the main results structure
-            results = {
-                "scan_id": self.scan_id,
-                "target": self.target,
-                "status": "running",
-                "timestamp": datetime.utcnow().isoformat(),
-                "phases": {
-                    "recon": {"open_ports": [], "raw_output": ""},
-                    "dns": {"subdomains": []},
-                    "intel": {},
-                    "osint": {
-                        "cloud": [],
-                        "favicon": {}
-                    },
-                    "enum": {
-                        "whatweb": {"summary": {}},
-                        "katana": {},
-                        "waf": {},
-                        "arjun": {},
-                        "js_secrets": {},
-                        "api": {}
-                    },
-                    "vuln": {
-                        "nuclei": {"findings": []},
-                        "takeover": []
-                    },
-                    "dirbusting": {
-                        "ffuf": {"endpoints": []}
-                    }
-                }
-            }
-            self.save_results(self.scan_id, results)
+            # --- INITIALIZATION: Done ---
             self.log("Local workspace prepared.", "INFO")
         except Exception as e:
             self.log(f"Failed to initialize results: {str(e)}", "ERROR")
@@ -448,6 +483,12 @@ class ScanOrchestrator:
 
                                     if wp_findings:
                                         summary = "\n".join(wp_findings)
+                                        # Update results
+                                        if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                        results['phases']['vuln']['wpscan'] = results['phases']['vuln'].get('wpscan', {})
+                                        results['phases']['vuln']['wpscan'][str(port)] = summary
+                                        self.save_results(self.scan_id, results)
+
                                         self.add_finding(
                                             title=f"WordPress Scan Findings ({port})",
                                             description=f"WPScan enumerated the following potential issues:\n\n{summary}",
@@ -585,13 +626,15 @@ class ScanOrchestrator:
                         except Exception as e:
                             self.log(f"Arjun failed: {e}", "ERROR")
 
-                        # --- JS SECRET ANALYSIS ---
+                        # --- JS ADVANCED ANALYSIS ---
                         try:
                             if endpoints:
                                 js_scanner = JSSecretScanner(self.target)
-                                secret_findings = js_scanner.scan_list(endpoints, logger=self.log)
-                                if secret_findings:
-                                    for url, items in secret_findings.items():
+                                js_results = js_scanner.scan_list(endpoints, logger=self.log)
+                                
+                                # Handle Secrets
+                                if js_results["secrets"]:
+                                    for url, items in js_results["secrets"].items():
                                         desc = f"File: {url}\n\n"
                                         for item in items:
                                             desc += f"- [{item['type']}] {item['match']}\n  Context: ...{item['line_context']}...\n\n"
@@ -605,10 +648,23 @@ class ScanOrchestrator:
                                     
                                     if 'enum' not in results['phases']: results['phases']['enum'] = {}
                                     results['phases']['enum']['js_secrets'] = results['phases']['enum'].get('js_secrets', {})
-                                    results['phases']['enum']['js_secrets'][str(port)] = secret_findings
+                                    results['phases']['enum']['js_secrets'][str(port)] = js_results["secrets"]
                                     self.save_results(self.scan_id, results)
+                                
+                                # Handle New Endpoints from JS
+                                if js_results["endpoints"]:
+                                    self.log(f"JS Analysis: Found {len(js_results['endpoints'])} new endpoints/paths in source code.", "SUCCESS")
+                                    # Add them to the general endpoints list for this port if relevant
+                                    results['phases']['enum']['katana'][str(port)] = list(set(results['phases']['enum']['katana'].get(str(port), []) + js_results["endpoints"]))
+                                    self.save_results(self.scan_id, results)
+                                    self.add_finding(
+                                        title=f"JS Intelligence: Hidden Endpoints Found ({port})",
+                                        description="\n".join(js_results["endpoints"][:30]),
+                                        severity="low",
+                                        tool_source="js_scanner"
+                                    )
                         except Exception as e:
-                            self.log(f"JS Secret Analysis failed: {e}", "ERROR")
+                            self.log(f"JS Advanced Analysis failed: {e}", "ERROR")
 
                         # --- FAVICON HASHING ---
                         try:
