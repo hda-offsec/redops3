@@ -9,10 +9,9 @@ class TakeoverScanner:
 
     def stream_takeover_scan(self, logger=None):
         """
-        Runs nuclei specifically for subdomain takeover detection using all subdomains found
+        Runs nuclei specifically for subdomain takeover detection.
+        Attempts to update templates if they are missing.
         """
-        # We assume subdomains are passed or we use the main domain
-        # For robustness, we will run it on the main domain first
         command = [
             "nuclei", 
             "-u", self.target,
@@ -22,4 +21,20 @@ class TakeoverScanner:
         ]
         
         if logger: logger(f"Vulnerability: Starting Subdomain Takeover audit with Nuclei...", "INFO")
-        return ProcessManager.stream_command(command)
+        
+        # We wrap the generator to detect the "no templates" error
+        first_run = list(ProcessManager.stream_command(command))
+        
+        # Check if we hit the "no templates" error
+        for event in first_run:
+            if event['type'] == 'stdout' and "no templates provided" in event['line']:
+                if logger: logger("Nuclei templates missing. Attempting automatic update (-ut)...", "WARN")
+                ProcessManager.run_command(["nuclei", "-ut"])
+                # Retry once
+                return ProcessManager.stream_command(command)
+        
+        # If no error, just return the first run results as a generator
+        def gen():
+            for e in first_run:
+                yield e
+        return gen()
