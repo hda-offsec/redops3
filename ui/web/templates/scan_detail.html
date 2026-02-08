@@ -217,7 +217,7 @@
                 <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana-DS)
                 </div>
                 <div class="card-body" id="katana-results">
-                    {% if results and results.phases.enum and results.phases.enum.katana %}
+                    {% if results and results.phases and results.phases.enum and results.phases.enum.katana %}
                     <div class="accordion" id="accordionKatana">
                         {% for port, endpoints in results.phases.enum.katana.items() %}
                         <div class="accordion-item bg-black border-secondary">
@@ -869,7 +869,9 @@
 
                     // Initial Data Load
                     {% if results %}
-                    const initialResults = {{ results|tojson|safe }};
+                    const initialResults = {{ results| tojson | safe
+                }
+            };
             // Delay slightly to ensure DOM ready
             setTimeout(() => {
                 updateUI(initialResults);
