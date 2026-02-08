@@ -282,8 +282,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                 print(f"[ERROR] Failed to save suggestion: {e}")
                 db.session.rollback()
 
-        def results_update_cb(scan_id, data):
-            save_results(scan_id, data)
+        def results_update_cb(scan_id, data, **kwargs):
+            save_results(scan_id, data, **kwargs)
             # Emit the partial/full results update to the UI
             if socketio:
                 # If progress is in data, emit specifically for progress handlers

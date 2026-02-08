@@ -20,6 +20,7 @@ from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
+from scan_engine.helpers.process_manager import ProcessManager
 from core.analysis import AnalysisEngine
 from core.intelligence import AttackVectorMapper
 from core.models import Scan, db
@@ -83,12 +84,13 @@ class ScanOrchestrator:
                         "takeover": [],
                         "wpscan": {}
                     },
+                    "intel": {},
                     "dirbusting": {
                         "ffuf": {"endpoints": []}
                     }
                 }
             }
-            self.save_results(self.scan_id, results)
+            self.save_results(self.scan_id, results, overwrite=True)
 
             # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
             self._emit_progress(5, "Geolocation Init")
@@ -407,6 +409,7 @@ class ScanOrchestrator:
                         try:
                             ww_stream = web_scanner.stream_whatweb(port, proto)
                             ww_output = []
+                            full_ww = "" # Initialize full_ww here
                             for event in ww_stream:
                                 if event["type"] == "stdout":
                                     msg = ProcessManager.strip_ansi(event["line"].strip())
@@ -417,7 +420,7 @@ class ScanOrchestrator:
                                     self.log(f"WhatWeb on port {port} finished with code {event['code']}", "INFO")
                             
                             # Save findings from WhatWeb (simple Parsing)
-                            full_ww = "\n".join(ww_output)
+                            full_ww = "\n".join(ww_output) # Corrected assignment
                             
                             # --- IMPROVED PARSING FOR UI ---
                             # Extract useful tech stack info into a summary dict
