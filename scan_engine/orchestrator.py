@@ -7,6 +7,7 @@ from scan_engine.step01_recon.dns_scanner import DNSScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.step02_enum.web_scanner import WebReconScanner
 from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
+from scan_engine.step03_vuln.wpscan_scanner import WPScanScanner
 from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from core.analysis import AnalysisEngine
@@ -364,6 +365,44 @@ class ScanOrchestrator:
 
                         except Exception as e:
                             self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")
+
+                        # --- CMS SPECIFIC SCANS (WordPress) ---
+                        if "WordPress" in full_ww:
+                            self.log(f"WordPress detected on port {port}. Initiating WPScan...", "WARN")
+                            try:
+                                wpscan = WPScanScanner(self.target)
+                                if not wpscan.check_tools():
+                                    self.log("Skipping WPScan: tool not installed. Please install 'wpscan' to enable this feature.", "WARN")
+                                else:
+                                    wp_stream = wpscan.stream_scan(port, proto)
+                                    wp_findings = []
+                                    current_finding = []
+                                    
+                                    for event in wp_stream:
+                                        if event["type"] == "stdout":
+                                            line = event["line"].strip()
+                                            if line:
+                                                self.log(line, "INFO")
+                                                
+                                                # Basic parsing to group relevant finding lines
+                                                if "[!]" in line or "[+]" in line:
+                                                    wp_findings.append(line)
+                                                    
+                                        elif event["type"] == "exit":
+                                            self.log(f"WPScan finished on port {port}.", "SUCCESS")
+
+                                    if wp_findings:
+                                        summary = "\n".join(wp_findings)
+                                        self.add_finding(
+                                            title=f"WordPress Scan Findings ({port})",
+                                            description=f"WPScan enumerated the following potential issues:\n\n{summary}",
+                                            severity="high",
+                                            tool_source="wpscan"
+                                        )
+                            except Exception as e:
+                                self.log(f"WPScan failed: {e}", "ERROR")
+
+
 
                         # --- KATANA CRAWLING ---
                         try:
