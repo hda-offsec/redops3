@@ -552,6 +552,7 @@
 
 <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
 <script type="text/javascript">
     document.addEventListener("DOMContentLoaded", function () {
@@ -595,6 +596,7 @@
         // --- SCAN TOAST CONTROLLER ---
         function toggleScanToast(isRunning) {
             const toast = document.getElementById('scan-toast');
+            if (!toast) return;
             if (isRunning) {
                 toast.classList.add('visible');
             } else {
@@ -603,7 +605,8 @@
         }
 
         // Initial Status Check
-        const currentStatus = document.querySelector('.status-pill').innerText.toLowerCase();
+        const statusPill = document.querySelector('.status-pill');
+        const currentStatus = statusPill ? statusPill.innerText.toLowerCase() : '';
         toggleScanToast(currentStatus === 'running');
 
         // Initial PTES Check (Parse existing logs)
@@ -655,14 +658,41 @@
             }
         });
 
+
         // Other socket listeners (results_update etc)
         socket.on("results_update", function (msg) {
             if (msg.scan_id == scanId) {
                 // Reload page or use complex DOM update logic. 
-                // For now, let's just log it. The user has detailed DOM update logic in previous file version.
-                // I should probably preserve that logic if I want the table to update live.
-                // I will re-include the critical updateUI logic from previous version.
                 if (window.updateUI) window.updateUI(msg.results);
+            }
+        });
+
+        // Progress Update Listener
+        socket.on("progress_update", function (data) {
+            if (data.scan_id == scanId) {
+                // Update Progress Bar
+                const bar = document.getElementById('scan-progress-bar');
+                const phaseText = document.getElementById('scan-phase-text');
+                const statusText = document.getElementById('scan-status-text');
+                const spinner = document.getElementById('scan-spinner');
+
+                if (bar) {
+                    bar.style.width = data.percent + '%';
+                    bar.setAttribute('aria-valuenow', data.percent);
+                }
+                if (phaseText) phaseText.innerText = data.current_phase;
+
+                if (data.percent >= 100) {
+                    if (statusText) statusText.innerText = 'completed';
+                    if (spinner) spinner.classList.add('d-none');
+                    if (bar) {
+                        bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                        bar.classList.add('bg-success');
+                    }
+                } else {
+                    if (statusText) statusText.innerText = 'running';
+                    if (spinner) spinner.classList.remove('d-none');
+                }
             }
         });
 
@@ -841,7 +871,6 @@
                     wwDiv.innerHTML = html || '<span class="text-muted small fst-italic">No web technologies detected.</span>';
                 }
             }
-
             // 4. Update Katana
             if (results.phases.enum && results.phases.enum.katana) {
                 const katDiv = document.querySelector("#katana-results");
@@ -901,7 +930,6 @@
                 }
             }
         };
-
         // Initial Data Load
         {% if results %}
         const initialResults = {{ results| tojson | safe
@@ -927,13 +955,13 @@
         if (nodeId.toString().startsWith('p')) {
             const portNum = nodeId.replace('p', '');
             content += `
-                    <div class="d-flex align-items-center mb-4">
+                < div class="d-flex align-items-center mb-4" >
                         <div class="display-4 text-info fw-bold me-3">${portNum}</div>
                         <div>
                             <div class="text-uppercase text-muted small">Port Status</div>
                             <div class="badge bg-success">OPEN / ACTIVE</div>
                         </div>
-                    </div>
+                    </div >
                     <div class="row g-3">
                         <div class="col-6">
                             <div class="p-3 bg-black rounded border border-secondary text-center">
@@ -956,20 +984,20 @@
                             Check "Intelligence" section for specific CVE payloads and TTPs for this port.
                         </div>
                     </div>
-                `;
+            `;
         } else if (nodeId.toString().startsWith('v')) {
             content += `
-                    <div class="text-center mb-4">
+                < div class="text-center mb-4" >
                         <i class="fas fa-microchip fa-3x text-success mb-3"></i>
                         <h5>Service Version Found</h5>
                         <div class="font-monospace text-success h4">${node.label}</div>
-                    </div>
-                    <p class="text-muted">Exact version match found via Nmap fingerprinting. Used by the Intelligence Engine to map potential CVEs.</p>
-                 `;
+                    </div >
+                <p class="text-muted">Exact version match found via Nmap fingerprinting. Used by the Intelligence Engine to map potential CVEs.</p>
+            `;
         } else {
-            content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
+            content += `< div class="text-center py-4" ><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div > `;
         }
-        content += `</div>`;
+        content += `</div >`;
         body.innerHTML = content;
         const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
         modal.show();
@@ -983,9 +1011,9 @@
         preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
         notesTextarea.parentNode.insertBefore(preview, notesTextarea.nextSibling);
         notesTextarea.addEventListener('input', () => {
-            preview.innerHTML = marked.parse(notesTextarea.value);
+            preview.innerHTML = DOMPurify.sanitize(marked.parse(notesTextarea.value));
         });
-        preview.innerHTML = marked.parse(notesTextarea.value || "*No notes*");
+        preview.innerHTML = DOMPurify.sanitize(marked.parse(notesTextarea.value || "*No notes*"));
     }
 
         });
