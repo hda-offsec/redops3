@@ -427,6 +427,39 @@ class ScanOrchestrator:
                                     
                                     if endpoints:
                                         self.log(f"Katana discovered {len(endpoints)} endpoints.", "SUCCESS")
+                                        
+                                        # --- SENSITIVE DATA ANALYSIS ---
+                                        sensitive_exts = ['.env', '.git', '.bak', '.config', '.sql', '.db', '.xml', '.yml', '.yaml']
+                                        sensitive_keywords = ['admin', 'login', 'dashboard', 'setup', 'install', 'test']
+                                        
+                                        exposed_secrets = []
+                                        exposed_panels = []
+                                        
+                                        for ep in endpoints:
+                                            # Check extensions
+                                            if any(ep.endswith(ext) for ext in sensitive_exts):
+                                                exposed_secrets.append(ep)
+                                            # Check keywords in path
+                                            if any(kw in ep.lower() for kw in sensitive_keywords):
+                                                # Avoid obvious public login pages if possible, but worth flagging
+                                                exposed_panels.append(ep)
+                                        
+                                        if exposed_secrets:
+                                            self.add_finding(
+                                                title=f"Sensitive Files Exposed ({port})",
+                                                description=f"Potential sensitive files found:\n" + "\n".join(exposed_secrets[:20]),
+                                                severity="critical",
+                                                tool_source="katana"
+                                            )
+                                            
+                                        if exposed_panels:
+                                            self.add_finding(
+                                                title=f"Administrative Panels ({port})",
+                                                description=f"Potential admin interfaces found:\n" + "\n".join(exposed_panels[:20]),
+                                                severity="medium",
+                                                tool_source="katana"
+                                            )
+
                                         self.add_finding(
                                             title=f"Crawling Results ({port})",
                                             description=f"Discovered {len(endpoints)} URLs/Endpoints.",
