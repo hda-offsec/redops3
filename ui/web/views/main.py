@@ -9,6 +9,7 @@ from core.results_store import load_results, save_results
 from core.reporting import generate_scan_report
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
+from scan_engine.helpers.target_utils import validate_target
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
 from core.tasks import run_scan_task
@@ -321,6 +322,12 @@ def new_scan():
         return redirect(url_for("main.index"))
 
     target_input = _normalize_target(target_input)
+
+    # Validate target
+    is_safe, error_msg = validate_target(target_input)
+    if not is_safe:
+        flash(f"Security Policy Error: {error_msg}", "error")
+        return redirect(url_for("main.index"))
 
     target = Target.query.filter_by(identifier=target_input).first()
     if not target:
