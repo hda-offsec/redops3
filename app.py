@@ -3,11 +3,33 @@ from flask import Flask
 from dotenv import load_dotenv
 from core.extensions import db, socketio
 from core.celery_app import celery
+from sqlalchemy.engine.url import make_url
 
 # Import models so they are registered with SQLAlchemy
 from core import models
 
 load_dotenv()
+
+
+def ensure_sqlite_directory(uri, root_path):
+    """Ensure the directory for the SQLite database exists."""
+    if "sqlite" not in uri:
+        return
+
+    try:
+        url = make_url(uri)
+    except Exception:
+        return
+
+    db_path = url.database
+
+    if db_path is None or db_path == ':memory:':
+        return
+
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(root_path, db_path)
+
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
 
 def create_app():
@@ -32,17 +54,7 @@ def create_app():
 if __name__ == "__main__":
     app = create_app()
     with app.app_context():
-        if "sqlite" in app.config["SQLALCHEMY_DATABASE_URI"]:
-            uri = app.config["SQLALCHEMY_DATABASE_URI"]
-            if uri.startswith("sqlite:////"):
-                db_path = uri.replace("sqlite:////", "")
-            elif uri.startswith("sqlite:///"):
-                db_path = uri.replace("sqlite:///", "")
-            else:
-                db_path = uri.replace("sqlite://", "")
-            if not os.path.isabs(db_path):
-                db_path = os.path.join(app.root_path, db_path)
-            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        ensure_sqlite_directory(app.config["SQLALCHEMY_DATABASE_URI"], app.root_path)
 
         os.makedirs(os.path.join(app.root_path, "data", "results"), exist_ok=True)
         os.makedirs(os.path.join(app.root_path, "data", "reports"), exist_ok=True)
