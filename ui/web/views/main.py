@@ -10,6 +10,7 @@ from sqlalchemy.orm import joinedload
 
 from sqlalchemy.orm import joinedload
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
+from sqlalchemy import func
 from core.results_store import load_results, save_results
 from core.reporting import generate_scan_report
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
@@ -57,12 +58,21 @@ def index():
     loot_count = Loot.query.count()
     
     # --- CISO ANALYTICS ---
-    all_findings = Finding.query.all()
     severity_stats = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-    for f in all_findings:
-        sev = (f.severity or "info").lower()
+
+    # Optimized aggregation using SQL GROUP BY
+    results = db.session.query(
+        func.lower(func.coalesce(Finding.severity, 'info')),
+        func.count(Finding.id)
+    ).group_by(
+        func.lower(func.coalesce(Finding.severity, 'info'))
+    ).all()
+
+    total_findings = 0
+    for sev, count in results:
+        total_findings += count
         if sev in severity_stats:
-            severity_stats[sev] += 1
+            severity_stats[sev] += count
             
     # Scan history trend (last 7 days - simplified)
     # In a real app we'd use group_by(func.date(Scan.start_time))
@@ -86,7 +96,7 @@ def index():
         mission_count=mission_count,
         loot_count=loot_count,
         severity_stats=severity_stats,
-        total_findings=len(all_findings),
+        total_findings=total_findings,
         logs=recent_logs,
         scan_profiles=SCAN_PROFILES
     )
