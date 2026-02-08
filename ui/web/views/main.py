@@ -322,6 +322,13 @@ def new_scan():
 
     target_input = _normalize_target(target_input)
 
+    try:
+        from scan_engine.helpers.target_utils import validate_target
+        validate_target(target_input)
+    except ValueError as e:
+        flash(f"Invalid target: {str(e)}", "error")
+        return redirect(url_for("main.index"))
+
     target = Target.query.filter_by(identifier=target_input).first()
     if not target:
         target = Target(identifier=target_input)
