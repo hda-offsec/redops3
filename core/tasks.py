@@ -102,10 +102,19 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 db.session.rollback()
                 print(f"Suggestion Save Error: {e}")
 
-        def results_update_cb(scan_id, data):
-            save_results(scan_id, data)
+        def results_update_cb(scan_id, data, **kwargs):
+            save_results(scan_id, data, **kwargs)
             try:
                 from core.extensions import socketio
+                
+                # If progress is in data, emit specifically for progress handlers
+                if "progress" in data:
+                    socketio.emit("progress_update", {
+                        "scan_id": scan_id,
+                        "percent": data["progress"]["percent"],
+                        "current_phase": data["progress"]["current_phase"]
+                    }, room=f"scan_{scan_id}")
+
                 socketio.emit('results_update', {
                     'scan_id': scan_id,
                     'results': data
