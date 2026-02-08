@@ -286,6 +286,14 @@ def background_scan(scan_id, target_identifier, scan_type, app):
             save_results(scan_id, data)
             # Emit the partial/full results update to the UI
             if socketio:
+                # If progress is in data, emit specifically for progress handlers
+                if "progress" in data:
+                    socketio.emit("progress_update", {
+                        "scan_id": scan_id,
+                        "percent": data["progress"]["percent"],
+                        "current_phase": data["progress"]["current_phase"]
+                    }, room=f"scan_{scan_id}")
+
                 socketio.emit("results_update", {
                     "scan_id": scan_id,
                     "results": data

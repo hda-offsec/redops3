@@ -195,13 +195,21 @@ class ScanOrchestrator:
                     tk_stream = takeover_scanner.stream_takeover_scan(logger=self.log)
                     for event in tk_stream:
                         if event['type'] == 'stdout':
-                            line = event['line'].strip()
+                            line = ProcessManager.strip_ansi(event['line'].strip())
                             if line:
+                                # Filter out nuclei-specific error/diagnostic noise
+                                if "[FTL]" in line or "no templates provided" in line:
+                                    self.log(f"Nuclei takeover diagnostic: {line}", "DEBUG")
+                                    continue
+                                    
                                 self.log(f"🚩 POTENTIAL TAKEOVER: {line}", "CRITICAL")
+                                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                if 'takeover' not in results['phases']['vuln']: results['phases']['vuln']['takeover'] = []
                                 results['phases']['vuln']['takeover'].append(line)
+                                
                                 self.add_finding(
                                     title="Subdomain Takeover Detected",
-                                    description=line,
+                                    description=f"Nuclei identified a potential takeover vulnerability:\n\n{line}",
                                     severity="critical",
                                     tool_source="nuclei"
                                 )
@@ -401,7 +409,7 @@ class ScanOrchestrator:
                             ww_output = []
                             for event in ww_stream:
                                 if event["type"] == "stdout":
-                                    msg = event["line"].strip()
+                                    msg = ProcessManager.strip_ansi(event["line"].strip())
                                     if msg:
                                         self.log(msg, "INFO")
                                         ww_output.append(msg)
@@ -457,8 +465,10 @@ class ScanOrchestrator:
                             self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")
 
                         # --- CMS SPECIFIC SCANS (WordPress) ---
-                        if "WordPress" in full_ww:
-                            self.log(f"WordPress detected on port {port}. Initiating WPScan...", "WARN")
+                        # Use more specific detection: check for wp-content/wp-includes or specific WhatWeb labels
+                        is_wordpress = "WordPress" in full_ww or "wp-content" in full_ww or "wp-includes" in full_ww
+                        if is_wordpress:
+                            self.log(f"WordPress signature detected on port {port}. Initiating WPScan...", "WARN")
                             try:
                                 wpscan = WPScanScanner(self.target)
                                 if not wpscan.check_tools():
@@ -691,9 +701,9 @@ class ScanOrchestrator:
                                 api_endpoints = []
                                 for event in api_stream:
                                     if event['type'] == 'stdout':
-                                        line = event['line'].strip()
-                                        if line:
-                                            # ffuf output can be cleaned or kept as is
+                                        line = ProcessManager.strip_ansi(event['line'].strip())
+                                        if line and not any(noise in line for noise in [":: Progress:", "[2K"]):
+                                            # Clean up ffuf artifacts
                                             api_endpoints.append(line)
                                 
                                 if api_endpoints:
@@ -744,8 +754,13 @@ class ScanOrchestrator:
                             vuln_count = 0
                             for event in nuc_stream:
                                 if event['type'] == 'stdout':
-                                    line = event['line'].strip()
+                                    line = ProcessManager.strip_ansi(event['line'].strip())
                                     if line:
+                                        # Skip tool-level errors in findings list
+                                        if "[FTL]" in line or "error" in line.lower():
+                                            self.log(f"Nuclei Diagnostic: {line}", "DEBUG")
+                                            continue
+
                                         sev = 'info'
                                         if '[critical]' in line.lower(): sev = 'critical'
                                         elif '[high]' in line.lower(): sev = 'high'

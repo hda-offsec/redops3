@@ -3,11 +3,20 @@ import logging
 import shlex
 import os
 import shutil
+import re
 
 logger = logging.getLogger(__name__)
 
 
 class ProcessManager:
+    @staticmethod
+    def strip_ansi(text):
+        """
+        Removes ANSI escape sequences (colors, etc.) from strings
+        """
+        ansi_escape = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
+        return ansi_escape.sub('', text)
+
     @staticmethod
     def find_binary_path(binary_name):
         """

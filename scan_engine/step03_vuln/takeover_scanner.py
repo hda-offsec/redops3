@@ -16,7 +16,7 @@ class TakeoverScanner:
         command = [
             "nuclei", 
             "-u", self.target,
-            "-t", "takeovers/",
+            "-tags", "takeover",
             "-jsonl",
             "-silent"
         ]

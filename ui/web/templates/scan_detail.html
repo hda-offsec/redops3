@@ -520,8 +520,8 @@
                                         results.phases.enum.whatweb[port_key] %}
                                         {% set ww = results.phases.enum.whatweb[port_key] %}
                                         <!-- Simple inline badges for the matrix -->
-                                        {% if "WordPress" in ww %}<span class="badge bg-primary" title="WordPress"><i
-                                                class="fab fa-wordpress"></i> WP</span>{% endif %}
+                                        {% if "WordPress" in ww or "wp-content" in ww %}<span class="badge bg-primary"
+                                            title="WordPress"><i class="fab fa-wordpress"></i> WP</span>{% endif %}
                                         {% if "Apache" in ww %}<span class="badge bg-danger" title="Apache"><i
                                                 class="fas fa-server"></i> Apache</span>{% endif %}
                                         {% if "Nginx" in ww %}<span class="badge bg-success" title="Nginx"><i
@@ -530,6 +530,9 @@
                                                 class="fab fa-php"></i> PHP</span>{% endif %}
                                         {% if "Microsoft-IIS" in ww %}<span class="badge bg-info" title="IIS"><i
                                                 class="fab fa-windows"></i> IIS</span>{% endif %}
+                                        {% if "Amazon-ELB" in ww or "awselb" in ww %}<span
+                                            class="badge bg-warning text-dark" title="AWS ELB"><i
+                                                class="fab fa-aws"></i> ELB</span>{% endif %}
                                         {% else %}
                                         <span class="text-muted">-</span>
                                         {% endif %}
@@ -1712,7 +1715,42 @@
 
         // --- UI UPDATE ENGINE ---
         window.updateUI = function (results) {
-            if (!results || !results.phases) return;
+            if (!results) return;
+
+            // Sync Progress UI
+            if (results.progress) {
+                const data = results.progress;
+                const bar = document.getElementById('scan-progress-bar');
+                const phaseText = document.getElementById('scan-phase-text');
+                const statusText = document.getElementById('scan-status-text');
+
+                const toastBar = document.getElementById('toast-progress-bar');
+                const toastPhase = document.getElementById('toast-phase-text');
+                const toastPercent = document.getElementById('toast-percent-text');
+
+                if (bar) {
+                    bar.style.width = data.percent + '%';
+                    bar.setAttribute('aria-valuenow', data.percent);
+                }
+                if (phaseText) {
+                    phaseText.innerText = data.current_phase;
+                    highlightPTES(data.current_phase);
+                }
+
+                if (toastBar) toastBar.style.width = data.percent + '%';
+                if (toastPhase) toastPhase.innerText = data.current_phase;
+                if (toastPercent) toastPercent.innerText = data.percent + '%';
+
+                if (data.percent >= 100) {
+                    if (statusText) statusText.innerText = 'completed';
+                    toggleScanToast(false);
+                } else if (data.percent > 0) {
+                    if (statusText) statusText.innerText = 'running';
+                    toggleScanToast(true);
+                }
+            }
+
+            if (!results.phases) return;
 
             // 1. DNS
             if (results.phases.dns && results.phases.dns.subdomains) {
