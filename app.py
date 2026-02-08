@@ -1,4 +1,5 @@
 import os
+import secrets
 from flask import Flask
 from dotenv import load_dotenv
 from core.extensions import db, socketio
@@ -12,9 +13,22 @@ load_dotenv()
 
 def create_app():
     app = Flask(__name__, template_folder="ui/web/templates", static_folder="ui/web/static")
-    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 
     basedir = os.path.abspath(os.path.dirname(__file__))
+
+    # Secure SECRET_KEY generation
+    secret_key = os.getenv("SECRET_KEY")
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        try:
+            env_path = os.path.join(basedir, ".env")
+            with open(env_path, "a") as f:
+                f.write(f"\nSECRET_KEY={secret_key}\n")
+        except IOError:
+            pass
+
+    app.config["SECRET_KEY"] = secret_key
+
     default_db = "sqlite:///" + os.path.join(basedir, "data", "redops3.db")
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", default_db)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
