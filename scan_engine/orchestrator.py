@@ -1,11 +1,21 @@
 import re
 import threading
+import os
+from datetime import datetime
+
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.step01_recon.dns_scanner import DNSScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
+from scan_engine.step02_enum.web_scanner import WebReconScanner
+from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
+from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
+
 from core.analysis import AnalysisEngine
-from datetime import datetime
+from core.intelligence import AttackVectorMapper
+from core.models import Scan, db
+from core.scan_profiles import SCAN_PROFILES
+from core.screenshots import take_service_screenshot
 
 class ScanOrchestrator:
     def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func):
@@ -35,23 +45,62 @@ class ScanOrchestrator:
         success = True
         
         try:
-            # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
-            self._emit_progress(5, "Geolocation Init")
-            self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
-            from core.intelligence import AttackVectorMapper
+            self._run_geolocation()
+
+            if not self._initialize_results():
+                return False
+
+            self._run_dns_enumeration()
+
+            # Phase 1: Port Scan
+            full_output = self._run_port_scan(profile)
+            if full_output is False:
+                return False
+
+            # Phase 2: Parsing
+            open_ports, results = self._parse_nmap_results(full_output)
+
+            # Phase 3: Analysis
+            web_ports = self._analyze_attack_vectors(open_ports, results)
+
+            # Phase 4: Web Recon
+            self._run_web_recon(web_ports, results)
+
+            # Phase 5: Vuln Scan
+            self._run_vuln_scan(web_ports, results)
+
+            # Phase 6: Dirbusting
+            self._run_dirbusting(web_ports, results)
+
+            self._emit_progress(100, "Operation Completed")
+            self._emit_progress(100, "Operation Completed")
+            return True
+
+        except Exception as e:
+            self.log(f"Pipeline failed: {str(e)}", "ERROR")
+            return False
+
+    def _run_geolocation(self):
+        # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
+        self._emit_progress(5, "Geolocation Init")
+        self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
+        try:
             geo = AttackVectorMapper.get_ip_geolocation(self.target)
             if geo:
                 self.log(f"Target located: {geo.get('city')}, {geo.get('country')} ({geo.get('isp')})", "SUCCESS")
                 # Update Scan model directly
-                from core.models import Scan, db
                 scan_obj = Scan.query.get(self.scan_id)
                 if scan_obj:
                     scan_obj.geolocation_data = geo
                     db.session.commit()
             else:
                 self.log("Geolocation lookup failed or target is local.", "WARN")
+        except Exception as e:
+            self.log(f"Geolocation error: {e}", "WARN")
 
-            # --- INITIALIZATION: Clear old ghost results ---
+    def _initialize_results(self):
+        # --- INITIALIZATION: Clear old ghost results ---
+        try:
             self.log("Initializing local results structure...", "INFO")
             initial_results = {
                 "scan_id": self.scan_id,
@@ -61,24 +110,30 @@ class ScanOrchestrator:
             }
             self.save_results(self.scan_id, initial_results)
             self.log("Local workspace prepared.", "INFO")
+            return True
         except Exception as e:
             self.log(f"Failed to initialize results: {str(e)}", "ERROR")
             return False
 
+    def _run_dns_enumeration(self):
         # --- PHASE 0.5: DNS Enumeration ---
         self._emit_progress(10, "DNS Enumeration")
         self.log("Phase 0.5: Starting DNS Enumeration...", "INFO")
-        dns_scanner = DNSScanner(self.target)
-        dns_results = dns_scanner.enumerate_all(logger=self.log)
-        if dns_results["subdomains"]:
-            self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
-            self.add_finding(
-                title=f"DNS Discovery: {len(dns_results['subdomains'])} Subdomains",
-                description="\n".join(dns_results["subdomains"]),
-                severity="info",
-                tool_source="subfinder"
-            )
+        try:
+            dns_scanner = DNSScanner(self.target)
+            dns_results = dns_scanner.enumerate_all(logger=self.log)
+            if dns_results["subdomains"]:
+                self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
+                self.add_finding(
+                    title=f"DNS Discovery: {len(dns_results['subdomains'])} Subdomains",
+                    description="\n".join(dns_results["subdomains"]),
+                    severity="info",
+                    tool_source="subfinder"
+                )
+        except Exception as e:
+            self.log(f"DNS Enumeration failed: {e}", "ERROR")
 
+    def _run_port_scan(self, profile):
         # --- PHASE 1: Port Scan ---
         self._emit_progress(20, "Port Scanning (nmap)")
         self.log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
@@ -88,8 +143,6 @@ class ScanOrchestrator:
             self.log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")
             return False
 
-        from core.scan_profiles import SCAN_PROFILES
-        
         # Determine arguments
         scan_args = []
         found_profile = False
@@ -116,28 +169,8 @@ class ScanOrchestrator:
         self.log(f"Executing Nmap with: {' '.join(scan_args)}", "DEBUG")
         
         try:
-            # We need to bypass the 'stream_profile' logic of NmapScanner if we want raw args
-            # Or we can update NmapScanner. For now, let's assume NmapScanner has a method 
-            # or we use a lower level call. 
-            # Looking at NmapScanner (not shown but assumed), it likely has `stream_scan(args)`.
-            # If `stream_profile` translates key to args, we might need to change it.
-            # Let's try to use `stream_scan` if it exists, or pass the args directly.
-            
-            # Since I cannot see NmapScanner source right now (I saw it earlier in searches but didn't view it),
-            # I will assume `stream_command` or similar exists, or I will subclass/modify logic here.
-            # Actually, `scanner.stream_profile(profile)` was used. 
-            # I'll rely on `scanner.run_custom(args)` if it exists.
-            # Let's check `scan_engine/step01_recon/nmap_scanner.py` quickly.
-            # For now, I'll pass the *args list* to valid existing method or assume stream_scan accepts list.
-            
-            # HACK: If NmapScanner doesn't support raw args list easily, 
-            # I will reconstruct the list manually.
-            
             stream = scanner.stream_scan(scan_args)
-            
         except AttributeError:
-             # If stream_scan doesn't exist, we might have to use stream_profile with a hack or fix NmapScanner.
-             # Let's assume `stream_scan` is the generic one.
              self.log("Falling back to legacy profile logic...", "WARN")
              stream = scanner.stream_profile('quick')
         except Exception as e:
@@ -184,8 +217,9 @@ class ScanOrchestrator:
                 self.log(f"Stream error: {event['message']}", "ERROR")
                 return False
 
-        full_output = "\n".join(output_buffer)
-        
+        return "\n".join(output_buffer)
+
+    def _parse_nmap_results(self, full_output):
         # --- PHASE 2: Parsing ---
         self._emit_progress(40, "Packet Analysis")
         self.log("Phase 2: Parsing results...", "INFO")
@@ -206,14 +240,14 @@ class ScanOrchestrator:
             }
         }
         self.save_results(self.scan_id, results)
+        return open_ports, results
 
+    def _analyze_attack_vectors(self, open_ports, results):
         # --- PHASE 3: Deep Analysis & Attack Vector Mapping ---
         self._emit_progress(50, "Intel Mapping")
+        web_ports = []
         try:
             self.log("Phase 3: Querying Intelligence Engine for Attack Vectors...", "INFO")
-            from core.intelligence import AttackVectorMapper
-            
-            web_ports = []
             
             if open_ports:
                 # Report open ports summary
@@ -236,7 +270,6 @@ class ScanOrchestrator:
                         # Trigger Screenshot
                         try:
                             self.log(f"Phase 3+: Capturing screenshot for port {port}...", "INFO")
-                            from core.screenshots import take_service_screenshot
                             shot_path = take_service_screenshot(self.scan_id, port, self.target)
                         except Exception as e:
                             self.log(f"Screenshot failed for port {port}: {e}", "WARN")
@@ -282,12 +315,14 @@ class ScanOrchestrator:
         except Exception as e:
             self.log(f"Phase 3 (Analysis) encountered an error: {e}", "ERROR")
         
+        return web_ports
+
+    def _run_web_recon(self, web_ports, results):
         # --- PHASE 4: Auto-Enumeration (Web) ---
         self._emit_progress(60, "Web Enumeration")
         if web_ports:
             try:
                 self.log(f"Phase 4: Starting Auto-Recon for {len(web_ports)} web ports...", "INFO")
-                from scan_engine.step02_enum.web_scanner import WebReconScanner
                 
                 web_scanner = WebReconScanner(self.target)
                 if not web_scanner.check_tools():
@@ -316,9 +351,6 @@ class ScanOrchestrator:
                             # Extract useful tech stack info into a summary dict
                             tech_summary = {}
                             
-                            # Default regex to extract widely used Technology names
-                            # Simple logic: extract Title[...] HTTPServer[...] Country[...]
-                            
                             title_match = re.search(r"Title\[(.*?)\]", full_ww)
                             if title_match: tech_summary['Title'] = title_match.group(1)
                             
@@ -330,9 +362,6 @@ class ScanOrchestrator:
                             
                             ip_match = re.search(r"IP\[(.*?)\]", full_ww)
                             if ip_match: tech_summary['IP'] = ip_match.group(1)
-                            
-                            # Also regex generic text like "Apache[2.4.41]"
-                            # This is harder to do safely without clutter, let's stick to key items above for the summary box
                             
                             if "Title" in full_ww or "HTTPServer" in full_ww:
                                 self.add_finding(
@@ -346,9 +375,7 @@ class ScanOrchestrator:
                                 if 'whatweb' not in results['phases']['enum']: results['phases']['enum']['whatweb'] = {'summary': {}}
                                 
                                 results['phases']['enum']['whatweb'][str(port)] = full_ww
-                                # Merge into main summary (UI expects flat object but we have multiple ports...)
-                                # The UI code iterates Object.entries(summary). If we have multiple ports, keys might collide.
-                                # Let's prefix keys with port if we have multiple.
+                                # Merge into main summary
                                 for k, v in tech_summary.items():
                                     results['phases']['enum']['whatweb']['summary'][f"{k} ({port})"] = v
                                     
@@ -397,13 +424,13 @@ class ScanOrchestrator:
 
             except Exception as e:
                 self.log(f"Phase 4 (Web Enum) failed: {e}", "ERROR")
-        
+
+    def _run_vuln_scan(self, web_ports, results):
         # --- PHASE 5: Automated Vulnerability Scanning (Nuclei) ---
         self._emit_progress(80, "Vulnerability Assessment")
         if web_ports:
             try:
                 self.log(f"Phase 5: Starting Vulnerability Assessment for {len(web_ports)} targets...", "INFO")
-                from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
                 
                 vuln_scanner = NucleiScanner(self.target)
                 if not vuln_scanner.check_tools():
@@ -454,13 +481,12 @@ class ScanOrchestrator:
             except Exception as e:
                 self.log(f"Phase 5 (Vuln Scan) failed: {e}", "ERROR")
 
+    def _run_dirbusting(self, web_ports, results):
         # --- PHASE 6: Automated Dirbusting (ffuf) ---
         self._emit_progress(90, "Fuzzing")
         if web_ports:
             try:
                 self.log("Phase 6: Starting Automated Dirbusting (ffuf)...", "INFO")
-                from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
-                import os
                 
                 # Default wordlist path
                 wordlist = os.path.join(os.getcwd(), "data", "wordlists", "common.txt")
@@ -508,10 +534,7 @@ class ScanOrchestrator:
                             for item in found_items:
                                 # Attempt to clean / leading if present
                                 clean_item = item.lstrip('/')
-                                # Ensure we don't duplicate existing endpoints structure if appending
-                                # Actually we are appending to a fresh list in memory `found_items` then updating result dict
-                                # But `results['phases']['dirbusting']['ffuf']['endpoints']` might reset per port loop iteration if we re-init
-                                # Fix: init list outside loop or check exist
+
                                 if 'endpoints' not in results['phases']['dirbusting']['ffuf']:
                                      results['phases']['dirbusting']['ffuf']['endpoints'] = []
                                 
@@ -527,7 +550,3 @@ class ScanOrchestrator:
                         self.log(f"Error during ffuf scan on port {port}: {str(e)}", "ERROR")
             except Exception as e:
                 self.log(f"Phase 6 (Dirbusting) failed: {e}", "ERROR")
-
-        self._emit_progress(100, "Operation Completed")
-        self._emit_progress(100, "Operation Completed")
-        return success
