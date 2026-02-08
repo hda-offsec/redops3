@@ -19,6 +19,7 @@ class KatanaScanner:
             "-jc",
             "-kf", "all",
             "-d", "3",
+            "-fs", "fqdn", # restrict scope to FQDN
             "-silent",
             "-nc" # no color
         ]
