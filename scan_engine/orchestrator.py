@@ -417,6 +417,7 @@ class ScanOrchestrator:
                             nuc_stream = vuln_scanner.stream_vuln_scan(port, proto)
                             
                             vuln_count = 0
+                            unsaved_changes = False
                             for event in nuc_stream:
                                 if event["type"] == "stdout":
                                     line = event["line"].strip()
@@ -445,9 +446,18 @@ class ScanOrchestrator:
                                                 "title": line,
                                                 "port": port
                                             })
-                                            self.save_results(self.scan_id, results)
+
+                                            unsaved_changes = True
+                                            # Batch save updates to reduce IO
+                                            if vuln_count % 10 == 0:
+                                                self.save_results(self.scan_id, results)
+                                                unsaved_changes = False
                                 elif event["type"] == "exit":
                                     self.log(f"Nuclei on port {port} finished with code {event['code']}", "INFO")
+
+                            # Final save if we have pending updates
+                            if unsaved_changes:
+                                self.save_results(self.scan_id, results)
 
                         except Exception as e:
                             self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")
