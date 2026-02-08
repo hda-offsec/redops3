@@ -869,9 +869,7 @@
 
                     // Initial Data Load
                     {% if results %}
-                    const initialResults = {{ results| tojson | safe
-                }
-            };
+                    const initialResults = {{ results|tojson|safe }};
             // Delay slightly to ensure DOM ready
             setTimeout(() => {
                 updateUI(initialResults);
