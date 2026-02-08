@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, jsonify
+from flask_login import login_required, current_user
 from urllib.parse import urlparse
 import os
 import shutil
@@ -310,6 +311,7 @@ def background_scan(scan_id, target_identifier, scan_type, app):
 
 
 @main_bp.route("/scan/new", methods=["POST"])
+@login_required
 def new_scan():
     target_input = request.form.get("target")
     scan_type = request.form.get("scan_type", "pipeline")
@@ -348,6 +350,7 @@ def new_scan():
     return redirect(url_for("main.scan_detail", scan_id=scan.id))
 
 @main_bp.route("/scan/<int:scan_id>/notes", methods=["POST"])
+@login_required
 def update_notes(scan_id):
     scan = Scan.query.get_or_404(scan_id)
     notes = request.form.get("notes")
@@ -443,6 +446,7 @@ def mission_list():
     return render_template("missions/list.html", missions=missions)
 
 @main_bp.route("/mission/new", methods=["POST"])
+@login_required
 def mission_new():
     name = request.form.get("name")
     desc = request.form.get("description")
@@ -458,6 +462,7 @@ def loot_list():
     return render_template("loots/list.html", loots=loots)
 
 @main_bp.route("/scan/<int:scan_id>/loot/add", methods=["POST"])
+@login_required
 def loot_add(scan_id):
     scan = Scan.query.get_or_404(scan_id)
     loot_type = request.form.get("type")
@@ -477,6 +482,7 @@ def loot_add(scan_id):
     return redirect(url_for("main.scan_detail", scan_id=scan_id))
 
 @main_bp.route("/scan/verify", methods=["POST"])
+@login_required
 def verify_finding():
     data = request.json
     scan_id = data.get("scan_id")
@@ -503,6 +509,7 @@ def verify_finding():
     socketio.start_background_task(run_verification, scan_id, command, app_obj)
     
 @main_bp.route("/settings/clear_logs", methods=["POST"])
+@login_required
 def clear_logs():
     try:
         # Clear operational data but keep targets/missions if possible?

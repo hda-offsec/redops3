@@ -27,6 +27,17 @@
                         <small class="text-muted d-block" style="letter-spacing: 2px; font-size: 0.7rem;">OFFENSIVE
                             ORCHESTRATION</small>
                     </div>
+                    {% if current_user.is_authenticated %}
+                    <div class="px-3 mb-2 text-center text-white">
+                        <small>Logged in as: <strong>{{ current_user.username }}</strong></small><br>
+                        <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-danger mt-2">Logout</a>
+                    </div>
+                    {% else %}
+                    <div class="px-3 mb-2 text-center">
+                        <a href="{{ url_for('auth.login') }}" class="btn btn-sm btn-outline-primary">Login</a>
+                    </div>
+                    {% endif %}
+
                     <h6 class="sidebar-heading px-3 mt-4 mb-2 text-primary text-uppercase" style="letter-spacing: 1px;">
                         Main Operations
                     </h6>
