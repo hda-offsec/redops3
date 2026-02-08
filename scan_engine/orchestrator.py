@@ -1,10 +1,18 @@
 import re
 import threading
+import os
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.step01_recon.dns_scanner import DNSScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
+from scan_engine.step02_enum.web_scanner import WebReconScanner
+from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
+from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from core.analysis import AnalysisEngine
+from core.intelligence import AttackVectorMapper
+from core.models import Scan, db
+from core.scan_profiles import SCAN_PROFILES
+from core.screenshots import take_service_screenshot
 from datetime import datetime
 
 class ScanOrchestrator:
@@ -38,10 +46,8 @@ class ScanOrchestrator:
             # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
             self._emit_progress(5, "Geolocation Init")
             self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
-            from core.intelligence import AttackVectorMapper
-            from flask import current_app
-
             # Capture app context for the thread
+            from flask import current_app
             app_ctx = current_app.app_context()
 
             def on_geo_complete(geo):
@@ -49,7 +55,6 @@ class ScanOrchestrator:
                     if geo:
                         self.log(f"Target located: {geo.get('city')}, {geo.get('country')} ({geo.get('isp')})", "SUCCESS")
                         # Update Scan model directly
-                        from core.models import Scan, db
                         try:
                             scan_obj = Scan.query.get(self.scan_id)
                             if scan_obj:
@@ -113,8 +118,6 @@ class ScanOrchestrator:
             self.log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")
             return False
 
-        from core.scan_profiles import SCAN_PROFILES
-        
         # Determine arguments
         scan_args = []
         found_profile = False
@@ -213,7 +216,6 @@ class ScanOrchestrator:
         self._emit_progress(50, "Intel Mapping")
         try:
             self.log("Phase 3: Querying Intelligence Engine for Attack Vectors...", "INFO")
-            from core.intelligence import AttackVectorMapper
             
             web_ports = []
             
@@ -238,7 +240,6 @@ class ScanOrchestrator:
                         # Trigger Screenshot
                         try:
                             self.log(f"Phase 3+: Capturing screenshot for port {port}...", "INFO")
-                            from core.screenshots import take_service_screenshot
                             shot_path = take_service_screenshot(self.scan_id, port, self.target)
                             # Link screenshot to the port object for the UI Matrix
                             p['screenshot_path'] = shot_path
@@ -295,7 +296,6 @@ class ScanOrchestrator:
         if web_ports:
             try:
                 self.log(f"Phase 4: Starting Auto-Recon for {len(web_ports)} web ports...", "INFO")
-                from scan_engine.step02_enum.web_scanner import WebReconScanner
                 
                 web_scanner = WebReconScanner(self.target)
                 if not web_scanner.check_tools():
@@ -411,7 +411,6 @@ class ScanOrchestrator:
         if web_ports:
             try:
                 self.log(f"Phase 5: Starting Vulnerability Assessment for {len(web_ports)} targets...", "INFO")
-                from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
                 
                 vuln_scanner = NucleiScanner(self.target)
                 if not vuln_scanner.check_tools():
@@ -481,8 +480,6 @@ class ScanOrchestrator:
         if web_ports:
             try:
                 self.log("Phase 6: Starting Automated Dirbusting (ffuf)...", "INFO")
-                from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
-                import os
                 
                 # Default wordlist path
                 wordlist = os.path.join(os.getcwd(), "data", "wordlists", "common.txt")
