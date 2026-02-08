@@ -1,9 +1,9 @@
 import os
 from flask import Flask
 from dotenv import load_dotenv
+from sqlalchemy.engine.url import make_url
 from core.extensions import db, socketio, login_manager
 from core.celery_app import celery
-from sqlalchemy.engine.url import make_url
 
 # Import models so they are registered with SQLAlchemy
 from core import models
