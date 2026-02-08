@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 import os
 import shutil
 from datetime import datetime
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
 from core.results_store import load_results, save_results
@@ -396,9 +398,22 @@ def mission_map(mission_id):
     # Mission node
     graph_data["nodes"].append({"id": f"m{mission.id}", "label": mission.name, "group": "mission", "level": 0})
     
+    # Optimization: Fetch all latest scans for targets in one go
+    scan_map = {}
+    target_ids = [t.id for t in targets]
+    if target_ids:
+        # Get max scan ID for each target
+        max_ids_q = db.session.query(func.max(Scan.id)).filter(Scan.target_id.in_(target_ids)).group_by(Scan.target_id)
+        max_ids = [r[0] for r in max_ids_q.all()]
+
+        if max_ids:
+            # Fetch scans with findings
+            scans = Scan.query.options(joinedload(Scan.findings)).filter(Scan.id.in_(max_ids)).all()
+            scan_map = {s.target_id: s for s in scans}
+
     for t in targets:
         # Get latest scan for this target to obtain geolocation
-        scan = Scan.query.filter_by(target_id=t.id).order_by(Scan.id.desc()).first()
+        scan = scan_map.get(t.id)
         label = t.identifier
         if scan and scan.geolocation_data:
             label += f"\n({scan.geolocation_data.get('country', '??')})"
@@ -407,9 +422,8 @@ def mission_map(mission_id):
         graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
         
         # Add icons for critical findings on this target
-        latest_scan = Scan.query.filter_by(target_id=t.id).order_by(Scan.id.desc()).first()
-        if latest_scan:
-            findings = Finding.query.filter_by(scan_id=latest_scan.id).all()
+        if scan:
+            findings = scan.findings
             for f in findings:
                 f_id = f"f{f.id}"
                 graph_data["nodes"].append({
