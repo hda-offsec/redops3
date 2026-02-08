@@ -3,13 +3,106 @@
 {% block title %}Operation #{{ scan.id }}{% endblock %}
 
 {% block content %}
+<style>
+    :root {
+        --glass-bg: rgba(10, 10, 12, 0.7);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --cyber-red: #ff2a2a;
+        --cyber-blue: #00f0ff;
+        --cyber-yellow: #f39c12;
+    }
+
+    .glass-panel {
+        background: var(--glass-bg);
+        backdrop-filter: blur(12px) saturate(160%);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+        transition: transform 0.3s ease, border-color 0.3s ease;
+    }
+
+    .glass-panel:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .glass-header {
+        background: rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid var(--glass-border);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #eee;
+    }
+
+    .tactical-summary-bar {
+        background: linear-gradient(90deg, rgba(255, 42, 42, 0.1), rgba(0, 240, 255, 0.05));
+        border-left: 4px solid var(--cyber-red);
+    }
+
+    .risk-indicator {
+        position: relative;
+        display: inline-block;
+    }
+
+    .pulse-danger {
+        box-shadow: 0 0 0 0 rgba(255, 42, 42, 0.7);
+        animation: pulse-danger 2s infinite;
+    }
+
+    @keyframes pulse-danger {
+        0% {
+            box-shadow: 0 0 0 0 rgba(255, 42, 42, 0.7);
+        }
+
+        70% {
+            box-shadow: 0 0 0 10px rgba(255, 42, 42, 0);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(255, 42, 42, 0);
+        }
+    }
+
+    .hover-action:hover {
+        background: rgba(255, 255, 255, 0.05) !important;
+        transform: translateX(5px);
+    }
+
+    .animate-flicker {
+        animation: flicker 2s linear infinite;
+    }
+
+    @keyframes flicker {
+
+        0%,
+        19.999%,
+        22%,
+        62.999%,
+        64%,
+        64.999%,
+        70%,
+        100% {
+            opacity: 1;
+        }
+
+        20%,
+        21.999%,
+        63%,
+        63.999%,
+        65%,
+        69.999% {
+            opacity: 0.4;
+        }
+    }
+</style>
+
 <div class="row g-4">
     <!-- HEADER / OVERVIEW PANEL -->
     <div class="col-12">
         <div class="card glass-panel">
             <div class="card-header glass-header d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview: <span class="text-cyber">{{
-                        scan.target.identifier }}</span></span>
+                <span><i class="fas fa-satellite-dish me-2 animate-flicker"></i>Operation Overview: <span
+                        class="text-cyber">{{ scan.target.identifier }}</span></span>
                 <div class="mission-ops d-flex gap-2">
                     <a href="{{ url_for('main.index') }}" class="btn btn-xs btn-outline-cyber">
                         <i class="fas fa-home me-1"></i>Home
@@ -29,14 +122,49 @@
                 </div>
             </div>
             <div class="card-body">
+                <!-- TACTICAL SUMMARY BAR -->
+                <div class="row tactical-summary-bar p-3 rounded mb-4 g-1">
+                    <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                        <div class="text-muted x-small text-uppercase">Critical Risks</div>
+                        <div
+                            class="h4 mb-0 fw-bold {{ 'text-danger pulse-danger' if severity_counts['critical'] > 0 else 'text-muted' }}">
+                            {{ severity_counts['critical'] }}</div>
+                    </div>
+                    <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                        <div class="text-muted x-small text-uppercase">High Risks</div>
+                        <div
+                            class="h4 mb-0 fw-bold {{ 'text-warning' if severity_counts['high'] > 0 else 'text-muted' }}">
+                            {{ severity_counts['high'] }}</div>
+                    </div>
+                    <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                        <div class="text-muted x-small text-uppercase">Entry Points</div>
+                        <div class="h4 mb-0 fw-bold text-info">{{ results.phases.recon.open_ports|length if
+                            results.phases.recon else 0 }}</div>
+                    </div>
+                    <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                        <div class="text-muted x-small text-uppercase">Subdomains</div>
+                        <div class="h4 mb-0 fw-bold text-cyber">{{ results.phases.dns.subdomains|length if
+                            results.phases.dns else 0 }}</div>
+                    </div>
+                    <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                        <div class="text-muted x-small text-uppercase">Intel Vectors</div>
+                        <div class="h4 mb-0 fw-bold text-warning">{{ results.phases.intel|length if results.phases.intel
+                            else 0 }}</div>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <div class="text-muted x-small text-uppercase">Threat Level</div>
+                        <div class="h4 mb-0 fw-bold text-cyber">ALPHA-3</div>
+                    </div>
+                </div>
+
                 <div class="row g-3">
                     <div class="col-md-3">
                         <div class="meta-label text-muted small text-uppercase">Type</div>
-                        <div class="meta-value text-uppercase fw-bold">{{ scan.scan_type }}</div>
+                        <div class="meta-value text-uppercase fw-bold text-light">{{ scan.scan_type }}</div>
                     </div>
                     <div class="col-md-3">
                         <div class="meta-label text-muted small text-uppercase">Duration</div>
-                        <div class="meta-value font-monospace">
+                        <div class="meta-value font-monospace text-light">
                             {% if scan.end_time and scan.start_time %}
                             {{ (scan.end_time - scan.start_time)|string|truncate(7, true, '') }}
                             {% else %}
@@ -54,8 +182,9 @@
                             <span class="ms-auto small font-monospace text-muted"
                                 id="scan-phase-text">initializing...</span>
                         </div>
-                        <div class="progress bg-dark border border-secondary" style="height: 6px;">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-cyber"
+                        <div class="progress bg-dark border border-secondary"
+                            style="height: 6px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5);">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-cyber shadow-cyber"
                                 id="scan-progress-bar" role="progressbar"
                                 style="width: {% if scan.status == 'completed' %}100{% elif scan.status == 'running' %}5{% else %}0{% endif %}%">
                             </div>
@@ -63,34 +192,12 @@
                     </div>
                 </div>
 
-                <div class="severity-strip mt-4 d-flex gap-1 flex-wrap">
-                    <div
-                        class="severity-item critical px-3 py-1 bg-black border border-danger text-danger rounded-1 small fw-bold">
-                        CRITICAL: {{ severity_counts['critical'] }}
-                    </div>
-                    <div
-                        class="severity-item high px-3 py-1 bg-black border border-warning text-warning rounded-1 small fw-bold">
-                        HIGH: {{ severity_counts['high'] }}
-                    </div>
-                    <div
-                        class="severity-item medium px-3 py-1 bg-black border border-info text-info rounded-1 small fw-bold">
-                        MEDIUM: {{ severity_counts['medium'] }}
-                    </div>
-                    <div
-                        class="severity-item low px-3 py-1 bg-black border border-secondary text-secondary rounded-1 small fw-bold">
-                        LOW: {{ severity_counts['low'] }}
-                    </div>
-                    <div
-                        class="severity-item info px-3 py-1 bg-black border border-secondary text-muted rounded-1 small">
-                        INFO: {{ severity_counts['info'] }}
-                    </div>
-                </div>
-
                 {% if scan.geolocation_data %}
-                <div class="mt-4 p-3 bg-black border border-secondary rounded shadow-sm">
+                <div
+                    class="mt-4 p-3 bg-black bg-opacity-30 border border-secondary border-opacity-25 rounded shadow-sm">
                     <div class="row align-items-center">
                         <div class="col-md-1 text-center">
-                            <i class="fas fa-globe-africa fa-2x text-cyber"></i>
+                            <i class="fas fa-globe-africa fa-2x text-cyber opacity-75"></i>
                         </div>
                         <div class="col-md-11">
                             <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
@@ -248,26 +355,37 @@
             </div>
             {% endif %}
 
-            <!-- GITHUB LEAKS -->
+            <!-- GITHUB CODE LEAKS -->
             {% if results and results.phases and results.phases.osint and results.phases.osint.github %}
             <div class="col-12">
                 <div class="card glass-panel border-danger">
-                    <div class="card-header glass-header text-danger"><i class="fab fa-github me-2"></i>GitHub Code
-                        Leaks / Mentions</div>
+                    <div class="card-header glass-header text-danger d-flex justify-content-between align-items-center">
+                        <span><i class="fab fa-github me-2 animate-flicker"></i>GitHub Code Leaks / Mentions</span>
+                        <span class="badge bg-danger text-dark x-small">{{ results.phases.osint.github|length }}
+                            Findings</span>
+                    </div>
                     <div class="card-body">
-                        <div class="list-group list-group-flush bg-transparent">
+                        <div class="row g-3">
                             {% for leak in results.phases.osint.github %}
-                            <a href="{{ leak.url }}" target="_blank"
-                                class="list-group-item bg-transparent border-secondary text-light hover-action py-3">
-                                <div class="d-flex justify-content-between">
-                                    <h6 class="mb-1 text-info"><i class="fas fa-code-branch me-2"></i>{{ leak.repository
-                                        }}</h6>
-                                    <small class="text-muted">{{ leak.owner }}</small>
+                            <div class="col-md-6">
+                                <div
+                                    class="p-3 bg-black bg-opacity-40 border border-secondary rounded hover-action h-100 d-flex flex-column">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="text-info mb-0 font-monospace small"><i
+                                                class="fas fa-code-branch me-2"></i>{{ leak.repository }}</h6>
+                                        <span class="badge bg-dark border border-secondary text-muted x-small">{{
+                                            leak.owner }}</span>
+                                    </div>
+                                    <div class="text-muted x-small font-monospace text-truncate mb-3"
+                                        title="{{ leak.path }}">{{ leak.path }}</div>
+                                    <div class="mt-auto">
+                                        <a href="{{ leak.url }}" target="_blank"
+                                            class="btn btn-xs btn-outline-cyber w-100">
+                                            <i class="fas fa-external-link-alt me-1"></i>Investigate Leak
+                                        </a>
+                                    </div>
                                 </div>
-                                <p class="mb-1 small font-monospace text-muted">{{ leak.path }}</p>
-                                <small class="text-cyber">View on GitHub <i
-                                        class="fas fa-external-link-alt ms-1"></i></small>
-                            </a>
+                            </div>
                             {% endfor %}
                         </div>
                     </div>
@@ -279,14 +397,19 @@
             {% if results and results.phases and results.phases.osint and results.phases.osint.emails %}
             <div class="col-12">
                 <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-envelope me-2"></i>Discovered Email Addresses
-                    </div>
+                    <div class="card-header glass-header"><i class="fas fa-envelope-open-text me-2"></i>Discovered Email
+                        Addresses</div>
                     <div class="card-body">
                         <div class="d-flex flex-wrap gap-2">
                             {% for email in results.phases.osint.emails %}
                             <div
-                                class="px-3 py-2 bg-black border border-secondary rounded-pill small font-monospace text-info">
-                                <i class="fas fa-user-circle me-2 opacity-50"></i>{{ email }}
+                                class="p-2 bg-black bg-opacity-40 border border-secondary rounded d-flex align-items-center hover-action">
+                                <i class="fas fa-at text-info me-2 opacity-50"></i>
+                                <span class="font-monospace small text-light">{{ email }}</span>
+                                <button class="btn btn-link btn-xs text-muted ms-2 p-0"
+                                    onclick="navigator.clipboard.writeText('{{ email }}'); alert('Email copied!');">
+                                    <i class="fas fa-copy"></i>
+                                </button>
                             </div>
                             {% endfor %}
                         </div>
@@ -918,36 +1041,48 @@
             <!-- JS INTELLIGENCE (SECRETS) -->
             {% if results and results.phases and results.phases.enum and results.phases.enum.js_secrets %}
             <div class="col-12">
-                <div class="card glass-panel border-warning">
-                    <div class="card-header glass-header text-warning"><i class="fas fa-key me-2"></i>JS Secret Analysis
-                        (Potential Leaks)</div>
+                <div class="card glass-panel border-danger">
+                    <div class="card-header glass-header text-danger d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-user-secret me-2"></i>JS Secret Analysis (Leaks)</span>
+                        <span class="badge bg-danger x-small animate-flicker">POTENTIAL CREDS</span>
+                    </div>
                     <div class="card-body">
                         <div class="accordion" id="accordionJS">
                             {% for port, files in results.phases.enum.js_secrets.items() %}
                             {% for url, items in files.items() %}
+                            {% set outer_loop = loop %}
                             <div class="accordion-item bg-black border-secondary mb-2">
-                                <h2 class="accordion-header" id="heading-js-{{ loop.index }}">
+                                <h2 class="accordion-header">
                                     <button
                                         class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
                                         type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapse-js-{{ port }}-{{ loop.index }}">
+                                        data-bs-target="#collapse-js-{{ port }}-{{ outer_loop.index }}">
                                         <span class="badge bg-danger me-2">P{{ port }}</span>
-                                        <span class="font-monospace small text-truncate" style="max-width: 80%;">{{ url
+                                        <span class="font-monospace small text-truncate" style="max-width: 70%;">{{ url
                                             }}</span>
-                                        <span class="badge bg-warning text-dark ms-2">{{ items|length }} Secrets</span>
+                                        <span class="badge bg-warning text-dark ms-auto">{{ items|length }} Hits</span>
                                     </button>
                                 </h2>
-                                <div id="collapse-js-{{ port }}-{{ loop.index }}" class="accordion-collapse collapse"
-                                    data-bs-parent="#accordionJS">
-                                    <div class="accordion-body p-2">
+                                <div id="collapse-js-{{ port }}-{{ outer_loop.index }}"
+                                    class="accordion-collapse collapse" data-bs-parent="#accordionJS">
+                                    <div class="accordion-body p-2 bg-black bg-opacity-20">
                                         {% for item in items %}
-                                        <div class="p-2 mb-2 bg-dark rounded border border-secondary">
-                                            <div class="d-flex justify-content-between mb-1">
-                                                <span class="badge bg-danger x-small">{{ item.type }}</span>
-                                                <code class="text-info x-small">{{ item.match }}</code>
+                                        <div class="p-2 mb-2 bg-dark rounded border border-secondary hover-action">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span
+                                                    class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-50 x-small">{{
+                                                    item.type }}</span>
+                                                <code class="text-warning small"
+                                                    style="user-select: all;">{{ item.match }}</code>
+                                                <button class="btn btn-xs btn-outline-secondary"
+                                                    onclick="navigator.clipboard.writeText('{{ item.match }}'); alert('Key copied!');">
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
                                             </div>
-                                            <div class="x-small text-muted font-monospace">Context: ...{{
-                                                item.line_context }}...</div>
+                                            <div
+                                                class="x-small text-muted font-monospace bg-black p-2 mt-2 rounded border border-secondary border-opacity-25 text-break">
+                                                <span class="text-cyber">Context:</span> ...{{ item.line_context }}...
+                                            </div>
                                         </div>
                                         {% endfor %}
                                     </div>
@@ -961,18 +1096,25 @@
             </div>
             {% endif %}
 
-            <!-- WPRECON / WPScan -->
+            <!-- WPSCAN RESULTS -->
             {% if results and results.phases and results.phases.vuln and results.phases.vuln.wpscan %}
             <div class="col-12">
-                <div class="card glass-panel border-primary">
-                    <div class="card-header glass-header text-primary"><i class="fab fa-wordpress me-2"></i>CMS Audit:
-                        WordPress specialized Scan</div>
+                <div class="card glass-panel border-info">
+                    <div class="card-header glass-header text-info d-flex justify-content-between align-items-center">
+                        <span><i class="fab fa-wordpress me-2"></i>CMS Audit: WordPress Scan</span>
+                        <span class="badge bg-info text-dark x-small">WPScan</span>
+                    </div>
                     <div class="card-body">
                         {% for port, summary in results.phases.vuln.wpscan.items() %}
-                        <div class="p-3 bg-black border border-secondary rounded mb-2">
-                            <div class="badge bg-primary mb-2">Port {{ port }} Output</div>
-                            <pre class="text-light small font-monospace mb-0"
-                                style="max-height: 250px; overflow: auto; white-space: pre-wrap;">{{ summary }}</pre>
+                        <div class="mb-3">
+                            <div class="d-flex align-items-center mb-2">
+                                <div
+                                    class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50 me-2">
+                                    PORT {{ port }}</div>
+                                <div class="small text-muted">Vulnerability & Enumeration Report</div>
+                            </div>
+                            <pre class="x-small font-monospace p-3 bg-black bg-opacity-60 border border-secondary rounded text-light mb-0"
+                                style="max-height: 300px; overflow-y: auto;">{{ summary }}</pre>
                         </div>
                         {% endfor %}
                     </div>
@@ -1187,6 +1329,32 @@
     </div>
 </div>
 
+<!-- SCAN PROGRESS TOAST (Tactical Overlay) -->
+<div id="scan-progress-toast" class="position-fixed bottom-0 end-0 m-4 shadow-lg animate__animated d-none"
+    style="z-index: 1060; width: 320px;">
+    <div class="glass-panel border-cyber p-3 rounded shadow-lg overflow-hidden position-relative">
+        <div class="d-flex align-items-center mb-2">
+            <div class="spinner-grow spinner-grow-sm text-cyber me-2" role="status"></div>
+            <span class="text-uppercase small fw-bold text-cyber letter-spacing-1">Tactical Analysis Active</span>
+            <button type="button" class="btn-close btn-close-white ms-auto scale-75 opacity-50"
+                onclick="toggleScanToast(false)"></button>
+        </div>
+        <div class="progress bg-black border border-secondary mb-2" style="height: 4px;">
+            <div id="toast-progress-bar"
+                class="progress-bar bg-cyber shadow-cyber progress-bar-striped progress-bar-animated"
+                style="width: 5%;"></div>
+        </div>
+        <div class="d-flex justify-content-between x-small font-monospace">
+            <span class="text-muted" id="toast-phase-text">Booting...</span>
+            <span class="text-cyber" id="toast-percent-text">5%</span>
+        </div>
+        <!-- Background Glow -->
+        <div class="position-absolute top-50 start-50 translate-middle w-100 h-100"
+            style="background: radial-gradient(circle, rgba(0, 240, 255, 0.05) 0%, transparent 70%); z-index: -1;">
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Harvest Loot -->
 <div class="modal fade" id="harvestLootModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -1306,13 +1474,16 @@
         }
 
         // --- SCAN TOAST CONTROLLER ---
-        function toggleScanToast(isRunning) {
-            const toast = document.getElementById('scan-toast');
+        function toggleScanToast(show) {
+            const toast = document.getElementById('scan-progress-toast');
             if (!toast) return;
-            if (isRunning) {
-                toast.classList.add('visible');
+            if (show) {
+                toast.classList.remove('d-none', 'animate__fadeOutDown');
+                toast.classList.add('animate__fadeInUp');
             } else {
-                toast.classList.remove('visible');
+                toast.classList.remove('animate__fadeInUp');
+                toast.classList.add('animate__fadeOutDown');
+                setTimeout(() => { if (toast.classList.contains('animate__fadeOutDown')) toast.classList.add('d-none'); }, 1000);
             }
         }
 
@@ -1429,7 +1600,19 @@
                     bar.style.width = data.percent + '%';
                     bar.setAttribute('aria-valuenow', data.percent);
                 }
-                if (phaseText) phaseText.innerText = data.current_phase;
+
+                // Update Toast
+                const toastBar = document.getElementById('toast-progress-bar');
+                const toastPhase = document.getElementById('toast-phase-text');
+                const toastPercent = document.getElementById('toast-percent-text');
+                if (toastBar) toastBar.style.width = data.percent + '%';
+                if (toastPhase) toastPhase.innerText = data.current_phase;
+                if (toastPercent) toastPercent.innerText = data.percent + '%';
+
+                if (phaseText) {
+                    phaseText.innerText = data.current_phase;
+                    highlightPTES(data.current_phase);
+                }
 
                 if (data.percent >= 100) {
                     if (statusText) statusText.innerText = 'completed';
