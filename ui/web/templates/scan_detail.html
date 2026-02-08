@@ -213,7 +213,7 @@
         <div class="col-12">
             <div class="card panel-card">
                 <div class="card-header panel-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
-                <div class="card-body">
+                <div class="card-body" id="whatweb-results">
                     {% if results %}
                     {% set summary = results.get('phases', {}).get('enum', {}).get('whatweb', {}).get('summary', {})
                     %}
@@ -240,7 +240,7 @@
             <div class="card panel-card">
                 <div class="card-header panel-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)
                 </div>
-                <div class="card-body">
+                <div class="card-body" id="nuclei-results">
                     {% if results %}
                     {% set vuln_findings = results.get('phases', {}).get('vuln', {}).get('nuclei',
                     {}).get('findings', []) %}
@@ -266,7 +266,7 @@
         <div class="col-12">
             <div class="card panel-card">
                 <div class="card-header panel-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
-                <div class="card-body">
+                <div class="card-body" id="ffuf-results">
                     {% if results %}
                     {% set endpoints = results.get('phases', {}).get('dirbusting', {}).get('ffuf',
                     {}).get('endpoints', []) %}
@@ -312,7 +312,7 @@
 
     <div class="card panel-card mb-4">
         <div class="card-header panel-header"><i class="fas fa-bell me-2"></i>Findings</div>
-        <div class="card-body">
+        <div class="card-body" id="findings-container">
             {% if findings %}
             <div class="result-list">
                 {% for finding in findings %}
@@ -321,6 +321,9 @@
                         <span class="badge severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
                         <span class="result-text fw-bold">{{ finding.title }}</span>
                     </div>
+                    {% if finding.description %}
+                    <div class="mt-1 small text-muted">{{ finding.description }}</div>
+                    {% endif %}
                     {% if finding.screenshot_path %}
                     <div class="mt-2 w-100">
                         <img src="{{ url_for('static', filename=finding.screenshot_path) }}"
@@ -339,7 +342,7 @@
 
     <div class="card panel-card mb-4">
         <div class="card-header panel-header"><i class="fas fa-lightbulb me-2"></i>Suggestions</div>
-        <div class="card-body">
+        <div class="card-body" id="suggestions-container">
             {% if suggestions %}
             <div class="result-list">
                 {% for suggestion in suggestions %}
@@ -347,6 +350,9 @@
                     <div>
                         <span class="badge bg-secondary me-2">{{ suggestion.tool_name }}</span>
                         <span class="result-text font-monospace small">{{ suggestion.command_suggestion }}</span>
+                        {% if suggestion.reason %}
+                        <div class="mt-1 x-small text-muted opacity-50">{{ suggestion.reason }}</div>
+                        {% endif %}
                     </div>
                     <button class="btn btn-xs btn-outline-warning"
                         onclick='verifyFinding({{ suggestion.command_suggestion|tojson|safe }})'>
@@ -601,8 +607,6 @@
             // 2. Update Graph Nodes
             if (results.phases.recon && results.phases.recon.open_ports) {
                 if (!network) initGraph();
-
-                // Add Target Node if missing
                 if (!nodes.get(0)) nodes.add({ id: 0, label: targetLabel, color: "#ff2a2a", shape: "hexagon", size: 40 });
 
                 results.phases.recon.open_ports.forEach(port => {
@@ -611,14 +615,55 @@
                         nodes.add({ id: pId, label: port.port + "\n" + port.service_name, color: "#00f0ff", shape: "dot", size: 15 });
                         edges.add({ from: 0, to: pId, color: { color: "#333" } });
                     }
-                    if (port.version && port.version !== "Unknown") {
-                        const vId = "v" + port.port;
-                        if (!nodes.get(vId)) {
-                            nodes.add({ id: vId, label: port.version, color: "#0f0", shape: "box", font: { color: "#000", size: 11 } });
-                            edges.add({ from: pId, to: vId, length: 100 });
-                        }
-                    }
                 });
+            }
+
+            // 3. Update ENUM (WhatWeb)
+            if (results.phases.enum && results.phases.enum.whatweb) {
+                const wwDiv = document.querySelector("#whatweb-results");
+                const summary = results.phases.enum.whatweb.summary || {};
+                if (wwDiv && Object.keys(summary).length > 0) {
+                    let html = '<div class="tag-grid">';
+                    for (const [key, value] of Object.entries(summary)) {
+                        html += `<div class="tag-item"><span class="tag-key">${key}</span><span class="tag-value">${value}</span></div>`;
+                    }
+                    html += '</div>';
+                    wwDiv.innerHTML = html;
+                }
+            }
+
+            // 4. Update VULN (Nuclei)
+            if (results.phases.vuln && results.phases.vuln.nuclei) {
+                const nucDiv = document.querySelector("#nuclei-results");
+                const findings = results.phases.vuln.nuclei.findings || [];
+                if (nucDiv && findings.length > 0) {
+                    let html = '<div class="result-list">';
+                    findings.forEach(f => {
+                        html += `<div class="result-row">
+                            <span class="badge severity-badge ${f.severity}">${f.severity}</span>
+                            <span class="result-text">${f.title}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    nucDiv.innerHTML = html;
+                }
+            }
+
+            // 5. Update DIR (ffuf)
+            if (results.phases.dirbusting && results.phases.dirbusting.ffuf) {
+                const ffufDiv = document.querySelector("#ffuf-results");
+                const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
+                if (ffufDiv && endpoints.length > 0) {
+                    let html = '<div class="result-list">';
+                    endpoints.forEach(e => {
+                        html += `<div class="result-row">
+                            <span class="badge bg-secondary">/${e.path}</span>
+                            <span class="result-text">Status ${e.status} · Size ${e.size}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    ffufDiv.innerHTML = html;
+                }
             }
         }
 
@@ -644,6 +689,51 @@
                 const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
                 div.innerHTML = `<span class="text-muted">[${data.timestamp}]</span> <span class="${levelClass}">${data.level}</span> ${data.message}`;
                 consoleDiv.prepend(div);
+            }
+        });
+
+        socket.on("new_finding", function (data) {
+            if (data.scan_id == scanId) {
+                const findingsList = document.querySelector(".card-body .result-list"); // Should be more specific
+                // Better: find by title
+                const finding = data.finding;
+                const div = document.createElement("div");
+                div.className = "result-row flex-column align-items-start";
+                div.innerHTML = `
+                    <div class="d-flex w-100 justify-content-between">
+                        <span class="badge severity-badge ${finding.severity}">${finding.severity}</span>
+                        <span class="result-text fw-bold">${finding.title}</span>
+                    </div>
+                    <div class="mt-1 small text-muted">${finding.description || ''}</div>
+                    ${finding.screenshot_path ? `<div class="mt-2 w-100"><img src="/static/${finding.screenshot_path}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)"></div>` : ''}
+                `;
+                const container = document.querySelector("#findings-container");
+                if (container) {
+                    if (container.querySelector(".text-muted")) container.innerHTML = '<div class="result-list"></div>';
+                    container.querySelector(".result-list").prepend(div);
+                }
+            }
+        });
+
+        socket.on("new_suggestion", function (data) {
+            if (data.scan_id == scanId) {
+                const suggestion = data.suggestion;
+                const div = document.createElement("div");
+                div.className = "result-row d-flex justify-content-between align-items-center";
+                div.innerHTML = `
+                    <div>
+                        <span class="badge bg-secondary me-2">${suggestion.tool_name}</span>
+                        <span class="result-text font-monospace small">${suggestion.command_suggestion}</span>
+                    </div>
+                    <button class="btn btn-xs btn-outline-warning" onclick='verifyFinding(${JSON.stringify(suggestion.command_suggestion)})'>
+                        <i class="fas fa-play me-1"></i>Verify
+                    </button>
+                `;
+                const container = document.querySelector("#suggestions-container");
+                if (container) {
+                    if (container.querySelector(".text-muted")) container.innerHTML = '<div class="result-list"></div>';
+                    container.querySelector(".result-list").prepend(div);
+                }
             }
         });
 
