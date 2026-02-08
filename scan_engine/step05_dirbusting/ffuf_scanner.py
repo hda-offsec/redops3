@@ -34,6 +34,8 @@ class FfufScanner:
             "-mc", "200,204,301,302,307,401,403",
             "-ac",  # Auto-calibration to filter out generic error pages (like 403s)
             "-noninteractive",
+            "-recursion",
+            "-recursion-depth", "5",
             "-s" 
         ]
         
