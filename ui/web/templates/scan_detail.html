@@ -507,8 +507,7 @@
                                 {% if results and results.phases and results.phases.recon and
                                 results.phases.recon.open_ports %}
                                 {% for port in results.phases.recon.open_ports %}
-                                {% if (port.priority_score and port.priority_score >= 50) or port.port in [80, 443,
-                                8080] %}
+                                {% if ((port.priority_score|default(0)) >= 50) or port.port in [80, 443, 8080] %}
                                 <tr class="border-secondary">
                                     <td class="font-monospace text-info border-secondary">
                                         <span class="badge bg-secondary me-1">{{ port.port }}</span> {{
@@ -541,9 +540,9 @@
                                         {% endif %}
                                     </td>
                                     <td class="border-secondary">
-                                        {% if port.priority_score >= 80 %}
+                                        {% if (port.priority_score|default(0)) >= 80 %}
                                         <span class="badge bg-danger w-100 shadow-danger">CRITICAL / HIGH</span>
-                                        {% elif port.priority_score >= 50 %}
+                                        {% elif (port.priority_score|default(0)) >= 50 %}
                                         <span class="badge bg-warning text-dark w-100">MEDIUM / SUSPICIOUS</span>
                                         {% else %}
                                         <span class="badge bg-success w-100 opacity-50">LOW / AUDIT</span>
@@ -604,7 +603,7 @@
                                     results.phases.recon.open_ports %}
                                     {% for port in results.phases.recon.open_ports %}
                                     <tr
-                                        style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; {% if port.priority_score and port.priority_score >= 80 %}background: rgba(255, 42, 42, 0.05);{% endif %}">
+                                        style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; {% if (port.priority_score|default(0)) >= 80 %}background: rgba(255, 42, 42, 0.05);{% endif %}">
                                         <td class="p-3">
                                             <span
                                                 class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"
@@ -613,7 +612,7 @@
                                             </span>
                                         </td>
                                         <td class="p-3">
-                                            {% set score = port.priority_score or 0 %}
+                                            {% set score = port.priority_score|default(0) %}
                                             <div class="d-flex align-items-center">
                                                 <div class="progress bg-dark border border-secondary"
                                                     style="height: 6px; width: 40px; margin-right: 10px;">

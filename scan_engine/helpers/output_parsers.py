@@ -20,7 +20,8 @@ def parse_nmap_open_ports(nmap_output):
             open_ports.append({
                 "port": port,
                 "service_name": service,
-                "version": version if version else None
+                "version": version if version else None,
+                "priority_score": 0
             })
             
     return open_ports
