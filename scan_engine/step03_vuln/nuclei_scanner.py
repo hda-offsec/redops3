@@ -7,17 +7,9 @@ class NucleiScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("nuclei") is not None
 
-    def stream_vuln_scan(self, port, protocol='http', tags=None):
-        """
-        Runs Nuclei on the target
-        """
+    def get_command(self, port, protocol='http', tags=None):
         path = ProcessManager.find_binary_path("nuclei") or "nuclei"
         url = f"{protocol}://{self.target}:{port}"
-        # We assume standard nuclei workflow: basic templates for cves/token-spray
-        # -s critical,high will focus only on dangerous findings
-        # -o /dev/stdout is default but we want json output for parsing ideally
-        # For simplicity in Phase 1 styling, we stream text but nuclei has JSON output -j
-        
         command = [
             path, 
             "-u", url, 
@@ -25,8 +17,13 @@ class NucleiScanner:
             "-no-color",
             "-silent"
         ]
-        
         if tags:
             command.extend(["-tags", tags])
-            
+        return command
+
+    def stream_vuln_scan(self, port, protocol='http', tags=None):
+        """
+        Runs Nuclei on the target
+        """
+        command = self.get_command(port, protocol, tags)
         return ProcessManager.stream_command(command)

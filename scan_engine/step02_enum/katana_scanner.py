@@ -7,21 +7,20 @@ class KatanaScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("katana") is not None
 
-    def stream_katana(self, port, protocol='http'):
+    def get_command(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}"
-        
         katana_path = ProcessManager.find_binary_path("katana") or "katana"
-
-        # -jc: crawl JS files, -kf: known files, -d 3: depth 3
-        command = [
+        return [
             katana_path,
             "-u", url,
             "-jc",
             "-kf", "all",
             "-d", "3",
-            "-fs", "fqdn", # restrict scope to FQDN
+            "-fs", "fqdn", 
             "-silent",
-            "-nc" # no color
+            "-nc" 
         ]
-        
+
+    def stream_katana(self, port, protocol='http'):
+        command = self.get_command(port, protocol)
         return ProcessManager.stream_command(command)

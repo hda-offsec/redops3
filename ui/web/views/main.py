@@ -188,7 +188,11 @@ def _log_and_emit(scan_id, msg, level="INFO"):
 
 
 
-def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None):
+def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None):
+    if command:
+        cmd_str = f"\n\n--- COMMAND ---\n{command}"
+        description = (description or "") + cmd_str
+
     finding = Finding(
         scan_id=scan_id,
         severity=severity,
@@ -258,7 +262,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                     severity=kwargs.get('severity', 'info'),
                     title=kwargs.get('title', 'Untitled Finding'),
                     description=kwargs.get('description'),
-                    screenshot_path=kwargs.get('screenshot_path')
+                    screenshot_path=kwargs.get('screenshot_path'),
+                    command=kwargs.get('command')
                 )
             except Exception as e:
                 print(f"[ERROR] Failed to save finding: {e}")

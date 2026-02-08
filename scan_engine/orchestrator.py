@@ -61,6 +61,7 @@ class ScanOrchestrator:
                 "target": self.target,
                 "status": "running",
                 "timestamp": datetime.utcnow().isoformat(),
+                "commands": [],
                 "phases": {
                     "recon": {"open_ports": [], "raw_output": ""},
                     "dns": {"subdomains": []},
@@ -175,6 +176,12 @@ class ScanOrchestrator:
         self._emit_progress(10, "DNS Enumeration")
         self.log("Phase 0.5: Starting DNS Enumeration...", "INFO")
         dns_scanner = DNSScanner(self.target)
+        
+        # Log command if possible (DNSScanner might not expose it easily, but let's assume it does or log intent)
+        self.log(f"Executing DNS Discovery via Subfinder/DNSRecon on {self.target}", "DEBUG")
+        if 'commands' not in results: results['commands'] = []
+        results['commands'].append({'tool': 'subfinder', 'cmd': f"subfinder -d {self.target} -silent"})
+
         dns_results = dns_scanner.enumerate_all(logger=self.log)
         if dns_results["subdomains"]:
             self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
@@ -277,6 +284,7 @@ class ScanOrchestrator:
                  scan_args = ["-F"]
 
         self.log(f"Executing Nmap with: {' '.join(scan_args)}", "DEBUG")
+        results['commands'].append({'tool': 'nmap', 'cmd': f"nmap {' '.join(scan_args)} {self.target}"})
         
         try:
             stream = scanner.stream_scan(scan_args)
@@ -432,6 +440,10 @@ class ScanOrchestrator:
                         self.log(f"Fingerprinting {proto}://{self.target}:{port} with WhatWeb...", "INFO")
                         
                         try:
+                            cmd_ww = web_scanner.get_command(port, proto)
+                            results['commands'].append({'tool': 'whatweb', 'cmd': ' '.join(cmd_ww)})
+                            self.log(f"Executing: {' '.join(cmd_ww)}", "DEBUG")
+                            
                             ww_stream = web_scanner.stream_whatweb(port, proto)
                             ww_output = []
                             full_ww = "" # Initialize full_ww here
@@ -544,6 +556,10 @@ class ScanOrchestrator:
                             else:
                                 self.log(f"Deep Crawling {proto}://{self.target}:{port} with Katana...", "INFO")
                                 try:
+                                    cmd_kt = katana.get_command(port, proto)
+                                    results['commands'].append({'tool': 'katana', 'cmd': ' '.join(cmd_kt)})
+                                    self.log(f"Executing: {' '.join(cmd_kt)}", "DEBUG")
+                                    
                                     kt_stream = katana.stream_katana(port, proto)
                                     endpoints = []
                                     for event in kt_stream:
@@ -607,6 +623,11 @@ class ScanOrchestrator:
                             waf_scanner = WafScanner(self.target)
                             if waf_scanner.check_tools():
                                 self.log(f"Phase 4b: Detecting WAF on {proto}://{self.target}:{port}...", "INFO")
+                                
+                                cmd_waf = waf_scanner.get_command(port, proto)
+                                results['commands'].append({'tool': 'wafw00f', 'cmd': ' '.join(cmd_waf)})
+                                self.log(f"Executing: {' '.join(cmd_waf)}", "DEBUG")
+
                                 waf_stream = waf_scanner.stream_wafw00f(port, proto)
                                 waf_result = "None"
                                 for event in waf_stream:
@@ -643,6 +664,11 @@ class ScanOrchestrator:
                             arjun = ArjunScanner(self.target)
                             if arjun.check_tools():
                                 self.log(f"Phase 4c: Discovering hidden parameters on {proto}://{self.target}:{port}...", "INFO")
+                                
+                                cmd_ar = arjun.get_command(port, proto)
+                                results['commands'].append({'tool': 'arjun', 'cmd': ' '.join(cmd_ar)})
+                                self.log(f"Executing: {' '.join(cmd_ar)}", "DEBUG")
+
                                 ar_stream = arjun.stream_arjun(port, proto)
                                 params_found = []
                                 
@@ -740,6 +766,10 @@ class ScanOrchestrator:
                         try:
                             api_scanner = APIScanner(self.target)
                             if api_scanner.check_tools():
+                                cmd_api = api_scanner.get_command(port, proto)
+                                results['commands'].append({'tool': 'ffuf-api', 'cmd': ' '.join(cmd_api)})
+                                self.log(f"Executing: {' '.join(cmd_api)}", "DEBUG")
+                                
                                 api_stream = api_scanner.stream_api_discovery(port, proto, logger=self.log)
                                 api_endpoints = []
                                 for event in api_stream:
@@ -779,13 +809,10 @@ class ScanOrchestrator:
                 else:
                     for port in web_ports:
                         proto = 'https' if port in [443, 8443] else 'http'
-                        self.log(f"Nuclei Scanning {proto}://{self.target}:{port}...", "INFO")
-                        
                         try:
-                            # Nuclei: Standard + specific vulnerability classes
-                            # We use tags to ensure we cover the requested categories (XSS handled by Dalfox, but Nuclei can backup)
-                            # including 'sqli', 'injection' as requested.
-                            # We strictly exclude 'dos' or 'fuzz' to ensure non-destructive behavior.
+                            cmd_nuc = vuln_scanner.get_command(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
+                            results['commands'].append({'tool': 'nuclei', 'cmd': ' '.join(cmd_nuc)})
+                            self.log(f"Executing: {' '.join(cmd_nuc)}", "DEBUG")
                             
                             nuc_stream = vuln_scanner.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
                             
@@ -847,8 +874,10 @@ class ScanOrchestrator:
                                 self.log(f"Phase 5b: XSS Heuristics (Dalfox) on {proto}://{self.target}:{port}...", "INFO")
                                 xss_scanner = DalfoxScanner(self.target)
                                 if xss_scanner.check_tools():
-                                    # We use the generic 'url' mode primarily. 
-                                    # Ideally we would pipe katana endpoints to dalfox, but for now we scan the base
+                                    cmd_xss = xss_scanner.get_command(port, proto)
+                                    results['commands'].append({'tool': 'dalfox', 'cmd': ' '.join(cmd_xss)})
+                                    self.log(f"Executing: {' '.join(cmd_xss)}", "DEBUG")
+                                    
                                     dalfox_stream = xss_scanner.stream_scan_xss(port, proto)
                                     
                                     xss_found = False
@@ -910,23 +939,50 @@ class ScanOrchestrator:
                         break
                     
                     try:
+                        cmd = scanner6.get_command()
+                        self.log(f"Executing Dirbusting: {' '.join(cmd)}", "DEBUG")
+                        
+                        # Add to a new command history list in results
+                        if 'commands' not in results: results['commands'] = []
+                        results['commands'].append({'tool': 'ffuf', 'cmd': ' '.join(cmd)})
+
                         ffuf_stream = scanner6.stream_scan()
                         found_items = []
                         
+                        # Regex for ffuf detailed output: admin [Status: 200, Size: 123, Words: 45, Lines: 6]
+                        import re
+                        ffuf_pattern = re.compile(r"^(?P<path>\S+)\s+\[Status:\s+(?P<status>\d+),\s+Size:\s+(?P<size>\d+),.*\]")
+
                         for event in ffuf_stream:
                             if event["type"] == "stdout":
                                 line = event["line"].strip()
                                 if line:
-                                    self.log(f"[DIR] Found: {line}", "WARN")
-                                    found_items.append(line)
-                                    
-                                    # Add finding for each discovery
-                                    self.add_finding(
-                                        title=f"Directory Discovered: {line}",
-                                        description=f"Endpoint found during fuzzing of {target_url}",
-                                        severity="low",
-                                        tool_source="ffuf"
-                                    )
+                                    # Skip banner/header noise
+                                    if any(x in line for x in ["::", "Method", "URL", "Wordlist"]):
+                                        continue
+
+                                    match = ffuf_pattern.match(line)
+                                    if match:
+                                        path = match.group("path")
+                                        status = match.group("status")
+                                        size = match.group("size")
+                                        full_url = f"{target_url}/{path.lstrip('/')}"
+
+                                        self.log(f"🎯 Found: {full_url} [Status: {status}]", "SUCCESS")
+                                        found_items.append({"path": path, "status": status, "size": size, "url": full_url})
+                                        
+                                        # Incremental finding with PRO details
+                                        self.add_finding(
+                                            title=f"Endpoint Discovered: /{path.lstrip('/')}",
+                                            description=f"Full URL: {full_url}\nStatus: {status}\nSize: {size}",
+                                            severity="medium" if status == "200" else "low",
+                                            tool_source="ffuf",
+                                            command=' '.join(cmd)
+                                        )
+                                    else:
+                                        # Fallback for simple lines if regex fails
+                                        # Often happens if ffuf output is different or colors are present
+                                        self.log(f"ffuf: {line}", "DEBUG")
                             elif event["type"] == "exit":
                                 self.log(f"ffuf for {target_url} finished with code {event['code']}", "INFO")
 
@@ -945,9 +1001,10 @@ class ScanOrchestrator:
                                      results['phases']['dirbusting']['ffuf']['endpoints'] = []
                                 
                                 results['phases']['dirbusting']['ffuf']['endpoints'].append({
-                                    "path": clean_item,
-                                    "status": "200", 
-                                    "size": "N/A"
+                                    "path": item["path"],
+                                    "status": item["status"],
+                                    "size": item["size"],
+                                    "url": item["url"]
                                 })
                             self.save_results(self.scan_id, results) # Update results
 

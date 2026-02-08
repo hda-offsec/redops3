@@ -8,11 +8,13 @@ class ArjunScanner:
     def check_tools(self):
         return shutil.which('arjun') is not None
 
+    def get_command(self, port, protocol='http'):
+        url = f"{protocol}://{self.target}:{port}"
+        return ["arjun", "-u", url]
+
     def stream_arjun(self, port, protocol='http'):
         """
         Runs arjun for parameter discovery.
         """
-        url = f"{protocol}://{self.target}:{port}"
-        command = ["arjun", "-u", url]
-        
+        command = self.get_command(port, protocol)
         return ProcessManager.stream_command(command)

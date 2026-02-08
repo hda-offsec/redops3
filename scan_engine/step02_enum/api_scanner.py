@@ -8,15 +8,10 @@ class APIScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("ffuf") is not None
 
-    def stream_api_discovery(self, port, protocol='http', logger=None):
-        """
-        Runs ffuf for API discovery (Swagger, GraphQL, v1, v2, etc.)
-        """
+    def get_command(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}/FUZZ"
-        
-        # We'll use a specific small but effective API-focused wordlist
-        # If the file doesn't exist, the orchestrator will handle it or we use a fallback
         wordlist = os.path.join(os.getcwd(), "data", "wordlists", "api_endpoints.txt")
+        # Ensure list exists (same logic as before)
         if not os.path.exists(wordlist):
             os.makedirs(os.path.dirname(wordlist), exist_ok=True)
             with open(wordlist, "w") as f:
@@ -26,13 +21,14 @@ class APIScanner:
                     "v1/api-docs\n", "rest\n", "api/swagger-ui\n", "api/graphiql\n",
                     "api/v1/user\n", "api/v1/auth\n", "api/v1/config\n"
                 ])
-
-        command = [
+        return [
             "ffuf", "-u", url, "-w", wordlist,
-            "-mc", "200,201,204,401,403,405", # 401/403/405 often indicate hidden endpoints
-            "-sf", # silent
-            "-ac" # autocalibrate
+            "-mc", "200,201,204,401,403,405",
+            "-sf",
+            "-ac"
         ]
-        
+
+    def stream_api_discovery(self, port, protocol='http', logger=None):
+        command = self.get_command(port, protocol)
         if logger: logger(f"Enrichment: Fuzzing for API Endpoints on port {port}...", "INFO")
         return ProcessManager.stream_command(command)

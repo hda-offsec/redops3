@@ -1193,10 +1193,20 @@
                         <div class="result-list">
                             {% for endpoint in results.phases.dirbusting.ffuf.endpoints %}
                             <div
-                                class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between">
-                                <span class="badge bg-secondary font-monospace">/{{ endpoint.path }}</span>
-                                <span class="result-text small text-muted">Status {{ endpoint.status }} · Size {{
-                                    endpoint.size }}</span>
+                                class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="badge bg-secondary font-monospace me-2">/{{ endpoint.path }}</span>
+                                    <a href="{{ endpoint.url }}" target="_blank"
+                                        class="x-small text-info text-decoration-none opacity-75 hover-opacity-100">
+                                        <i class="fas fa-external-link-alt me-1"></i>{{ endpoint.url }}
+                                    </a>
+                                </div>
+                                <div class="text-end">
+                                    <span
+                                        class="badge {% if endpoint.status|int < 300 %}bg-success{% elif endpoint.status|int < 400 %}bg-info{% else %}bg-warning text-dark{% endif %} me-1">{{
+                                        endpoint.status }}</span>
+                                    <span class="text-muted x-small">Size: {{ endpoint.size }}</span>
+                                </div>
                             </div>
                             {% endfor %}
                         </div>
@@ -1206,6 +1216,54 @@
                     </div>
                 </div>
             </div>
+
+            <!-- COMMAND HISTORY (PRO AUDIT) -->
+            {% if results and results.commands %}
+            <div class="col-12">
+                <div class="card glass-panel border-warning bg-black bg-opacity-20 mb-4">
+                    <div class="card-header glass-header text-warning py-1 d-flex justify-content-between align-items-center"
+                        data-bs-toggle="collapse" data-bs-target="#commandHistoryCollapse" style="cursor: pointer;">
+                        <span><i class="fas fa-history me-2"></i>Offensive Command Audit (PRO)</span>
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-warning text-dark me-2 x-small">{{ results.commands|length }}
+                                executed</span>
+                            <i class="fas fa-chevron-down small opacity-50"></i>
+                        </div>
+                    </div>
+                    <div id="commandHistoryCollapse" class="collapse">
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover mb-0 x-small font-monospace"
+                                    style="border-collapse: separate; border-spacing: 0;">
+                                    <thead>
+                                        <tr class="text-muted opacity-50 bg-black bg-opacity-40">
+                                            <th class="ps-3 py-2 border-bottom border-secondary">Tool</th>
+                                            <th class="py-2 border-bottom border-secondary">Executed Command Line</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for cmd in results.commands %}
+                                        <tr>
+                                            <td class="ps-3 py-2 border-bottom border-secondary border-opacity-25"
+                                                style="width: 100px;">
+                                                <span
+                                                    class="badge bg-secondary bg-opacity-50 border border-secondary">{{
+                                                    cmd.tool }}</span>
+                                            </td>
+                                            <td class="py-2 text-info border-bottom border-secondary border-opacity-25">
+                                                <div class="user-select-all"
+                                                    style="word-break: break-all; opacity: 0.9;">{{ cmd.cmd }}</div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             <!-- EXECUTION LOG -->
             <div class="col-12">

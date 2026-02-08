@@ -8,28 +8,22 @@ class DalfoxScanner:
         """Checker for dalfox binary"""
         return ProcessManager.find_binary_path("dalfox") is not None
 
-    def stream_scan_xss(self, port, protocol='http'):
-        """
-        Runs Dalfox XSS scanner against the target by first crawling (or assuming) a parameter list.
-        Dalfox works best when fed URLs with parameters.
-        Since we might not have a URL list yet, we can try to point it at the base URL (pipe mode is better usually).
-        """
+    def get_command(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}"
-        
-        # dalfox url <Target> -S (silence)
-        # --no-color because we parse text
-        # --skip-mining-dom : faster
-        # --skip-mining-dict : faster
         path = ProcessManager.find_binary_path("dalfox") or "dalfox"
-        
-        command = [
+        return [
             path, "url", url,
             "--no-color",
             "--silence",
-            "--worker", "10", # speed up
-            "--skip-bav" # skip boolean analysis verifier for speed if needed, but let's keep basic checks
+            "--worker", "10",
+            "--skip-bav"
         ]
-        
+
+    def stream_scan_xss(self, port, protocol='http'):
+        """
+        Runs Dalfox XSS scanner against the target
+        """
+        command = self.get_command(port, protocol)
         return ProcessManager.stream_command(command)
 
     def stream_scan_pipe(self, urls):

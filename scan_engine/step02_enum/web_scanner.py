@@ -8,13 +8,13 @@ class WebReconScanner:
     def check_tools(self):
         return shutil.which('whatweb') is not None
 
+    def get_command(self, port, protocol='http'):
+        url = f"{protocol}://{self.target}:{port}"
+        return ["whatweb", "--color=never", "--no-errors", "-a", "3", url]
+
     def stream_whatweb(self, port, protocol='http'):
         """
         Runs WhatWeb against a specific port
         """
-        url = f"{protocol}://{self.target}:{port}"
-        # --color=never to avoid ANSI codes in output parsing
-        # --log-json could be used, but let's stick to text stream for UI consistency first
-        command = ["whatweb", "--color=never", "--no-errors", "-a", "1", url]
-        
+        command = self.get_command(port, protocol)
         return ProcessManager.stream_command(command)

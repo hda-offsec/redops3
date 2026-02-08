@@ -8,12 +8,13 @@ class WafScanner:
     def check_tools(self):
         return shutil.which('wafw00f') is not None
 
+    def get_command(self, port, protocol='http'):
+        url = f"{protocol}://{self.target}:{port}"
+        return ["wafw00f", "-a", url]
+
     def stream_wafw00f(self, port, protocol='http'):
         """
         Runs wafw00f against a specific port
         """
-        url = f"{protocol}://{self.target}:{port}"
-        # -a: check all WAFs
-        command = ["wafw00f", "-a", url]
-        
+        command = self.get_command(port, protocol)
         return ProcessManager.stream_command(command)

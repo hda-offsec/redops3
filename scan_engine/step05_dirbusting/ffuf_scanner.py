@@ -16,8 +16,7 @@ class FfufScanner:
         # We delegate to stream_fuzz which now handles full URLs gracefully.
         return self.stream_fuzz(port=None)
 
-    def stream_fuzz(self, port=None, protocol='http', wordlist=None):
-        """Legacy/granular method"""
+    def get_command(self, port=None, protocol='http', wordlist=None):
         wlist = wordlist or self.wordlist
 
         if self.target.startswith('http://') or self.target.startswith('https://'):
@@ -27,16 +26,18 @@ class FfufScanner:
                 raise ValueError("Port is required when target is not a full URL")
             url = f"{protocol}://{self.target}:{port}/FUZZ"
         
-        command = [
+        return [
             "ffuf", 
             "-u", url, 
             "-w", wlist,
             "-mc", "200,204,301,302,307,401,403",
-            "-ac",  # Auto-calibration to filter out generic error pages (like 403s)
+            "-ac",  
             "-noninteractive",
             "-recursion",
-            "-recursion-depth", "5",
-            "-s" 
+            "-recursion-depth", "5"
         ]
-        
+
+    def stream_fuzz(self, port=None, protocol='http', wordlist=None):
+        """Legacy/granular method"""
+        command = self.get_command(port, protocol, wordlist)
         return ProcessManager.stream_command(command)
