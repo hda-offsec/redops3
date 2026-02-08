@@ -447,32 +447,28 @@ class ScanOrchestrator:
                             # Save findings from WhatWeb (simple Parsing)
                             full_ww = "\n".join(ww_output) # Corrected assignment
                             
-                            # --- IMPROVED PARSING FOR UI ---
-                            # Extract useful tech stack info into a summary dict
+                            # --- IMPROVED TECH SUMMARY ---
                             tech_summary = {}
                             
-                            # Default regex to extract widely used Technology names
-                            # Simple logic: extract Title[...] HTTPServer[...] Country[...]
-                            
-                            title_match = re.search(r"Title\[(.*?)\]", full_ww)
-                            if title_match: tech_summary['Title'] = title_match.group(1)
-                            
-                            server_match = re.search(r"HTTPServer\[(.*?)\]", full_ww)
-                            if server_match: tech_summary['Server'] = server_match.group(1)
-                            
-                            country_match = re.search(r"Country\[(.*?)\]", full_ww)
-                            if country_match: tech_summary['Country'] = country_match.group(1)
-                            
-                            ip_match = re.search(r"IP\[(.*?)\]", full_ww)
-                            if ip_match: tech_summary['IP'] = ip_match.group(1)
-                            
-                            # Also regex generic text like "Apache[2.4.41]"
-                            # This is harder to do safely without clutter, let's stick to key items above for the summary box
-                            
-                            if "Title" in full_ww or "HTTPServer" in full_ww:
+                            # Standard WhatWeb patterns
+                            for key in ["Title", "HTTPServer", "Country", "IP"]:
+                                match = re.search(fr"{key}\[(.*?)\]", full_ww)
+                                if match: tech_summary[key] = match.group(1)
+                                
+                            # Cloud/WAF Specific identification
+                            if "cloudflare" in full_ww.lower():
+                                tech_summary["CDN/WAF"] = "Cloudflare"
+                            elif "awselb" in full_ww.lower() or "amazon-elb" in full_ww.lower():
+                                tech_summary["Infrastructure"] = "Amazon AWS ELB"
+                            elif "nginx" in full_ww.lower():
+                                tech_summary["Server"] = "Nginx"
+                            elif "apache" in full_ww.lower():
+                                tech_summary["Server"] = "Apache"
+
+                            if "Title" in full_ww or "HTTPServer" in full_ww or tech_summary:
                                 self.add_finding(
                                     title=f"Web Tech Stack ({port})",
-                                    description=f"WhatWeb Output:\n{full_ww}",
+                                    description=f"WhatWeb Output Summary:\n\n" + "\n".join([f"{k}: {v}" for k, v in tech_summary.items()]),
                                     severity="low",
                                     tool_source="whatweb"
                                 )
@@ -481,13 +477,10 @@ class ScanOrchestrator:
                                 if 'whatweb' not in results['phases']['enum']: results['phases']['enum']['whatweb'] = {'summary': {}}
                                 
                                 results['phases']['enum']['whatweb'][str(port)] = full_ww
-                                # Merge into main summary (UI expects flat object but we have multiple ports...)
-                                # The UI code iterates Object.entries(summary). If we have multiple ports, keys might collide.
-                                # Let's prefix keys with port if we have multiple.
                                 for k, v in tech_summary.items():
                                     results['phases']['enum']['whatweb']['summary'][f"{k} ({port})"] = v
                                     
-                                self.save_results(self.scan_id, results) # Update results incrementally
+                                self.save_results(self.scan_id, results) 
 
                         except Exception as e:
                             self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")

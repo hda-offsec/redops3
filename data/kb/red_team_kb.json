@@ -219,6 +219,16 @@
                 "desc": "Active WAF filtering detected",
                 "action": "Use wafw00f for identification. Attempt fragmentation or encoding bypasses."
             }
+        ],
+        "cloudflare": [
+            {
+                "match": "all",
+                "name": "Cloudflare Protection",
+                "risk": "MEDIUM",
+                "score": 65,
+                "desc": "Site is protected by Cloudflare WAF/CDN",
+                "action": "Check DNS history (CrimeFlare, ViewDNS) for real origin IP. Test for misconfigured Cloudflare-Authenticated-Origin."
+            }
         ]
     }
 }

@@ -533,6 +533,9 @@
                                         {% if "Amazon-ELB" in ww or "awselb" in ww %}<span
                                             class="badge bg-warning text-dark" title="AWS ELB"><i
                                                 class="fab fa-aws"></i> ELB</span>{% endif %}
+                                        {% if "Cloudflare" in ww or "cloudflare" in ww %}<span class="badge bg-info"
+                                            title="Cloudflare"><i class="fab fa-cloudflare"></i> Cloudflare</span>{%
+                                        endif %}
                                         {% else %}
                                         <span class="text-muted">-</span>
                                         {% endif %}
