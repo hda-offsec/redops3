@@ -165,10 +165,7 @@
                                 <tbody id="recon-matrix-body">
                                     {% if results and results.phases and results.phases.recon and
                                     results.phases.recon.open_ports %}
-                                    {% for port in results.phases.recon.open_ports|sort(attribute='priority_score',
-                                    reverse=True) if port.priority_score is defined else results.phases.recon.open_ports
-                                    %}
-                                    reverse=True) %}
+                                    {% for port in results.phases.recon.open_ports %}
                                     <tr
                                         style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; {% if port.priority_score and port.priority_score >= 80 %}background: rgba(255, 42, 42, 0.05);{% endif %}">
                                         <td class="p-3">
