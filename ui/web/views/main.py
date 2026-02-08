@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 from urllib.parse import urlparse
 import os
 import shutil
+import shlex
 from datetime import datetime
 
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
@@ -468,8 +469,44 @@ def verify_finding():
         with app.app_context():
             from subprocess import Popen, PIPE, STDOUT
             _log_and_emit(sid, f"Starting Verification: {cmd}", "INFO")
+
+            # --- SECURITY CHECK ---
+            ALLOWED_TOOLS = {
+                'nmap', 'nuclei', 'ffuf', 'whatweb', 'subfinder', 'katana',
+                'sqlmap', 'dnsrecon', 'curl', 'dig', 'whois', 'enum4linux',
+                'redis-cli', 'mysql', 'psql', 'hydra', 'nikto', 'wpscan',
+                'gobuster', 'dirb', 'testssl', 'impacket-psexec', 'impacket-smbclient'
+            }
+            # Add more tools as needed based on GENERAL_TIPS
+            ALLOWED_TOOLS.update({
+                'ssh', 'telnet', 'nc', 'netcat', 'ftp', 'snmpwalk', 'onesixtyone',
+                'ldapsearch', 'openssl', 'ike-scan', 'rlogin', 'syslog', 'cups',
+                'rsync', 'rmiscan', 'mssql-cli', 'sidguess', 'showmount', 'docker',
+                'xfreerdp', 'svn', 'vncviewer', 'evil-winrm', 'kubectl', 'mongo',
+                'influx', 'mqtt', 'sip', 'pptp', 'openvpn', 'adb'
+            })
+
             try:
-                process = Popen(cmd, shell=True, stdout=PIPE, stderr=STDOUT, text=True)
+                args = shlex.split(cmd)
+            except ValueError:
+                 _log_and_emit(sid, "Error: Invalid command format.", "ERROR")
+                 return
+
+            if not args:
+                 _log_and_emit(sid, "Error: Empty command.", "ERROR")
+                 return
+
+            executable = args[0]
+            # Simple basename check to avoid path traversal tricks like /bin/sh
+            executable_name = os.path.basename(executable)
+
+            if executable_name not in ALLOWED_TOOLS:
+                 _log_and_emit(sid, f"Security Violation: '{executable_name}' is not a whitelisted tool.", "ERROR")
+                 return
+            # ----------------------
+
+            try:
+                process = Popen(args, shell=False, stdout=PIPE, stderr=STDOUT, text=True)
                 for line in process.stdout:
                     if line.strip():
                         _log_and_emit(sid, f"[Verify] {line.strip()}", "INFO")
@@ -480,6 +517,7 @@ def verify_finding():
 
     app_obj = current_app._get_current_object()
     socketio.start_background_task(run_verification, scan_id, command, app_obj)
+    return jsonify({"status": "success", "message": "Verification started"})
     
 @main_bp.route("/settings/clear_logs", methods=["POST"])
 def clear_logs():
