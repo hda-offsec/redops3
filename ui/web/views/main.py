@@ -31,8 +31,8 @@ def _get_tool_path(tool_name):
     return shutil.which(tool_name)
 
 
-@main_bp.route("/api/dependencies")
-def check_dependencies():
+@functools.lru_cache(maxsize=1)
+def _get_tool_status():
     tools = ["nmap", "nuclei", "ffuf", "whatweb", "subfinder", "katana", "sqlmap", "dnsrecon"]
     status = {}
     for t in tools:
@@ -41,7 +41,13 @@ def check_dependencies():
             "found": path is not None,
             "path": path or "Not Found"
         }
-    return jsonify(status)
+    return status
+
+
+@main_bp.route("/api/dependencies")
+def check_dependencies():
+    return jsonify(_get_tool_status())
+
 
 @main_bp.route("/")
 def index():
