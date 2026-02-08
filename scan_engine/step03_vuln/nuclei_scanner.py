@@ -7,7 +7,7 @@ class NucleiScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("nuclei") is not None
 
-    def stream_vuln_scan(self, port, protocol='http'):
+    def stream_vuln_scan(self, port, protocol='http', tags=None):
         """
         Runs Nuclei on the target
         """
@@ -17,6 +17,7 @@ class NucleiScanner:
         # -s critical,high will focus only on dangerous findings
         # -o /dev/stdout is default but we want json output for parsing ideally
         # For simplicity in Phase 1 styling, we stream text but nuclei has JSON output -j
+        
         command = [
             path, 
             "-u", url, 
@@ -25,4 +26,7 @@ class NucleiScanner:
             "-silent"
         ]
         
+        if tags:
+            command.extend(["-tags", tags])
+            
         return ProcessManager.stream_command(command)

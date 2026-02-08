@@ -8,6 +8,7 @@ from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.step02_enum.web_scanner import WebReconScanner
 from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
 from scan_engine.step03_vuln.wpscan_scanner import WPScanScanner
+from scan_engine.step03_vuln.dalfox_scanner import DalfoxScanner
 from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from core.analysis import AnalysisEngine
@@ -493,7 +494,11 @@ class ScanOrchestrator:
                         self.log(f"Nuclei Scanning {proto}://{self.target}:{port}...", "INFO")
                         
                         try:
-                            nuc_stream = vuln_scanner.stream_vuln_scan(port, proto)
+                            # Nuclei: Standard + LFI/RFI/SSTI specifically
+                            # We can pass specific tags to nuclei to hone in on these
+                            # tags: lfi,rfi,ssti,cve
+                            
+                            nuc_stream = vuln_scanner.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,misconfig")
                             
                             if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
                             if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
@@ -541,6 +546,40 @@ class ScanOrchestrator:
                             # Final save if we have pending updates
                             if unsaved_changes:
                                 self.save_results(self.scan_id, results)
+
+                            
+                            # --- DALFOX XSS SCANNING ---
+                            try:
+                                self.log(f"Phase 5b: XSS Heuristics (Dalfox) on {proto}://{self.target}:{port}...", "INFO")
+                                xss_scanner = DalfoxScanner(self.target)
+                                if xss_scanner.check_tools():
+                                    # We use the generic 'url' mode primarily. 
+                                    # Ideally we would pipe katana endpoints to dalfox, but for now we scan the base
+                                    dalfox_stream = xss_scanner.stream_scan_xss(port, proto)
+                                    
+                                    xss_found = False
+                                    for event in dalfox_stream:
+                                        if event['type'] == 'stdout':
+                                            line = event['line'].strip()
+                                            if line and "POC" in line: # Dalfox usually outputs POC when found
+                                                self.log(f"⚔️ XSS DETECTED: {line}", "CRITICAL")
+                                                xss_found = True
+                                                
+                                                self.add_finding(
+                                                    title=f"XSS Vulnerability Reflected ({port})",
+                                                    description=f"Dalfox identified a Cross-Site Scripting vector:\n\n{line}",
+                                                    severity="critical",
+                                                    tool_source="dalfox"
+                                                )
+                                        elif event['type'] == 'error':
+                                            pass # Dalfox is noisy
+                                            
+                                    if xss_found:
+                                        self.log(f"XSS vulnerabilities confirmed on port {port}", "SUCCESS")
+                                else:
+                                    self.log("Dalfox not found, skipping XSS deep-scan.", "WARN")
+                            except Exception as e:
+                                self.log(f"Dalfox XSS scan failed: {e}", "ERROR")
 
                         except Exception as e:
                             self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")

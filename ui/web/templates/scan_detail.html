@@ -563,23 +563,53 @@
             <!-- NUCLEI RESULTS -->
             <div class="col-12">
                 <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)
+                    <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-bug me-2"></i>Vulnerability Mapping (Nuclei)</span>
+                        {% if results.phases.vuln and results.phases.vuln.nuclei and results.phases.vuln.nuclei.findings
+                        %}
+                        <span class="badge bg-danger">{{ results.phases.vuln.nuclei.findings|length }} Issues</span>
+                        {% endif %}
                     </div>
                     <div class="card-body" id="nuclei-results">
                         {% if results and results.phases and results.phases.vuln and results.phases.vuln.nuclei and
                         results.phases.vuln.nuclei.findings %}
                         <div class="result-list">
                             {% for finding in results.phases.vuln.nuclei.findings %}
-                            <div
-                                class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between">
-                                <span class="badge severity-badge {{ finding.severity }} me-2 text-uppercase">{{
-                                    finding.severity }}</span>
-                                <span class="result-text flex-grow-1">{{ finding.title }}</span>
+                            {% set f_title = finding.title|lower %}
+                            <div class="result-row p-3 mb-2 bg-black border border-secondary rounded position-relative">
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="badge severity-badge {{ finding.severity }} me-2 text-uppercase">{{
+                                        finding.severity }}</span>
+
+                                    {% if "xss" in f_title %}
+                                    <span class="badge bg-warning text-dark me-2"><i
+                                            class="fas fa-code me-1"></i>XSS</span>
+                                    {% elif "lfi" in f_title or "local file" in f_title %}
+                                    <span class="badge bg-danger me-2"><i
+                                            class="fas fa-file-invoice me-1"></i>LFI</span>
+                                    {% elif "rfi" in f_title or "remote file" in f_title %}
+                                    <span class="badge bg-danger me-2"><i
+                                            class="fas fa-network-wired me-1"></i>RFI</span>
+                                    {% elif "sql" in f_title or "injection" in f_title %}
+                                    <span class="badge bg-danger me-2"><i class="fas fa-database me-1"></i>SQLi</span>
+                                    {% elif "cve" in f_title %}
+                                    <span class="badge bg-info me-2"><i class="fas fa-hashtag me-1"></i>CVE</span>
+                                    {% endif %}
+
+                                    <span class="result-text font-monospace small text-break flex-grow-1">{{
+                                        finding.title }}</span>
+                                </div>
+                                <div class="text-muted small ps-2 border-start border-secondary">
+                                    Target Port: <span class="text-info">{{ finding.port }}</span>
+                                </div>
                             </div>
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="text-muted small fst-italic">No vulnerabilities reported.</div>
+                        <div class="text-muted small fst-italic p-3 text-center">
+                            <i class="fas fa-check-circle text-success mb-2 display-6"></i><br>
+                            No specific vulnerabilities confirmed by Nuclei yet.
+                        </div>
                         {% endif %}
                     </div>
                 </div>
