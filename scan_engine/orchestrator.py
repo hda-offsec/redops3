@@ -57,7 +57,20 @@ class ScanOrchestrator:
                 "scan_id": self.scan_id,
                 "target": self.target,
                 "status": "running",
-                "phases": {"recon": {"open_ports": [], "raw_output": ""}}
+                "phases": {
+                    "recon": {"open_ports": [], "raw_output": ""},
+                    "intel": {},
+                    "enum": {
+                        "whatweb": {"summary": {}},
+                        "katana": {}
+                    },
+                    "vuln": {
+                        "nuclei": {"findings": []}
+                    },
+                    "dirbusting": {
+                        "ffuf": {"endpoints": []}
+                    }
+                }
             }
             self.save_results(self.scan_id, initial_results)
             self.log("Local workspace prepared.", "INFO")
@@ -215,6 +228,8 @@ class ScanOrchestrator:
                             self.log(f"Phase 3+: Capturing screenshot for port {port}...", "INFO")
                             from core.screenshots import take_service_screenshot
                             shot_path = take_service_screenshot(self.scan_id, port, self.target)
+                            # Link screenshot to the port object for the UI Matrix
+                            p['screenshot_path'] = shot_path
                         except Exception as e:
                             self.log(f"Screenshot failed for port {port}: {e}", "WARN")
                             shot_path = None
@@ -243,8 +258,12 @@ class ScanOrchestrator:
                             if 'intel' not in results['phases']: results['phases']['intel'] = {}
                             if str(port) not in results['phases']['intel']: results['phases']['intel'][str(port)] = []
                             results['phases']['intel'][str(port)].append(v)
+                        
+                        # Incremental save after each port analysis
+                        self.save_results(self.scan_id, results)
 
-                            # Convert action to suggestion
+                        # Convert actions to suggestions if any
+                        for v in vectors:
                             self.add_suggestion(
                                 tool_name="Assessment",
                                 command_suggestion=v['action'],
@@ -393,38 +412,46 @@ class ScanOrchestrator:
                         try:
                             nuc_stream = vuln_scanner.stream_vuln_scan(port, proto)
                             
-                            vuln_count = 0
+                            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                            if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
+                            
+                            found_any = False
                             for event in nuc_stream:
-                                if event["type"] == "stdout":
-                                    line = event["line"].strip()
+                                if event['type'] == 'stdout':
+                                    line = event['line'].strip()
                                     if line:
-                                        sev = "info"
-                                        if "[critical]" in line.lower(): sev = "critical"
-                                        elif "[high]" in line.lower(): sev = "high"
-                                        elif "[medium]" in line.lower(): sev = "medium"
-                                        elif "[low]" in line.lower(): sev = "low"
+                                        sev = 'info'
+                                        if '[critical]' in line.lower(): sev = 'critical'
+                                        elif '[high]' in line.lower(): sev = 'high'
+                                        elif '[medium]' in line.lower(): sev = 'medium'
+                                        elif '[low]' in line.lower(): sev = 'low'
                                         
-                                        self.log(line, "WARN" if sev in ["critical", "high"] else "INFO")
+                                        self.log(line, 'WARN' if sev in ['critical', 'high'] else 'INFO')
                                         
-                                        if sev in ["critical", "high", "medium"]:
-                                            vuln_count += 1
+                                        # Record all findings regardless of severity for complete history
+                                        results['phases']['vuln']['nuclei']['findings'].append({
+                                            'severity': sev,
+                                            'title': line,
+                                            'port': port
+                                        })
+                                        found_any = True
+                                        
+                                        if sev in ['critical', 'high', 'medium']:
                                             self.add_finding(
                                                 title=f"Vulnerability Found ({sev.upper()})",
                                                 description=f"Nuclei Output:\n{line}",
                                                 severity=sev,
                                                 tool_source="nuclei"
                                             )
-                                            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                                            if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
-                                            
-                                            results['phases']['vuln']['nuclei']['findings'].append({
-                                                "severity": sev,
-                                                "title": line,
-                                                "port": port
-                                            })
-                                            self.save_results(self.scan_id, results)
-                                elif event["type"] == "exit":
+                                        
+                                        # Incremental save
+                                        self.save_results(self.scan_id, results)
+
+                                elif event['type'] == 'exit':
                                     self.log(f"Nuclei on port {port} finished with code {event['code']}", "INFO")
+                            
+                            if not found_any:
+                                self.log(f"No vulnerabilities found on port {port}.", "SUCCESS")
 
                         except Exception as e:
                             self.log(f"Error during Vuln Scan on port {port}: {str(e)}", "ERROR")
@@ -455,13 +482,12 @@ class ScanOrchestrator:
                     try:
                         scanner6 = FfufScanner(target_url, wordlist=wordlist)
                     except TypeError:
-                        # Fallback if FfufScanner.__init__ doesn't accept wordlist (version mismatch)
-                        self.log("Legacy FfufScanner signature detected. Using default wordlist.", "WARN")
+                        self.log("Detected legacy FfufScanner constructor, falling back.", "WARN")
                         scanner6 = FfufScanner(target_url)
 
                     if not scanner6.check_tools():
                         self.log("Skipping ffuf: tool not installed.", "WARN")
-                        break # Usually either it's installed or not for all ports
+                        break
                     
                     try:
                         ffuf_stream = scanner6.stream_scan()

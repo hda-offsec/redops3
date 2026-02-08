@@ -246,14 +246,30 @@
                 <div class="card glass-panel">
                     <div class="card-header glass-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
                     <div class="card-body" id="whatweb-results">
-                        {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb and
-                        results.phases.enum.whatweb.summary %}
-                        <div class="tag-grid d-flex flex-wrap gap-2">
-                            {% for key, value in results.phases.enum.whatweb.summary.items() %}
+                        {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb %}
+                        {% set ww = results.phases.enum.whatweb %}
+
+                        {# Global Summary if exists #}
+                        {% if ww.summary %}
+                        <div class="tag-grid d-flex flex-wrap gap-2 mb-3">
+                            {% for key, value in ww.summary.items() %}
                             <div class="tag-item px-2 py-1 bg-black border border-secondary rounded small">
                                 <span class="tag-key text-muted me-1">{{ key }}:</span>
                                 <span class="tag-value text-cyber">{{ value }}</span>
                             </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        {# Per-Port details #}
+                        <div class="whatweb-details">
+                            {% for port, output in ww.items() %}
+                            {% if port != 'summary' %}
+                            <div
+                                class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break">
+                                <span class="badge bg-secondary me-2">Port {{ port }}</span> {{ output }}
+                            </div>
+                            {% endif %}
                             {% endfor %}
                         </div>
                         {% else %}
@@ -413,7 +429,8 @@
                             <span class="result-text fw-bold text-break">{{ finding.title }}</span>
                         </div>
                         {% if finding.description %}
-                        <div class="mt-1 small text-muted text-break" style="white-space: pre-wrap;">{{
+                        <div class="mt-1 small text-muted text-break overflow-auto"
+                            style="max-height: 200px; white-space: pre-wrap;">{{
                             finding.description }}</div>
                         {% endif %}
                         {% if finding.screenshot_path %}
@@ -729,6 +746,29 @@
                     const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
                     const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
 
+                    // WhatWeb Integration in Matrix
+                    let techHtml = '<span class="text-muted small">Targeting...</span>';
+                    const portKey = port.port.toString();
+                    if (results.phases.enum && results.phases.enum.whatweb && results.phases.enum.whatweb[portKey]) {
+                        const ww = results.phases.enum.whatweb[portKey];
+                        techHtml = '<div class="d-flex flex-wrap gap-1">';
+                        if (ww.includes('Title[')) {
+                            const title = ww.split('Title[')[1].split(']')[0];
+                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small" title="${title}"><i class="fas fa-heading me-1 opacity-50"></i>${title.substring(0, 20)}${title.length > 20 ? '...' : ''}</span>`;
+                        }
+                        if (ww.includes('HTTPServer[')) {
+                            const server = ww.split('HTTPServer[')[1].split(']')[0];
+                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small"><i class="fas fa-microchip me-1 opacity-50"></i>${server}</span>`;
+                        }
+                        techHtml += '</div>';
+                    }
+
+                    // Screenshot logic
+                    let screenshotBtn = "";
+                    if (port.screenshot_path) {
+                        screenshotBtn = `<button class="btn btn-xs btn-outline-success me-1" onclick="window.open('/static/${port.screenshot_path}')" title="View Screenshot"><i class="fas fa-image"></i></button>`;
+                    }
+
                     html += `<tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
                         <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"><i class="fas fa-server me-1 opacity-50"></i>${port.service_name}</span></td>
                         <td class="p-3">
@@ -741,8 +781,9 @@
                         </td>
                         <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
                         <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
-                        <td class="p-3"><span class="text-muted small">Updated via live sync</span></td>
+                        <td class="p-3">${techHtml}</td>
                         <td class="p-3 text-end">
+                            ${screenshotBtn}
                             ${isWeb ? `<a href="${proto}://${targetLabel}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
                         </td>
                     </tr>`;

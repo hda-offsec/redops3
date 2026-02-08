@@ -7,23 +7,44 @@ from datetime import datetime
 
 RESULTS_DIR = "data/results"
 
+def deep_merge(dict1, dict2):
+    """Recursively merges dict2 into dict1"""
+    for key, value in dict2.items():
+        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
+            deep_merge(dict1[key], value)
+        else:
+            dict1[key] = value
+    return dict1
+
 def save_results(scan_id, data):
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR)
         
     filename = os.path.join(RESULTS_DIR, f"scan_{scan_id}.json")
-    temp_filename = filename + ".tmp"
     
+    # Load existing data to merge
+    current_data = {}
+    if os.path.exists(filename):
+        try:
+            with open(filename, 'r') as f:
+                current_data = json.load(f)
+        except:
+            current_data = {}
+
+    # Merge new data into current
+    updated_data = deep_merge(current_data, data)
+    
+    temp_filename = filename + ".tmp"
     try:
         # Atomic write: write to temp file first, then rename
         with open(temp_filename, 'w') as f:
-            json.dump(data, f, indent=4)
+            json.dump(updated_data, f, indent=4)
             f.flush()
             os.fsync(f.fileno())  # Force write to disk
         
         # Atomic rename (overwrites existing file)
         os.replace(temp_filename, filename)
-        print(f"[DEBUG] Results saved for Scan #{scan_id} to {filename}")
+        print(f"[DEBUG] Results saved for Scan #{scan_id} (merged)")
     except Exception as e:
         print(f"[ERROR] Failed to save results for Scan #{scan_id}: {e}")
         if os.path.exists(temp_filename):
