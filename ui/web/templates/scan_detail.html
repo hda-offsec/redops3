@@ -8,33 +8,28 @@
     <div class="col-12">
         <div class="card glass-panel">
             <div class="card-header glass-header d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview</span>
-                <div>
-                    <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-cyber me-2">
-                        <i class="fas fa-home"></i> Mission Control
+                <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview: <span class="text-cyber">{{
+                        scan.target.identifier }}</span></span>
+                <div class="mission-ops d-flex gap-2">
+                    <a href="{{ url_for('main.index') }}" class="btn btn-xs btn-outline-cyber">
+                        <i class="fas fa-home me-1"></i>Home
                     </a>
-                    <div class="mission-ops d-flex gap-2" style="display: inline-flex !important;">
-                        <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
-                            class="btn btn-xs btn-outline-cyber">
-                            <i class="fas fa-file-pdf me-1"></i>Report
-                        </a>
-                        <a href="{{ url_for('main.scan_osint', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
-                            <i class="fas fa-search-plus me-1"></i>OSINT
-                        </a>
-                        <button class="btn btn-xs btn-outline-warning" data-bs-toggle="modal"
-                            data-bs-target="#harvestLootModal">
-                            <i class="fas fa-hand-holding-usd me-1"></i>Loot
-                        </button>
-                    </div>
+                    <a href="{{ url_for('main.scan_report', scan_id=scan.id, format='pdf') }}" target="_blank"
+                        class="btn btn-xs btn-outline-cyber">
+                        <i class="fas fa-file-pdf me-1"></i>Report
+                    </a>
+                    <a href="{{ url_for('main.scan_osint', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
+                        <i class="fas fa-search-plus me-1"></i>OSINT
+                    </a>
+                    <button class="btn btn-xs btn-outline-warning" data-bs-toggle="modal"
+                        data-bs-target="#harvestLootModal">
+                        <i class="fas fa-hand-holding-usd me-1"></i>Loot
+                    </button>
                     <span class="badge status-pill status-{{ scan.status }} ms-2">{{ scan.status }}</span>
                 </div>
             </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Target</div>
-                        <div class="meta-value fw-bold text-cyber">{{ scan.target.identifier }}</div>
-                    </div>
                     <div class="col-md-3">
                         <div class="meta-label text-muted small text-uppercase">Type</div>
                         <div class="meta-value text-uppercase fw-bold">{{ scan.scan_type }}</div>
@@ -49,13 +44,13 @@
                             {% endif %}
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase mb-1">Status</div>
+                    <div class="col-md-6">
+                        <div class="meta-label text-muted small text-uppercase mb-1">Live Progress</div>
                         <div class="d-flex align-items-center mb-1">
                             <div class="spinner-border spinner-border-sm text-cyber me-2 {% if scan.status != 'running' %}d-none{% endif %}"
                                 id="scan-spinner" role="status"></div>
-                            <span class="meta-value font-monospace text-uppercase" id="scan-status-text">{{ scan.status
-                                }}</span>
+                            <span class="meta-value font-monospace text-uppercase small" id="scan-status-text">{{
+                                scan.status }}</span>
                             <span class="ms-auto small font-monospace text-muted"
                                 id="scan-phase-text">initializing...</span>
                         </div>
@@ -124,6 +119,27 @@
                     <div class="card-body" style="padding: 0;">
                         <div id="network-graph"
                             style="height: 400px; background: rgba(0,0,0,0.5); border-radius: 0 0 4px 4px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DNS INTELLIGENCE -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-sitemap me-2"></i>DNS Intelligence</div>
+                    <div class="card-body" id="dns-results">
+                        {% if results and results.phases and results.phases.dns and results.phases.dns.subdomains %}
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for sub in results.phases.dns.subdomains %}
+                            <div
+                                class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">
+                                {{ sub }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-muted small fst-italic">No subdomains discovered.</div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -241,6 +257,57 @@
                 </div>
             </div>
 
+            <!-- ATTACK VECTOR ANALYSIS -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-brain me-2"></i>Attack Vector Analysis (Intel
+                        Engine)</div>
+                    <div class="card-body" id="intel-results">
+                        {% if results and results.phases and results.phases.intel %}
+                        <div class="accordion" id="accordionIntel">
+                            {% for port, vectors in results.phases.intel.items() %}
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header" id="heading-intel-{{ port }}">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-intel-{{ port }}" aria-expanded="false"
+                                        aria-controls="collapse-intel-{{ port }}">
+                                        <span class="badge bg-warning me-2">Port {{ port }}</span>
+                                        <span class="font-monospace small text-muted">{{ vectors|length }} Vectors
+                                            Identified</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-intel-{{ port }}" class="accordion-collapse collapse"
+                                    aria-labelledby="heading-intel-{{ port }}" data-bs-parent="#accordionIntel">
+                                    <div class="accordion-body p-0">
+                                        <div class="p-2">
+                                            {% for v in vectors %}
+                                            <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <span class="fw-bold text-info small">{{ v.name }}</span>
+                                                    <span
+                                                        class="badge {% if v.score >= 80 %}bg-danger{% else %}bg-secondary{% endif %}">Score:
+                                                        {{ v.score }}</span>
+                                                </div>
+                                                <div class="small text-muted mb-1">{{ v.description }}</div>
+                                                <div class="font-monospace x-small text-warning bg-black p-1 rounded">
+                                                    Action: {{ v.action }}</div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-muted small fst-italic">No specific attack vectors mapped.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
             <!-- ENUM RESULTS (WhatWeb) -->
             <div class="col-12">
                 <div class="card glass-panel">
@@ -248,8 +315,6 @@
                     <div class="card-body" id="whatweb-results">
                         {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb %}
                         {% set ww = results.phases.enum.whatweb %}
-
-                        {# Global Summary if exists #}
                         {% if ww.summary %}
                         <div class="tag-grid d-flex flex-wrap gap-2 mb-3">
                             {% for key, value in ww.summary.items() %}
@@ -260,8 +325,6 @@
                             {% endfor %}
                         </div>
                         {% endif %}
-
-                        {# Per-Port details #}
                         <div class="whatweb-details">
                             {% for port, output in ww.items() %}
                             {% if port != 'summary' %}
@@ -273,17 +336,16 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="text-muted">No enumeration summary available.</div>
+                        <div class="text-muted small fst-italic">No enumeration summary available.</div>
                         {% endif %}
                     </div>
                 </div>
             </div>
 
-            <!-- DEEP CRAWLING (Katana) - NEW -->
+            <!-- DEEP CRAWLING (Katana) -->
             <div class="col-12">
                 <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana-DS)
-                    </div>
+                    <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana)</div>
                     <div class="card-body" id="katana-results">
                         {% if results and results.phases and results.phases.enum and results.phases.enum.katana %}
                         <div class="accordion" id="accordionKatana">
@@ -318,7 +380,7 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="text-muted">No crawling results yet.</div>
+                        <div class="text-muted small fst-italic">No crawling results yet.</div>
                         {% endif %}
                     </div>
                 </div>
@@ -343,7 +405,7 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="text-muted">No vulnerabilities reported.</div>
+                        <div class="text-muted small fst-italic">No vulnerabilities reported.</div>
                         {% endif %}
                     </div>
                 </div>
@@ -367,13 +429,13 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="text-muted">No endpoints discovered.</div>
+                        <div class="text-muted small fst-italic">No endpoints discovered.</div>
                         {% endif %}
                     </div>
                 </div>
             </div>
 
-            <!-- EXECUTION LOG (MOVED HERE) -->
+            <!-- EXECUTION LOG -->
             <div class="col-12">
                 <div class="card glass-panel">
                     <div class="card-header glass-header"><i class="fas fa-terminal me-2"></i>Execution Log</div>
@@ -424,7 +486,8 @@
                     <div
                         class="result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight">
                         <div class="d-flex w-100 justify-content-between mb-2">
-                            <span class="badge severity-badge {{ finding.severity }} text-uppercase">{{ finding.severity
+                            <span class="badge severity-badge {{ finding.severity }} text-uppercase">{{
+                                finding.severity
                                 }}</span>
                             <span class="result-text fw-bold text-break">{{ finding.title }}</span>
                         </div>
@@ -460,7 +523,8 @@
                         class="result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded">
                         <div>
                             <span class="badge bg-secondary me-2">{{ suggestion.tool_name }}</span>
-                            <span class="result-text font-monospace small">{{ suggestion.command_suggestion }}</span>
+                            <span class="result-text font-monospace small">{{ suggestion.command_suggestion
+                                }}</span>
                             {% if suggestion.reason %}
                             <div class="mt-1 x-small text-muted opacity-50">{{ suggestion.reason }}</div>
                             {% endif %}
@@ -480,7 +544,8 @@
 
         <!-- NOTES -->
         <div class="card glass-panel mb-4">
-            <div class="card-header glass-header"><i class="fas fa-sticky-note me-2"></i>Operator Notes (War Room)</div>
+            <div class="card-header glass-header"><i class="fas fa-sticky-note me-2"></i>Operator Notes (War Room)
+            </div>
             <div class="card-body">
                 <form action="{{ url_for('main.update_notes', scan_id=scan.id) }}" method="POST">
                     <textarea name="notes" class="form-control bg-dark text-light border-secondary mb-2" rows="6"
@@ -499,7 +564,8 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content bg-dark border-secondary shadow-lg">
             <div class="modal-header border-secondary">
-                <h5 class="modal-title text-warning"><i class="fas fa-sack-dollar me-2"></i>Harvest Mission Loot</h5>
+                <h5 class="modal-title text-warning"><i class="fas fa-sack-dollar me-2"></i>Harvest Mission Loot
+                </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
                     aria-label="Close"></button>
             </div>
@@ -558,7 +624,6 @@
     document.addEventListener("DOMContentLoaded", function () {
         const scanId = "{{ scan.id }}";
         const targetLabel = "{{ scan.target.identifier }}";
-        // Connect to namespace if configured, else default
         const socket = io();
 
         socket.on('connect', () => {
@@ -569,11 +634,11 @@
         // --- PTES NAVIGATION HIGHLIGHTER ---
         const ptesMap = {
             'Phase 1': 'recon',
-            'Phase 2': 'recon', // Parsing sometimes groups
-            'Phase 3': 'recon', // Actually 3 is vector analysis (Enumeration context)
+            'Phase 2': 'recon',
+            'Phase 3': 'recon',
             'Phase 4': 'enum',
             'Phase 5': 'vuln',
-            'Phase 6': 'initial', // Hypothetical
+            'Phase 6': 'initial',
             'Phase 7': 'privesc',
             'Phase 8': 'lateral',
             'Phase 9': 'postex'
@@ -587,7 +652,6 @@
                     if (target) {
                         target.classList.add('active');
                     }
-                    console.log("PTES Active:", ptesIdSuffix);
                     break;
                 }
             }
@@ -604,73 +668,45 @@
             }
         }
 
-        // Initial Status Check
+        // Initial Checks
         const statusPill = document.querySelector('.status-pill');
         const currentStatus = statusPill ? statusPill.innerText.toLowerCase() : '';
         toggleScanToast(currentStatus === 'running');
 
-        // Initial PTES Check (Parse existing logs)
-        const existingLogs = document.querySelectorAll('.log-console > div');
-        // Check logs in reverse order (bottom up) to find latest phase, assuming natural order or scan top-down
-        // Actually log-console usually has newest at top or bottom? 
-        // In python usually append, template iterates standard list. So bottom is newest.
-        // But the socket prepend typically puts newest at top.
-        // Let's just scan all logs and let the last match (highest phase) win if we iterate normally?
-        // Wait, if "Phase 1" is in text, it matches. If "Phase 2" is in text later, it matches.
-        // We want the LATEST phase.
-        if (existingLogs.length > 0) {
-            // Find the one with highest timestamp which is likely first or last depending on order
-            // Let's assume standard template iteration preserves list order (oldest first).
-            // So we iterate and the last match sticks.
-            existingLogs.forEach(logDiv => {
-                highlightPTES(logDiv.innerText);
-            });
-        }
-
+        document.querySelectorAll('.log-console > div').forEach(logDiv => {
+            highlightPTES(logDiv.innerText);
+        });
 
         // --- REAL-TIME UPDATES ---
         socket.on("new_log", function (data) {
             if (data.scan_id == scanId) {
-                // Update Log UI
                 const consoleDiv = document.querySelector(".log-console");
-                const div = document.createElement("div");
-                const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
-                div.innerHTML = `<span class="text-muted">[${data.timestamp}]</span> <span class="${levelClass}">${data.level}</span> ${data.message}`;
-                // Prepend or Append? User likely wants newest at top or bottom.
-                // Standard CLI is bottom. Standard web log view is often newest at top to avoid scrolling.
-                // Looking at template: {% for log in logs %} ... {% endfor %} (Rendered top-down)
-                // If we want to match template order (oldest first), we should append.
-                // But better UX is often auto-scroll to bottom.
-                consoleDiv.appendChild(div);
-                consoleDiv.scrollTop = consoleDiv.scrollHeight; // Auto-scroll
-
-                // Update Status / PTES
+                if (consoleDiv) {
+                    const div = document.createElement("div");
+                    const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
+                    div.innerHTML = `<span class="text-muted">[${data.timestamp}]</span> <span class="${levelClass}">${data.level}</span> ${data.message}`;
+                    consoleDiv.appendChild(div);
+                    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+                }
                 highlightPTES(data.message);
-
-                if (data.message.includes("Scan finished") || data.message.includes("Phase 9 finished")) {
-                    // toggleScanToast(false); // Removed toast
-                    const statusPill = document.querySelector('.status-pill');
-                    if (statusPill) {
-                        statusPill.innerText = 'finished';
-                        statusPill.className = 'badge status-pill status-finished ms-2';
+                if (data.message.includes("Scan finished")) {
+                    const sp = document.querySelector('.status-pill');
+                    if (sp) {
+                        sp.innerText = 'finished';
+                        sp.className = 'badge status-pill status-finished ms-2';
                     }
                 }
             }
         });
 
-
-        // Other socket listeners (results_update etc)
         socket.on("results_update", function (msg) {
-            if (msg.scan_id == scanId) {
-                // Reload page or use complex DOM update logic. 
-                if (window.updateUI) window.updateUI(msg.results);
+            if (msg.scan_id == scanId && window.updateUI) {
+                window.updateUI(msg.results);
             }
         });
 
-        // Progress Update Listener
         socket.on("progress_update", function (data) {
             if (data.scan_id == scanId) {
-                // Update Progress Bar
                 const bar = document.getElementById('scan-progress-bar');
                 const phaseText = document.getElementById('scan-phase-text');
                 const statusText = document.getElementById('scan-status-text');
@@ -696,10 +732,7 @@
             }
         });
 
-        // ... [Re-integrating Network Graph & Update Logic] ...
-        // To keep this file write safe and concise, I will assume the VisJS graph init matches
-        // the previous file. I'll include the initGraph logic here.
-
+        // --- VISUALIZATION (Graph) ---
         let network = null;
         let nodes = new vis.DataSet([]);
         let edges = new vis.DataSet([]);
@@ -709,9 +742,9 @@
             if (!container) return;
             const data = { nodes: nodes, edges: edges };
             const options = {
-                nodes: { borderWidth: 2, shadow: true, font: { color: "#fff", face: "JetBrains Mono" } },
-                edges: { smooth: { type: 'continuous' } },
-                physics: { stabilization: false, barnesHut: { gravitationalConstant: -3000 } },
+                nodes: { borderWidth: 2, shadow: true, font: { color: "#fff", face: "JetBrains Mono", size: 12 } },
+                edges: { smooth: { type: 'continuous' }, color: { color: "#444" } },
+                physics: { stabilization: false, barnesHut: { gravitationalConstant: -2000 } },
                 interaction: { hover: true, zoomView: true }
             };
             network = new vis.Network(container, data, options);
@@ -720,49 +753,74 @@
             });
         }
 
-        // Progress Update Listener
-        socket.on("progress_update", function (data) {
-            if (data.scan_id == scanId) {
-                // Update Progress Bar
-                const bar = document.getElementById('scan-progress-bar');
-                const phaseText = document.getElementById('scan-phase-text');
-                const statusText = document.getElementById('scan-status-text');
-                const spinner = document.getElementById('scan-spinner');
+        function showNodeDetails(nodeId) {
+            const node = nodes.get(nodeId);
+            const title = document.getElementById("nodeDetailTitle");
+            const body = document.getElementById("nodeDetailBody");
+            if (!node || !title || !body) return;
 
-                if (bar) {
-                    bar.style.width = data.percent + '%';
-                    bar.setAttribute('aria-valuenow', data.percent);
-                }
-                if (phaseText) phaseText.innerText = data.current_phase;
+            title.innerText = node.label.replace("\n", " ");
+            let content = '<div class="p-4">';
 
-                if (data.percent >= 100) {
-                    if (statusText) statusText.innerText = 'completed';
-                    if (spinner) spinner.classList.add('d-none');
-                    if (bar) {
-                        bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-                        bar.classList.add('bg-success');
-                    }
-                } else {
-                    if (statusText) statusText.innerText = 'running';
-                    if (spinner) spinner.classList.remove('d-none');
-                }
+            if (nodeId.toString().startsWith('p')) {
+                const portNum = nodeId.replace('p', '');
+                content += `
+                    <div class="d-flex align-items-center mb-4">
+                        <div class="display-4 text-info fw-bold me-3">${portNum}</div>
+                        <div>
+                            <div class="text-uppercase text-muted small">Port Status</div>
+                            <div class="badge bg-success">OPEN / ACTIVE</div>
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <div class="p-3 bg-black rounded border border-secondary text-center">
+                                <i class="fas fa-server fa-2x text-secondary mb-2"></i>
+                                <div class="small text-muted">Service</div>
+                                <div class="fw-bold">${node.label.split('\n')[1] || 'Unknown'}</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-3 bg-black rounded border border-secondary text-center">
+                                <i class="fas fa-bolt fa-2x text-warning mb-2"></i>
+                                <div class="small text-muted">Risk Profile</div>
+                                <div class="fw-bold text-warning">MATCHED</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <h6 class="text-secondary small text-uppercase">Analysis</h6>
+                        <div class="alert alert-info border-info-subtle bg-info-subtle text-info-emphasis py-2 small">
+                            Service identified. Check specialized results below for vulnerabilities and endpoints.
+                        </div>
+                    </div>`;
+            } else {
+                content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
             }
-        });
+            content += '</div>';
+            body.innerHTML = content;
+            const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
+            modal.show();
+        }
 
+        // --- UI UPDATE ENGINE ---
         window.updateUI = function (results) {
-            if (!results) return;
+            if (!results || !results.phases) return;
 
-            // 0. Update Progress if present in full snapshot
-            if (results.progress) {
-                const bar = document.getElementById('scan-progress-bar');
-                const phaseText = document.getElementById('scan-phase-text');
-                if (bar) bar.style.width = results.progress.percent + '%';
-                if (phaseText) phaseText.innerText = results.progress.current_phase;
+            // 1. DNS
+            if (results.phases.dns && results.phases.dns.subdomains) {
+                const dnsDiv = document.querySelector("#dns-results");
+                if (dnsDiv) {
+                    let dnsHtml = '<div class="d-flex flex-wrap gap-2">';
+                    results.phases.dns.subdomains.forEach(sub => {
+                        dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">${sub}</div>`;
+                    });
+                    dnsHtml += '</div>';
+                    dnsDiv.innerHTML = dnsHtml;
+                }
             }
 
-            if (!results.phases) return;
-
-            // 1. Update Recon Matrix (Table)
+            // 2. Recon Matrix
             const matrixBody = document.querySelector("#recon-matrix-body");
             if (matrixBody && results.phases.recon && results.phases.recon.open_ports) {
                 let html = "";
@@ -776,44 +834,36 @@
                     const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
                     const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
 
-                    // WhatWeb Integration in Matrix
-                    let techHtml = '<span class="text-muted small">Targeting...</span>';
+                    let techHtml = '<span class="text-muted small">-</span>';
                     const portKey = port.port.toString();
                     if (results.phases.enum && results.phases.enum.whatweb && results.phases.enum.whatweb[portKey]) {
                         const ww = results.phases.enum.whatweb[portKey];
                         techHtml = '<div class="d-flex flex-wrap gap-1">';
                         if (ww.includes('Title[')) {
                             const title = ww.split('Title[')[1].split(']')[0];
-                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small" title="${title}"><i class="fas fa-heading me-1 opacity-50"></i>${title.substring(0, 20)}${title.length > 20 ? '...' : ''}</span>`;
+                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small" title="${title}">${title.substring(0, 15)}...</span>`;
                         }
                         if (ww.includes('HTTPServer[')) {
                             const server = ww.split('HTTPServer[')[1].split(']')[0];
-                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small"><i class="fas fa-microchip me-1 opacity-50"></i>${server}</span>`;
+                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small">${server}</span>`;
                         }
                         techHtml += '</div>';
                     }
 
-                    // Screenshot logic
-                    let screenshotBtn = "";
-                    if (port.screenshot_path) {
-                        screenshotBtn = `<button class="btn btn-xs btn-outline-success me-1" onclick="window.open('/static/${port.screenshot_path}')" title="View Screenshot"><i class="fas fa-image"></i></button>`;
-                    }
-
                     html += `<tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
-                        <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"><i class="fas fa-server me-1 opacity-50"></i>${port.service_name}</span></td>
+                        <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase">${port.service_name}</span></td>
                         <td class="p-3">
                             <div class="d-flex align-items-center">
                                 <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
                                     <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
                                 </div>
-                                <span class="badge ${scoreClass} font-monospace">${score}<small class="opacity-50">/100</small></span>
+                                <span class="badge ${scoreClass} font-monospace">${score}</span>
                             </div>
                         </td>
                         <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
                         <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
                         <td class="p-3">${techHtml}</td>
                         <td class="p-3 text-end">
-                            ${screenshotBtn}
                             ${isWeb ? `<a href="${proto}://${targetLabel}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
                         </td>
                     </tr>`;
@@ -821,7 +871,7 @@
                 matrixBody.innerHTML = html;
             }
 
-            // 2. Update Graph Nodes
+            // 3. Network Graph
             if (results.phases.recon && results.phases.recon.open_ports) {
                 if (!network) initGraph();
                 if (!nodes.get(0)) nodes.add({ id: 0, label: targetLabel, color: "#ff2a2a", shape: "hexagon", size: 40 });
@@ -829,193 +879,110 @@
                     const pId = "p" + port.port;
                     if (!nodes.get(pId)) {
                         nodes.add({ id: pId, label: port.port + "\n" + port.service_name, color: "#00f0ff", shape: "dot", size: 15 });
-                        edges.add({ from: 0, to: pId, color: { color: "#333" } });
+                        edges.add({ from: 0, to: pId });
                     }
                 });
             }
 
-            // 3. Update ENUM (WhatWeb)
+            // 4. Intel
+            if (results.phases.intel) {
+                const intelDiv = document.querySelector("#intel-results");
+                if (intelDiv) {
+                    let intelHtml = '<div class="accordion" id="accordionIntel">';
+                    for (const [port, vectors] of Object.entries(results.phases.intel)) {
+                        intelHtml += `
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-intel-${port}">
+                                        <span class="badge bg-warning me-2">Port ${port}</span>
+                                        <span class="font-monospace small text-muted">${vectors.length} Vectors</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-intel-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionIntel">
+                                    <div class="accordion-body p-2">
+                                        ${vectors.map(v => `
+                                            <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <span class="fw-bold text-info small">${v.name}</span>
+                                                    <span class="badge ${v.score >= 80 ? 'bg-danger' : 'bg-secondary'}">${v.score}</span>
+                                                </div>
+                                                <div class="small text-muted mb-1">${v.description}</div>
+                                                <div class="font-monospace x-small text-warning bg-black p-1 rounded">Action: ${v.action}</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>`;
+                    }
+                    intelHtml += '</div>';
+                    intelDiv.innerHTML = intelHtml;
+                }
+            }
+
+            // 5. WhatWeb
             if (results.phases.enum && results.phases.enum.whatweb) {
                 const wwDiv = document.querySelector("#whatweb-results");
-                const wwData = results.phases.enum.whatweb;
-                const summary = wwData.summary || {};
-
-                let html = "";
-
-                // Render Summary tags if exist
-                if (Object.keys(summary).length > 0) {
-                    html += '<div class="tag-grid d-flex flex-wrap gap-2 mb-3">';
-                    for (const [key, value] of Object.entries(summary)) {
-                        html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${key}:</span><span class="tag-value text-cyber">${value}</span></div>`;
-                    }
-                    html += '</div>';
-                }
-
-                // Render raw port details if present
-                for (const [key, value] of Object.entries(wwData)) {
-                    if (key !== "summary") {
-                        // Try to highlight Title if possible
-                        let displayVal = value;
-                        if (typeof value === 'string') {
-                            displayVal = value.replace(/Title\[(.*?)\]/g, '<span class="text-info fw-bold">Title[$1]</span>');
-                            displayVal = displayVal.replace(/HTTPServer\[(.*?)\]/g, '<span class="text-warning">Server[$1]</span>');
-                            displayVal = displayVal.replace(/IP\[(.*?)\]/g, '<span class="text-secondary">IP[$1]</span>');
-                        }
-                        html += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-secondary pb-1 mb-2 text-break">
-                                <span class="badge bg-secondary me-2">Port ${key}</span> ${displayVal}
-                          </div>`;
-                    }
-                }
-
                 if (wwDiv) {
-                    wwDiv.innerHTML = html || '<span class="text-muted small fst-italic">No web technologies detected.</span>';
+                    let wwHtml = "";
+                    const wwData = results.phases.enum.whatweb;
+                    if (wwData.summary) {
+                        wwHtml += '<div class="tag-grid d-flex flex-wrap gap-2 mb-3">';
+                        for (const [k, v] of Object.entries(wwData.summary)) {
+                            wwHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${k}:</span><span class="tag-value text-cyber">${v}</span></div>`;
+                        }
+                        wwHtml += '</div>';
+                    }
+                    for (const [port, output] of Object.entries(wwData)) {
+                        if (port !== 'summary') {
+                            wwHtml += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break"><span class="badge bg-secondary me-2">Port ${port}</span> ${output}</div>`;
+                        }
+                    }
+                    wwDiv.innerHTML = wwHtml || '<div class="text-muted">No results.</div>';
                 }
             }
-            // 4. Update Katana
+
+            // 6. Katana
             if (results.phases.enum && results.phases.enum.katana) {
                 const katDiv = document.querySelector("#katana-results");
-                const kResults = results.phases.enum.katana;
-                if (katDiv && Object.keys(kResults).length > 0) {
-                    let html = '<div class="accordion" id="accordionKatana">';
-                    for (const [port, endpoints] of Object.entries(kResults)) {
-                        html += `<div class="accordion-item bg-black border-secondary">
-                               <h2 class="accordion-header" id="heading-katana-${port}">
-                                   <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-${port}">
-                                       <span class="badge bg-info me-2">Port ${port}</span>
-                                       <span class="font-monospace small text-muted">${endpoints.length} Endpoints Discovered</span>
-                                   </button>
-                               </h2>
-                               <div id="collapse-katana-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionKatana">
-                                   <div class="accordion-body p-0"><div class="p-2" style="max-height: 200px; overflow-y: auto;">`;
-                        endpoints.forEach(ep => {
-                            html += `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break"><a href="${ep}" target="_blank" class="text-decoration-none text-cyber hover-action">${ep}</a></div>`;
-                        });
-                        html += '</div></div></div></div>';
+                if (katDiv && Object.keys(results.phases.enum.katana).length > 0) {
+                    let katHtml = '<div class="accordion" id="accordionKatana">';
+                    for (const [port, endpoints] of Object.entries(results.phases.enum.katana)) {
+                        katHtml += `
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-${port}">
+                                        <span class="badge bg-info me-2">Port ${port}</span>
+                                        <span class="font-monospace small text-muted">${endpoints.length} Endpoints</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-katana-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionKatana">
+                                    <div class="accordion-body p-2" style="max-height: 200px; overflow-y: auto;">
+                                        ${endpoints.map(ep => `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break"><a href="${ep}" target="_blank" class="text-decoration-none text-cyber">${ep}</a></div>`).join('')}
+                                    </div>
+                                </div>
+                            </div>`;
                     }
-                    html += '</div>';
-                    katDiv.innerHTML = html;
-                }
-            }
-
-            // 5. Update Ffuf
-            if (results.phases.dirbusting && results.phases.dirbusting.ffuf && results.phases.dirbusting.ffuf.endpoints) {
-                const ffufDiv = document.querySelector("#ffuf-results");
-                const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
-                if (ffufDiv && endpoints.length > 0) {
-                    let html = '<div class="table-responsive"><table class="table table-dark table-hover table-sm small mb-0"><thead><tr><th>Code</th><th>Path</th><th>Size</th></tr></thead><tbody>';
-                    endpoints.forEach(ep => {
-                        let statusClass = "text-secondary";
-                        const statusStr = String(ep.status);
-                        if (statusStr.startsWith("2")) statusClass = "text-success";
-                        if (statusStr.startsWith("3")) statusClass = "text-info";
-                        if (statusStr.startsWith("4")) statusClass = "text-warning";
-                        html += `<tr><td><span class="badge bg-black border border-secondary ${statusClass}">${ep.status}</span></td><td class="font-monospace text-break">/${ep.path}</td><td class="text-muted">${ep.size || '-'}</td></tr>`;
-                    });
-                    html += '</tbody></table></div>';
-                    ffufDiv.innerHTML = html;
-                }
-            }
-
-            // 6. Update Nuclei
-            if (results.phases.vuln && results.phases.vuln.nuclei && results.phases.vuln.nuclei.findings) {
-                const nucDiv = document.querySelector("#nuclei-results");
-                const findings = results.phases.vuln.nuclei.findings || [];
-                if (nucDiv && findings.length > 0) {
-                    let html = '<div class="result-list">';
-                    findings.forEach(f => {
-                        html += `<div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between"><span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span><span class="result-text flex-grow-1">${f.title}</span></div>`;
-                    });
-                    html += '</div>';
-                    nucDiv.innerHTML = html;
+                    katHtml += '</div>';
+                    katDiv.innerHTML = katHtml;
                 }
             }
         };
-        // Initial Data Load
+
+        // Initial Load
         {% if results %}
-        const initialResults = {{ results| tojson | safe
-    }};
-    // Delay slightly to ensure DOM ready
-    setTimeout(() => {
-        if (typeof updateUI === 'function') {
-            updateUI(initialResults);
-        }
-    }, 500);
+        setTimeout(() => { window.updateUI({{ results| tojson | safe }}); }, 500);
     {% endif %}
 
-    function showNodeDetails(nodeId) {
-        const node = nodes.get(nodeId);
-        const title = document.getElementById("nodeDetailTitle");
-        const body = document.getElementById("nodeDetailBody");
-
-        if (!node) return;
-
-        title.innerText = node.label.replace("\n", " ");
-
-        let content = `<div class="p-4">`;
-        if (nodeId.toString().startsWith('p')) {
-            const portNum = nodeId.replace('p', '');
-            content += `
-                < div class="d-flex align-items-center mb-4" >
-                        <div class="display-4 text-info fw-bold me-3">${portNum}</div>
-                        <div>
-                            <div class="text-uppercase text-muted small">Port Status</div>
-                            <div class="badge bg-success">OPEN / ACTIVE</div>
-                        </div>
-                    </div >
-                    <div class="row g-3">
-                        <div class="col-6">
-                            <div class="p-3 bg-black rounded border border-secondary text-center">
-                                <i class="fas fa-server fa-2x text-secondary mb-2"></i>
-                                <div class="small text-muted">Service</div>
-                                <div class="fw-bold">${node.label.split('\n')[1] || 'Unknown'}</div>
-                            </div>
-                        </div>
-                        <div class="col-6">
-                            <div class="p-3 bg-black rounded border border-secondary text-center">
-                                <i class="fas fa-bolt fa-2x text-warning mb-2"></i>
-                                <div class="small text-muted">Risk Profile</div>
-                                <div class="fw-bold text-warning">HIGH</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <h6 class="text-secondary small text-uppercase">Recommended Action</h6>
-                        <div class="alert alert-info border-info-subtle bg-info-subtle text-info-emphasis py-2 small">
-                            Check "Intelligence" section for specific CVE payloads and TTPs for this port.
-                        </div>
-                    </div>
-            `;
-        } else if (nodeId.toString().startsWith('v')) {
-            content += `
-                < div class="text-center mb-4" >
-                        <i class="fas fa-microchip fa-3x text-success mb-3"></i>
-                        <h5>Service Version Found</h5>
-                        <div class="font-monospace text-success h4">${node.label}</div>
-                    </div >
-                <p class="text-muted">Exact version match found via Nmap fingerprinting. Used by the Intelligence Engine to map potential CVEs.</p>
-            `;
-        } else {
-            content += `< div class="text-center py-4" ><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div > `;
-        }
-        content += `</div >`;
-        body.innerHTML = content;
-        const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
-        modal.show();
-    }
-
-    // Markdown Logic
-    const notesTextarea = document.querySelector('textarea[name="notes"]');
-    if (notesTextarea) {
-        // Simple preview
+    // Markdown Notes
+    const notesArea = document.querySelector('textarea[name="notes"]');
+    if (notesArea) {
         const preview = document.createElement('div');
         preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
-        notesTextarea.parentNode.insertBefore(preview, notesTextarea.nextSibling);
-        notesTextarea.addEventListener('input', () => {
-            preview.innerHTML = DOMPurify.sanitize(marked.parse(notesTextarea.value));
-        });
-        preview.innerHTML = DOMPurify.sanitize(marked.parse(notesTextarea.value || "*No notes*"));
+        notesArea.parentNode.insertBefore(preview, notesArea.nextSibling);
+        const updatePreview = () => { preview.innerHTML = DOMPurify.sanitize(marked.parse(notesArea.value || "*No notes*")); };
+        notesArea.addEventListener('input', updatePreview);
+        updatePreview();
     }
-
-        });
+    });
 </script>
 {% endblock %}

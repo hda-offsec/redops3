@@ -17,6 +17,7 @@ Thumbs.db
 
 # Runtime / data
 *.db
+*.db-*
 instance/
 data/results/
 data/reports/

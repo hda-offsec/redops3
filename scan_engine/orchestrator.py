@@ -70,12 +70,16 @@ class ScanOrchestrator:
 
             # --- INITIALIZATION: Clear old ghost results ---
             self.log("Initializing local results structure...", "INFO")
-            initial_results = {
+
+            # Define the main results structure
+            results = {
                 "scan_id": self.scan_id,
                 "target": self.target,
                 "status": "running",
+                "timestamp": datetime.utcnow().isoformat(),
                 "phases": {
                     "recon": {"open_ports": [], "raw_output": ""},
+                    "dns": {"subdomains": []},
                     "intel": {},
                     "enum": {
                         "whatweb": {"summary": {}},
@@ -89,7 +93,7 @@ class ScanOrchestrator:
                     }
                 }
             }
-            self.save_results(self.scan_id, initial_results)
+            self.save_results(self.scan_id, results)
             self.log("Local workspace prepared.", "INFO")
         except Exception as e:
             self.log(f"Failed to initialize results: {str(e)}", "ERROR")
@@ -102,6 +106,11 @@ class ScanOrchestrator:
         dns_results = dns_scanner.enumerate_all(logger=self.log)
         if dns_results["subdomains"]:
             self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
+
+            # Save to results
+            results['phases']['dns']['subdomains'] = dns_results['subdomains']
+            self.save_results(self.scan_id, results)
+
             self.add_finding(
                 title=f"DNS Discovery: {len(dns_results['subdomains'])} Subdomains",
                 description="\n".join(dns_results["subdomains"]),
@@ -197,19 +206,9 @@ class ScanOrchestrator:
         open_ports = parse_nmap_open_ports(full_output)
         self.log(f"Parsed {len(open_ports)} open ports.", "SUCCESS")
         
-        # Save structured results
-        results = {
-            "scan_id": self.scan_id,
-            "target": self.target,
-            "timestamp": datetime.utcnow().isoformat(),
-            "phases": {
-                "recon": {
-                    "tool": "nmap",
-                    "open_ports": open_ports,
-                    "raw_output": full_output
-                }
-            }
-        }
+        # Update structured results (preserve existing phases like DNS)
+        results['phases']['recon']['open_ports'] = open_ports
+        results['phases']['recon']['raw_output'] = full_output
         self.save_results(self.scan_id, results)
 
         # --- PHASE 3: Deep Analysis & Attack Vector Mapping ---
