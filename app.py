@@ -61,6 +61,7 @@ def create_app():
     with app.app_context():
         from ui.web.views.main import main_bp
         from ui.web.views.auth import auth_bp
+        import core.socket_events # Ensure socket handlers are registered
         app.register_blueprint(main_bp)
         app.register_blueprint(auth_bp)
 

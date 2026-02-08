@@ -438,7 +438,11 @@
             <!-- EXECUTION LOG -->
             <div class="col-12">
                 <div class="card glass-panel">
-                    <div class="card-header glass-header"><i class="fas fa-terminal me-2"></i>Execution Log</div>
+                    <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-terminal me-2"></i>Execution Log</span>
+                        <span id="socket-status" class="badge bg-secondary"
+                            style="font-size: 0.6rem;">connecting...</span>
+                    </div>
                     <div class="card-body font-monospace log-console"
                         style="max-height: 400px; min-height: 300px; overflow-y: auto; background: #000;">
                         {% if logs %}
@@ -625,10 +629,30 @@
         const scanId = "{{ scan.id }}";
         const targetLabel = "{{ scan.target.identifier }}";
         const socket = io();
+        const statusEl = document.getElementById('socket-status');
 
         socket.on('connect', () => {
             console.log("Socket connected, joining room: scan_" + scanId);
+            if (statusEl) {
+                statusEl.innerText = "connected";
+                statusEl.className = "badge bg-success";
+            }
             socket.emit('join_scan', { scan_id: scanId });
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error("Socket Connection Error:", error);
+            if (statusEl) {
+                statusEl.innerText = "offline";
+                statusEl.className = "badge bg-danger";
+            }
+        });
+
+        socket.on('disconnect', () => {
+            if (statusEl) {
+                statusEl.innerText = "reconnecting...";
+                statusEl.className = "badge bg-warning";
+            }
         });
 
         // --- PTES NAVIGATION HIGHLIGHTER ---
@@ -682,6 +706,12 @@
             if (data.scan_id == scanId) {
                 const consoleDiv = document.querySelector(".log-console");
                 if (consoleDiv) {
+                    // Remove "No logs recorded" if present
+                    const emptyMsg = consoleDiv.querySelector(".text-muted");
+                    if (emptyMsg && emptyMsg.innerText.includes("No logs")) {
+                        emptyMsg.remove();
+                    }
+
                     const div = document.createElement("div");
                     const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
                     div.innerHTML = `<span class="text-muted">[${data.timestamp}]</span> <span class="${levelClass}">${data.level}</span> ${data.message}`;
@@ -695,6 +725,7 @@
                         sp.innerText = 'finished';
                         sp.className = 'badge status-pill status-finished ms-2';
                     }
+                    toggleScanToast(false);
                 }
             }
         });
@@ -702,6 +733,64 @@
         socket.on("results_update", function (msg) {
             if (msg.scan_id == scanId && window.updateUI) {
                 window.updateUI(msg.results);
+            }
+        });
+
+        socket.on("new_finding", function (data) {
+            if (data.scan_id == scanId) {
+                const container = document.getElementById("findings-container");
+                if (container) {
+                    const empty = container.querySelector(".text-muted");
+                    if (empty && empty.innerText.includes("No findings")) empty.remove();
+
+                    let list = container.querySelector(".result-list");
+                    if (!list) {
+                        list = document.createElement("div");
+                        list.className = "result-list";
+                        container.appendChild(list);
+                    }
+
+                    const div = document.createElement("div");
+                    div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
+                    div.innerHTML = `
+                        <div class="d-flex w-100 justify-content-between mb-2">
+                            <span class="badge severity-badge ${data.severity}">${data.severity.toUpperCase()}</span>
+                            <span class="result-text fw-bold text-break">${data.title}</span>
+                        </div>
+                        <div class="mt-1 small text-muted text-break">Source: ${data.tool}</div>
+                    `;
+                    list.prepend(div);
+                }
+            }
+        });
+
+        socket.on("new_suggestion", function (data) {
+            if (data.scan_id == scanId) {
+                const container = document.getElementById("suggestions-container");
+                if (container) {
+                    const empty = container.querySelector(".text-muted");
+                    if (empty && empty.innerText.includes("No suggestions")) empty.remove();
+
+                    let list = container.querySelector(".result-list");
+                    if (!list) {
+                        list = document.createElement("div");
+                        list.className = "result-list";
+                        container.appendChild(list);
+                    }
+
+                    const div = document.createElement("div");
+                    div.className = "result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded animate__animated animate__fadeInUp";
+                    div.innerHTML = `
+                        <div>
+                            <span class="badge bg-secondary me-2">${data.tool_name}</span>
+                            <span class="result-text font-monospace small">${data.command_suggestion}</span>
+                        </div>
+                        <button class="btn btn-xs btn-outline-warning" onclick='verifyFinding("${data.command_suggestion}")'>
+                            <i class="fas fa-play"></i>
+                        </button>
+                    `;
+                    list.prepend(div);
+                }
             }
         });
 
@@ -725,12 +814,29 @@
                         bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
                         bar.classList.add('bg-success');
                     }
+                    toggleScanToast(false);
                 } else {
                     if (statusText) statusText.innerText = 'running';
                     if (spinner) spinner.classList.remove('d-none');
+                    toggleScanToast(true);
                 }
             }
         });
+
+        // --- VERIFICATION ENGINE ---
+        window.verifyFinding = function (command) {
+            if (!confirm(`Exécuter la vérification: ${command}?`)) return;
+            fetch('/scan/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scan_id: scanId, command: command })
+            }).then(r => r.json())
+                .then(d => {
+                    if (d.status === 'success') {
+                        alert("Tâche de vérification lancée. Surveillez les logs.");
+                    }
+                });
+        };
 
         // --- VISUALIZATION (Graph) ---
         let network = null;
@@ -787,12 +893,6 @@
                                 <div class="fw-bold text-warning">MATCHED</div>
                             </div>
                         </div>
-                    </div>
-                    <div class="mt-4">
-                        <h6 class="text-secondary small text-uppercase">Analysis</h6>
-                        <div class="alert alert-info border-info-subtle bg-info-subtle text-info-emphasis py-2 small">
-                            Service identified. Check specialized results below for vulnerabilities and endpoints.
-                        </div>
                     </div>`;
             } else {
                 content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
@@ -816,7 +916,7 @@
                         dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">${sub}</div>`;
                     });
                     dnsHtml += '</div>';
-                    dnsDiv.innerHTML = dnsHtml;
+                    dnsDiv.innerHTML = dnsHtml || '<div class="text-muted small fst-italic">No subdomains discovered.</div>';
                 }
             }
 
@@ -830,7 +930,7 @@
                     const score = port.priority_score || 0;
                     const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
                     const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
-                    const bgStyle = score >= 85 ? 'background: rgba(255, 42, 42, 0.05);' : '';
+                    const bgStyle = score >= 80 ? 'background: rgba(255, 42, 42, 0.05);' : '';
                     const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
                     const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
 
@@ -841,7 +941,7 @@
                         techHtml = '<div class="d-flex flex-wrap gap-1">';
                         if (ww.includes('Title[')) {
                             const title = ww.split('Title[')[1].split(']')[0];
-                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small" title="${title}">${title.substring(0, 15)}...</span>`;
+                            techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small">${title.substring(0, 15)}...</span>`;
                         }
                         if (ww.includes('HTTPServer[')) {
                             const server = ww.split('HTTPServer[')[1].split(']')[0];
@@ -857,7 +957,7 @@
                                 <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
                                     <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
                                 </div>
-                                <span class="badge ${scoreClass} font-monospace">${score}</span>
+                                <span class="badge ${scoreClass} font-monospace" style="font-size: 0.75rem;">${score}</span>
                             </div>
                         </td>
                         <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
@@ -915,7 +1015,7 @@
                             </div>`;
                     }
                     intelHtml += '</div>';
-                    intelDiv.innerHTML = intelHtml;
+                    intelDiv.innerHTML = Object.keys(results.phases.intel).length ? intelHtml : '<div class="text-muted small fst-italic">Analyzing vectors...</div>';
                 }
             }
 
@@ -937,14 +1037,14 @@
                             wwHtml += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break"><span class="badge bg-secondary me-2">Port ${port}</span> ${output}</div>`;
                         }
                     }
-                    wwDiv.innerHTML = wwHtml || '<div class="text-muted">No results.</div>';
+                    wwDiv.innerHTML = wwHtml || '<div class="text-muted small fst-italic">Waiting for fingerprinter...</div>';
                 }
             }
 
             // 6. Katana
             if (results.phases.enum && results.phases.enum.katana) {
                 const katDiv = document.querySelector("#katana-results");
-                if (katDiv && Object.keys(results.phases.enum.katana).length > 0) {
+                if (katDiv) {
                     let katHtml = '<div class="accordion" id="accordionKatana">';
                     for (const [port, endpoints] of Object.entries(results.phases.enum.katana)) {
                         katHtml += `
@@ -963,7 +1063,43 @@
                             </div>`;
                     }
                     katHtml += '</div>';
-                    katDiv.innerHTML = katHtml;
+                    katDiv.innerHTML = Object.keys(results.phases.enum.katana).length ? katHtml : '<div class="text-muted small fst-italic">No crawling results yet.</div>';
+                }
+            }
+
+            // 7. Nuclei
+            if (results.phases.vuln && results.phases.vuln.nuclei) {
+                const nucDiv = document.querySelector("#nuclei-results");
+                if (nucDiv) {
+                    const findings = results.phases.vuln.nuclei.findings || [];
+                    let nucHtml = '<div class="result-list">';
+                    findings.forEach(f => {
+                        nucHtml += `
+                        <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between animate__animated animate__fadeIn">
+                            <span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span>
+                            <span class="result-text flex-grow-1 small">${f.title}</span>
+                        </div>`;
+                    });
+                    nucHtml += '</div>';
+                    nucDiv.innerHTML = findings.length ? nucHtml : '<div class="text-muted small fst-italic">No vulnerabilities reported.</div>';
+                }
+            }
+
+            // 8. ffuf
+            if (results.phases.dirbusting && results.phases.dirbusting.ffuf) {
+                const ffufDiv = document.querySelector("#ffuf-results");
+                if (ffufDiv) {
+                    const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
+                    let ffufHtml = '<div class="result-list">';
+                    endpoints.forEach(ep => {
+                        ffufHtml += `
+                            <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between animate__animated animate__fadeIn">
+                                <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">/${ep.path}</span>
+                                <span class="result-text small text-muted">Status ${ep.status} · Size ${ep.size}</span>
+                            </div>`;
+                    });
+                    ffufHtml += '</div>';
+                    ffufDiv.innerHTML = endpoints.length ? ffufHtml : '<div class="text-muted small fst-italic">No endpoints discovered.</div>';
                 }
             }
         };
@@ -973,13 +1109,13 @@
         setTimeout(() => { window.updateUI({{ results| tojson | safe }}); }, 500);
     {% endif %}
 
-    // Markdown Notes
+    // Markdown Notes Preview
     const notesArea = document.querySelector('textarea[name="notes"]');
     if (notesArea) {
         const preview = document.createElement('div');
         preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
         notesArea.parentNode.insertBefore(preview, notesArea.nextSibling);
-        const updatePreview = () => { preview.innerHTML = DOMPurify.sanitize(marked.parse(notesArea.value || "*No notes*")); };
+        const updatePreview = () => { preview.innerHTML = DOMPurify.sanitize(marked.parse(notesArea.value || "*No notes recorded.*")); };
         notesArea.addEventListener('input', updatePreview);
         updatePreview();
     }

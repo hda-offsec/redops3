@@ -174,7 +174,8 @@ class ScanOrchestrator:
                             discovered_ports.append({
                                 "port": p_num,
                                 "service_name": "probing...",
-                                "version": "detecting..."
+                                "version": "detecting...",
+                                "priority_score": 0
                             })
                             # Send intermediate update to UI
                             self.save_results(self.scan_id, {

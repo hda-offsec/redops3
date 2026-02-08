@@ -173,7 +173,16 @@ def _log_and_emit(scan_id, msg, level="INFO"):
                     "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
                     "scan_id": scan_id,
                 },
+                room=f"scan_{scan_id}" if scan_id else None
             )
+            # Also broadcast globally for dashboard
+            if not scan_id:
+                socketio.emit("new_log", {
+                    "message": msg,
+                    "level": level,
+                    "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
+                    "scan_id": scan_id,
+                })
     except Exception as e:
         print(f"[ERROR] Socket Emit Failed: {e}")
 
@@ -200,7 +209,7 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
             "title": title,
             "severity": severity,
             "tool": tool
-        })
+        }, room=f"scan_{scan_id}")
 
         # Global Alert for Critical Issues
         if severity.lower() == 'critical':
@@ -279,8 +288,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
             if socketio:
                 socketio.emit("results_update", {
                     "scan_id": scan_id,
-                    "data": data
-                })
+                    "results": data
+                }, room=f"scan_{scan_id}")
 
         orchestrator = ScanOrchestrator(
             scan_id=scan.id,
