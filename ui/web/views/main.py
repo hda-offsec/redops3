@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
+from sqlalchemy.orm import joinedload
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
 from core.results_store import load_results, save_results
 from core.reporting import generate_scan_report
@@ -39,10 +40,10 @@ def check_dependencies():
 
 @main_bp.route("/")
 def index():
-    recent_scans = Scan.query.order_by(Scan.start_time.desc()).limit(10).all()
-    targets = Target.query.all()
-    missions = Mission.query.all()
-    loots = Loot.query.all()
+    recent_scans = Scan.query.options(joinedload(Scan.target)).order_by(Scan.start_time.desc()).limit(10).all()
+    target_count = Target.query.count()
+    mission_count = Mission.query.count()
+    loot_count = Loot.query.count()
     
     # --- CISO ANALYTICS ---
     all_findings = Finding.query.all()
@@ -70,9 +71,9 @@ def index():
     return render_template(
         "index.html",
         recent_scans=recent_scans,
-        targets=targets,
-        missions=missions,
-        loots=loots,
+        target_count=target_count,
+        mission_count=mission_count,
+        loot_count=loot_count,
         severity_stats=severity_stats,
         total_findings=len(all_findings),
         logs=recent_logs,
