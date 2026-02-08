@@ -75,4 +75,17 @@ if __name__ == "__main__":
             db.session.commit()
             print("Default admin user created (admin/redops3)")
 
-    socketio.run(app, debug=True, host="0.0.0.0", port=5001, allow_unsafe_werkzeug=True)
+    # Use environment variable for debug mode (defaulting to False for security)
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+    allow_unsafe = os.getenv("ALLOW_UNSAFE_WERKZEUG", "False").lower() in ("true", "1", "t")
+
+    run_args = {
+        "host": "0.0.0.0",
+        "port": 5001,
+        "debug": debug_mode
+    }
+
+    if debug_mode or allow_unsafe:
+        run_args["allow_unsafe_werkzeug"] = True
+
+    socketio.run(app, **run_args)
