@@ -62,24 +62,40 @@ class AttackVectorMapper:
         return vectors
 
     @staticmethod
-    def get_ip_geolocation(target):
+    def get_ip_geolocation(target, callback=None):
         """
         Retrieves real-time geographical data for an IP/Domain.
         Uses ip-api.com (free for non-commercial use).
+        If callback is provided, runs in a separate thread and calls callback(result).
+        Otherwise, runs synchronously.
         """
-        try:
-            # We don't need an API key for the basic JSON endpoint up to 45 requests/min
-            res = requests.get(f"http://ip-api.com/json/{target}?fields=status,message,country,city,isp,lat,lon", timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("status") == "success":
-                    return {
-                        "country": data.get("country"),
-                        "city": data.get("city"),
-                        "isp": data.get("isp"),
-                        "lat": data.get("lat"),
-                        "lon": data.get("lon")
-                    }
-        except:
-            pass
-        return None
+        def _fetch():
+            import requests
+            try:
+                # We don't need an API key for the basic JSON endpoint up to 45 requests/min
+                res = requests.get(f"http://ip-api.com/json/{target}?fields=status,message,country,city,isp,lat,lon", timeout=5)
+                if res.status_code == 200:
+                    data = res.json()
+                    if data.get("status") == "success":
+                        return {
+                            "country": data.get("country"),
+                            "city": data.get("city"),
+                            "isp": data.get("isp"),
+                            "lat": data.get("lat"),
+                            "lon": data.get("lon")
+                        }
+            except:
+                pass
+            return None
+
+        if callback:
+            import threading
+            def _runner():
+                result = _fetch()
+                callback(result)
+            t = threading.Thread(target=_runner)
+            t.daemon = True
+            t.start()
+            return t
+        else:
+            return _fetch()
