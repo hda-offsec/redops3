@@ -10,6 +10,9 @@ from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
 from scan_engine.step03_vuln.wpscan_scanner import WPScanScanner
 from scan_engine.step03_vuln.dalfox_scanner import DalfoxScanner
 from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
+from scan_engine.step02_enum.waf_scanner import WafScanner
+from scan_engine.step02_enum.arjun_scanner import ArjunScanner
+from scan_engine.step02_enum.js_scanner import JSSecretScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from core.analysis import AnalysisEngine
 from core.intelligence import AttackVectorMapper
@@ -85,7 +88,10 @@ class ScanOrchestrator:
                     "intel": {},
                     "enum": {
                         "whatweb": {"summary": {}},
-                        "katana": {}
+                        "katana": {},
+                        "waf": {},
+                        "arjun": {},
+                        "js_secrets": {}
                     },
                     "vuln": {
                         "nuclei": {"findings": []}
@@ -475,6 +481,86 @@ class ScanOrchestrator:
                                     self.log(f"Katana error on port {port}: {str(e)}", "ERROR")
                         except Exception as e:
                              self.log(f"Katana setup failed: {e}", "ERROR")
+
+                        # --- WAF DETECTION ---
+                        try:
+                            waf_scanner = WafScanner(self.target)
+                            if waf_scanner.check_tools():
+                                self.log(f"Phase 4b: Detecting WAF on {proto}://{self.target}:{port}...", "INFO")
+                                waf_stream = waf_scanner.stream_wafw00f(port, proto)
+                                waf_result = "None"
+                                for event in waf_stream:
+                                    if event["type"] == "stdout":
+                                        line = event["line"].strip()
+                                        if "is behind" in line:
+                                            waf_result = line.split("is behind")[-1].strip()
+                                            self.log(f"🛡️ WAF Detected: {waf_result}", "SUCCESS")
+                                            self.add_finding(
+                                                title=f"WAF Detected ({port})",
+                                                description=line,
+                                                severity="info",
+                                                tool_source="wafw00f"
+                                            )
+                                
+                                if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                                results['phases']['enum']['waf'] = results['phases']['enum'].get('waf', {})
+                                results['phases']['enum']['waf'][str(port)] = waf_result
+                                self.save_results(self.scan_id, results)
+                        except Exception as e:
+                            self.log(f"WAF Detection failed: {e}", "ERROR")
+
+                        # --- PARAMETER DISCOVERY (ARJUN) ---
+                        try:
+                            arjun = ArjunScanner(self.target)
+                            if arjun.check_tools():
+                                self.log(f"Phase 4c: Discovering hidden parameters on {proto}://{self.target}:{port}...", "INFO")
+                                ar_stream = arjun.stream_arjun(port, proto)
+                                params_found = []
+                                for event in ar_stream:
+                                    if event["type"] == "stdout":
+                                        line = event["line"].strip()
+                                        if "parameters found:" in line.lower() or "heuristic" in line.lower():
+                                            self.log(f"Arjun: {line}", "SUCCESS")
+                                            params_found.append(line)
+                                
+                                if params_found:
+                                    self.add_finding(
+                                        title=f"Hidden Parameters Discovered ({port})",
+                                        description="\n".join(params_found),
+                                        severity="medium",
+                                        tool_source="arjun"
+                                    )
+                                    if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                                    results['phases']['enum']['arjun'] = results['phases']['enum'].get('arjun', {})
+                                    results['phases']['enum']['arjun'][str(port)] = params_found
+                                    self.save_results(self.scan_id, results)
+                        except Exception as e:
+                            self.log(f"Arjun failed: {e}", "ERROR")
+
+                        # --- JS SECRET ANALYSIS ---
+                        try:
+                            if endpoints:
+                                js_scanner = JSSecretScanner(self.target)
+                                secret_findings = js_scanner.scan_list(endpoints, logger=self.log)
+                                if secret_findings:
+                                    for url, items in secret_findings.items():
+                                        desc = f"File: {url}\n\n"
+                                        for item in items:
+                                            desc += f"- [{item['type']}] {item['match']}\n  Context: ...{item['line_context']}...\n\n"
+                                        
+                                        self.add_finding(
+                                            title=f"Secrets Discovered in JS ({port})",
+                                            description=desc,
+                                            severity="critical",
+                                            tool_source="js_scanner"
+                                        )
+                                    
+                                    if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                                    results['phases']['enum']['js_secrets'] = results['phases']['enum'].get('js_secrets', {})
+                                    results['phases']['enum']['js_secrets'][str(port)] = secret_findings
+                                    self.save_results(self.scan_id, results)
+                        except Exception as e:
+                            self.log(f"JS Secret Analysis failed: {e}", "ERROR")
 
             except Exception as e:
                 self.log(f"Phase 4 (Web Enum) failed: {e}", "ERROR")

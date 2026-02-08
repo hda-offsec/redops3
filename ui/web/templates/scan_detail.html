@@ -123,6 +123,43 @@
                 </div>
             </div>
 
+            <!-- VISUAL RECONNAISSANCE -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-camera me-2"></i>Visual Reconnaissance</div>
+                    <div class="card-body">
+                        <div class="row g-2" id="visual-recon-gallery">
+                            {% set has_shots = false %}
+                            {% if results and results.phases and results.phases.recon and
+                            results.phases.recon.open_ports %}
+                            {% for port in results.phases.recon.open_ports %}
+                            {% if port.screenshot_path %}
+                            {% set has_shots = true %}
+                            <div class="col-md-4 col-lg-3">
+                                <div class="screenshot-card bg-black border border-secondary rounded overflow-hidden">
+                                    <img src="{{ url_for('static', filename=port.screenshot_path) }}"
+                                        class="img-fluid w-100"
+                                        style="height: 120px; object-fit: cover; cursor: pointer;"
+                                        onclick="window.open(this.src)" title="Port {{ port.port }}">
+                                    <div class="p-1 text-center bg-dark small font-monospace">
+                                        <span class="text-info">PORT {{ port.port }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                            {% endif %}
+                            {% if not has_shots %}
+                            <div class="col-12 text-center py-4 text-muted">
+                                <i class="fas fa-image-slash fa-2x mb-2 opacity-25"></i>
+                                <p class="small mb-0">No visual assets captured yet.</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- DNS INTELLIGENCE -->
             <div class="col-12">
                 <div class="card glass-panel">
@@ -279,7 +316,8 @@
 
                                         {% if sensitive %}
                                         <span class="text-danger fw-bold"><i
-                                                class="fas fa-exclamation-triangle me-1"></i>Exposed Secrets</span>
+                                                class="fas fa-exclamation-triangle me-1"></i>Exposed
+                                            Secrets</span>
                                         {% else %}
                                         <span class="text-muted text-opacity-50"><i class="fas fa-check me-1"></i>No
                                             leaks detected</span>
@@ -618,6 +656,81 @@
                         </div>
                         {% else %}
                         <div class="text-muted small fst-italic">No crawling results yet.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <!-- WAF INTELLIGENCE -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-user-shield me-2"></i>WAF Intelligence
+                        (wafw00f)</div>
+                    <div class="card-body" id="waf-results">
+                        {% if results and results.phases and results.phases.enum and results.phases.enum.waf %}
+                        <div class="row g-3">
+                            {% for port, waf in results.phases.enum.waf.items() %}
+                            <div class="col-md-6">
+                                <div
+                                    class="p-3 bg-black border {{ 'border-success' if waf == 'None' else 'border-warning' }} rounded d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <div class="text-muted small text-uppercase">Port {{ port }}</div>
+                                        <div class="fw-bold {{ 'text-success' if waf == 'None' else 'text-warning' }}">
+                                            {{ waf if waf != 'None' else 'No WAF Detected' }}
+                                        </div>
+                                    </div>
+                                    <div class="fs-4">
+                                        {% if waf == 'None' %}
+                                        <i class="fas fa-unlock text-success opacity-50"></i>
+                                        {% else %}
+                                        <i class="fas fa-shield-alt text-warning"></i>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-muted small fst-italic">No WAF analysis results available.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- PARAMETER DISCOVERY -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-vial me-2"></i>Parameter Discovery (Arjun)
+                    </div>
+                    <div class="card-body" id="arjun-results">
+                        {% if results and results.phases and results.phases.enum and results.phases.enum.arjun %}
+                        <div class="accordion" id="accordionArjun">
+                            {% for port, findings in results.phases.enum.arjun.items() %}
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header" id="heading-arjun-{{ port }}">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-arjun-{{ port }}">
+                                        <span class="badge bg-cyber me-2">Port {{ port }}</span>
+                                        <span class="font-monospace small text-muted">{{ findings|length }}
+                                            Entrypoints/Params Discovered</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-arjun-{{ port }}" class="accordion-collapse collapse"
+                                    data-bs-parent="#accordionArjun">
+                                    <div class="accordion-body p-2">
+                                        {% for find in findings %}
+                                        <div
+                                            class="font-monospace small text-cyber mb-1 border-bottom border-dark pb-1">
+                                            {{ find }}</div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-muted small fst-italic">No hidden parameters discovered.</div>
                         {% endif %}
                     </div>
                 </div>
