@@ -400,9 +400,8 @@ def mission_map(mission_id):
         graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
         
         # Add icons for critical findings on this target
-        latest_scan = Scan.query.filter_by(target_id=t.id).order_by(Scan.id.desc()).first()
-        if latest_scan:
-            findings = Finding.query.filter_by(scan_id=latest_scan.id).all()
+        if scan:
+            findings = Finding.query.filter_by(scan_id=scan.id).all()
             for f in findings:
                 f_id = f"f{f.id}"
                 graph_data["nodes"].append({
