@@ -1,11 +1,12 @@
 import os
 from flask import Flask
 from dotenv import load_dotenv
-from core.extensions import db, socketio
+from core.extensions import db, socketio, login_manager
 from core.celery_app import celery
 
 # Import models so they are registered with SQLAlchemy
 from core import models
+from core.models import User
 
 load_dotenv()
 
@@ -22,9 +23,18 @@ def create_app():
     db.init_app(app)
     socketio.init_app(app)
 
+    login_manager.init_app(app)
+    login_manager.login_view = "auth.login"
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+
     with app.app_context():
         from ui.web.views.main import main_bp
+        from ui.web.views.auth import auth_bp
         app.register_blueprint(main_bp)
+        app.register_blueprint(auth_bp)
 
     return app
 
@@ -56,5 +66,13 @@ if __name__ == "__main__":
                 conn.execute(db.text("PRAGMA journal_mode=WAL;"))
                 
         print("Database initialized (WAL mode enabled).")
+
+        # Create default admin user if not exists
+        if not User.query.filter_by(username="admin").first():
+            user = User(username="admin")
+            user.set_password("redops3")
+            db.session.add(user)
+            db.session.commit()
+            print("Default admin user created (admin/redops3)")
 
     socketio.run(app, debug=True, host="0.0.0.0", port=5001, allow_unsafe_werkzeug=True)
