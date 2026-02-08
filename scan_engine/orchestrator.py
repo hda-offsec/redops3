@@ -445,7 +445,7 @@ class ScanOrchestrator:
                     target_url = f"{proto}://{self.target}:{port}"
                     self.log(f"Fuzzing {target_url}...", "INFO")
                     
-                    scanner6 = FfufScanner(target_url, wordlist)
+                    scanner6 = FfufScanner(target_url, wordlist=wordlist)
                     if not scanner6.check_tools():
                         self.log("Skipping ffuf: tool not installed.", "WARN")
                         break # Usually either it's installed or not for all ports
