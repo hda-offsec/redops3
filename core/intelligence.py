@@ -8,6 +8,28 @@ class AttackVectorMapper:
     """
 
     @staticmethod
+    def _check_kb_rules(service_name, version):
+        """
+        Yields vectors from the RED_TEAM_KB that match the service and version.
+        """
+        for category, subcats in RED_TEAM_KB.items():
+            for subcat, rules in subcats.items():
+                if subcat not in service_name and subcat not in version:
+                    continue
+
+                for rule in rules:
+                    # Match version or "all"
+                    if rule["match"] == "all" or rule["match"] in version:
+                        yield {
+                            "category": category.upper(),
+                            "risk": rule["risk"],
+                            "score": rule.get("score", 50),
+                            "name": rule["name"],
+                            "description": rule["desc"],
+                            "action": rule["action"]
+                        }
+
+    @staticmethod
     def analyze_service(service_name, version, port):
         vectors = []
         
@@ -16,20 +38,7 @@ class AttackVectorMapper:
         version = (version or "").lower()
 
         # 1. Rule-based KB Lookup
-        for category, subcats in RED_TEAM_KB.items():
-            for subcat, rules in subcats.items():
-                if subcat in service_name or subcat in version:
-                    for rule in rules:
-                        # Match version or "all"
-                        if rule["match"] == "all" or rule["match"] in version:
-                            vectors.append({
-                                "category": category.upper(),
-                                "risk": rule["risk"],
-                                "score": rule.get("score", 50),
-                                "name": rule["name"],
-                                "description": rule["desc"],
-                                "action": rule["action"]
-                            })
+        vectors.extend(AttackVectorMapper._check_kb_rules(service_name, version))
 
         # 2. General TTP Tips based on Port
         for tip in GENERAL_TIPS:
