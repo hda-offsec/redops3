@@ -1,6 +1,4 @@
-import subprocess
 import json
-import os
 from scan_engine.helpers.process_manager import ProcessManager
 
 class DNSScanner:
@@ -8,8 +6,7 @@ class DNSScanner:
         self.target = target
 
     def check_tools(self):
-        import shutil
-        return shutil.which("dnsrecon") is not None
+        return ProcessManager.find_binary_path("dnsrecon") is not None
 
     def run_dnsrecon(self):
         """Run dnsrecon for standard enumeration"""
@@ -19,15 +16,7 @@ class DNSScanner:
 
     def run_subfinder(self):
         """Run subfinder for subdomain discovery"""
-        # We check if subfinder is in path or in $HOME/go/bin
-        subfinder_path = "subfinder"
-        
-        # Try finding in system path first
-        import shutil
-        if not shutil.which(subfinder_path):
-            home_go = os.path.expanduser("~/go/bin/subfinder")
-            if os.path.exists(home_go):
-                subfinder_path = home_go
+        subfinder_path = ProcessManager.find_binary_path("subfinder") or "subfinder"
         
         command = [subfinder_path, "-d", self.target, "-silent"]
         return ProcessManager.run_command(command)
