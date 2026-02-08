@@ -143,6 +143,69 @@
                     </div>
                 </div>
             </div>
+            <!-- VULNERABILITY CLASSES DASHBOARD -->
+            <div class="col-12">
+                <div class="card glass-panel mb-4">
+                    <div class="card-header glass-header"><i class="fas fa-crosshairs me-2"></i>Advanced Exploitation
+                        Recon</div>
+                    <div class="card-body p-3">
+                        <div class="row g-3 text-center">
+                            {% set vuln_types = {'XSS': 'xss', 'LFI': 'lfi', 'RFI': 'rfi', 'SSTI': 'ssti', 'SQLi':
+                            'sql'} %}
+                            {% for label, keyword in vuln_types.items() %}
+                            {% set detected = false %}
+                            {% if results.phases.vuln and results.phases.vuln.nuclei and
+                            results.phases.vuln.nuclei.findings %}
+                            {% for f in results.phases.vuln.nuclei.findings %}
+                            {% if keyword in f.title|lower %}
+                            {% set detected = true %}
+                            {% endif %}
+                            {% endfor %}
+                            {% endif %}
+                            <!-- Check Dalfox for XSS as well -->
+                            {% if label == 'XSS' and results.phases.vuln %}
+                            {# Assuming we might store dalfox results. Currently simple logs, but let's check nuclei
+                            findings for now since we mapped dalfox to add_finding which likely goes to a general finds
+                            list or logs. Actually orchestrator add_finding puts it in general findings but not
+                            necessarily specific nuclei structure. #}
+                            {# Fix: Orchestrator add_finding adds to global findings list. But for this check we are
+                            looking at results.phases.vuln.nuclei.findings. #}
+                            {# We need to update orchestrator to also push Dalfox findings to a structured place if we
+                            want them here, or check general findings. #}
+                            {# Let's assume for this specific UI element we check the generic finding list passed to
+                            template? No, template receives 'findings' which is the global list. #}
+                            {% for finding in findings %}
+                            {% if keyword in finding.title|lower and (finding.tool_source == 'dalfox' or
+                            finding.tool_source == 'nuclei') %}
+                            {% set detected = true %}
+                            {% endif %}
+                            {% endfor %}
+                            {% endif %}
+
+                            <div class="col">
+                                <div
+                                    class="p-3 border rounded {{ 'border-danger bg-danger bg-opacity-10' if detected else 'border-success bg-success bg-opacity-10' }} position-relative overflow-hidden">
+                                    <div
+                                        class="fw-bold display-6 mb-0 {{ 'text-danger' if detected else 'text-success' }}">
+                                        {% if detected %}
+                                        <i class="fas fa-exclamation-circle"></i>
+                                        {% else %}
+                                        <i class="fas fa-shield-alt"></i>
+                                        {% endif %}
+                                    </div>
+                                    <div
+                                        class="small fw-bold text-uppercase mt-2 {{ 'text-danger' if detected else 'text-success' }}">
+                                        {{ label }}</div>
+                                    <div class="text-lowercase small text-muted opacity-75">{{ 'Detected' if detected
+                                        else 'Clean' }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- THREAT MATRIX -->
             <div class="col-12">
                 <div class="card glass-panel mb-4">

@@ -494,11 +494,12 @@ class ScanOrchestrator:
                         self.log(f"Nuclei Scanning {proto}://{self.target}:{port}...", "INFO")
                         
                         try:
-                            # Nuclei: Standard + LFI/RFI/SSTI specifically
-                            # We can pass specific tags to nuclei to hone in on these
-                            # tags: lfi,rfi,ssti,cve
+                            # Nuclei: Standard + specific vulnerability classes
+                            # We use tags to ensure we cover the requested categories (XSS handled by Dalfox, but Nuclei can backup)
+                            # including 'sqli', 'injection' as requested.
+                            # We strictly exclude 'dos' or 'fuzz' to ensure non-destructive behavior.
                             
-                            nuc_stream = vuln_scanner.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,misconfig")
+                            nuc_stream = vuln_scanner.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
                             
                             if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
                             if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
