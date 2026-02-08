@@ -673,9 +673,47 @@
             });
         }
 
-        // Ensure graph loads on start
+        // Progress Update Listener
+        socket.on("progress_update", function (data) {
+            if (data.scan_id == scanId) {
+                // Update Progress Bar
+                const bar = document.getElementById('scan-progress-bar');
+                const phaseText = document.getElementById('scan-phase-text');
+                const statusText = document.getElementById('scan-status-text');
+                const spinner = document.getElementById('scan-spinner');
+
+                if (bar) {
+                    bar.style.width = data.percent + '%';
+                    bar.setAttribute('aria-valuenow', data.percent);
+                }
+                if (phaseText) phaseText.innerText = data.current_phase;
+
+                if (data.percent >= 100) {
+                    if (statusText) statusText.innerText = 'completed';
+                    if (spinner) spinner.classList.add('d-none');
+                    if (bar) {
+                        bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                        bar.classList.add('bg-success');
+                    }
+                } else {
+                    if (statusText) statusText.innerText = 'running';
+                    if (spinner) spinner.classList.remove('d-none');
+                }
+            }
+        });
+
         window.updateUI = function (results) {
-            if (!results || !results.phases) return;
+            if (!results) return;
+
+            // 0. Update Progress if present in full snapshot
+            if (results.progress) {
+                const bar = document.getElementById('scan-progress-bar');
+                const phaseText = document.getElementById('scan-phase-text');
+                if (bar) bar.style.width = results.progress.percent + '%';
+                if (phaseText) phaseText.innerText = results.progress.current_phase;
+            }
+
+            if (!results.phases) return;
 
             // 1. Update Recon Matrix (Table)
             const matrixBody = document.querySelector("#recon-matrix-body");
@@ -688,7 +726,6 @@
                     const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
                     const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
                     const bgStyle = score >= 85 ? 'background: rgba(255, 42, 42, 0.05);' : '';
-                    // Check if http/https logic is consistent with Jinja template
                     const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
                     const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
 
@@ -730,218 +767,101 @@
             if (results.phases.enum && results.phases.enum.whatweb) {
                 const wwDiv = document.querySelector("#whatweb-results");
                 const summary = results.phases.enum.whatweb.summary || {};
+
                 if (wwDiv && Object.keys(summary).length > 0) {
-                    // Progress Update Listener
-                    socket.on("progress_update", function (data) {
-                        if (data.scan_id == scanId) {
-                            // Update Progress Bar
-                            const bar = document.getElementById('scan-progress-bar');
-                            const phaseText = document.getElementById('scan-phase-text');
-                            const statusText = document.getElementById('scan-status-text');
-                            const spinner = document.getElementById('scan-spinner');
+                    let html = '<div class="tag-grid d-flex flex-wrap gap-2">';
+                    for (const [key, value] of Object.entries(summary)) {
+                        html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${key}:</span><span class="tag-value text-cyber">${value}</span></div>`;
+                    }
+                    html += '</div>';
+                    wwDiv.innerHTML = html;
+                }
+            }
 
-                            if (bar) {
-                                bar.style.width = data.percent + '%';
-                                bar.setAttribute('aria-valuenow', data.percent);
-                            }
-                            if (phaseText) phaseText.innerText = data.current_phase;
+            // 4. Update Katana
+            if (results.phases.enum && results.phases.enum.katana) {
+                const katDiv = document.querySelector("#katana-results");
+                const kResults = results.phases.enum.katana;
+                if (katDiv && Object.keys(kResults).length > 0) {
+                    let html = '<div class="accordion" id="accordionKatana">';
+                    for (const [port, endpoints] of Object.entries(kResults)) {
+                        html += `<div class="accordion-item bg-black border-secondary">
+                               <h2 class="accordion-header" id="heading-katana-${port}">
+                                   <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-${port}">
+                                       <span class="badge bg-info me-2">Port ${port}</span>
+                                       <span class="font-monospace small text-muted">${endpoints.length} Endpoints Discovered</span>
+                                   </button>
+                               </h2>
+                               <div id="collapse-katana-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionKatana">
+                                   <div class="accordion-body p-0"><div class="p-2" style="max-height: 200px; overflow-y: auto;">`;
+                        endpoints.forEach(ep => {
+                            html += `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break"><a href="${ep}" target="_blank" class="text-decoration-none text-cyber hover-action">${ep}</a></div>`;
+                        });
+                        html += '</div></div></div></div>';
+                    }
+                    html += '</div>';
+                    katDiv.innerHTML = html;
+                }
+            }
 
-                            if (data.percent >= 100) {
-                                if (statusText) statusText.innerText = 'completed';
-                                if (spinner) spinner.classList.add('d-none');
-                                if (bar) {
-                                    bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-                                    bar.classList.add('bg-success');
-                                }
-                            } else {
-                                if (statusText) statusText.innerText = 'running';
-                                if (spinner) spinner.classList.remove('d-none');
-                            }
-                        }
+            // 5. Update Ffuf
+            if (results.phases.dirbusting && results.phases.dirbusting.ffuf && results.phases.dirbusting.ffuf.endpoints) {
+                const ffufDiv = document.querySelector("#ffuf-results");
+                const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
+                if (ffufDiv && endpoints.length > 0) {
+                    let html = '<div class="table-responsive"><table class="table table-dark table-hover table-sm small mb-0"><thead><tr><th>Code</th><th>Path</th><th>Size</th></tr></thead><tbody>';
+                    endpoints.forEach(ep => {
+                        let statusClass = "text-secondary";
+                        // Safe string conv
+                        const statusStr = String(ep.status);
+                        if (statusStr.startsWith("2")) statusClass = "text-success";
+                        if (statusStr.startsWith("3")) statusClass = "text-info";
+                        if (statusStr.startsWith("4")) statusClass = "text-warning";
+                        html += `<tr><td><span class="badge bg-black border border-secondary ${statusClass}">${ep.status}</span></td><td class="font-monospace text-break">/${ep.path}</td><td class="text-muted">${ep.size || '-'}</td></tr>`;
                     });
+                    html += '</tbody></table></div>';
+                    ffufDiv.innerHTML = html;
+                }
+            }
 
-                    window.updateUI = function (results) {
-                        if (!results) return;
+            // 6. Update Nuclei
+            if (results.phases.vuln && results.phases.vuln.nuclei && results.phases.vuln.nuclei.findings) {
+                const nucDiv = document.querySelector("#nuclei-results");
+                const findings = results.phases.vuln.nuclei.findings || [];
+                if (nucDiv && findings.length > 0) {
+                    let html = '<div class="result-list">';
+                    findings.forEach(f => {
+                        html += `<div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between"><span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span><span class="result-text flex-grow-1">${f.title}</span></div>`;
+                    });
+                    html += '</div>';
+                    nucDiv.innerHTML = html;
+                }
+            }
+        };
 
-                        // 0. Update Progress if present in full snapshot
-                        if (results.progress) {
-                            const bar = document.getElementById('scan-progress-bar');
-                            const phaseText = document.getElementById('scan-phase-text');
-                            if (bar) bar.style.width = results.progress.percent + '%';
-                            if (phaseText) phaseText.innerText = results.progress.current_phase;
-                        }
+        // Initial Data Load
+        {% if results %}
+        const initialResults = {{ results| tojson | safe
+    }};
+    // Delay slightly to ensure DOM ready
+    setTimeout(() => {
+        updateUI(initialResults);
+    }, 500);
+    {% endif %}
 
-                        if (!results.phases) return;
+    function showNodeDetails(nodeId) {
+        const node = nodes.get(nodeId);
+        const title = document.getElementById("nodeDetailTitle");
+        const body = document.getElementById("nodeDetailBody");
 
-                        // 1. Update Recon Matrix (Table)
-                        const matrixBody = document.querySelector("#recon-matrix-body");
-                        if (matrixBody && results.phases.recon && results.phases.recon.open_ports) {
-                            let html = "";
-                            const ports = results.phases.recon.open_ports.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+        if (!node) return;
 
-                            ports.forEach(port => {
-                                const score = port.priority_score || 0;
-                                const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
-                                const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
-                                const bgStyle = score >= 85 ? 'background: rgba(255, 42, 42, 0.05);' : '';
-                                // Check if http/https logic is consistent with Jinja template
-                                const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
-                                const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
+        title.innerText = node.label.replace("\n", " ");
 
-                                html += `<tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
-                        <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase"><i class="fas fa-server me-1 opacity-50"></i>${port.service_name}</span></td>
-                        <td class="p-3">
-                            <div class="d-flex align-items-center">
-                                <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
-                                    <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
-                                </div>
-                                <span class="badge ${scoreClass} font-monospace">${score}<small class="opacity-50">/100</small></span>
-                            </div>
-                        </td>
-                        <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
-                        <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
-                        <td class="p-3"><span class="text-muted small">Updated via live sync</span></td>
-                        <td class="p-3 text-end">
-                            ${isWeb ? `<a href="${proto}://${targetLabel}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
-                        </td>
-                    </tr>`;
-                            });
-                            matrixBody.innerHTML = html;
-                        }
-
-                        // 2. Update Graph Nodes
-                        if (results.phases.recon && results.phases.recon.open_ports) {
-                            if (!network) initGraph();
-                            if (!nodes.get(0)) nodes.add({ id: 0, label: targetLabel, color: "#ff2a2a", shape: "hexagon", size: 40 });
-                            results.phases.recon.open_ports.forEach(port => {
-                                const pId = "p" + port.port;
-                                if (!nodes.get(pId)) {
-                                    nodes.add({ id: pId, label: port.port + "\n" + port.service_name, color: "#00f0ff", shape: "dot", size: 15 });
-                                    edges.add({ from: 0, to: pId, color: { color: "#333" } });
-                                }
-                            });
-                        }
-
-                        // 3. Update ENUM (WhatWeb)
-                        if (results.phases.enum && results.phases.enum.whatweb) {
-                            const wwDiv = document.querySelector("#whatweb-results");
-                            const summary = results.phases.enum.whatweb.summary || {};
-
-                            // If summary might be nested per port like { 'Title (80)': 'Foo', ... } or flat
-                            // The backend now produces a 'summary' dict.
-
-                            if (wwDiv && Object.keys(summary).length > 0) {
-                                let html = '<div class="tag-grid d-flex flex-wrap gap-2">';
-                                for (const [key, value] of Object.entries(summary)) {
-                                    // Clean up any extra brackets/formatting if raw
-                                    html += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${key}:</span><span class="tag-value text-cyber">${value}</span></div>`;
-                                }
-                                html += '</div>';
-                                wwDiv.innerHTML = html;
-                            }
-                        }
-
-                        // 4. Update Katana (Deep Crawl)
-                        if (results.phases.enum && results.phases.enum.katana) {
-                            const katDiv = document.querySelector("#katana-results");
-                            const kResults = results.phases.enum.katana;
-                            if (katDiv && Object.keys(kResults).length > 0) {
-                                let html = '<div class="accordion" id="accordionKatana">';
-                                for (const [port, endpoints] of Object.entries(kResults)) {
-                                    html += `
-                            <div class="accordion-item bg-black border-secondary">
-                                <h2 class="accordion-header" id="heading-katana-${port}">
-                                    <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse"
-                                        data-bs-target="#collapse-katana-${port}" aria-expanded="false" aria-controls="collapse-katana-${port}">
-                                        <span class="badge bg-info me-2">Port ${port}</span>
-                                        <span class="font-monospace small text-muted">${endpoints.length} Endpoints Discovered</span>
-                                    </button>
-                                </h2>
-                                <div id="collapse-katana-${port}" class="accordion-collapse collapse" aria-labelledby="heading-katana-${port}"
-                                    data-bs-parent="#accordionKatana">
-                                    <div class="accordion-body p-0">
-                                        <div class="p-2" style="max-height: 200px; overflow-y: auto;">`;
-                                    endpoints.forEach(ep => {
-                                        html += `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break">
-                                        <a href="${ep}" target="_blank" class="text-decoration-none text-cyber hover-action">${ep}</a>
-                                      </div>`;
-                                    });
-                                    html += `     </div>
-                                    </div>
-                                </div>
-                            </div>`;
-                                }
-                                html += '</div>';
-                                katDiv.innerHTML = html;
-                            }
-                        }
-
-                        // 5. Update Dirbusting (ffuf)
-                        if (results.phases.dirbusting && results.phases.dirbusting.ffuf && results.phases.dirbusting.ffuf.endpoints) {
-                            const ffufDiv = document.querySelector("#ffuf-results");
-                            const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
-                            if (ffufDiv && endpoints.length > 0) {
-                                let html = '<div class="table-responsive"><table class="table table-dark table-hover table-sm small mb-0"><thead><tr><th>Code</th><th>Path</th><th>Size</th></tr></thead><tbody>';
-                                endpoints.forEach(ep => {
-                                    // Try to color code HTTP status
-                                    let statusClass = "text-secondary";
-                                    if (ep.status.startsWith("2")) statusClass = "text-success";
-                                    if (ep.status.startsWith("3")) statusClass = "text-info";
-                                    if (ep.status.startsWith("4")) statusClass = "text-warning";
-
-                                    html += `<tr>
-                               <td><span class="badge bg-black border border-secondary ${statusClass}">${ep.status}</span></td>
-                               <td class="font-monospace text-break">/${ep.path}</td>
-                               <td class="text-muted">${ep.size || '-'}</td>
-                           </tr>`;
-                                });
-                                html += '</tbody></table></div>';
-                                ffufDiv.innerHTML = html;
-                            } else if (ffufDiv) {
-                                ffufDiv.innerHTML = '<span class="text-muted small fst-italic">No endpoints discovered.</span>';
-                            }
-                        }
-
-                        // 6. Update VULN (Nuclei)
-                        if (results.phases.vuln && results.phases.vuln.nuclei) {
-                            const nucDiv = document.querySelector("#nuclei-results");
-                            const findings = results.phases.vuln.nuclei.findings || [];
-                            if (nucDiv && findings.length > 0) {
-                                let html = '<div class="result-list">';
-                                findings.forEach(f => {
-                                    html += `<div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between">
-                                <span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span>
-                                <span class="result-text flex-grow-1">${f.title}</span>
-                            </div>`;
-                                });
-                                html += '</div>';
-                                nucDiv.innerHTML = html;
-                            }
-                        }
-                    };
-
-                    // Initial Data Load
-                    {% if results %}
-                    const initialResults = {{ results|tojson|safe }};
-            // Delay slightly to ensure DOM ready
-            setTimeout(() => {
-                updateUI(initialResults);
-            }, 500);
-            {% endif %}
-
-            function showNodeDetails(nodeId) {
-                const node = nodes.get(nodeId);
-                const title = document.getElementById("nodeDetailTitle");
-                const body = document.getElementById("nodeDetailBody");
-
-                if (!node) return;
-
-                title.innerText = node.label.replace("\n", " ");
-
-                let content = `<div class="p-4">`;
-                if (nodeId.toString().startsWith('p')) {
-                    const portNum = nodeId.replace('p', '');
-                    content += `
+        let content = `<div class="p-4">`;
+        if (nodeId.toString().startsWith('p')) {
+            const portNum = nodeId.replace('p', '');
+            content += `
                     <div class="d-flex align-items-center mb-4">
                         <div class="display-4 text-info fw-bold me-3">${portNum}</div>
                         <div>
@@ -972,8 +892,8 @@
                         </div>
                     </div>
                 `;
-                } else if (nodeId.toString().startsWith('v')) {
-                    content += `
+        } else if (nodeId.toString().startsWith('v')) {
+            content += `
                     <div class="text-center mb-4">
                         <i class="fas fa-microchip fa-3x text-success mb-3"></i>
                         <h5>Service Version Found</h5>
@@ -981,27 +901,27 @@
                     </div>
                     <p class="text-muted">Exact version match found via Nmap fingerprinting. Used by the Intelligence Engine to map potential CVEs.</p>
                  `;
-                } else {
-                    content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
-                }
-                content += `</div>`;
-                body.innerHTML = content;
-                const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
-                modal.show();
-            }
+        } else {
+            content += `<div class="text-center py-4"><i class="fas fa-bullseye fa-3x text-danger mb-3"></i><h4>Target Identification</h4><p class="text-muted">${node.label}</p></div>`;
+        }
+        content += `</div>`;
+        body.innerHTML = content;
+        const modal = new bootstrap.Modal(document.getElementById('nodeDetailModal'));
+        modal.show();
+    }
 
-            // Markdown Logic
-            const notesTextarea = document.querySelector('textarea[name="notes"]');
-            if (notesTextarea) {
-                // Simple preview
-                const preview = document.createElement('div');
-                preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
-                notesTextarea.parentNode.insertBefore(preview, notesTextarea.nextSibling);
-                notesTextarea.addEventListener('input', () => {
-                    preview.innerHTML = marked.parse(notesTextarea.value);
-                });
-                preview.innerHTML = marked.parse(notesTextarea.value || "*No notes*");
-            }
+    // Markdown Logic
+    const notesTextarea = document.querySelector('textarea[name="notes"]');
+    if (notesTextarea) {
+        // Simple preview
+        const preview = document.createElement('div');
+        preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
+        notesTextarea.parentNode.insertBefore(preview, notesTextarea.nextSibling);
+        notesTextarea.addEventListener('input', () => {
+            preview.innerHTML = marked.parse(notesTextarea.value);
+        });
+        preview.innerHTML = marked.parse(notesTextarea.value || "*No notes*");
+    }
 
         });
 </script>
