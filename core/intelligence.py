@@ -1,3 +1,4 @@
+import requests
 from core.kb import RED_TEAM_KB, GENERAL_TIPS
 
 class AttackVectorMapper:
@@ -66,7 +67,6 @@ class AttackVectorMapper:
         Retrieves real-time geographical data for an IP/Domain.
         Uses ip-api.com (free for non-commercial use).
         """
-        import requests
         try:
             # We don't need an API key for the basic JSON endpoint up to 45 requests/min
             res = requests.get(f"http://ip-api.com/json/{target}?fields=status,message,country,city,isp,lat,lon", timeout=5)
