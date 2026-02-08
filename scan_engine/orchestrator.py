@@ -39,17 +39,29 @@ class ScanOrchestrator:
             self._emit_progress(5, "Geolocation Init")
             self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
             from core.intelligence import AttackVectorMapper
-            geo = AttackVectorMapper.get_ip_geolocation(self.target)
-            if geo:
-                self.log(f"Target located: {geo.get('city')}, {geo.get('country')} ({geo.get('isp')})", "SUCCESS")
-                # Update Scan model directly
-                from core.models import Scan, db
-                scan_obj = Scan.query.get(self.scan_id)
-                if scan_obj:
-                    scan_obj.geolocation_data = geo
-                    db.session.commit()
-            else:
-                self.log("Geolocation lookup failed or target is local.", "WARN")
+            from flask import current_app
+
+            # Capture app context for the thread
+            app_ctx = current_app.app_context()
+
+            def on_geo_complete(geo):
+                with app_ctx:
+                    if geo:
+                        self.log(f"Target located: {geo.get('city')}, {geo.get('country')} ({geo.get('isp')})", "SUCCESS")
+                        # Update Scan model directly
+                        from core.models import Scan, db
+                        try:
+                            scan_obj = Scan.query.get(self.scan_id)
+                            if scan_obj:
+                                scan_obj.geolocation_data = geo
+                                db.session.commit()
+                        except Exception as e:
+                            self.log(f"Failed to save geolocation: {e}", "WARN")
+                    else:
+                        self.log("Geolocation lookup failed or target is local.", "WARN")
+
+            # Start async lookup
+            AttackVectorMapper.get_ip_geolocation(self.target, callback=on_geo_complete)
 
             # --- INITIALIZATION: Clear old ghost results ---
             self.log("Initializing local results structure...", "INFO")
