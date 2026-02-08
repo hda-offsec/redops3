@@ -160,6 +160,41 @@
                 </div>
             </div>
 
+            <!-- CLOUD ASSETS AUDIT -->
+            {% if results and results.phases and results.phases.osint and results.phases.osint.cloud %}
+            <div class="col-12">
+                <div class="card glass-panel border-warning">
+                    <div class="card-header glass-header text-warning"><i class="fas fa-cloud me-2"></i>Cloud Assets
+                        Discovery</div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            {% for asset in results.phases.osint.cloud %}
+                            <div class="col-md-6">
+                                <div class="p-2 bg-black border border-secondary rounded d-flex align-items-center">
+                                    <div class="me-3 fs-3 text-info">
+                                        {% if 's3' in asset.provider|lower %}<i class="fab fa-aws"></i>{% elif 'azure'
+                                        in asset.provider|lower %}<i class="fab fa-microsoft"></i>{% else %}<i
+                                            class="fab fa-google"></i>{% endif %}
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold small">{{ asset.bucket if asset.bucket else asset.account }}
+                                        </div>
+                                        <div class="text-muted x-small font-monospace">{{ asset.provider }} · <span
+                                                class="{{ 'text-danger fw-bold' if asset.status == 'OPEN/PUBLIC' else 'text-success' }}">{{
+                                                asset.status }}</span></div>
+                                        <a href="{{ asset.url }}" target="_blank"
+                                            class="x-small text-cyber text-decoration-none">Visit Storage <i
+                                                class="fas fa-external-link-alt"></i></a>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- DNS INTELLIGENCE -->
             <div class="col-12">
                 <div class="card glass-panel">
@@ -180,6 +215,39 @@
                     </div>
                 </div>
             </div>
+
+            <!-- FAVICON INTEL -->
+            {% if results and results.phases and results.phases.osint and results.phases.osint.favicon %}
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-fingerprint me-2"></i>Favicon Hashing (OSINT
+                        Pivot)</div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            {% for port, info in results.phases.osint.favicon.items() %}
+                            <div class="col-md-6">
+                                <div class="p-3 bg-black border border-secondary rounded d-flex align-items-center">
+                                    <img src="{{ info.url }}" class="me-3 rounded"
+                                        style="width: 32px; height: 32px; background: white; padding: 2px;">
+                                    <div class="flex-grow-1 overflow-hidden">
+                                        <div class="text-muted small">Port {{ port }} Hash: <span
+                                                class="text-info font-monospace">{{ info.hash }}</span></div>
+                                        <div class="mt-1">
+                                            <a href="https://www.shodan.io/search?query={{ info.shodan_query|urlencode }}"
+                                                target="_blank" class="btn btn-xs btn-outline-warning">
+                                                <i class="fas fa-search me-1"></i>Search Shodan
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- VULNERABILITY CLASSES DASHBOARD -->
             <div class="col-12">
                 <div class="card glass-panel mb-4">
@@ -735,6 +803,70 @@
                     </div>
                 </div>
             </div>
+
+            <!-- API DISCOVERY RESULTS -->
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header"><i class="fas fa-project-diagram me-2"></i>API Discovery
+                        (Endpoint Mapping)</div>
+                    <div class="card-body" id="api-results">
+                        {% if results and results.phases and results.phases.enum and results.phases.enum.api %}
+                        <div class="accordion" id="accordionAPI">
+                            {% for port, endpoints in results.phases.enum.api.items() %}
+                            <div class="accordion-item bg-black border-secondary">
+                                <h2 class="accordion-header" id="heading-api-{{ port }}">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-api-{{ port }}">
+                                        <span class="badge bg-info me-2">Port {{ port }}</span>
+                                        <span class="font-monospace small text-muted">{{ endpoints|length }} API
+                                            Endpoints Found</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-api-{{ port }}" class="accordion-collapse collapse"
+                                    data-bs-parent="#accordionAPI">
+                                    <div class="accordion-body p-2">
+                                        <div class="row g-1">
+                                            {% for ep in endpoints %}
+                                            <div class="col-md-6">
+                                                <div
+                                                    class="font-monospace x-small text-cyber p-1 bg-dark mb-1 rounded border border-dark">
+                                                    /{{ ep }}</div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-muted small fst-italic">No specific API structures mapped.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUBDOMAIN TAKEOVER -->
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.takeover %}
+            <div class="col-12">
+                <div class="card glass-panel border-danger shadow-danger">
+                    <div class="card-header glass-header bg-danger bg-opacity-10 text-danger fw-bold">
+                        <i class="fas fa-flag-checkered me-2 pulse"></i>VULNERABILITY: Subdomain Takeover Potential
+                    </div>
+                    <div class="card-body">
+                        {% for tk in results.phases.vuln.takeover %}
+                        <div class="p-3 bg-black border border-danger rounded mb-2">
+                            <div class="text-danger fw-bold mb-1"><i
+                                    class="fas fa-exclamation-triangle me-2"></i>Critical Finding</div>
+                            <code class="text-light">{{ tk }}</code>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             <!-- NUCLEI RESULTS -->
             <div class="col-12">

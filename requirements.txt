@@ -11,3 +11,4 @@ redis==5.0.4
 greenlet>=3.1.1
 kombu==5.4.0
 Flask-Login>=0.6.3
+mmh3==4.1.0

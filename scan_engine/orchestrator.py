@@ -13,6 +13,10 @@ from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
 from scan_engine.step02_enum.waf_scanner import WafScanner
 from scan_engine.step02_enum.arjun_scanner import ArjunScanner
 from scan_engine.step02_enum.js_scanner import JSSecretScanner
+from scan_engine.step00_osint.cloud_scanner import CloudScanner
+from scan_engine.step00_osint.favicon_scanner import FaviconScanner
+from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
+from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from core.analysis import AnalysisEngine
 from core.intelligence import AttackVectorMapper
@@ -73,6 +77,23 @@ class ScanOrchestrator:
             # Start async lookup
             AttackVectorMapper.get_ip_geolocation(self.target, callback=on_geo_complete)
 
+            # --- PHASE 0.1: Cloud Assets Audit ---
+            try:
+                cloud_scanner = CloudScanner(self.target)
+                cloud_results = cloud_scanner.scan_all(logger=self.log)
+                if cloud_results:
+                    results['phases']['osint']['cloud'] = cloud_results
+                    self.save_results(self.scan_id, results)
+                    for c in cloud_results:
+                        self.add_finding(
+                            title=f"Cloud Asset Found: {c['bucket'] if 'bucket' in c else c['account']}",
+                            description=f"Provider: {c['provider']}\nURL: {c['url']}\nStatus: {c['status']}",
+                            severity="medium" if c['status'] == 'OPEN/PUBLIC' else "info",
+                            tool_source="Cloud-Audit"
+                        )
+            except Exception as e:
+                self.log(f"Cloud Audit failed: {e}", "WARN")
+
             # --- INITIALIZATION: Clear old ghost results ---
             self.log("Initializing local results structure...", "INFO")
 
@@ -86,15 +107,21 @@ class ScanOrchestrator:
                     "recon": {"open_ports": [], "raw_output": ""},
                     "dns": {"subdomains": []},
                     "intel": {},
+                    "osint": {
+                        "cloud": [],
+                        "favicon": {}
+                    },
                     "enum": {
                         "whatweb": {"summary": {}},
                         "katana": {},
                         "waf": {},
                         "arjun": {},
-                        "js_secrets": {}
+                        "js_secrets": {},
+                        "api": {}
                     },
                     "vuln": {
-                        "nuclei": {"findings": []}
+                        "nuclei": {"findings": []},
+                        "takeover": []
                     },
                     "dirbusting": {
                         "ffuf": {"endpoints": []}
@@ -125,6 +152,27 @@ class ScanOrchestrator:
                 severity="info",
                 tool_source="subfinder"
             )
+
+            # --- Subdomain Takeover Check ---
+            try:
+                takeover_scanner = TakeoverScanner(self.target)
+                if takeover_scanner.check_tools():
+                    tk_stream = takeover_scanner.stream_takeover_scan(logger=self.log)
+                    for event in tk_stream:
+                        if event['type'] == 'stdout':
+                            line = event['line'].strip()
+                            if line:
+                                self.log(f"🚩 POTENTIAL TAKEOVER: {line}", "CRITICAL")
+                                results['phases']['vuln']['takeover'].append(line)
+                                self.add_finding(
+                                    title="Subdomain Takeover Detected",
+                                    description=line,
+                                    severity="critical",
+                                    tool_source="nuclei"
+                                )
+                    self.save_results(self.scan_id, results)
+            except Exception as e:
+                self.log(f"Takeover check failed: {e}", "WARN")
 
         # --- PHASE 1: Port Scan ---
         self._emit_progress(20, "Port Scanning (nmap)")
@@ -561,6 +609,51 @@ class ScanOrchestrator:
                                     self.save_results(self.scan_id, results)
                         except Exception as e:
                             self.log(f"JS Secret Analysis failed: {e}", "ERROR")
+
+                        # --- FAVICON HASHING ---
+                        try:
+                            fav_scanner = FaviconScanner(self.target)
+                            fav_result = fav_scanner.scan(port, proto, logger=self.log)
+                            if fav_result:
+                                if 'osint' not in results['phases']: results['phases']['osint'] = {}
+                                results['phases']['osint']['favicon'][str(port)] = fav_result
+                                self.save_results(self.scan_id, results)
+                                self.add_finding(
+                                    title=f"Favicon Intel ({port})",
+                                    description=f"Hash: {fav_result['hash']}\nShodan: {fav_result['shodan_query']}",
+                                    severity="info",
+                                    tool_source="FaviconScanner"
+                                )
+                        except Exception as e:
+                            self.log(f"Favicon scanning failed: {e}", "WARN")
+
+                        # --- API DISCOVERY ---
+                        try:
+                            api_scanner = APIScanner(self.target)
+                            if api_scanner.check_tools():
+                                api_stream = api_scanner.stream_api_discovery(port, proto, logger=self.log)
+                                api_endpoints = []
+                                for event in api_stream:
+                                    if event['type'] == 'stdout':
+                                        line = event['line'].strip()
+                                        if line:
+                                            # ffuf output can be cleaned or kept as is
+                                            api_endpoints.append(line)
+                                
+                                if api_endpoints:
+                                    self.log(f"API Discovery: Found {len(api_endpoints)} potential endpoints on port {port}", "SUCCESS")
+                                    if 'enum' not in results['phases']: results['phases']['enum'] = {}
+                                    if 'api' not in results['phases']['enum']: results['phases']['enum']['api'] = {}
+                                    results['phases']['enum']['api'][str(port)] = api_endpoints
+                                    self.save_results(self.scan_id, results)
+                                    self.add_finding(
+                                        title=f"API Endpoints Discovered ({port})",
+                                        description="\n".join(api_endpoints[:20]),
+                                        severity="low",
+                                        tool_source="ffuf"
+                                    )
+                        except Exception as e:
+                            self.log(f"API discovery failed: {e}", "ERROR")
 
             except Exception as e:
                 self.log(f"Phase 4 (Web Enum) failed: {e}", "ERROR")
