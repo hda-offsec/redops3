@@ -9,7 +9,20 @@ class DNSScanner:
 
     def check_tools(self):
         import shutil
-        return shutil.which("dnsrecon") is not None
+        dnsrecon_exists = shutil.which("dnsrecon") is not None
+        subfinder_path = self._find_subfinder()
+        return dnsrecon_exists and (subfinder_path is not None)
+
+    def _find_subfinder(self):
+        import shutil
+        if shutil.which("subfinder"):
+            return "subfinder"
+
+        home_go = os.path.expanduser("~/go/bin/subfinder")
+        if os.path.exists(home_go):
+            return home_go
+
+        return None
 
     def run_dnsrecon(self):
         """Run dnsrecon for standard enumeration"""
@@ -19,16 +32,10 @@ class DNSScanner:
 
     def run_subfinder(self):
         """Run subfinder for subdomain discovery"""
-        # We check if subfinder is in path or in $HOME/go/bin
-        subfinder_path = "subfinder"
-        
-        # Try finding in system path first
-        import shutil
-        if not shutil.which(subfinder_path):
-            home_go = os.path.expanduser("~/go/bin/subfinder")
-            if os.path.exists(home_go):
-                subfinder_path = home_go
-        
+        subfinder_path = self._find_subfinder()
+        if not subfinder_path:
+            return False, "", "Subfinder not found", 1
+
         command = [subfinder_path, "-d", self.target, "-silent"]
         return ProcessManager.run_command(command)
 
