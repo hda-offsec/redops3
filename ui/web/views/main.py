@@ -11,7 +11,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import joinedload
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
 from sqlalchemy import func
-from core.results_store import load_results, save_results
+from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
@@ -386,6 +386,9 @@ def new_scan():
     scan = Scan(target_id=target.id, scan_type=scan_type, status="pending")
     db.session.add(scan)
     db.session.commit()
+
+    # Ensure fresh results file (wipes stale data from previous deleted runs)
+    delete_results(scan.id)
 
     # Launch via Celery
     run_scan_task.delay(scan.id, target.identifier, scan_type)

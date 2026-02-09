@@ -59,15 +59,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 db.session.add(finding)
                 db.session.commit()
 
-                # Emit to specific scan room for UI updates
+                # Emit to specific scan room for UI updates (Flattened format for JS)
                 socketio.emit('new_finding', {
                     'scan_id': scan_id,
-                    'finding': {
-                        'severity': severity,
-                        'title': title,
-                        'description': kwargs.get('description'),
-                        'screenshot_path': kwargs.get('screenshot_path')
-                    }
+                    'severity': severity,
+                    'title': title,
+                    'description': kwargs.get('description'),
+                    'tool': kwargs.get('tool_source', 'orchestrator'),
+                    'screenshot_path': kwargs.get('screenshot_path')
                 }, room=f"scan_{scan_id}")
 
                 # Global Alert for Critical Issues from the worker
@@ -88,15 +87,12 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 db.session.add(s)
                 db.session.commit()
 
-                # Emit to specific scan room
-                from core.extensions import socketio
+                # Emit to specific scan room for UI updates (Flattened format for JS)
                 socketio.emit('new_suggestion', {
                     'scan_id': scan_id,
-                    'suggestion': {
-                        'tool_name': kwargs.get('tool_name'),
-                        'command_suggestion': kwargs.get('command_suggestion'),
-                        'reason': kwargs.get('reason')
-                    }
+                    'tool_name': kwargs.get('tool_name'),
+                    'command': kwargs.get('command_suggestion'),
+                    'reason': kwargs.get('reason')
                 }, room=f"scan_{scan_id}")
             except Exception as e:
                 db.session.rollback()

@@ -66,3 +66,13 @@ def load_results(scan_id):
             print(f"[ERROR] Failed to load results for Scan #{scan_id}: {e}")
             return None
     return None
+def delete_results(scan_id):
+    filename = os.path.join(RESULTS_DIR, f"scan_{scan_id}.json")
+    if os.path.exists(filename):
+        try:
+            os.remove(filename)
+            print(f"[DEBUG] Deleted results for Scan #{scan_id}")
+            return True
+        except Exception as e:
+            print(f"[ERROR] Failed to delete results for Scan #{scan_id}: {e}")
+    return False
