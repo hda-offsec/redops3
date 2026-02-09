@@ -62,7 +62,7 @@ class APIScanner:
         return [
             "ffuf", "-u", url, "-w", wordlist,
             "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "-mc", "200,201,204,401,403,405",
+            "-mc", "200,201,204,301,302,401,403,405",
             "-t", "50",
             "-timeout", "5",
             "-noninteractive"

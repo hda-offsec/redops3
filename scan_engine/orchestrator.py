@@ -1,4 +1,5 @@
 import re
+import shlex
 import threading
 import os
 from datetime import datetime
@@ -283,8 +284,8 @@ class ScanOrchestrator:
                  self.log(f"Unknown profile '{profile}', defaulting to quick scan.", "WARN")
                  scan_args = ["-F"]
 
-        self.log(f"Executing Nmap with: {' '.join(scan_args)}", "DEBUG")
-        results['commands'].append({'tool': 'nmap', 'cmd': f"nmap {' '.join(scan_args)} {self.target}"})
+        self.log(f"Executing Nmap with: {shlex.join(scan_args)}", "DEBUG")
+        results['commands'].append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [self.target])})
         
         try:
             stream = scanner.stream_scan(scan_args)
@@ -441,8 +442,8 @@ class ScanOrchestrator:
                         
                         try:
                             cmd_ww = web_scanner.get_command(port, proto)
-                            results['commands'].append({'tool': 'whatweb', 'cmd': ' '.join(cmd_ww)})
-                            self.log(f"Executing: {' '.join(cmd_ww)}", "DEBUG")
+                            results['commands'].append({'tool': 'whatweb', 'cmd': shlex.join(cmd_ww)})
+                            self.log(f"Executing: {shlex.join(cmd_ww)}", "DEBUG")
                             
                             ww_stream = web_scanner.stream_whatweb(port, proto)
                             ww_output = []
@@ -557,8 +558,8 @@ class ScanOrchestrator:
                                 self.log(f"Deep Crawling {proto}://{self.target}:{port} with Katana...", "INFO")
                                 try:
                                     cmd_kt = katana.get_command(port, proto)
-                                    results['commands'].append({'tool': 'katana', 'cmd': ' '.join(cmd_kt)})
-                                    self.log(f"Executing: {' '.join(cmd_kt)}", "DEBUG")
+                                    results['commands'].append({'tool': 'katana', 'cmd': shlex.join(cmd_kt)})
+                                    self.log(f"Executing: {shlex.join(cmd_kt)}", "DEBUG")
                                     
                                     kt_stream = katana.stream_katana(port, proto)
                                     endpoints = []
@@ -625,8 +626,8 @@ class ScanOrchestrator:
                                 self.log(f"Phase 4b: Detecting WAF on {proto}://{self.target}:{port}...", "INFO")
                                 
                                 cmd_waf = waf_scanner.get_command(port, proto)
-                                results['commands'].append({'tool': 'wafw00f', 'cmd': ' '.join(cmd_waf)})
-                                self.log(f"Executing: {' '.join(cmd_waf)}", "DEBUG")
+                                results['commands'].append({'tool': 'wafw00f', 'cmd': shlex.join(cmd_waf)})
+                                self.log(f"Executing: {shlex.join(cmd_waf)}", "DEBUG")
 
                                 waf_stream = waf_scanner.stream_wafw00f(port, proto)
                                 waf_result = "None"
@@ -666,8 +667,8 @@ class ScanOrchestrator:
                                 self.log(f"Phase 4c: Discovering hidden parameters on {proto}://{self.target}:{port}...", "INFO")
                                 
                                 cmd_ar = arjun.get_command(port, proto)
-                                results['commands'].append({'tool': 'arjun', 'cmd': ' '.join(cmd_ar)})
-                                self.log(f"Executing: {' '.join(cmd_ar)}", "DEBUG")
+                                results['commands'].append({'tool': 'arjun', 'cmd': shlex.join(cmd_ar)})
+                                self.log(f"Executing: {shlex.join(cmd_ar)}", "DEBUG")
 
                                 ar_stream = arjun.stream_arjun(port, proto)
                                 params_found = []
@@ -767,8 +768,8 @@ class ScanOrchestrator:
                             api_scanner = APIScanner(self.target)
                             if api_scanner.check_tools():
                                 cmd_api = api_scanner.get_command(port, proto)
-                                results['commands'].append({'tool': 'ffuf-api', 'cmd': ' '.join(cmd_api)})
-                                self.log(f"Executing: {' '.join(cmd_api)}", "DEBUG")
+                                results['commands'].append({'tool': 'ffuf-api', 'cmd': shlex.join(cmd_api)})
+                                self.log(f"Executing: {shlex.join(cmd_api)}", "DEBUG")
                                 
                                 # Use robust ffuf parsing (regex defined in Phase 6 but let's define it once here)
                                 ffuf_pattern = re.compile(r"^(?P<path>\S+)\s+\[Status:\s+(?P<status>\d+),\s+Size:\s+(?P<size>\d+),.*\]")
@@ -811,7 +812,7 @@ class ScanOrchestrator:
                                         description="\n".join(desc_list),
                                         severity="low",
                                         tool_source="ffuf",
-                                        command=' '.join(cmd_api)
+                                        command=shlex.join(cmd_api)
                                     )
                         except Exception as e:
                             self.log(f"API discovery failed: {e}", "ERROR")
@@ -833,8 +834,8 @@ class ScanOrchestrator:
                         proto = 'https' if port in [443, 8443] else 'http'
                         try:
                             cmd_nuc = vuln_scanner.get_command(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
-                            results['commands'].append({'tool': 'nuclei', 'cmd': ' '.join(cmd_nuc)})
-                            self.log(f"Executing: {' '.join(cmd_nuc)}", "DEBUG")
+                            results['commands'].append({'tool': 'nuclei', 'cmd': shlex.join(cmd_nuc)})
+                            self.log(f"Executing: {shlex.join(cmd_nuc)}", "DEBUG")
                             
                             nuc_stream = vuln_scanner.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
                             
@@ -897,8 +898,8 @@ class ScanOrchestrator:
                                 xss_scanner = DalfoxScanner(self.target)
                                 if xss_scanner.check_tools():
                                     cmd_xss = xss_scanner.get_command(port, proto)
-                                    results['commands'].append({'tool': 'dalfox', 'cmd': ' '.join(cmd_xss)})
-                                    self.log(f"Executing: {' '.join(cmd_xss)}", "DEBUG")
+                                    results['commands'].append({'tool': 'dalfox', 'cmd': shlex.join(cmd_xss)})
+                                    self.log(f"Executing: {shlex.join(cmd_xss)}", "DEBUG")
                                     
                                     dalfox_stream = xss_scanner.stream_scan_xss(port, proto)
                                     
@@ -962,11 +963,11 @@ class ScanOrchestrator:
                     
                     try:
                         cmd = scanner6.get_command()
-                        self.log(f"Executing Dirbusting: {' '.join(cmd)}", "DEBUG")
+                        self.log(f"Executing Dirbusting: {shlex.join(cmd)}", "DEBUG")
                         
                         # Add to a new command history list in results
                         if 'commands' not in results: results['commands'] = []
-                        results['commands'].append({'tool': 'ffuf', 'cmd': ' '.join(cmd)})
+                        results['commands'].append({'tool': 'ffuf', 'cmd': shlex.join(cmd)})
 
                         ffuf_stream = scanner6.stream_scan()
                         found_items = []
@@ -998,7 +999,7 @@ class ScanOrchestrator:
                                             description=f"Full URL: {full_url}\nStatus: {status}\nSize: {size}",
                                             severity="medium" if status == "200" else "low",
                                             tool_source="ffuf",
-                                            command=' '.join(cmd)
+                                            command=shlex.join(cmd)
                                         )
                                     else:
                                         # Fallback for simple lines if regex fails
