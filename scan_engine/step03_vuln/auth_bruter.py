@@ -111,7 +111,7 @@ class AuthBruteScanner:
         findings = []
         for p in open_ports:
             port = int(p['port'])
-            svc = p['service'].lower()
+            svc = (p.get('service') or p.get('service_name') or '').lower()
             if port == 22 or "ssh" in svc: findings.extend(self.audit_ssh(port, logger))
             elif port == 21 or "ftp" in svc: findings.extend(self.audit_ftp(port, logger))
         return findings

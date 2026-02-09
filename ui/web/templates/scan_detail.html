@@ -2074,6 +2074,47 @@
                 matrixBody.innerHTML = html;
             }
 
+            // 2.5 Visual Recon Gallery
+            const gallery = document.querySelector("#visual-recon-gallery");
+            if (gallery && results.phases.recon && results.phases.recon.open_ports) {
+                let galleryHtml = "";
+                let hasShots = false;
+                results.phases.recon.open_ports.forEach(port => {
+                    if (port.screenshot_path) {
+                        hasShots = true;
+                        galleryHtml += `
+                            <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
+                                <div class="screenshot-card bg-black border border-secondary rounded overflow-hidden">
+                                    <img src="/static/${port.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="Port ${port.port}">
+                                    <div class="p-1 text-center bg-dark small font-monospace">
+                                        <span class="text-info">PORT ${port.port}</span>
+                                    </div>
+                                </div>
+                            </div>`;
+                    }
+                });
+
+                // Add any exposure shots from general findings if available in results.findings
+                if (results.findings) {
+                    results.findings.forEach(f => {
+                        if (f.screenshot_path) {
+                            hasShots = true;
+                            galleryHtml += `
+                                <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
+                                    <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+                                        <img src="/static/${f.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${f.title}">
+                                        <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
+                                            <span class="text-danger">EXPOSURE</span>
+                                        </div>
+                                    </div>
+                                </div>`;
+                        }
+                    });
+                }
+
+                if (hasShots) gallery.innerHTML = galleryHtml;
+            }
+
             // 3. Network Graph
             if (results.phases.recon && results.phases.recon.open_ports) {
                 if (!network) initGraph();

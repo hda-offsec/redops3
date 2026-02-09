@@ -100,7 +100,7 @@ class DBScanner:
         all_findings = []
         for port_info in open_ports:
             port = int(port_info['port'])
-            service = port_info['service'].lower()
+            service = (port_info.get('service') or port_info.get('service_name') or '').lower()
             
             if port == 6379 or "redis" in service:
                 all_findings.extend(self.audit_redis(port, logger))
