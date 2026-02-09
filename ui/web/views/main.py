@@ -114,7 +114,7 @@ def scan_osint(scan_id):
 @main_bp.route("/scan/<int:scan_id>")
 def scan_detail(scan_id):
     scan = Scan.query.get_or_404(scan_id)
-    results = load_results(scan_id)
+    results = load_results(scan_id) or {"phases": {}}
     findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).order_by(Suggestion.id.desc()).all()
     logs = ScanLog.query.filter_by(scan_id=scan_id).order_by(ScanLog.timestamp.asc()).all()
