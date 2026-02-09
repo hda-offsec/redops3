@@ -20,7 +20,11 @@ class JSSecretScanner:
             "MailChimp API Key": r'[0-9a-fA-F]{32}-us[0-9]{1,2}',
             "Stripe Secret Key": r'sk_live_[0-9a-zA-Z]{24}',
             "Square Access Token": r'sqOatp-[0-9A-Za-z\-_]{22}',
-            "Twilio API Key": r'SK[0-9a-fA-F]{32}'
+            "Twilio API Key": r'SK[0-9a-fA-F]{32}',
+            "GitHub PAT": r'ghp_[a-zA-Z0-9]{36}',
+            "Mailgun API Key": r'key-[0-9a-zA-Z]{32}',
+            "Internal/Staging URL": r'(?i)([a-z0-9-]+\.(?:staging|dev|internal|local|test)\.[a-z.]+)',
+            "Internal IP": r'10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}'
         }
         self.endpoint_pattern = r'(?:"| \')((?:/|[a-zA-Z]+://)[^"\'\s<>]{3,})(?:"| \')'
 

@@ -19,6 +19,7 @@ from scan_engine.step00_osint.favicon_scanner import FaviconScanner
 from scan_engine.step00_osint.github_scanner import GitHubScanner
 from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
+from scan_engine.step03_vuln.open_redirect_scanner import OpenRedirectScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -227,7 +228,9 @@ class ScanOrchestrator:
             try:
                 takeover_scanner = TakeoverScanner(self.target)
                 if takeover_scanner.check_tools():
-                    tk_stream = takeover_scanner.stream_takeover_scan(logger=self.log)
+                    # RED TEAM: Scan all discovered subdomains, not just the root
+                    subdomains_to_check = dns_results.get("subdomains", [self.target])
+                    tk_stream = takeover_scanner.stream_takeover_scan(logger=self.log, targets=subdomains_to_check)
                     for event in tk_stream:
                         if event['type'] == 'stdout':
                             line = ProcessManager.strip_ansi(event['line'].strip())
@@ -746,6 +749,27 @@ class ScanOrchestrator:
                         except Exception as e:
                             self.log(f"JS Advanced Analysis failed: {e}", "ERROR")
 
+                        # --- OPEN REDIRECT AUDIT ---
+                        try:
+                            if endpoints:
+                                or_scanner = OpenRedirectScanner(self.target)
+                                or_findings = or_scanner.scan_endpoints(endpoints, logger=self.log)
+                                
+                                if or_findings:
+                                    for f in or_findings:
+                                        self.add_finding(
+                                            title=f"Open Redirect Vulnerability ({port})",
+                                            description=f"Vulnerable URL: {f['url']}\nRedirects to: {f['destination']}",
+                                            severity="medium",
+                                            tool_source="redirect_scanner"
+                                        )
+                                    
+                                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                    if 'redirects' not in results['phases']['vuln']: results['phases']['vuln']['redirects'] = or_findings
+                                    self.save_results(self.scan_id, results)
+                        except Exception as e:
+                            self.log(f"Open Redirect audit failed: {e}", "ERROR")
+
                         # --- FAVICON HASHING ---
                         try:
                             fav_scanner = FaviconScanner(self.target)
@@ -1041,11 +1065,19 @@ class ScanOrchestrator:
     def _analyze_security_headers(self, target, port, proto, results):
         import requests
         url = f"{proto}://{target}:{port}"
+        # RED TEAM: Use a fake origin to test for CORS reflection/misconfig
+        test_origin = "https://redops-evil-domain.com"
+        headers_to_test = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) RedOps3/HeaderAudit",
+            "Origin": test_origin
+        }
+        
         try:
             # Disable SSL verification since many local/dev targets use self-signed certs
-            resp = requests.get(url, timeout=10, verify=False, allow_redirects=True)
+            resp = requests.get(url, timeout=10, verify=False, allow_redirects=True, headers=headers_to_test)
             headers = resp.headers
             
+            # --- STANDARD SECURITY HEADERS ---
             missing = []
             if 'Content-Security-Policy' not in headers: missing.append("Content-Security-Policy (CSP)")
             if 'Strict-Transport-Security' not in headers: missing.append("Strict-Transport-Security (HSTS)")
@@ -1060,15 +1092,41 @@ class ScanOrchestrator:
                     severity="low",
                     tool_source="header_audit"
                 )
+
+            # --- RED TEAM: CORS MISCONFIGURATION AUDIT ---
+            aco = headers.get('Access-Control-Allow-Origin', '')
+            acac = headers.get('Access-Control-Allow-Credentials', '').lower()
+            
+            if aco == test_origin and acac == 'true':
+                self.add_finding(
+                    title=f"Critical CORS Misconfiguration ({port})",
+                    description=f"Server reflects arbitrary Origin '{test_origin}' with Access-Control-Allow-Credentials: true. This allows an attacker to perform cross-origin requests and steal authenticated session data.",
+                    severity="high",
+                    tool_source="cors_audit"
+                )
+            elif aco == '*' and acac == 'true':
+                 self.add_finding(
+                    title=f"Risk: Wildcard CORS with Credentials ({port})",
+                    description="Access-Control-Allow-Origin is set to '*' while allowing credentials. Note: Most modern browsers block this, but it reflects poor security posture or ancient infrastructure.",
+                    severity="medium",
+                    tool_source="cors_audit"
+                )
+            elif aco == test_origin:
+                 self.add_finding(
+                    title=f"CORS Origin Reflection ({port})",
+                    description=f"Server reflects arbitrary Origin '{test_origin}'. While credentials aren't explicitly enabled in this response, this often indicates an over-permissive CORS policy.",
+                    severity="low",
+                    tool_source="cors_audit"
+                )
                 
-                # Logic for WAF Bypass suggestion
-                server_header = headers.get('Server', '').lower()
-                if 'awselb' in server_header or 'aws' in server_header:
-                    self.add_suggestion(
-                        tool_name="waf-bypass",
-                        command_suggestion=f"ffuf -u {url}/FUZZ -H 'X-Forwarded-For: 127.0.0.1' ...",
-                        reason="AWS ELB detected. Try Host Header injection or X-Forwarded-For spoofing to bypass WAF rules."
-                    )
+            # Logic for WAF Bypass suggestion
+            server_header = headers.get('Server', '').lower()
+            if 'awselb' in server_header or 'aws' in server_header:
+                self.add_suggestion(
+                    tool_name="waf-bypass",
+                    command_suggestion=f"ffuf -u {url}/FUZZ -H 'X-Forwarded-For: 127.0.0.1' ...",
+                    reason="AWS ELB detected. Try Host Header injection or X-Forwarded-For spoofing to bypass WAF rules."
+                )
             
             # Store in results
             if 'enum' not in results['phases']: results['phases']['enum'] = {}
