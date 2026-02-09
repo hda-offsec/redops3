@@ -22,6 +22,8 @@ from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
 from scan_engine.step03_vuln.open_redirect_scanner import OpenRedirectScanner
 from scan_engine.step03_vuln.jwt_scanner import JWTScanner
 from scan_engine.step03_vuln.header_fuzzer import HeaderFuzzer
+from scan_engine.step03_vuln.git_scanner import GitExposureScanner
+from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -130,9 +132,13 @@ class ScanOrchestrator:
                     results['phases']['osint']['cloud'] = cloud_results
                     self.save_results(self.scan_id, results)
                     for c in cloud_results:
+                        desc = f"Provider: {c['provider']}\nURL: {c['url']}\nStatus: {c['status']}"
+                        if c.get('files'):
+                            desc += "\n\nSample Files Found:\n* " + "\n* ".join(c['files'][:10])
+                        
                         self.add_finding(
                             title=f"Cloud Asset Found: {c['bucket'] if 'bucket' in c else c['account']}",
-                            description=f"Provider: {c['provider']}\nURL: {c['url']}\nStatus: {c['status']}",
+                            description=desc,
                             severity="medium" if c['status'] == 'OPEN/PUBLIC' else "info",
                             tool_source="Cloud-Audit"
                         )
@@ -1184,6 +1190,36 @@ class ScanOrchestrator:
                         )
             except Exception as e:
                 self.log(f"Header fuzzing failed on port {port}: {e}", "DEBUG")
+
+            # --- SENSITIVE DIR AUDIT (.git, etc.) ---
+            try:
+                gs = GitExposureScanner(self.target)
+                gs_findings = gs.audit_git(port, proto, logger=self.log)
+                if gs_findings:
+                    for f in gs_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="git_scanner"
+                        )
+            except Exception as e:
+                self.log(f"Git exposure audit failed on port {port}: {e}", "DEBUG")
+
+            # --- TECHNICAL FILE EXPOSURE AUDIT ---
+            try:
+                ts = TechExposureScanner(self.target)
+                ts_findings = ts.audit(port, proto, logger=self.log)
+                if ts_findings:
+                    for f in ts_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="tech_audit"
+                        )
+            except Exception as e:
+                self.log(f"Tech exposure audit failed on port {port}: {e}", "DEBUG")
 
         except Exception as e:
             self.log(f"Header analysis request failed: {e}", "DEBUG")

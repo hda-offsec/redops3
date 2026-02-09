@@ -12,7 +12,27 @@ class CloudScanner:
         try:
             r = requests.get(url, timeout=5)
             if r.status_code == 200:
-                return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC"}
+                # RED TEAM: Attempt to list files for impact demonstration
+                files = []
+                try:
+                    from xml.etree import ElementTree
+                    root = ElementTree.fromstring(r.content)
+                    # S3 XML namespace
+                    ns = {'s3': 'http://s3.amazonaws.com/doc/2006-03-01/'}
+                    contents = root.findall('s3:Contents', ns)
+                    for item in contents[:10]: # List top 10 files
+                        key = item.find('s3:Key', ns)
+                        if key is not None:
+                            files.append(key.text)
+                except: pass
+                
+                return {
+                    "provider": "AWS S3", 
+                    "bucket": bucket_name, 
+                    "url": url, 
+                    "status": "OPEN/PUBLIC",
+                    "files": files
+                }
             elif r.status_code == 403:
                 return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "PROTECTED"}
         except:
