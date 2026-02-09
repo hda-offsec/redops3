@@ -20,6 +20,7 @@ from scan_engine.step00_osint.github_scanner import GitHubScanner
 from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
 from scan_engine.step03_vuln.open_redirect_scanner import OpenRedirectScanner
+from scan_engine.step03_vuln.jwt_scanner import JWTScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -728,6 +729,19 @@ class ScanOrchestrator:
                                             severity="critical",
                                             tool_source="js_scanner"
                                         )
+
+                                    # RED TEAM: Check for JWTs in JS too
+                                    jwt_scanner = JWTScanner()
+                                    for url, content_info in js_results.get("raw_content", {}).items():
+                                        jwt_fs = jwt_scanner.scan_text(content_info, url)
+                                        if jwt_fs:
+                                            for f in jwt_fs:
+                                                self.add_finding(
+                                                    title=f"JWT in JavaScript ({port})",
+                                                    description=f"File: {url}\n{f['desc']}",
+                                                    severity=f['severity'],
+                                                    tool_source="jwt_scanner"
+                                                )
                                     
                                     if 'enum' not in results['phases']: results['phases']['enum'] = {}
                                     results['phases']['enum']['js_secrets'] = results['phases']['enum'].get('js_secrets', {})
@@ -1133,6 +1147,27 @@ class ScanOrchestrator:
             results['phases']['enum']['headers'] = results['phases']['enum'].get('headers', {})
             results['phases']['enum']['headers'][str(port)] = dict(headers)
             self.save_results(self.scan_id, results)
+
+            # --- JWT AUDIT ---
+            try:
+                jwt_scanner = JWTScanner()
+                # Scan headers
+                header_text = str(dict(headers))
+                jwt_findings = jwt_scanner.scan_text(header_text, url)
+                # Scan body
+                body_text = resp.text
+                jwt_findings.extend(jwt_scanner.scan_text(body_text, url))
+
+                if jwt_findings:
+                    for f in jwt_findings:
+                        self.add_finding(
+                            title=f"JWT Vulnerability: {f['type']} ({port})",
+                            description=f"{f['desc']}\nPreview: {f.get('token_preview')}",
+                            severity=f['severity'],
+                            tool_source="jwt_scanner"
+                        )
+            except Exception as e:
+                self.log(f"JWT scanning failed on port {port}: {e}", "DEBUG")
 
         except Exception as e:
             self.log(f"Header analysis request failed: {e}", "DEBUG")

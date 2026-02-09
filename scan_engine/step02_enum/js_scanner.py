@@ -30,11 +30,12 @@ class JSSecretScanner:
 
     def scan_url(self, url):
         """Fetches a JS file and scans it for secrets and endpoints"""
-        results = {"secrets": [], "endpoints": []}
+        results = {"secrets": [], "endpoints": [], "raw": ""}
         try:
             response = requests.get(url, timeout=10, verify=False)
             if response.status_code == 200:
                 content = response.text
+                results["raw"] = content
                 # Scan for Secrets
                 for name, pattern in self.patterns.items():
                     matches = re.finditer(pattern, content)
@@ -57,13 +58,15 @@ class JSSecretScanner:
 
     def scan_list(self, urls, logger=None):
         """Scans a list of URLs and returns a summary of findings"""
-        all_results = {"secrets": {}, "endpoints": []}
+        all_results = {"secrets": {}, "endpoints": [], "raw_content": {}}
         js_urls = [u for u in urls if u.endswith('.js')]
         
         if logger: logger(f"JS Advanced Analysis: Auditing {len(js_urls)} JavaScript files...", "INFO")
         
         for url in js_urls:
             res = self.scan_url(url)
+            if res["raw"]:
+                all_results["raw_content"][url] = res["raw"]
             if res["secrets"]:
                 all_results["secrets"][url] = res["secrets"]
                 if logger: logger(f"💰 Found {len(res['secrets'])} potential secrets in {url}", "WARN")

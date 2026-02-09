@@ -43,30 +43,62 @@ class CloudScanner:
         return None
 
     def scan_all(self, logger=None):
-        patterns = [
-            self.target_name,
-            f"{self.target_name}-data",
-            f"{self.target_name}-backup",
-            f"{self.target_name}-dev",
-            f"{self.target_name}-staging",
-            f"{self.target_name}-prod",
-            f"{self.target_name}-assets",
-            f"{self.target_name}-public"
+        # Professional Red Team Permutations
+        bases = [self.target_name, self.target_name.replace('-', ''), self.target_name.replace('_', '')]
+        suffixes = [
+            # Environment
+            "dev", "development", "staging", "stg", "prod", "production", "test", "demo",
+            # Content
+            "assets", "data", "static", "media", "images", "img", "files", "public", "private", "secret",
+            # Technical
+            "backup", "bak", "archive", "arc", "old", "new", "temp", "tmp", "db", "sql", "database",
+            # Functional
+            "logs", "logging", "audit", "internal", "corp", "admin", "management", "client", "customer",
+            # Infrastructure
+            "web", "app", "api", "infra", "kubernetes", "k8s", "docker", "registry", "mirror"
         ]
         
-        if logger: logger(f"Cloud Audit: Checking {len(patterns)*3} potential cloud storage buckets...", "INFO")
+        patterns = set()
+        for b in bases:
+            patterns.add(b)
+            for s in suffixes:
+                patterns.add(f"{b}-{s}")
+                patterns.add(f"{b}{s}")
+                patterns.add(f"{s}-{b}")
+        
+        if logger: logger(f"Cloud Audit: Checking {len(patterns)*3} potential cloud storage buckets (aggressive mode)...", "INFO")
         
         found = []
+        # Use simple threading to speed up the large number of checks
+        import threading
+        from queue import Queue
+
+        q = Queue()
         for p in patterns:
-            # Simple synchronous for now for stability, can be threaded later
-            s3 = self.check_s3(p)
-            if s3: found.append(s3)
-            
-            az = self.check_azure(p)
-            if az: found.append(az)
-            
-            gcp = self.check_gcp(p)
-            if gcp: found.append(gcp)
+            q.put(p)
+
+        def worker():
+            while not q.empty():
+                p = q.get()
+                # AWS
+                s3 = self.check_s3(p)
+                if s3: found.append(s3)
+                # Azure
+                az = self.check_azure(p)
+                if az: found.append(az)
+                # GCP
+                gcp = self.check_gcp(p)
+                if gcp: found.append(gcp)
+                q.task_done()
+
+        threads = []
+        for i in range(10): # 10 threads for cloud discovery
+            t = threading.Thread(target=worker)
+            t.start()
+            threads.append(t)
+        
+        for t in threads:
+            t.join()
             
         if logger and found:
             logger(f"Cloud Audit: Found {len(found)} cloud resources associated with target.", "SUCCESS")
