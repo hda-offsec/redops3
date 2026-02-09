@@ -972,7 +972,6 @@ class ScanOrchestrator:
                         found_items = []
                         
                         # Regex for ffuf detailed output: admin [Status: 200, Size: 123, Words: 45, Lines: 6]
-                        import re
                         ffuf_pattern = re.compile(r"^(?P<path>\S+)\s+\[Status:\s+(?P<status>\d+),\s+Size:\s+(?P<size>\d+),.*\]")
 
                         for event in ffuf_stream:
