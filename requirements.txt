@@ -2,7 +2,7 @@ Flask==3.0.0
 Flask-SQLAlchemy==3.1.1
 Flask-SocketIO==5.3.6
 python-dotenv==1.0.0
-fpdf2==2.7.9
+fpdf2==2.8.5
 playwright>=1.48.0
 markdown==3.5.2
 requests==2.32.4
@@ -12,3 +12,4 @@ greenlet>=3.1.1
 kombu==5.4.0
 Flask-Login>=0.6.3
 mmh3==4.1.0
+dnspython==2.6.1
