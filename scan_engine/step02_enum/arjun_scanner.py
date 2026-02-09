@@ -10,7 +10,13 @@ class ArjunScanner:
 
     def get_command(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}"
-        return ["arjun", "-u", url]
+        return [
+            "arjun", 
+            "-u", url, 
+            "-t", "10",
+            "--rate", "5",
+            "-m", "GET,POST,JSON"
+        ]
 
     def stream_arjun(self, port, protocol='http'):
         """

@@ -11,10 +11,10 @@ class CloudScanner:
         url = f"http://{bucket_name}.s3.amazonaws.com"
         try:
             r = requests.get(url, timeout=5)
-            if r.status_code != 404:
-                # 200 = Open/Public, 403 = Protected but exists
-                status = "PROTECTED" if r.status_code == 403 else "OPEN/PUBLIC"
-                return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": status}
+            if r.status_code == 200:
+                return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC"}
+            elif r.status_code == 403:
+                return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "PROTECTED"}
         except:
             pass
         return None
@@ -23,7 +23,8 @@ class CloudScanner:
         url = f"https://{account_name}.blob.core.windows.net"
         try:
             r = requests.get(url, timeout=5)
-            if r.status_code != 404:
+            # 400 or 403 on base URL usually means account exists
+            if r.status_code in [400, 403]:
                 return {"provider": "Azure Blob", "account": account_name, "url": url, "status": "EXISTS"}
         except:
             pass
@@ -33,7 +34,9 @@ class CloudScanner:
         url = f"https://www.googleapis.com/storage/v1/b/{bucket_name}"
         try:
             r = requests.get(url, timeout=5)
-            if r.status_code != 404:
+            if r.status_code == 200:
+                 return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC"}
+            elif r.status_code == 403:
                 return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "EXISTS"}
         except:
             pass

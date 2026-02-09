@@ -14,6 +14,8 @@ class NucleiScanner:
             path, 
             "-u", url, 
             "-s", "critical,high,medium", 
+            "-as",
+            "-rl", "10",
             "-no-color",
             "-silent"
         ]

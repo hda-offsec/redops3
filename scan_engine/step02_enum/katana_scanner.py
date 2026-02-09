@@ -14,9 +14,11 @@ class KatanaScanner:
             katana_path,
             "-u", url,
             "-jc",
+            "-jsl", 
             "-kf", "all",
             "-d", "3",
             "-fs", "fqdn", 
+            "-ct", "10", 
             "-silent",
             "-nc" 
         ]
