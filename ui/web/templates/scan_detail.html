@@ -248,6 +248,13 @@
                                 <i class="fas fa-unlock-alt text-danger fa-2x"></i>
                                 {% elif 'jwt' in f.title|lower %}
                                 <i class="fas fa-fingerprint text-danger fa-2x"></i>
+                                {% elif 'secret' in f.title|lower or 'token' in f.title|lower or 'key' in f.title|lower
+                                %}
+                                <i class="fas fa-key text-danger fa-2x"></i>
+                                {% elif 'api' in f.title|lower or 'swagger' in f.title|lower %}
+                                <i class="fas fa-project-diagram text-danger fa-2x"></i>
+                                {% elif 'cms' in f.title|lower or 'wordpress' in f.title|lower %}
+                                <i class="fab fa-wordpress text-danger fa-2x"></i>
                                 {% else %}
                                 <i class="fas fa-bug text-danger fa-2x"></i>
                                 {% endif %}
@@ -325,6 +332,26 @@
                             {% endif %}
                             {% endfor %}
                             {% endif %}
+
+                            <!-- Search in general findings for screenshots (e.g. Directory Listings) -->
+                            {% for f in findings %}
+                            {% if f.screenshot_path %}
+                            {% set has_shots = true %}
+                            <div class="col-md-4 col-lg-3">
+                                <div
+                                    class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+                                    <img src="{{ url_for('static', filename=f.screenshot_path) }}"
+                                        class="img-fluid w-100"
+                                        style="height: 120px; object-fit: cover; cursor: pointer;"
+                                        onclick="window.open(this.src)" title="{{ f.title }}">
+                                    <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
+                                        <span class="text-danger">EXPOSURE</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+
                             {% if not has_shots %}
                             <div class="col-12 text-center py-4 text-muted">
                                 <i class="fas fa-image-slash fa-2x mb-2 opacity-25"></i>
@@ -494,11 +521,22 @@
                         Recon</div>
                     <div class="card-body p-3">
                         <div class="row g-3 text-center">
-                            {% set vuln_types = {'XSS': 'xss', 'LFI': 'lfi', 'RFI': 'rfi', 'SSTI': 'ssti', 'SQLi':
-                            'sql'} %}
+                            {% set vuln_types = {'XSS': 'xss', 'LFI': 'lfi', 'SQLi': 'sql', 'API': 'api', 'CMS': 'cms',
+                            'SECRETS': 'secret'} %}
                             {% for label, keyword in vuln_types.items() %}
                             {% set detected = false %}
-                            {% if results.phases.vuln and results.phases.vuln.nuclei and
+
+                            <!-- Check general findings list -->
+                            {% for finding in findings %}
+                            {% if keyword in finding.title|lower or (keyword == 'api' and finding.tool_source ==
+                            'api_expert') or (keyword == 'cms' and finding.tool_source == 'cms_scanner') or (keyword ==
+                            'secret' and finding.tool_source == 'secret_scanner') %}
+                            {% set detected = true %}
+                            {% endif %}
+                            {% endfor %}
+
+                            <!-- Check Nuclei specifically if not found in findings -->
+                            {% if not detected and results.phases.vuln and results.phases.vuln.nuclei and
                             results.phases.vuln.nuclei.findings %}
                             {% for f in results.phases.vuln.nuclei.findings %}
                             {% if keyword in f.title|lower %}
@@ -528,7 +566,7 @@
 
                             <div class="col">
                                 <div
-                                    class="p-3 border rounded {{ 'border-danger bg-danger bg-opacity-10' if detected else 'border-success bg-success bg-opacity-10' }} position-relative overflow-hidden">
+                                    class="p-3 border rounded {{ 'border-danger bg-danger bg-opacity-10' if detected else 'border-success bg-success bg-opacity-10' }} position-relative overflow-hidden vuln-indicator-{{ keyword }}">
                                     <div
                                         class="fw-bold display-6 mb-0 {{ 'text-danger' if detected else 'text-success' }}">
                                         {% if detected %}
@@ -1690,14 +1728,83 @@
 
                     const div = document.createElement("div");
                     div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
-                    div.innerHTML = `
+
+                    let innerHTML = `
                         <div class="d-flex w-100 justify-content-between mb-2">
-                            <span class="badge severity-badge ${data.severity}">${data.severity.toUpperCase()}</span>
+                            <span class="badge severity-badge ${data.severity.toLowerCase()}">${data.severity.toUpperCase()}</span>
                             <span class="result-text fw-bold text-break">${data.title}</span>
                         </div>
                         <div class="mt-1 small text-muted text-break">Source: ${data.tool}</div>
                     `;
+
+                    if (data.description) {
+                        innerHTML += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${data.description}</div>`;
+                    }
+
+                    if (data.screenshot_path) {
+                        innerHTML += `
+                            <div class="mt-2 w-100">
+                                <img src="/static/${data.screenshot_path}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)">
+                            </div>
+                        `;
+
+                        // Also add to visual gallery if it exists
+                        const gallery = document.getElementById("visual-recon-gallery");
+                        if (gallery) {
+                            const emptyImg = gallery.querySelector(".text-center.py-4");
+                            if (emptyImg) emptyImg.remove();
+
+                            const col = document.createElement("div");
+                            col.className = "col-md-4 col-lg-3 animate__animated animate__zoomIn";
+                            col.innerHTML = `
+                                <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+                                    <img src="/static/${data.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${data.title}">
+                                    <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
+                                        <span class="text-danger">NEW EXPOSURE</span>
+                                    </div>
+                                </div>
+                            `;
+                            gallery.prepend(col);
+                        }
+                    }
+
+                    div.innerHTML = innerHTML;
                     list.prepend(div);
+
+                    updateRiskCounters(data.severity);
+
+                    // Trigger indicator update (simple way: search for keywords)
+                    const titleLower = data.title.toLowerCase();
+                    const indicators = {
+                        'xss': ['xss'],
+                        'lfi': ['lfi'],
+                        'sql': ['sql', 'injection'],
+                        'api': ['api', 'swagger', 'openapi', 'expert'],
+                        'cms': ['cms', 'wordpress', 'drupal', 'joomla'],
+                        'secret': ['secret', 'token', 'key']
+                    };
+
+                    for (const [key, keywords] of Object.entries(indicators)) {
+                        if (keywords.some(k => titleLower.includes(k) || (data.tool && data.tool.toLowerCase().includes(k)))) {
+                            const indicatorCard = document.querySelector(`.vuln-indicator-${key}`);
+                            if (indicatorCard) {
+                                indicatorCard.classList.remove('border-success', 'bg-success', 'bg-opacity-10');
+                                indicatorCard.classList.add('border-danger', 'bg-danger', 'bg-opacity-10');
+                                const icon = indicatorCard.querySelector('.fa-shield-alt');
+                                if (icon) {
+                                    icon.classList.remove('fa-shield-alt', 'text-success');
+                                    icon.classList.add('fa-exclamation-circle', 'text-danger');
+                                }
+                                const label = indicatorCard.querySelector('.text-success');
+                                if (label) {
+                                    label.classList.remove('text-success');
+                                    label.classList.add('text-danger');
+                                }
+                                const status = indicatorCard.querySelector('.text-muted');
+                                if (status) status.innerText = 'Detected';
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -1853,7 +1960,18 @@
             modal.show();
         }
 
-        // --- UI UPDATE ENGINE ---
+        function updateRiskCounters(severity) {
+            const sev = severity.toLowerCase();
+            if (sev === 'critical' || sev === 'high') {
+                const el = document.querySelector(`.tactical-summary-bar .h4.text-${sev === 'critical' ? 'danger' : 'warning'}`);
+                if (el) {
+                    let count = parseInt(el.innerText) + 1;
+                    el.innerText = count;
+                    el.classList.remove('text-muted');
+                    if (sev === 'critical') el.classList.add('pulse-danger');
+                }
+            }
+        }
         window.updateUI = function (results) {
             if (!results) return;
 

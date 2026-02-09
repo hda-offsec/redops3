@@ -212,7 +212,9 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
             "scan_id": scan_id,
             "title": title,
             "severity": severity,
-            "tool": tool
+            "tool": tool,
+            "description": description,
+            "screenshot_path": screenshot_path
         }, room=f"scan_{scan_id}")
 
         # Global Alert for Critical Issues
