@@ -29,6 +29,8 @@ from scan_engine.step03_vuln.subdomain_expert import SubdomainExpertScanner
 from scan_engine.step03_vuln.auth_bruter import AuthBruteScanner
 from scan_engine.step03_vuln.cms_scanner import CMSScanner
 from scan_engine.step03_vuln.directory_scanner import DirectoryScanner
+from scan_engine.step03_vuln.secret_scanner import SecretScanner
+from scan_engine.step03_vuln.js_vuln_scanner import JSVulnScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -1317,6 +1319,40 @@ class ScanOrchestrator:
                         )
             except Exception as e:
                 self.log(f"Tech exposure audit failed on port {port}: {e}", "DEBUG")
+
+            # --- JS DEPENDENCY & SECRET AUDIT ---
+            try:
+                # 1. Secret Hunting in Headers & Body
+                ss = SecretScanner()
+                resp_text = resp.text
+                header_text = str(dict(headers))
+                
+                s_findings = ss.scan_text(header_text, f"HTTP Headers ({port})")
+                s_findings.extend(ss.scan_text(resp_text, f"Response Body ({port})"))
+                
+                if s_findings:
+                    for f in s_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="secret_scanner"
+                        )
+
+                # 2. JS Vulnerability Audit (Outdated Libraries)
+                js_scanner = JSVulnScanner(self.target)
+                js_findings = js_scanner.audit_js_endpoints(url, logger=self.log)
+                if js_findings:
+                    for f in js_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="js_vuln_scanner"
+                        )
+                    self.save_results(self.scan_id, results)
+            except Exception as e:
+                self.log(f"JS/Secret audit failed on port {port}: {e}", "DEBUG")
 
         except Exception as e:
             self.log(f"Header analysis request failed: {e}", "DEBUG")
