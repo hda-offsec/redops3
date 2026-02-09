@@ -21,6 +21,7 @@ from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step03_vuln.takeover_scanner import TakeoverScanner
 from scan_engine.step03_vuln.open_redirect_scanner import OpenRedirectScanner
 from scan_engine.step03_vuln.jwt_scanner import JWTScanner
+from scan_engine.step03_vuln.header_fuzzer import HeaderFuzzer
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -1168,6 +1169,21 @@ class ScanOrchestrator:
                         )
             except Exception as e:
                 self.log(f"JWT scanning failed on port {port}: {e}", "DEBUG")
+
+            # --- ADVANCED HEADER FUZZING ---
+            try:
+                fz = HeaderFuzzer(self.target)
+                fz_findings = fz.audit_headers(port, proto, logger=self.log)
+                if fz_findings:
+                    for f in fz_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="header_fuzzer"
+                        )
+            except Exception as e:
+                self.log(f"Header fuzzing failed on port {port}: {e}", "DEBUG")
 
         except Exception as e:
             self.log(f"Header analysis request failed: {e}", "DEBUG")
