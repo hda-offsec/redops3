@@ -25,6 +25,8 @@ from scan_engine.step03_vuln.header_fuzzer import HeaderFuzzer
 from scan_engine.step03_vuln.git_scanner import GitExposureScanner
 from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
 from scan_engine.step03_vuln.db_scanner import DBScanner
+from scan_engine.step03_vuln.subdomain_expert import SubdomainExpertScanner
+from scan_engine.step03_vuln.auth_bruter import AuthBruteScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -235,6 +237,19 @@ class ScanOrchestrator:
 
             # --- PHASE 0.8: Potential Takeover Check ---
             try:
+                # 1. Expert Logic-based check (CNAME Analysis)
+                expert_scanner = SubdomainExpertScanner(self.target)
+                expert_findings = expert_scanner.check_takeover(dns_results.get("subdomains", []), logger=self.log)
+                if expert_findings:
+                    for f in expert_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="subdomain_expert"
+                        )
+
+                # 2. Nuclei-based check (Template Scanning)
                 takeover_scanner = TakeoverScanner(self.target)
                 if takeover_scanner.check_tools():
                     # RED TEAM: Scan all discovered subdomains, not just the root
@@ -455,6 +470,24 @@ class ScanOrchestrator:
                     self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"DB Audit failed: {e}", "ERROR")
+
+        # --- PHASE 3.7: Authentication Brute Force ---
+        if open_ports:
+            try:
+                self.log("Phase 3.7: Auditing authentication services (SSH, FTP)...", "INFO")
+                auth_bruter = AuthBruteScanner(self.target)
+                auth_findings = auth_bruter.run_all(open_ports, logger=self.log)
+                if auth_findings:
+                    for f in auth_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="auth_bruter"
+                        )
+                    self.save_results(self.scan_id, results)
+            except Exception as e:
+                self.log(f"Auth Brute-force failed: {e}", "ERROR")
         
         # --- PHASE 4: Auto-Enumeration (Web) ---
         self._emit_progress(60, "Web Enumeration")
