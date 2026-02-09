@@ -31,6 +31,7 @@ from scan_engine.step03_vuln.cms_scanner import CMSScanner
 from scan_engine.step03_vuln.directory_scanner import DirectoryScanner
 from scan_engine.step03_vuln.secret_scanner import SecretScanner
 from scan_engine.step03_vuln.js_vuln_scanner import JSVulnScanner
+from scan_engine.step03_vuln.api_expert_scanner import APIExpertScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -958,6 +959,22 @@ class ScanOrchestrator:
                                         tool_source="ffuf",
                                         command=shlex.join(cmd_api)
                                     )
+
+                                    # --- EXPERT API ANALYSIS ---
+                                    try:
+                                        api_expert = APIExpertScanner(self.target)
+                                        expert_findings = api_expert.audit_endpoints(api_endpoints, logger=self.log)
+                                        if expert_findings:
+                                            for f in expert_findings:
+                                                self.add_finding(
+                                                    title=f['title'],
+                                                    description=f['description'],
+                                                    severity=f['severity'],
+                                                    tool_source="api_expert"
+                                                )
+                                            self.save_results(self.scan_id, results)
+                                    except Exception as e:
+                                         self.log(f"API Expert analysis failed for port {port}: {e}", "DEBUG")
                         except Exception as e:
                             self.log(f"API discovery failed: {e}", "ERROR")
 
