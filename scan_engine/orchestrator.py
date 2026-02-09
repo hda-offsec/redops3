@@ -27,6 +27,7 @@ from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
 from scan_engine.step03_vuln.db_scanner import DBScanner
 from scan_engine.step03_vuln.subdomain_expert import SubdomainExpertScanner
 from scan_engine.step03_vuln.auth_bruter import AuthBruteScanner
+from scan_engine.step03_vuln.cms_scanner import CMSScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -556,7 +557,27 @@ class ScanOrchestrator:
                                 for k, v in tech_summary.items():
                                     results['phases']['enum']['whatweb']['summary'][f"{k} ({port})"] = v
                                     
-                                self.save_results(self.scan_id, results) 
+                                self.save_results(self.scan_id, results)
+
+                            # --- CMS EXPERT AUDIT (Top 7) ---
+                            try:
+                                cms_scanner = CMSScanner(self.target)
+                                cms_list = cms_scanner.detect_cms(full_ww)
+                                if cms_list:
+                                    for cms in cms_list:
+                                        self.log(f"CMS Detected: {cms.upper()} on port {port}. Triggering expert audit...", "WARN")
+                                        cms_findings = cms_scanner.audit_cms(f"{proto}://{self.target}:{port}", cms, logger=self.log)
+                                        if cms_findings:
+                                            for f in cms_findings:
+                                                self.add_finding(
+                                                    title=f['title'],
+                                                    description=f['description'],
+                                                    severity=f['severity'],
+                                                    tool_source=f['tool_source']
+                                                )
+                                            self.save_results(self.scan_id, results)
+                            except Exception as e:
+                                self.log(f"CMS Expert Audit failed for port {port}: {e}", "DEBUG")
 
                         except Exception as e:
                             self.log(f"Error during Web Recon on port {port}: {str(e)}", "ERROR")
