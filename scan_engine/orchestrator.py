@@ -24,6 +24,7 @@ from scan_engine.step03_vuln.jwt_scanner import JWTScanner
 from scan_engine.step03_vuln.header_fuzzer import HeaderFuzzer
 from scan_engine.step03_vuln.git_scanner import GitExposureScanner
 from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
+from scan_engine.step03_vuln.db_scanner import DBScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -436,6 +437,24 @@ class ScanOrchestrator:
                 self.save_results(self.scan_id, results)
         except Exception as e:
             self.log(f"Phase 3 (Analysis) encountered an error: {e}", "ERROR")
+
+        # --- PHASE 3.5: Database Audit ---
+        if open_ports:
+            try:
+                self.log("Phase 3.5: Checking for database misconfigurations...", "INFO")
+                db_scanner = DBScanner(self.target)
+                db_findings = db_scanner.run_all(open_ports, logger=self.log)
+                if db_findings:
+                    for f in db_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="db_audit"
+                        )
+                    self.save_results(self.scan_id, results)
+            except Exception as e:
+                self.log(f"DB Audit failed: {e}", "ERROR")
         
         # --- PHASE 4: Auto-Enumeration (Web) ---
         self._emit_progress(60, "Web Enumeration")
