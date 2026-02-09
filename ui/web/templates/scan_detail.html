@@ -1006,8 +1006,19 @@
                                             {% for ep in endpoints %}
                                             <div class="col-md-6">
                                                 <div
-                                                    class="font-monospace x-small text-cyber p-1 bg-dark mb-1 rounded border border-dark">
-                                                    /{{ ep }}</div>
+                                                    class="d-flex justify-content-between align-items-center p-2 bg-dark mb-1 rounded border border-secondary border-opacity-25 hover-action">
+                                                    <div class="font-monospace x-small text-info text-truncate flex-grow-1"
+                                                        title="{{ ep.url if ep.url is defined else ep }}">
+                                                        /{{ ep.path if ep.path is defined else ep }}
+                                                    </div>
+                                                    <div class="ms-2">
+                                                        {% if ep.status is defined %}
+                                                        <span
+                                                            class="badge {% if ep.status|int < 300 %}bg-success{% elif ep.status|int < 400 %}bg-info{% else %}bg-warning text-dark{% endif %} x-small">{{
+                                                            ep.status }}</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
                                             </div>
                                             {% endfor %}
                                         </div>

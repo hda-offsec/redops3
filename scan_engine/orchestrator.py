@@ -770,14 +770,33 @@ class ScanOrchestrator:
                                 results['commands'].append({'tool': 'ffuf-api', 'cmd': ' '.join(cmd_api)})
                                 self.log(f"Executing: {' '.join(cmd_api)}", "DEBUG")
                                 
+                                # Use robust ffuf parsing (regex defined in Phase 6 but let's define it once here)
+                                ffuf_pattern = re.compile(r"^(?P<path>\S+)\s+\[Status:\s+(?P<status>\d+),\s+Size:\s+(?P<size>\d+),.*\]")
+                                
                                 api_stream = api_scanner.stream_api_discovery(port, proto, logger=self.log)
                                 api_endpoints = []
                                 for event in api_stream:
                                     if event['type'] == 'stdout':
                                         line = ProcessManager.strip_ansi(event['line'].strip())
-                                        if line and not any(noise in line for noise in [":: Progress:", "[2K"]):
-                                            # Clean up ffuf artifacts
-                                            api_endpoints.append(line)
+                                        if line:
+                                            # Skip banner/header noise
+                                            if any(x in line for x in ["::", "Method", "URL", "Wordlist", "________________"]):
+                                                continue
+                                            
+                                            match = ffuf_pattern.match(line)
+                                            if match:
+                                                path = match.group("path")
+                                                status = match.group("status")
+                                                size = match.group("size")
+                                                full_url = f"{proto}://{self.target}:{port}/{path.lstrip('/')}"
+                                                
+                                                api_endpoints.append({
+                                                    "path": path,
+                                                    "status": status,
+                                                    "size": size,
+                                                    "url": full_url
+                                                })
+                                                self.log(f"🎯 API Found: /{path} [Status: {status}]", "SUCCESS")
                                 
                                 if api_endpoints:
                                     self.log(f"API Discovery: Found {len(api_endpoints)} potential endpoints on port {port}", "SUCCESS")
@@ -785,11 +804,14 @@ class ScanOrchestrator:
                                     if 'api' not in results['phases']['enum']: results['phases']['enum']['api'] = {}
                                     results['phases']['enum']['api'][str(port)] = api_endpoints
                                     self.save_results(self.scan_id, results)
+                                    
+                                    desc_list = [f"/{e['path']} (Status: {e['status']})" for e in api_endpoints[:20]]
                                     self.add_finding(
                                         title=f"API Endpoints Discovered ({port})",
-                                        description="\n".join(api_endpoints[:20]),
+                                        description="\n".join(desc_list),
                                         severity="low",
-                                        tool_source="ffuf"
+                                        tool_source="ffuf",
+                                        command=' '.join(cmd_api)
                                     )
                         except Exception as e:
                             self.log(f"API discovery failed: {e}", "ERROR")

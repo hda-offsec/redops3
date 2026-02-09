@@ -11,21 +11,47 @@ class APIScanner:
     def get_command(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}/FUZZ"
         wordlist = os.path.join(os.getcwd(), "data", "wordlists", "api_endpoints.txt")
-        # Ensure list exists (same logic as before)
-        if not os.path.exists(wordlist):
-            os.makedirs(os.path.dirname(wordlist), exist_ok=True)
-            with open(wordlist, "w") as f:
-                f.writelines([
-                    "api/v1\n", "api/v2\n", "v1\n", "v2\n", "graphql\n", "swagger\n", 
-                    "swagger.json\n", "swagger-ui.html\n", "api-docs\n", "api/docs\n",
-                    "v1/api-docs\n", "rest\n", "api/swagger-ui\n", "api/graphiql\n",
-                    "api/v1/user\n", "api/v1/auth\n", "api/v1/config\n"
-                ])
+        
+        # Comprehensive list of common Swagger/OpenAPI endpoints
+        endpoints = [
+            'swagger-ui.html', 'openapi.json', 'v2/api-docs', 'v3/api-docs',
+            'swagger.json', 'api-docs', 'docs', 'swagger-ui/', 'swagger-ui/index.html',
+            'api/swagger.json', 'api/swagger-ui.html', 'swagger.yaml', 'swagger.yml',
+            'api/swagger.yaml', 'api/swagger.yml', 'swagger-resources',
+            'swagger-resources/configuration/ui', 'swagger-resources/configuration/security',
+            'api/swagger-resources', 'api/v2/swagger.json', 'api/v3/swagger.json',
+            'api/v1/documentation', 'api/v2/documentation', 'api/v3/documentation',
+            'api/v1/api-docs', 'api/v2/api-docs', 'api/v3/api-docs',
+            'api/swagger', 'api/docs', 'api/swagger-ui', 'api.json', 'api.yaml',
+            'api.yml', 'api.html', 'documentation/swagger.json', 'documentation/swagger.yaml',
+            'documentation/swagger.yml', 'documentation/swagger-ui.html',
+            'documentation/swagger-ui', 'swagger/index.html', 'swagger-ui.html/v2/api-docs',
+            'swagger-ui.html/v3/api-docs', 'swagger/v2/api-docs', 'swagger/v3/api-docs',
+            'api/swagger/v2/api-docs', 'api/swagger/v3/api-docs', 'classicapi/doc/',
+            'api-doc', 'api/package_search/v4/documentation', 'api/2/explore/', 
+            'apidoc', 'apidocs', 'application', 'backoffice/v1/ui', 
+            'build/reference/web-api/explore', 'core/latest/swagger-ui/index.html', 
+            'csp/gateway/slc/api/swagger-ui.html', 'doc', 'internal/docs', 
+            'rest/v1', 'rest/v3/doc', 'swagger', 'swaggerui', 'ui', 
+            'ui/', 'v1', 'v1.0', 'v1.1', 'v2', 'v2.0', 'v3',
+            'v1.x/swagger-ui.html', 'swagger/swagger-ui.html', 'swagger/index.html',
+            'api/v1', 'api/v2', 'graphql', 'api/graphiql', 'api/v1/user', 'api/v1/auth', 'api/v1/config'
+        ]
+        
+        # Deduplicate and sort for consistency
+        unique_endpoints = sorted(list(set(endpoints)))
+        
+        # Always ensure wordlist is up-to-date with our enriched list
+        os.makedirs(os.path.dirname(wordlist), exist_ok=True)
+        with open(wordlist, "w") as f:
+            for ep in unique_endpoints:
+                f.write(f"{ep}\n")
+
         return [
             "ffuf", "-u", url, "-w", wordlist,
             "-mc", "200,201,204,401,403,405",
-            "-sf",
-            "-ac"
+            "-ac",
+            "-noninteractive"
         ]
 
     def stream_api_discovery(self, port, protocol='http', logger=None):
