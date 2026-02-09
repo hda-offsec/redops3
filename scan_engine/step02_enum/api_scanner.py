@@ -12,7 +12,7 @@ class APIScanner:
         url = f"{protocol}://{self.target}:{port}/FUZZ"
         wordlist = os.path.join(os.getcwd(), "data", "wordlists", "api_endpoints.txt")
         
-        # Comprehensive list of common Swagger/OpenAPI endpoints
+        # Comprehensive list of common Swagger/OpenAPI and API endpoints
         endpoints = [
             'swagger-ui.html', 'openapi.json', 'v2/api-docs', 'v3/api-docs',
             'swagger.json', 'api-docs', 'docs', 'swagger-ui/', 'swagger-ui/index.html',
@@ -35,7 +35,19 @@ class APIScanner:
             'rest/v1', 'rest/v3/doc', 'swagger', 'swaggerui', 'ui', 
             'ui/', 'v1', 'v1.0', 'v1.1', 'v2', 'v2.0', 'v3',
             'v1.x/swagger-ui.html', 'swagger/swagger-ui.html', 'swagger/index.html',
-            'api/v1', 'api/v2', 'graphql', 'api/graphiql', 'api/v1/user', 'api/v1/auth', 'api/v1/config'
+            'api/v1', 'api/v2', 'graphql', 'api/graphiql', 'api/v1/user', 'api/v1/auth', 'api/v1/config',
+            # Additional common API paths
+            'actuator', 'actuator/health', 'actuator/info', 'actuator/env', 'actuator/metrics',
+            'api/v1/health', 'api/v2/health', 'health', 'info', 'version', 'status',
+            'api/v1/login', 'api/v1/signup', 'api/v1/register', 'api/v1/profile',
+            'api/v1/admin', 'api/v1/settings', 'api/v1/debug', 'api/v1/test',
+            'api/v1/swagger', 'api/v1/docs', 'api/v1/api-docs',
+            'api/v2/login', 'api/v2/signup', 'api/v2/register', 'api/v2/profile',
+            'api/v2/admin', 'api/v2/settings', 'api/v2/debug', 'api/v2/test',
+            'api/v2/swagger', 'api/v2/docs', 'api/v2/api-docs',
+            'config', 'settings', 'admin', 'manage', 'management', 'private', 'internal',
+            'api/private', 'api/internal', 'api/admin', 'api/manage', 'api/management',
+            'metrics', 'prometheus', 'robots.txt', 'sitemap.xml', '.env', '.git/config'
         ]
         
         # Deduplicate and sort for consistency
@@ -49,8 +61,10 @@ class APIScanner:
 
         return [
             "ffuf", "-u", url, "-w", wordlist,
+            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
             "-mc", "200,201,204,401,403,405",
-            "-ac",
+            "-t", "50",
+            "-timeout", "5",
             "-noninteractive"
         ]
 
