@@ -10,6 +10,7 @@
         --cyber-red: #ff2a2a;
         --cyber-blue: #00f0ff;
         --cyber-yellow: #f39c12;
+        --cyber-purple: #bc13fe;
     }
 
     .glass-panel {
@@ -45,7 +46,7 @@
     }
 
     .pulse-danger {
-        box-shadow: 0 0 0 0 rgba(255, 42, 42, 0.7);
+        box-shadow: 0 0 0 0 rgba(255, 42, 42, 0.7) !important;
         animation: pulse-danger 2s infinite;
     }
 
@@ -218,6 +219,74 @@
     <!-- MAIN DASHBOARD CONTENT -->
     <div class="col-lg-8">
         <div class="row g-4">
+            <!-- CRITICAL FINDINGS STRIP -->
+            {% set critical_findings = [] %}
+            {% for f in findings %}
+            {% if f.severity == 'critical' %}
+            {% if critical_findings.append(f) %}{% endif %}
+            {% endif %}
+            {% endfor %}
+
+            {% if critical_findings %}
+            <div class="col-12 animate__animated animate__shakeX">
+                <div class="card glass-panel border-danger border-2"
+                    style="background: linear-gradient(135deg, rgba(255, 42, 42, 0.15), rgba(10, 10, 12, 0.8));">
+                    <div
+                        class="card-header glass-header text-danger fw-bold d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-radiation-alt me-2 animate-flicker"></i>CRITICAL BREACH VECTORS
+                            IDENTIFIED</span>
+                        <span class="badge bg-danger pulse-danger">{{ critical_findings|length }} CRITICAL</span>
+                    </div>
+                    <div class="card-body p-0">
+                        {% for f in critical_findings %}
+                        <div
+                            class="d-flex align-items-center p-3 border-bottom border-danger border-opacity-25 hover-action">
+                            <div class="me-3">
+                                {% if 'redis' in f.title|lower or 'mongo' in f.title|lower or 'db' in f.title|lower %}
+                                <i class="fas fa-database text-danger fa-2x"></i>
+                                {% elif '.git' in f.title|lower or '.env' in f.title|lower %}
+                                <i class="fas fa-unlock-alt text-danger fa-2x"></i>
+                                {% elif 'jwt' in f.title|lower %}
+                                <i class="fas fa-fingerprint text-danger fa-2x"></i>
+                                {% else %}
+                                <i class="fas fa-bug text-danger fa-2x"></i>
+                                {% endif %}
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="fw-bold text-danger text-uppercase small">{{ f.title }}</div>
+                                <div class="text-muted x-small mt-1 text-truncate" style="max-width: 500px;">{{
+                                    f.description|truncate(150) }}</div>
+                            </div>
+                            <div class="ms-auto">
+                                <button class="btn btn-xs btn-outline-danger" data-bs-toggle="modal"
+                                    data-bs-target="#findingModal{{ loop.index }}">
+                                    EXPLOIT INTEL <i class="fas fa-chevron-right ms-1"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Simple Modal for Critical Finding -->
+                        <div class="modal fade" id="findingModal{{ loop.index }}" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog modal-lg modal-dialog-centered">
+                                <div class="modal-content glass-panel border-danger">
+                                    <div class="modal-header glass-header border-danger">
+                                        <h5 class="modal-title text-danger"><i class="fas fa-biohazard me-2"></i>{{
+                                            f.title }}</h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                                            aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body text-light">
+                                        <div class="bg-black p-3 rounded border border-secondary font-monospace small"
+                                            style="white-space: pre-wrap;">{{ f.description }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
             <!-- NETWORK MAP VISUALIZATION -->
             <div class="col-12">
                 <div class="card glass-panel">
