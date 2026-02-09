@@ -28,6 +28,7 @@ from scan_engine.step03_vuln.db_scanner import DBScanner
 from scan_engine.step03_vuln.subdomain_expert import SubdomainExpertScanner
 from scan_engine.step03_vuln.auth_bruter import AuthBruteScanner
 from scan_engine.step03_vuln.cms_scanner import CMSScanner
+from scan_engine.step03_vuln.directory_scanner import DirectoryScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
@@ -698,6 +699,29 @@ class ScanOrchestrator:
                                         if 'enum' not in results['phases']: results['phases']['enum'] = {}
                                         results['phases']['enum']['katana'] = {str(port): endpoints[:100]} # limit UI display
                                         self.save_results(self.scan_id, results)
+
+                                        # --- DIRECTORY LISTING AUDIT ---
+                                        try:
+                                            ds = DirectoryScanner(self.target, self.scan_id)
+                                            # Red Team: specifically target likely directories (root, /config, /backup, /files)
+                                            # or all found endpoints that look like directories
+                                            dir_candidates = [f"{proto}://{self.target}:{port}/"]
+                                            for ep in endpoints:
+                                                if ep.endswith('/'): dir_candidates.append(ep)
+                                            
+                                            dir_findings = ds.audit_endpoints(list(set(dir_candidates))[:10], logger=self.log)
+                                            if dir_findings:
+                                                for f in dir_findings:
+                                                    self.add_finding(
+                                                        title=f['title'],
+                                                        description=f['description'],
+                                                        severity=f['severity'],
+                                                        tool_source=f['tool_source'],
+                                                        screenshot_path=f.get('screenshot_path')
+                                                    )
+                                                self.save_results(self.scan_id, results)
+                                        except Exception as e:
+                                            self.log(f"Directory audit failed for port {port}: {e}", "DEBUG")
                                 except Exception as e:
                                     self.log(f"Katana error on port {port}: {str(e)}", "ERROR")
                         except Exception as e:
