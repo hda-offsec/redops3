@@ -30,11 +30,10 @@ class FfufScanner:
             "ffuf", 
             "-u", url, 
             "-w", wlist,
-            "-mc", "200,204,301,302,307,401,403",
-            "-ac",  
-            "-noninteractive",
-            "-recursion",
-            "-recursion-depth", "5"
+            "-mc", "200,204,301,302,307,401,403,405",
+            "-r",
+            "-t", "50",
+            "-noninteractive"
         ]
 
     def stream_fuzz(self, port=None, protocol='http', wordlist=None):

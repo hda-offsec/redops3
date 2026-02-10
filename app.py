@@ -39,6 +39,7 @@ def ensure_sqlite_directory(uri, root_path):
 
 def create_app():
     app = Flask(__name__, template_folder="ui/web/templates", static_folder="ui/web/static")
+    app.jinja_env.add_extension('jinja2.ext.do')
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 
     basedir = os.path.abspath(os.path.dirname(__file__))

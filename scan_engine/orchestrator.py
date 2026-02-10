@@ -1230,17 +1230,13 @@ class ScanOrchestrator:
                         if found_items:
                             if 'dirbusting' not in results['phases']: 
                                 results['phases']['dirbusting'] = {'ffuf': {'endpoints': []}}
+                            # Ensure the endpoints list exists before appending
+                            if 'ffuf' not in results['phases']['dirbusting']:
+                                results['phases']['dirbusting']['ffuf'] = {'endpoints': []}
+                            elif 'endpoints' not in results['phases']['dirbusting']['ffuf']:
+                                results['phases']['dirbusting']['ffuf']['endpoints'] = []
                             
                             for item in found_items:
-                                # Attempt to clean / leading if present
-                                clean_item = item.lstrip('/')
-                                # Ensure we don't duplicate existing endpoints structure if appending
-                                # Actually we are appending to a fresh list in memory `found_items` then updating result dict
-                                # But `results['phases']['dirbusting']['ffuf']['endpoints']` might reset per port loop iteration if we re-init
-                                # Fix: init list outside loop or check exist
-                                if 'endpoints' not in results['phases']['dirbusting']['ffuf']:
-                                     results['phases']['dirbusting']['ffuf']['endpoints'] = []
-                                
                                 results['phases']['dirbusting']['ffuf']['endpoints'].append({
                                     "path": item["path"],
                                     "status": item["status"],

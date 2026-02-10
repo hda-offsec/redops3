@@ -114,7 +114,51 @@ def scan_osint(scan_id):
 @main_bp.route("/scan/<int:scan_id>")
 def scan_detail(scan_id):
     scan = Scan.query.get_or_404(scan_id)
-    results = load_results(scan_id) or {"phases": {}}
+    results_data = load_results(scan_id) or {}
+    
+    # Ensure a robust structure for the template
+    default_results = {
+        "scan_id": scan_id,
+        "target": scan.target.identifier,
+        "status": scan.status,
+        "progress": {"percent": 0, "current_phase": "Initializing"},
+        "phases": {
+            "recon": {"open_ports": [], "raw_output": ""},
+            "dns": {"subdomains": []},
+            "intel": {},
+            "osint": {
+                "cloud": [],
+                "favicon": {},
+                "github": [],
+                "emails": []
+            },
+            "enum": {
+                "whatweb": {},
+                "katana": {},
+                "waf": {},
+                "arjun": {},
+                "js_secrets": {},
+                "api": {}
+            },
+            "vuln": {
+                "nuclei": {"findings": []},
+                "takeover": [],
+                "wpscan": {}
+            },
+            "dirbusting": {
+                "ffuf": {"endpoints": []}
+            }
+        }
+    }
+    
+    from core.results_store import deep_merge
+    results = deep_merge(default_results, results_data)
+    
+    # Final safety: Ensure ID and Target always match the current scan record, 
+    # even if the loaded JSON file was stale or mismatched.
+    results['scan_id'] = scan.id
+    results['target'] = scan.target.identifier
+
     findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).order_by(Suggestion.id.desc()).all()
     logs = ScanLog.query.filter_by(scan_id=scan_id).order_by(ScanLog.timestamp.asc()).all()

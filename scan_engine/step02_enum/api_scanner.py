@@ -66,6 +66,7 @@ class APIScanner:
             "-H", "X-Originating-IP: 127.0.0.1",
             "-H", "X-Forwarded-Host: localhost",
             "-mc", "200,201,204,301,302,401,403,405",
+            "-r",
             "-t", "50",
             "-timeout", "5",
             "-noninteractive"
