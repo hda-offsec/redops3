@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 from sqlalchemy.engine.url import make_url
 from core.extensions import db, socketio, login_manager
 from core.celery_app import celery
+import urllib3
+
+# Suppress insecure request warnings for the local security tool
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Import models so they are registered with SQLAlchemy
 from core import models

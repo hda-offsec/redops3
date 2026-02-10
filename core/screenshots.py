@@ -26,8 +26,19 @@ async def capture_screenshot(url, filename):
             page = await browser.new_page()
             await page.set_viewport_size({"width": 1280, "height": 720})
             
-            # Wait for content to load, timeout 15s
-            await page.goto(url, wait_until="networkidle", timeout=15000)
+            # Wait for content to load, timeout 30s
+            try:
+                await page.goto(url, wait_until="load", timeout=30000)
+                # Attempt to wait for network idle but don't fail if it times out
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                except:
+                    pass
+            except Exception as e:
+                # If even "load" fails, one last try with no wait if we haven't timed out completely
+                print(f"[DEBUG] Screenshot 'load' failed for {url}, trying minimal wait: {e}")
+                await page.goto(url, wait_until="commit", timeout=10000)
+            
             await page.screenshot(path=path)
             await browser.close()
             return f"screenshots/{filename}"

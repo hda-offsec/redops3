@@ -82,6 +82,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
 
         def add_suggestion_cb(**kwargs):
             try:
+                from core.extensions import socketio
                 if 'scan_id' not in kwargs: kwargs['scan_id'] = scan_id
                 s = Suggestion(**kwargs)
                 db.session.add(s)
