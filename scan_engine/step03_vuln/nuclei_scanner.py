@@ -10,17 +10,29 @@ class NucleiScanner:
     def get_command(self, port, protocol='http', tags=None):
         path = ProcessManager.find_binary_path("nuclei") or "nuclei"
         url = f"{protocol}://{self.target}:{port}"
+        
+        # Expert Logic:
+        # 1. Use -severity (long form) for better compatibility
+        # 2. Increase -rl to 20 for faster execution without being too aggressive
+        # 3. ONLY use -as (Automatic Scan) if no tags are specified. 
+        #    Combining both leads to massive redundancy and slow scans.
         command = [
             path, 
             "-u", url, 
-            "-s", "critical,high,medium", 
-            "-as",
-            "-rl", "10",
+            "-severity", "critical,high,medium", 
+            "-rl", "20",
             "-no-color",
-            "-silent"
+            "-silent",
+            "-timeout", "5"
         ]
+        
         if tags:
+            # Targeted scan based on tags
             command.extend(["-tags", tags])
+        else:
+            # Fallback to smart automatic tech-based scan
+            command.append("-as")
+            
         return command
 
     def stream_vuln_scan(self, port, protocol='http', tags=None):
