@@ -33,6 +33,9 @@ from scan_engine.step03_vuln.secret_scanner import SecretScanner
 from scan_engine.step03_vuln.js_vuln_scanner import JSVulnScanner
 from scan_engine.step03_vuln.api_expert_scanner import APIExpertScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
+from scan_engine.step03_vuln.ssrf_scanner import SSRFScanner
+from scan_engine.step03_vuln.backup_scanner import BackupScanner
+from scan_engine.step03_vuln.graphql_scanner import GraphQLScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.helpers.process_manager import ProcessManager
 from core.analysis import AnalysisEngine
@@ -1000,6 +1003,31 @@ class ScanOrchestrator:
                         except Exception as e:
                             self.log(f"API discovery failed: {e}", "ERROR")
 
+                        # --- EXPERT: SSRF Probing (Cloud Metadata) ---
+                        try:
+                            # Use discovered API endpoints for SSRF probing
+                            discovered_endpoints = results.get('phases', {}).get('enum', {}).get('api', {}).get('discovered_endpoints', [])
+                            if discovered_endpoints:
+                                ssrf = SSRFScanner(self.target)
+                                ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=self.log)
+                                if ssrf_findings:
+                                    for f in ssrf_findings:
+                                        self.add_finding(
+                                            title=f['title'],
+                                            description=f['description'],
+                                            severity=f['severity'],
+                                            tool_source="ssrf_expert"
+                                        )
+                                        # HARVEST TO LOOT VAULT
+                                        if self.add_loot and f.get('raw_loot'):
+                                            self.add_loot(
+                                                loot_type=f.get('loot_type', 'Cloud Asset'),
+                                                content=f['raw_loot'],
+                                                context=f"Discovered via SSRF on {self.target}"
+                                            )
+                        except Exception as e:
+                            self.log(f"SSRF Expert probe failed: {e}", "DEBUG")
+
             except Exception as e:
                 self.log(f"Phase 4 (Web Enum) failed: {e}", "ERROR")
         
@@ -1358,6 +1386,50 @@ class ScanOrchestrator:
                         )
             except Exception as e:
                 self.log(f"Tech exposure audit failed on port {port}: {e}", "DEBUG")
+
+            # --- EXPERT: Backup & Archive Audit ---
+            try:
+                bs = BackupScanner(self.target)
+                bs_findings = bs.scan_backups(port, proto, logger=self.log)
+                if bs_findings:
+                    for f in bs_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="backup_expert"
+                        )
+                        # HARVEST TO LOOT VAULT
+                        if self.add_loot and f.get('raw_loot'):
+                            self.add_loot(
+                                loot_type=f.get('loot_type', 'Backup/Archive'),
+                                content=f['raw_loot'],
+                                context=f"Discovered in backup audit on {self.target}:{port}"
+                            )
+            except Exception as e:
+                self.log(f"Backup audit failed on port {port}: {e}", "DEBUG")
+
+            # --- EXPERT: GraphQL Audit ---
+            try:
+                gs = GraphQLScanner(self.target)
+                gs_findings = gs.audit_graphql(port, proto, logger=self.log)
+                if gs_findings:
+                    for f in gs_findings:
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="graphql_expert"
+                        )
+                        # HARVEST TO LOOT VAULT
+                        if self.add_loot and f.get('raw_loot'):
+                            self.add_loot(
+                                loot_type=f.get('loot_type', 'API Intelligence'),
+                                content=f['raw_loot'],
+                                context=f"Discovered via GraphQL audit on {self.target}:{port}"
+                            )
+            except Exception as e:
+                self.log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
 
             # --- JS DEPENDENCY & SECRET AUDIT ---
             try:
