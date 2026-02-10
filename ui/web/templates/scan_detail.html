@@ -2327,11 +2327,10 @@
             {% if results %}
             setTimeout(() => {
                 if (window.updateUI) {
-                    window.updateUI({{ results| tojson | safe }
-            });
-        }
+                    window.updateUI({{ results|tojson|safe }});
+                }
             }, 500);
-    {% endif %}
+            {% endif %}
 
     // Markdown Notes Preview
     const notesArea = document.querySelector('textarea[name="notes"]');
