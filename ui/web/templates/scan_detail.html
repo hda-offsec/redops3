@@ -2405,10 +2405,9 @@
             {% if results %}
             setTimeout(() => {
                 if (window.updateUI) {
-                    window.updateUI({{ results | tojson | safe }
-            });
+                    window.updateUI({{ results | tojson | safe }});
         }
-        }, 500);
+            }, 500);
     {% endif %}
 
     // Markdown Notes Preview
