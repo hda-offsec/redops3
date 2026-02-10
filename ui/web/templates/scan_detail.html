@@ -576,7 +576,8 @@
                             'SSRF': 'ssrf',
                             'GRAPHQL': 'graphql',
                             'BACKUPS': 'backup',
-                            'CLOUD': 'cloud'
+                            'CLOUD': 'cloud',
+                            'REDIRECT': 'redirect'
                             } %}
                             {% for label, keyword in vuln_types.items() %}
                             {% set detected = false %}
@@ -1299,6 +1300,260 @@
                                 style="max-height: 300px; overflow-y: auto;">{{ summary }}</pre>
                         </div>
                         {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- OPEN REDIRECT AUDIT -->
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.redirects %}
+            <div class="col-12">
+                <div class="card glass-panel border-warning">
+                    <div
+                        class="card-header glass-header text-warning d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-external-link-square-alt me-2"></i>Open Redirect Audit</span>
+                        <span class="badge bg-warning text-dark x-small">{{ results.phases.vuln.redirects|length }}
+                            VULNERABLE</span>
+                    </div>
+                    <div class="card-body">
+                        {% for r in results.phases.vuln.redirects %}
+                        <div class="p-3 bg-black border border-secondary rounded mb-2 hover-action">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <div class="text-warning small fw-bold mb-1">VULNERABLE PATH:</div>
+                                    <code class="text-light x-small text-break">{{ r.url }}</code>
+                                    <div class="text-muted small mt-2">Redirects to: <span class="text-info">{{
+                                            r.destination }}</span></div>
+                                </div>
+                                <div class="badge bg-warning text-dark ms-2">MEDIUM</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- XSS HUB (DALFOX) -->
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.xss %}
+            <div class="col-12">
+                <div class="card glass-panel border-danger">
+                    <div class="card-header glass-header text-danger d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-fire me-2"></i>Cross-Site Scripting (XSS) Hub</span>
+                        <span class="badge bg-danger x-small">CONFIRMED POCs</span>
+                    </div>
+                    <div class="card-body">
+                        {% for port, pocs in results.phases.vuln.xss.items() %}
+                        <div class="mb-3">
+                            <div
+                                class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-50 mb-2">
+                                PORT {{ port }}</div>
+                            {% for poc in pocs %}
+                            <div
+                                class="p-3 bg-black border border-danger border-opacity-25 rounded mb-2 font-monospace x-small text-danger text-break">
+                                <i class="fas fa-skull-crossbones me-2"></i>{{ poc }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- JS VULNERABILITY AUDIT (OUTDATED LIBS) -->
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.js_vulns %}
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header text-cyber d-flex justify-content-between align-items-center">
+                        <span><i class="fab fa-js-square me-2"></i>JS Vulnerability Audit (Outdated Libs)</span>
+                        <span class="badge bg-cyber text-dark x-small">Audit Mode</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="accordion" id="accordionJSVulns">
+                            {% for port, vulns in results.phases.vuln.js_vulns.items() %}
+                            <div class="accordion-item bg-black border-secondary mb-2">
+                                <h2 class="accordion-header">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-js-vuln-{{ port }}">
+                                        <span class="badge bg-cyber me-2">PORT {{ port }}</span>
+                                        <span class="small font-monospace">{{ vulns|length }} Libraries Flagged</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-js-vuln-{{ port }}" class="accordion-collapse collapse"
+                                    data-bs-parent="#accordionJSVulns">
+                                    <div class="accordion-body p-2">
+                                        {% for v in vulns %}
+                                        <div class="p-3 bg-dark-subtle border border-secondary rounded mb-2">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <span class="fw-bold text-cyber small">{{ v.title }}</span>
+                                                <span
+                                                    class="badge {{ 'bg-danger' if v.severity == 'high' else ('bg-warning text-dark' if v.severity == 'medium' else 'bg-info') }}">{{
+                                                    v.severity|upper }}</span>
+                                            </div>
+                                            <div class="x-small text-muted mb-0" style="white-space: pre-wrap;">{{
+                                                v.description }}</div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- SECURITY HEADERS & CORS AUDIT -->
+            {% if results and results.phases and results.phases.enum and results.phases.enum.headers %}
+            <div class="col-12">
+                <div class="card glass-panel">
+                    <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-shield-alt me-2"></i>Security Headers & CORS Audit</span>
+                        <span class="badge bg-info text-dark x-small">Protocol Intelligence</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="accordion" id="accordionHeaders">
+                            {% for port, headers in results.phases.enum.headers.items() %}
+                            <div class="accordion-item bg-black border-secondary mb-2">
+                                <h2 class="accordion-header">
+                                    <button
+                                        class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                                        type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#collapse-header-{{ port }}">
+                                        <span class="badge bg-info me-2">PORT {{ port }}</span>
+                                        <span class="small text-muted">HTTP Response Headers</span>
+                                    </button>
+                                </h2>
+                                <div id="collapse-header-{{ port }}" class="accordion-collapse collapse"
+                                    data-bs-parent="#accordionHeaders">
+                                    <div class="accordion-body p-0">
+                                        <div class="table-responsive">
+                                            <table class="table table-dark table-sm mb-0 x-small font-monospace">
+                                                <thead>
+                                                    <tr class="text-muted opacity-50 bg-black">
+                                                        <th class="ps-3 py-2">Header</th>
+                                                        <th class="py-2">Value</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for h, v in headers.items() %}
+                                                    <tr
+                                                        class="{{ 'bg-danger bg-opacity-10' if h|lower in ['access-control-allow-origin', 'content-security-policy', 'x-frame-options'] }}">
+                                                        <td class="ps-3 py-1 text-info">{{ h }}</td>
+                                                        <td class="py-1 text-muted text-break">{{ v }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- CRITICAL INFRASTRUCTURE & DATA EXPOSURE -->
+            {% if results and results.phases and results.phases.vuln and (results.phases.vuln.ssrf or
+            results.phases.vuln.graphql or results.phases.vuln.git or results.phases.vuln.backups or
+            results.phases.vuln.tech) %}
+            <div class="col-12">
+                <div class="card glass-panel border-cyber">
+                    <div class="card-header glass-header text-cyber d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-microchip me-2"></i>Critical Infrastructure & Data Exposure</span>
+                        <span class="badge bg-cyber text-dark x-small">EXPERT AUDIT</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            {% if results.phases.vuln.ssrf %}
+                            <div class="col-md-6">
+                                <div class="p-3 bg-black border border-danger border-opacity-50 rounded h-100">
+                                    <div class="text-danger small fw-bold mb-2"><i
+                                            class="fas fa-cloud-upload-alt me-2"></i>SSRF / Cloud Metadata</div>
+                                    {% for f in results.phases.vuln.ssrf %}
+                                    <div class="mb-2 p-2 bg-dark rounded x-small">
+                                        <div class="text-light fw-bold">{{ f.title }}</div>
+                                        <div class="text-muted">{{ f.description|truncate(150) }}</div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if results.phases.vuln.graphql %}
+                            <div class="col-md-6">
+                                <div class="p-3 bg-black border border-info border-opacity-50 rounded h-100">
+                                    <div class="text-info small fw-bold mb-2"><i
+                                            class="fas fa-project-diagram me-2"></i>GraphQL Intelligence</div>
+                                    {% for f in results.phases.vuln.graphql %}
+                                    <div class="mb-2 p-2 bg-dark rounded x-small">
+                                        <div class="text-light fw-bold">{{ f.title }}</div>
+                                        <div class="text-muted">{{ f.description|truncate(150) }}</div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if results.phases.vuln.git %}
+                            <div class="col-md-6">
+                                <div class="p-3 bg-black border border-warning border-opacity-50 rounded h-100">
+                                    <div class="text-warning small fw-bold mb-2"><i class="fab fa-git-alt me-2"></i>Git
+                                        Repository Exposure</div>
+                                    {% for f in results.phases.vuln.git %}
+                                    <div class="mb-2 p-2 bg-dark rounded x-small">
+                                        <div class="text-light fw-bold">{{ f.title }}</div>
+                                        <code class="text-warning">{{ f.description|truncate(100) }}</code>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if results.phases.vuln.backups %}
+                            <div class="col-md-6">
+                                <div class="p-3 bg-black border border-success border-opacity-50 rounded h-100">
+                                    <div class="text-success small fw-bold mb-2"><i
+                                            class="fas fa-archive me-2"></i>Backup & Archive Leaks</div>
+                                    {% for f in results.phases.vuln.backups %}
+                                    <div class="mb-2 p-2 bg-dark rounded x-small">
+                                        <div class="text-light fw-bold">{{ f.title }}</div>
+                                        <div class="text-muted">{{ f.description|truncate(100) }}</div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if results.phases.vuln.tech %}
+                            <div class="col-12">
+                                <div class="p-3 bg-black border border-secondary rounded">
+                                    <div class="text-secondary small fw-bold mb-2"><i
+                                            class="fas fa-file-code me-2"></i>Technical File Exposure (.env, config,
+                                        logs)</div>
+                                    <div class="row g-2">
+                                        {% for f in results.phases.vuln.tech %}
+                                        <div class="col-md-4">
+                                            <div
+                                                class="p-2 bg-dark rounded x-small border border-secondary border-opacity-25 h-100">
+                                                <div class="text-info fw-bold">{{ f.title }}</div>
+                                                <div class="text-muted x-small font-monospace">{{
+                                                    f.description|truncate(80) }}</div>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2405,7 +2660,8 @@
             {% if results %}
             setTimeout(() => {
                 if (window.updateUI) {
-                    window.updateUI({{ results | tojson | safe }});
+                    window.updateUI({{ results | tojson | safe }
+            });
         }
             }, 500);
     {% endif %}

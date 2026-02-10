@@ -912,7 +912,7 @@ class ScanOrchestrator:
                                         )
                                     
                                     if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                                    if 'redirects' not in results['phases']['vuln']: results['phases']['vuln']['redirects'] = or_findings
+                                    results['phases']['vuln']['redirects'] = or_findings
                                     self.save_results(self.scan_id, results)
                         except Exception as e:
                             self.log(f"Open Redirect audit failed: {e}", "ERROR")
@@ -1019,6 +1019,8 @@ class ScanOrchestrator:
                                 ssrf = SSRFScanner(self.target)
                                 ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=self.log)
                                 if ssrf_findings:
+                                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                    results['phases']['vuln']['ssrf'] = ssrf_findings
                                     for f in ssrf_findings:
                                         self.add_finding(
                                             title=f['title'],
@@ -1033,6 +1035,7 @@ class ScanOrchestrator:
                                                 content=f['raw_loot'],
                                                 context=f"Discovered via SSRF on {self.target}"
                                             )
+                                    self.save_results(self.scan_id, results)
                         except Exception as e:
                             self.log(f"SSRF Expert probe failed: {e}", "DEBUG")
 
@@ -1122,13 +1125,13 @@ class ScanOrchestrator:
                                     
                                     dalfox_stream = xss_scanner.stream_scan_xss(port, proto)
                                     
-                                    xss_found = False
+                                    xss_found = []
                                     for event in dalfox_stream:
                                         if event['type'] == 'stdout':
                                             line = event['line'].strip()
                                             if line and "POC" in line: # Dalfox usually outputs POC when found
                                                 self.log(f"⚔️ XSS DETECTED: {line}", "CRITICAL")
-                                                xss_found = True
+                                                xss_found.append(line)
                                                 
                                                 self.add_finding(
                                                     title=f"XSS Vulnerability Reflected ({port})",
@@ -1140,7 +1143,11 @@ class ScanOrchestrator:
                                             pass # Dalfox is noisy
                                             
                                     if xss_found:
+                                        if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                                        if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = {}
+                                        results['phases']['vuln']['xss'][str(port)] = xss_found
                                         self.log(f"XSS vulnerabilities confirmed on port {port}", "SUCCESS")
+                                        self.save_results(self.scan_id, results)
                                 else:
                                     self.log("Dalfox not found, skipping XSS deep-scan.", "WARN")
                             except Exception as e:
@@ -1366,6 +1373,8 @@ class ScanOrchestrator:
                 gs = GitExposureScanner(self.target)
                 gs_findings = gs.audit_git(port, proto, logger=self.log)
                 if gs_findings:
+                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                    results['phases']['vuln']['git'] = gs_findings
                     for f in gs_findings:
                         self.add_finding(
                             title=f['title'],
@@ -1373,6 +1382,7 @@ class ScanOrchestrator:
                             severity=f['severity'],
                             tool_source="git_scanner"
                         )
+                    self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"Git exposure audit failed on port {port}: {e}", "DEBUG")
 
@@ -1381,6 +1391,8 @@ class ScanOrchestrator:
                 ts = TechExposureScanner(self.target)
                 ts_findings = ts.audit(port, proto, logger=self.log)
                 if ts_findings:
+                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                    results['phases']['vuln']['tech'] = ts_findings
                     for f in ts_findings:
                         self.add_finding(
                             title=f['title'],
@@ -1388,6 +1400,7 @@ class ScanOrchestrator:
                             severity=f['severity'],
                             tool_source="tech_audit"
                         )
+                    self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"Tech exposure audit failed on port {port}: {e}", "DEBUG")
 
@@ -1396,6 +1409,8 @@ class ScanOrchestrator:
                 bs = BackupScanner(self.target)
                 bs_findings = bs.scan_backups(port, proto, logger=self.log)
                 if bs_findings:
+                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                    results['phases']['vuln']['backups'] = bs_findings
                     for f in bs_findings:
                         self.add_finding(
                             title=f['title'],
@@ -1410,6 +1425,7 @@ class ScanOrchestrator:
                                 content=f['raw_loot'],
                                 context=f"Discovered in backup audit on {self.target}:{port}"
                             )
+                    self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"Backup audit failed on port {port}: {e}", "DEBUG")
 
@@ -1418,6 +1434,8 @@ class ScanOrchestrator:
                 gs = GraphQLScanner(self.target)
                 gs_findings = gs.audit_graphql(port, proto, logger=self.log)
                 if gs_findings:
+                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                    results['phases']['vuln']['graphql'] = gs_findings
                     for f in gs_findings:
                         self.add_finding(
                             title=f['title'],
@@ -1432,6 +1450,7 @@ class ScanOrchestrator:
                                 content=f['raw_loot'],
                                 context=f"Discovered via GraphQL audit on {self.target}:{port}"
                             )
+                    self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
 
@@ -1465,6 +1484,10 @@ class ScanOrchestrator:
                 js_scanner = JSVulnScanner(self.target)
                 js_findings = js_scanner.audit_js_endpoints(url, logger=self.log)
                 if js_findings:
+                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                    if 'js_vulns' not in results['phases']['vuln']: results['phases']['vuln']['js_vulns'] = {}
+                    results['phases']['vuln']['js_vulns'][str(port)] = js_findings
+                    
                     for f in js_findings:
                         self.add_finding(
                             title=f['title'],
