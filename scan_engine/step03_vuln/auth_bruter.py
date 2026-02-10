@@ -49,6 +49,10 @@ class AuthBruteScanner:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
             
             if "Accounts:" in result.stdout or "Valid credentials" in result.stdout:
+                import re
+                creds_match = re.search(r"Accounts:\s+([^\n-]+)", result.stdout)
+                found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found (check logs)"
+
                 findings.append({
                     "title": f"CRITICAL: SSH AUTHENTICATION BYPASS",
                     "description": (
@@ -57,7 +61,9 @@ class AuthBruteScanner:
                         f"Evidence:\n{result.stdout}"
                     ),
                     "severity": "critical",
-                    "tool_source": "auth_expert"
+                    "tool_source": "auth_expert",
+                    "raw_loot": found_creds,
+                    "loot_type": "SSH Credential"
                 })
                 if logger: logger(f"🔥 SSH BREACH: Credentials cracked for {self.target}!", "CRITICAL")
         except Exception as e:
@@ -95,11 +101,17 @@ class AuthBruteScanner:
             ]
             res_brute = subprocess.run(cmd_brute, capture_output=True, text=True, timeout=120)
             if "Accounts:" in res_brute.stdout or "Valid credentials" in res_brute.stdout:
-                 findings.append({
+                import re
+                creds_match = re.search(r"Accounts:\s+([^\n-]+)", res_brute.stdout)
+                found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found (check logs)"
+
+                findings.append({
                     "title": f"CRITICAL: FTP AUTHENTICATION BYPASS",
                     "description": f"Valid FTP credentials found via targeted analysis.\n\nEvidence:\n{res_brute.stdout}",
                     "severity": "critical",
-                    "tool_source": "auth_expert"
+                    "tool_source": "auth_expert",
+                    "raw_loot": found_creds,
+                    "loot_type": "FTP Credential"
                 })
         except Exception: pass
         finally:

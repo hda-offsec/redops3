@@ -89,7 +89,9 @@ class APIExpertScanner:
                             "title": f"CRITICAL: Sensitive Endpoint `{p_match}` Exposed",
                             "description": f"The endpoint `{final_url}` is accessible and reveals: {desc}.",
                             "severity": "critical" if any(x in p_match for x in ['env', 'git', 'heapdump']) else "high",
-                            "tool_source": "api_expert"
+                            "tool_source": "api_expert",
+                            "raw_loot": content if len(content) < 5000 else content[:5000],
+                            "loot_type": "Sensitive File" if '.env' in p_match else "Actuator Data"
                         })
                         if logger: logger(f"🎯 SENSITIVE DATA: {p_match} exposed on {final_url}", "CRITICAL")
 

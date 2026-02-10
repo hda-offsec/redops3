@@ -61,7 +61,9 @@ class SecretScanner:
                             f"Context Snippet:\n... {context} ..."
                         ),
                         "severity": "critical",
-                        "tool_source": "secret_scanner"
+                        "tool_source": "secret_scanner",
+                        "raw_secret": secret,
+                        "secret_type": name
                     })
             except Exception: continue
         return findings

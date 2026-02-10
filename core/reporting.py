@@ -191,10 +191,28 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 except: pass
         pdf.ln(4)
 
-    # 6. Notes
+    # 6. LOOT VAULT
+    from core.models import Loot
+    loots = Loot.query.filter_by(scan_id=scan_id).all()
+    if loots:
+        pdf.add_page()
+        pdf.chapter_title("5. Loot Vault (Classified Assets)", color=(0, 150, 50))
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(40, 8, "Type", border=1, fill=True)
+        pdf.cell(100, 8, "Content (Masked)", border=1, fill=True)
+        pdf.cell(50, 8, "Context", border=1, fill=True, ln=True)
+        
+        pdf.set_font("helvetica", "", 8)
+        for l in loots:
+            masked_content = l.content[:15] + "..." if len(l.content) > 20 else l.content
+            pdf.cell(40, 7, l.type, border=1)
+            pdf.cell(100, 7, masked_content, border=1)
+            pdf.cell(50, 7, str(l.context)[:30], border=1, ln=True)
+
+    # 7. Notes
     if scan_obj.notes:
         pdf.add_page()
-        pdf.chapter_title("5. Operational Mission Notes", color=(100, 100, 100))
+        pdf.chapter_title("6. Operational Mission Notes", color=(100, 100, 100))
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(50, 50, 50)
         pdf.multi_cell(0, 6, scan_obj.notes)

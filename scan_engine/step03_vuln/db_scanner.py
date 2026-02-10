@@ -23,7 +23,9 @@ class DBScanner:
                     "title": "Critical: Unauthenticated Redis Access",
                     "description": f"The Redis server at {self.target}:{port} is accessible without authentication. This allows full control over the database and potentially remote code execution.\n\nServer Info Snippet:\n{response[:200]}...",
                     "severity": "critical",
-                    "tool_source": "db_audit"
+                    "tool_source": "db_audit",
+                    "raw_loot": f"redis://{self.target}:{port} (Unauthenticated)",
+                    "loot_type": "Database Credential"
                 })
                 if logger: logger(f"🔥 REDIS EXPLOITABLE: Unauthenticated access on {self.target}:{port}", "CRITICAL")
         except Exception as e:
@@ -53,7 +55,9 @@ class DBScanner:
                     "title": "Critical: Unauthenticated MongoDB Access",
                     "description": f"The MongoDB server at {self.target}:{port} allows listing databases without authentication. This is a severe data exposure risk.\n\nNmap Output:\n{result.stdout}",
                     "severity": "critical",
-                    "tool_source": "db_audit"
+                    "tool_source": "db_audit",
+                    "raw_loot": f"mongodb://{self.target}:{port} (Unauthenticated)",
+                    "loot_type": "Database Credential"
                 })
                 if logger: logger(f"🔥 MONGODB EXPLOITABLE: Unauthenticated access on {self.target}:{port}", "CRITICAL")
         except Exception:
@@ -80,7 +84,9 @@ class DBScanner:
                     "title": f"Critical: {service_name.upper()} Unauthenticated/Weak Access",
                     "description": f"A weak or missing password was detected on the {service_name} service at {self.target}:{port}.\n\nNmap Result:\n{result.stdout}",
                     "severity": "critical",
-                    "tool_source": "db_audit"
+                    "tool_source": "db_audit",
+                    "raw_loot": f"Service: {service_name}, Access: Unauthenticated/Weak",
+                    "loot_type": "Database Credential"
                 })
                 if logger: logger(f"🔥 {service_name.upper()} EXPLOITABLE: Weak/No password on {self.target}:{port}", "CRITICAL")
             elif "mysql-info" in result.stdout or "pgsql" in result.stdout:

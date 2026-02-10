@@ -127,6 +127,8 @@ def scan_detail(scan_id):
         else:
             severity_counts["info"] += 1
 
+    loots = Loot.query.filter_by(scan_id=scan_id).all()
+
     return render_template(
         "scan_detail.html",
         scan=scan,
@@ -135,6 +137,7 @@ def scan_detail(scan_id):
         suggestions=suggestions,
         logs=logs,
         severity_counts=severity_counts,
+        loots=loots
     )
 
 
@@ -228,6 +231,38 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
     return finding
 
 
+def _add_loot(scan_id, loot_type, content, context=None):
+    scan = Scan.query.get(scan_id)
+    if not scan: return None
+    
+    loot = Loot(
+        mission_id=scan.target.mission_id if scan.target else None,
+        scan_id=scan_id,
+        type=loot_type,
+        content=content,
+        context=context
+    )
+    db.session.add(loot)
+    db.session.commit()
+    
+    if socketio:
+        socketio.emit("new_loot", {
+            "scan_id": scan_id,
+            "type": loot_type,
+            "content": content[:50] + "..." if len(content) > 50 else content,
+            "context": context
+        }, room=f"scan_{scan_id}")
+        
+        # UI WOW Factor: Global Loot Alert
+        socketio.emit('global_notification', {
+            'title': '💰 LOOT HARVESTED',
+            'message': f'New {loot_type} discovered in scan #{scan_id}',
+            'severity': 'success'
+        })
+    
+    return loot
+
+
 def _add_suggestion(scan_id, tool, command, reason=None):
     suggestion = Suggestion(
         scan_id=scan_id,
@@ -306,13 +341,17 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                     "results": data
                 }, room=f"scan_{scan_id}")
 
+        def add_loot_cb(loot_type, content, context=None):
+            return _add_loot(scan.id, loot_type, content, context)
+
         orchestrator = ScanOrchestrator(
             scan_id=scan.id,
             target=target_identifier,
             logger_func=lambda msg, lvl: _log_and_emit(scan.id, msg, lvl),
             finding_func=add_finding_cb,
             suggestion_func=add_suggestion_cb,
-            results_func=results_update_cb
+            results_func=results_update_cb,
+            loot_func=add_loot_cb
         )
         
         # Execute Pipeline

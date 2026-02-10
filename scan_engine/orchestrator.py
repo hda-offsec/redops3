@@ -42,13 +42,14 @@ from core.scan_profiles import SCAN_PROFILES
 from core.screenshots import take_service_screenshot
 
 class ScanOrchestrator:
-    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func):
+    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func, loot_func=None):
         self.scan_id = scan_id
         self.target = target
         self.log = logger_func # callback to log/emit
         self.add_finding = finding_func
         self.add_suggestion = suggestion_func
         self.save_results = results_func
+        self.add_loot = loot_func
 
     def _emit_progress(self, percent, phase_name):
         self.save_results(self.scan_id, {
@@ -472,6 +473,13 @@ class ScanOrchestrator:
                             severity=f['severity'],
                             tool_source="db_audit"
                         )
+                        # HARVEST TO LOOT VAULT
+                        if self.add_loot and f.get('raw_loot'):
+                            self.add_loot(
+                                loot_type=f.get('loot_type', 'Database Credential'),
+                                content=f['raw_loot'],
+                                context=f"Discovered in {f['tool_source']} on {self.target}"
+                            )
                     self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"DB Audit failed: {e}", "ERROR")
@@ -490,6 +498,13 @@ class ScanOrchestrator:
                             severity=f['severity'],
                             tool_source="auth_bruter"
                         )
+                        # HARVEST TO LOOT VAULT
+                        if self.add_loot and f.get('raw_loot'):
+                            self.add_loot(
+                                loot_type=f.get('loot_type', 'Credential'),
+                                content=f['raw_loot'],
+                                context=f"Discovered in {f['tool_source']} on {self.target}"
+                            )
                     self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"Auth Brute-force failed: {e}", "ERROR")
@@ -972,6 +987,13 @@ class ScanOrchestrator:
                                                     severity=f['severity'],
                                                     tool_source="api_expert"
                                                 )
+                                                # HARVEST TO LOOT VAULT
+                                                if self.add_loot and f.get('raw_loot'):
+                                                    self.add_loot(
+                                                        loot_type=f.get('loot_type', 'API Loot'),
+                                                        content=f['raw_loot'],
+                                                        context=f"Discovered in expert API audit at {self.target}:{port}"
+                                                    )
                                             self.save_results(self.scan_id, results)
                                     except Exception as e:
                                          self.log(f"API Expert analysis failed for port {port}: {e}", "DEBUG")
@@ -1355,6 +1377,13 @@ class ScanOrchestrator:
                             severity=f['severity'],
                             tool_source="secret_scanner"
                         )
+                        # HARVEST TO LOOT VAULT
+                        if self.add_loot and f.get('raw_secret'):
+                            self.add_loot(
+                                loot_type=f.get('secret_type', 'Secret'),
+                                content=f['raw_secret'],
+                                context=f"Discovered in {f['tool_source']} at {url}"
+                            )
 
                 # 2. JS Vulnerability Audit (Outdated Libraries)
                 js_scanner = JSVulnScanner(self.target)
