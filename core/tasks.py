@@ -20,6 +20,11 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
         if not scan:
             return "Scan not found"
         
+        # Concurrency protection
+        if scan.status == 'running':
+            print(f"[WARN] Scan {scan_id} is already marked as running. Skipping redundant execution.")
+            return "Scan already running"
+        
         scan.status = 'running'
         db.session.commit()
         
@@ -80,6 +85,38 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 db.session.rollback()
                 print(f"Finding Save/Emit Error: {e}")
 
+        def add_loot_cb(loot_type, content, context=None):
+            try:
+                from core.models import Loot
+                from core.extensions import socketio
+                
+                # We need the mission_id from the target
+                scan_obj = Scan.query.get(scan_id)
+                mission_id = scan_obj.target.mission_id if scan_obj.target else None
+                
+                loot = Loot(
+                    mission_id=mission_id,
+                    scan_id=scan_id,
+                    type=loot_type,
+                    content=content,
+                    context=context
+                )
+                db.session.add(loot)
+                db.session.commit()
+                
+                if socketio:
+                    socketio.emit("new_loot", {
+                        "scan_id": scan_id,
+                        "type": loot_type,
+                        "content": content[:50] + "..." if len(content) > 50 else content,
+                        "context": context
+                    }, room=f"scan_{scan_id}")
+                return loot
+            except Exception as e:
+                db.session.rollback()
+                print(f"Loot Save Error: {e}")
+                return None
+
         def add_suggestion_cb(**kwargs):
             try:
                 from core.extensions import socketio
@@ -125,7 +162,8 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             logger_func=lambda msg, lvl: _log_and_emit(scan_id, msg, lvl),
             finding_func=add_finding_cb,
             suggestion_func=add_suggestion_cb,
-            results_func=results_update_cb
+            results_func=results_update_cb,
+            loot_func=add_loot_cb
         )
         
         try:

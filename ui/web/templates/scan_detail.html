@@ -321,11 +321,22 @@
                             {% if port.screenshot_path %}
                             {% set has_shots = true %}
                             <div class="col-md-4 col-lg-3">
-                                <div class="screenshot-card bg-black border border-secondary rounded overflow-hidden">
+                                <div
+                                    class="screenshot-card bg-black border {{ 'border-info animate-pulse' if port.screenshot_path == 'pending' else 'border-secondary' }} rounded overflow-hidden shadow-lg position-relative">
+                                    {% if port.screenshot_path == 'pending' %}
+                                    <div class="d-flex flex-column align-items-center justify-content-center"
+                                        style="height: 120px; background: rgba(0,240,255,0.05);">
+                                        <div class="spinner-border text-info spinner-border-sm mb-2" role="status">
+                                        </div>
+                                        <div class="x-small text-info font-monospace text-uppercase flicker">
+                                            Capturing...</div>
+                                    </div>
+                                    {% else %}
                                     <img src="{{ url_for('static', filename=port.screenshot_path) }}"
                                         class="img-fluid w-100"
                                         style="height: 120px; object-fit: cover; cursor: pointer;"
                                         onclick="window.open(this.src)" title="Port {{ port.port }}">
+                                    {% endif %}
                                     <div class="p-1 text-center bg-dark small font-monospace">
                                         <span class="text-info">PORT {{ port.port }}</span>
                                     </div>
@@ -407,12 +418,18 @@
                     <div class="card-body" id="dns-results">
                         {% if results and results.phases and results.phases.dns and results.phases.dns.subdomains %}
                         <div class="d-flex flex-wrap gap-2">
-                            {% for sub in results.phases.dns.subdomains %}
+                            {% for sub in results.phases.dns.subdomains[:500] %}
                             <div
                                 class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">
                                 {{ sub }}
                             </div>
                             {% endfor %}
+                            {% if results.phases.dns.subdomains|length > 500 %}
+                            <div
+                                class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted">
+                                + {{ results.phases.dns.subdomains|length - 500 }} more...
+                            </div>
+                            {% endif %}
                         </div>
                         {% else %}
                         <div class="text-muted small fst-italic">No subdomains discovered.</div>
@@ -581,8 +598,14 @@
                                     <div class="small fw-bold text-uppercase mt-1 {{ 'text-cyber-red' if detected else 'text-success' }}"
                                         style="font-size: 0.65rem; letter-spacing: 1px;">
                                         {{ label }}</div>
-                                    <div class="text-lowercase x-small text-muted opacity-75">{{ 'breached' if detected
-                                        else 'secure' }}</div>
+                                    <div class="text-lowercase x-small text-muted opacity-75">
+                                        {% if detected %}
+                                        {% if keyword == 'api' or keyword == 'cloud' %}exposed{% else %}breached{% endif
+                                        %}
+                                        {% else %}
+                                        secure
+                                        {% endif %}
+                                    </div>
 
                                     {% if detected %}
                                     <div class="position-absolute top-0 end-0 p-1">
@@ -2090,12 +2113,20 @@
                 if (results.phases.dns && results.phases.dns.subdomains) {
                     const dnsDiv = document.querySelector("#dns-results");
                     if (dnsDiv) {
+                        const subdomains = results.phases.dns.subdomains;
+                        const displayLimit = 500;
                         let dnsHtml = '<div class="d-flex flex-wrap gap-2">';
-                        results.phases.dns.subdomains.forEach(sub => {
+
+                        subdomains.slice(0, displayLimit).forEach(sub => {
                             dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">${sub}</div>`;
                         });
+
+                        if (subdomains.length > displayLimit) {
+                            dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted">+ ${subdomains.length - displayLimit} more...</div>`;
+                        }
+
                         dnsHtml += '</div>';
-                        dnsDiv.innerHTML = dnsHtml || '<div class="text-muted small fst-italic">No subdomains discovered.</div>';
+                        dnsDiv.innerHTML = subdomains.length ? dnsHtml : '<div class="text-muted small fst-italic">No subdomains discovered.</div>';
                     }
                 }
 
@@ -2158,10 +2189,21 @@
                     results.phases.recon.open_ports.forEach(port => {
                         if (port.screenshot_path) {
                             hasShots = true;
+                            let cardContent = "";
+                            if (port.screenshot_path === 'pending') {
+                                cardContent = `
+                                <div class="d-flex flex-column align-items-center justify-content-center" style="height: 120px; background: rgba(0,240,255,0.05);">
+                                    <div class="spinner-border text-info spinner-border-sm mb-2" role="status"></div>
+                                    <div class="x-small text-info font-monospace text-uppercase flicker">Capturing...</div>
+                                </div>`;
+                            } else {
+                                cardContent = `<img src="/static/${port.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="Port ${port.port}">`;
+                            }
+
                             galleryHtml += `
                             <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
-                                <div class="screenshot-card bg-black border border-secondary rounded overflow-hidden">
-                                    <img src="/static/${port.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="Port ${port.port}">
+                                <div class="screenshot-card bg-black border ${port.screenshot_path === 'pending' ? 'border-info animate-pulse' : 'border-secondary'} rounded overflow-hidden">
+                                    ${cardContent}
                                     <div class="p-1 text-center bg-dark small font-monospace">
                                         <span class="text-info">PORT ${port.port}</span>
                                     </div>
@@ -2188,7 +2230,17 @@
                         });
                     }
 
-                    if (hasShots) gallery.innerHTML = galleryHtml;
+                    if (hasShots) {
+                        gallery.innerHTML = galleryHtml;
+                    } else {
+                        gallery.innerHTML = `
+                        <div class="col-12 text-center py-5">
+                            <div class="text-muted small opacity-50">
+                                <i class="fas fa-image fa-3x mb-3 d-block"></i>
+                                No visual assets captured yet.
+                            </div>
+                        </div>`;
+                    }
                 }
 
                 // 3. Network Graph
@@ -2327,10 +2379,11 @@
             {% if results %}
             setTimeout(() => {
                 if (window.updateUI) {
-                    window.updateUI({{ results|tojson|safe }});
-                }
+                    window.updateUI({{ results | tojson | safe }
+            });
+        }
             }, 500);
-            {% endif %}
+    {% endif %}
 
     // Markdown Notes Preview
     const notesArea = document.querySelector('textarea[name="notes"]');

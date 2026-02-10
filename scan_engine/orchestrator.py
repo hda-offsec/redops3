@@ -407,18 +407,26 @@ class ScanOrchestrator:
                     # 1. Identify Web Ports for later phases
                     is_web = 'http' in svc or port in [80, 443, 8080, 8443]
                     if is_web:
-                        web_ports.append(port)
+                        if port not in web_ports:
+                            web_ports.append(port)
                         # Trigger Screenshot
                         try:
                             self.log(f"Phase 3+: Capturing screenshot for port {port}...", "INFO")
+                            # Temporary marker for UI
+                            p['screenshot_path'] = 'pending'
+                            self.save_results(self.scan_id, results)
+                            
                             shot_path = take_service_screenshot(self.scan_id, port, self.target)
-                            # Link screenshot to the port object for the UI Matrix
-                            p['screenshot_path'] = shot_path
+                            if shot_path:
+                                self.log(f"Phase 3+: Screenshot successfully captured for port {port}.", "SUCCESS")
+                                p['screenshot_path'] = shot_path
+                            else:
+                                p['screenshot_path'] = None
                         except Exception as e:
                             self.log(f"Screenshot failed for port {port}: {e}", "WARN")
-                            shot_path = None
+                            p['screenshot_path'] = None
                     else:
-                        shot_path = None
+                        p['screenshot_path'] = None
 
                     # 2. Get Expert Analysis
                     try:

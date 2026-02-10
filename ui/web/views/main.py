@@ -600,18 +600,28 @@ def verify_finding():
 @login_required
 def clear_logs():
     try:
-        # Clear operational data but keep targets/missions if possible?
-        # User said "supprimes les Mission LOG"
-        # Let's clear Scan, Finding, Suggestion, ScanLog
+        # Clear database records
         num_scans = db.session.query(Scan).delete()
         num_findings = db.session.query(Finding).delete()
         num_suggestions = db.session.query(Suggestion).delete()
         num_logs = db.session.query(ScanLog).delete()
-        
-        # Optionally clear targets/missions? Maybe not targets.
+        num_loots = db.session.query(Loot).delete()
         
         db.session.commit()
-        flash(f"Mission Log Purged ({num_scans} scans removed). Environment reset.", "success")
+        
+        # Clear result files from disk
+        results_dir = os.path.join(current_app.root_path, "data/results")
+        files_deleted = 0
+        if os.path.exists(results_dir):
+            for f in os.listdir(results_dir):
+                if f.endswith(".json"):
+                    try:
+                        os.remove(os.path.join(results_dir, f))
+                        files_deleted += 1
+                    except:
+                        pass
+        
+        flash(f"Mission Log Purged ({num_scans} scans, {files_deleted} result files removed). Environment reset.", "success")
     except Exception as e:
         db.session.rollback()
         flash(f"Failed to clear logs: {str(e)}", "error")

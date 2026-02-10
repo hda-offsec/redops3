@@ -31,6 +31,15 @@ else
     go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest || true
 fi
 
+# Install Playwright browsers for screenshots
+echo "[+] Installing Playwright browsers..."
+if command -v playwright &> /dev/null; then
+    playwright install chromium --with-deps || true
+else
+    python3 -m pip install playwright || true
+    python3 -m playwright install chromium --with-deps || true
+fi
+
 # Ensure they are in ~/go/bin
 ls -l $HOME/go/bin/
 
