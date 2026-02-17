@@ -11,6 +11,7 @@ from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
 from scan_engine.step03_vuln.wpscan_scanner import WPScanScanner
 from scan_engine.step03_vuln.dalfox_scanner import DalfoxScanner
 from scan_engine.step05_dirbusting.ffuf_scanner import FfufScanner
+from scan_engine.step05_dirbusting.cewl_scanner import CustomWordlistScanner
 from scan_engine.step02_enum.waf_scanner import WafScanner
 from scan_engine.step02_enum.arjun_scanner import ArjunScanner
 from scan_engine.step02_enum.js_scanner import JSSecretScanner
@@ -45,7 +46,7 @@ from core.scan_profiles import SCAN_PROFILES
 from core.screenshots import take_service_screenshot
 
 class ScanOrchestrator:
-    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func, loot_func=None):
+    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func, loot_func=None, options=None):
         self.scan_id = scan_id
         self.target = target
         self.log = logger_func # callback to log/emit
@@ -53,6 +54,7 @@ class ScanOrchestrator:
         self.add_suggestion = suggestion_func
         self.save_results = results_func
         self.add_loot = loot_func
+        self.options = options or {}
 
     def _emit_progress(self, percent, phase_name):
         self.save_results(self.scan_id, {
@@ -61,6 +63,63 @@ class ScanOrchestrator:
                 "current_phase": phase_name
             }
         })
+
+    def _extract_wp_data(self, stream, port):
+        """
+        Parses WPScan CLI output into a structured dictionary for the UI.
+        Returns (structured_data, full_raw_log)
+        """
+        data = {
+            "version": "Unknown",
+            "theme": "Unknown",
+            "users": [],
+            "plugins": [],
+            "vulns": []
+        }
+        
+        full_logs = []
+        for event in stream:
+            if event["type"] == "stdout":
+                line = ProcessManager.strip_ansi(event["line"].strip())
+                if not line: continue
+                
+                self.log(line, "INFO")
+                full_logs.append(line)
+                
+                # 1. Version Detection
+                if "WordPress version" in line and "identified" in line:
+                    parts = line.split()
+                    if len(parts) > 2:
+                        data["version"] = parts[2]
+                
+                # 2. Theme Detection
+                if "Theme Name:" in line:
+                    data["theme"] = line.split(":", 1)[1].strip()
+                
+                # 3. User Enumeration
+                if "[+]" in line and "found" in line and "user" in line.lower():
+                    parts = line.split()
+                    if len(parts) > 1:
+                        username = parts[1]
+                        if username not in [u['name'] for u in data["users"]]:
+                            data["users"].append({"name": username, "id": len(data["users"]) + 1})
+                
+                # 4. Plugin Detection
+                if "[+]" in line and ("plugin" in line.lower() or "found" in line.lower()) and not any(x in line.lower() for x in ["theme", "user", "version"]):
+                    parts = line.split()
+                    if len(parts) > 1 and parts[1].islower() and len(parts[1]) > 2:
+                        pname = parts[1]
+                        if pname not in data["plugins"]:
+                            data["plugins"].append(pname)
+
+                # 5. Vulnerability indicators
+                if "[!]" in line:
+                    data["vulns"].append(line)
+                    
+            elif event["type"] == "exit":
+                self.log(f"WPScan process for port {port} finished with code {event['code']}", "SUCCESS")
+                
+        return data, "\n".join(full_logs)
 
     def run_pipeline(self, profile='quick'):
         """
@@ -71,6 +130,8 @@ class ScanOrchestrator:
         4. Trigger Next Steps (auto-recon logic can go here)
         """
         success = True
+        open_ports = []
+        web_ports = []
         
         try:
             # Define the main results structure early
@@ -101,20 +162,145 @@ class ScanOrchestrator:
                     "vuln": {
                         "nuclei": {"findings": []},
                         "takeover": [],
-                        "wpscan": {}
+                        "wpscan": {},
+                        "wordpress": {}
                     },
-                    "intel": {},
                     "dirbusting": {
                         "ffuf": {"endpoints": []}
-                    }
-                }
+                    },
+                },
+                "target_info": {"wordlist": "common.txt"}
             }
             self.save_results(self.scan_id, results, overwrite=True)
 
-            # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
+
+            # --- PHASE 1: Port Scan ---
+            self._emit_progress(20, "Port Scanning (nmap)")
+            self.log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
+            scanner = NmapScanner(self.target)
+
+            if not scanner.check_tools():
+                self.log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")
+                return False
+
+            # Determine arguments
+            scan_args = []
+            found_profile = False
+            
+            # 1. Check if profile is a predefined key
+            for category, profiles in SCAN_PROFILES.items():
+                if profile in profiles:
+                    # Found it
+                    raw_args = profiles[profile]['args']
+                    scan_args = raw_args.split()
+                    self.log(f"Using profile '{profile}': {raw_args}", "INFO")
+                    found_profile = True
+                    break
+                    
+            # 2. If not found, check compatibility mappings or fallback
+            if not found_profile:
+                if profile == 'quick': scan_args = ["-T4", "--top-ports", "100"] 
+                elif profile == 'full': scan_args = ["-p-", "-T4"] 
+                elif profile == 'vuln': scan_args = ["--script", "vuln"]
+                else: 
+                     self.log(f"Unknown profile '{profile}', defaulting to quick scan.", "WARN")
+                     scan_args = ["-F"]
+
+            self.log(f"Executing Nmap with: {shlex.join(scan_args)}", "DEBUG")
+            results['commands'].append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [self.target])})
+            
+            try:
+                stream = scanner.stream_scan(scan_args)
+            except Exception as e:
+                self.log(f"Failed to start nmap: {str(e)}", "ERROR")
+                return False
+                
+            output_buffer = []
+            discovered_ports = []
+            for event in stream:
+                if event["type"] == "stdout":
+                    line = event["line"].strip()
+                    if line:
+                        # Detect real-time port discovery (from Nmap -v)
+                        if "Discovered open port" in line:
+                            self.log(f"🔥 {line}", "SUCCESS")
+                            # Extract port/proto: "Discovered open port 80/tcp on 1.2.3.4"
+                            port_match = re.search(r"port (\d+)/(tcp|udp)", line)
+                            if port_match:
+                                p_num = int(port_match.group(1))
+                                discovered_ports.append({
+                                    "port": p_num,
+                                    "service_name": "probing...",
+                                    "version": "detecting...",
+                                    "priority_score": 0
+                                })
+                                # Send intermediate update to UI
+                                self.save_results(self.scan_id, {
+                                    "phases": {
+                                        "recon": {
+                                            "open_ports": discovered_ports,
+                                            "raw_output": "\n".join(output_buffer[-50:]) # Send last 50 lines only for speed
+                                        }
+                                    }
+                                })
+
+                        # Detect progress stats
+                        elif "Stats:" in line:
+                            self.log(line, "INFO")
+                        else:
+                            self.log(line, "INFO")
+                        output_buffer.append(line)
+                elif event["type"] == "exit":
+                    self.log(f"Phase 1 finished with exit code {event['code']}", "SUCCESS" if event['code'] == 0 else "WARN")
+                elif event["type"] == "error":
+                    self.log(f"Stream error: {event['message']}", "ERROR")
+                    return False
+
+            full_output = "\n".join(output_buffer)
+            
+            # --- PHASE 2: Parsing ---
+            self._emit_progress(40, "Packet Analysis")
+            self.log("Phase 2: Parsing results...", "INFO")
+            open_ports = parse_nmap_open_ports(full_output)
+            
+            # FALLBACK: If Nmap failed to find ports, manually probe for common web ports
+            # This bypasses WAFs that block Nmap signatures but allow browser-like traffic.
+            if not open_ports:
+                self.log("Nmap found 0 ports. Attempting Web-Port Fallback (80/443)...", "WARN")
+                fallback_ports = [80, 443]
+                import requests
+                for fp in fallback_ports:
+                    proto = "https" if fp == 443 else "http"
+                    url = f"{proto}://{self.target}:{fp}"
+                    try:
+                        # Use a browser-like User-Agent to bypass simple filters
+                        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
+                        resp = requests.get(url, timeout=5, verify=False, allow_redirects=True, headers=headers)
+                        self.log(f"  [+] Fallback: Target is ALIVE on {url} (Status: {resp.status_code})", "SUCCESS")
+                        open_ports.append({
+                            "port": fp,
+                            "service_name": "http" if fp == 80 else "ssl/http",
+                            "version": f"Detected via Fallback (Status: {resp.status_code})",
+                            "priority_score": 70
+                        })
+                    except Exception:
+                        pass
+            
+            self.log(f"Final discovery: {len(open_ports)} open ports.", "SUCCESS")
+            
+            # Update structured results (preserve existing phases like DNS)
+            results['phases']['recon']['open_ports'] = open_ports
+            results['phases']['recon']['raw_output'] = full_output
+            self.save_results(self.scan_id, results)
+
+        except Exception as e:
+            self.log(f"Failed to initialize Nmap/Ports: {str(e)}", "ERROR")
+            return False
+
+        # --- PHASE 0: Pre-Flight Intelligence (Geo) ---
+        try:
             self._emit_progress(5, "Geolocation Init")
             self.log("Phase 0: Gathering Geolocation Intelligence...", "INFO")
-            # Capture app context for the thread
             from flask import current_app
             app_ctx = current_app.app_context()
 
@@ -122,7 +308,6 @@ class ScanOrchestrator:
                 with app_ctx:
                     if geo:
                         self.log(f"Target located: {geo.get('city')}, {geo.get('country')} ({geo.get('isp')})", "SUCCESS")
-                        # Update Scan model directly
                         try:
                             scan_obj = Scan.query.get(self.scan_id)
                             if scan_obj:
@@ -133,7 +318,6 @@ class ScanOrchestrator:
                     else:
                         self.log("Geolocation lookup failed or target is local.", "WARN")
 
-            # Start async lookup
             AttackVectorMapper.get_ip_geolocation(self.target, callback=on_geo_complete)
 
             # --- PHASE 0.1: Cloud Assets Audit ---
@@ -145,9 +329,6 @@ class ScanOrchestrator:
                     self.save_results(self.scan_id, results)
                     for c in cloud_results:
                         desc = f"Provider: {c['provider']}\nURL: {c['url']}\nStatus: {c['status']}"
-                        if c.get('files'):
-                            desc += "\n\nSample Files Found:\n* " + "\n* ".join(c['files'][:10])
-                        
                         self.add_finding(
                             title=f"Cloud Asset Found: {c['bucket'] if 'bucket' in c else c['account']}",
                             description=desc,
@@ -159,229 +340,52 @@ class ScanOrchestrator:
 
             # --- PHASE 0.2: GitHub Leaks & Email Discovery ---
             try:
-                # GitHub Leaks
                 github_scanner = GitHubScanner(self.target)
                 github_leaks = github_scanner.search_leaks(logger=self.log)
                 if github_leaks:
                     results['phases']['osint']['github'] = github_leaks
                     self.save_results(self.scan_id, results)
                     for leak in github_leaks:
-                        self.add_finding(
-                            title=f"GitHub Leak Found: {leak['repository']}",
-                            description=f"File: {leak['path']}\nURL: {leak['url']}",
-                            severity="medium",
-                            tool_source="GitHub-Scanner"
-                        )
+                        self.add_finding(title=f"GitHub Leak Found: {leak['repository']}", description=f"URL: {leak['url']}", severity="medium", tool_source="GitHub-Scanner")
                 
-                # Email Discovery
                 email_scanner = EmailScanner(self.target)
                 emails = email_scanner.scan(logger=self.log)
                 if emails:
                     results['phases']['osint']['emails'] = emails
                     self.save_results(self.scan_id, results)
-                    self.add_finding(
-                        title=f"OSINT: {len(emails)} Emails Found",
-                        description="\n".join(emails[:20]),
-                        severity="info",
-                        tool_source="EmailScanner"
-                    )
             except Exception as e:
                 self.log(f"OSINT Discovery modules failed: {e}", "WARN")
 
-            # --- INITIALIZATION: Done ---
-            self.log("Local workspace prepared.", "INFO")
         except Exception as e:
-            self.log(f"Failed to initialize results: {str(e)}", "ERROR")
-            return False
+            self.log(f"Failed to initialize OSINT results: {str(e)}", "ERROR")
 
         # --- PHASE 0.5: DNS Enumeration ---
         self._emit_progress(10, "DNS Enumeration")
-        self.log("Phase 0.5: Starting DNS Enumeration...", "INFO")
         dns_scanner = DNSScanner(self.target)
-        
-        # Log command if possible (DNSScanner might not expose it easily, but let's assume it does or log intent)
-        self.log(f"Executing DNS Discovery via Subfinder/DNSRecon on {self.target}", "DEBUG")
-        if 'commands' not in results: results['commands'] = []
-        results['commands'].append({'tool': 'subfinder', 'cmd': f"subfinder -d {self.target} -silent"})
-
         dns_results = dns_scanner.enumerate_all(logger=self.log)
         if dns_results["subdomains"]:
-            self.log(f"Discovered {len(dns_results['subdomains'])} subdomains.", "SUCCESS")
-
-            # Save to results
             results['phases']['dns']['subdomains'] = dns_results['subdomains']
             self.save_results(self.scan_id, results)
+            
+            # Subdomain Fingerprinting (Phase 0.7)
+            import requests
+            for sub in dns_results["subdomains"]:
+                try:
+                    r = requests.head(f"http://{sub}", timeout=3, verify=False)
+                    self.log(f"  [+] {sub} is ALIVE", "SUCCESS")
+                except: continue
 
-            self.add_finding(
-                title=f"DNS Discovery: {len(dns_results['subdomains'])} Subdomains",
-                description="\n".join(dns_results["subdomains"]),
-                severity="info",
-                tool_source="subfinder"
-            )
-
-            # --- PHASE 0.7: Subdomain Fingerprinting ---
-            if dns_results["subdomains"]:
-                self.log(f"Phase 0.7: Fingerprinting {len(dns_results['subdomains'])} subdomains...", "INFO")
-                import requests
-                for sub in dns_results["subdomains"]:
-                    try:
-                        # Quick check on 80/443
-                        for proto in ['http', 'https']:
-                            url = f"{proto}://{sub}"
-                            try:
-                                r = requests.head(url, timeout=3, verify=False)
-                                server = r.headers.get('Server', 'Unknown')
-                                self.log(f"  [+] {url} is ALIVE (Server: {server})", "SUCCESS")
-                                self.add_finding(
-                                    title=f"Live Subdomain: {sub}",
-                                    description=f"Protocol: {proto.upper()}\nServer: {server}",
-                                    severity="info",
-                                    tool_source="dns_recon"
-                                )
-                                break # If one proto works, move to next sub
-                            except:
-                                continue
-                    except Exception as e:
-                        self.log(f"Fingerprinting failed for {sub}: {e}", "DEBUG")
-
-            # --- PHASE 0.8: Potential Takeover Check ---
+            # Takeover Check (Phase 0.8)
             try:
-                # 1. Expert Logic-based check (CNAME Analysis)
-                expert_scanner = SubdomainExpertScanner(self.target)
-                expert_findings = expert_scanner.check_takeover(dns_results.get("subdomains", []), logger=self.log)
-                if expert_findings:
-                    for f in expert_findings:
-                        self.add_finding(
-                            title=f['title'],
-                            description=f['description'],
-                            severity=f['severity'],
-                            tool_source="subdomain_expert"
-                        )
-
-                # 2. Nuclei-based check (Template Scanning)
                 takeover_scanner = TakeoverScanner(self.target)
                 if takeover_scanner.check_tools():
-                    # RED TEAM: Scan all discovered subdomains, not just the root
-                    subdomains_to_check = dns_results.get("subdomains", [self.target])
-                    tk_stream = takeover_scanner.stream_takeover_scan(logger=self.log, targets=subdomains_to_check)
+                    tk_stream = takeover_scanner.stream_takeover_scan(logger=self.log, targets=dns_results["subdomains"])
                     for event in tk_stream:
                         if event['type'] == 'stdout':
-                            line = ProcessManager.strip_ansi(event['line'].strip())
-                            if line:
-                                # Filter out nuclei-specific error/diagnostic noise
-                                if "[FTL]" in line or "no templates provided" in line:
-                                    self.log(f"Nuclei takeover diagnostic: {line}", "DEBUG")
-                                    continue
-                                    
-                                self.log(f"🚩 POTENTIAL TAKEOVER: {line}", "CRITICAL")
-                                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                                if 'takeover' not in results['phases']['vuln']: results['phases']['vuln']['takeover'] = []
-                                results['phases']['vuln']['takeover'].append(line)
-                                
-                                self.add_finding(
-                                    title="Subdomain Takeover Detected",
-                                    description=f"Nuclei identified a potential takeover vulnerability:\n\n{line}",
-                                    severity="critical",
-                                    tool_source="nuclei"
-                                )
-                    self.save_results(self.scan_id, results)
+                             self.log(f"🚩 POTENTIAL TAKEOVER: {event['line']}", "CRITICAL")
+                self.save_results(self.scan_id, results)
             except Exception as e:
                 self.log(f"Takeover check failed: {e}", "WARN")
-
-        # --- PHASE 1: Port Scan ---
-        self._emit_progress(20, "Port Scanning (nmap)")
-        self.log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
-        scanner = NmapScanner(self.target)
-
-        if not scanner.check_tools():
-            self.log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")
-            return False
-
-        # Determine arguments
-        scan_args = []
-        found_profile = False
-        
-        # 1. Check if profile is a predefined key
-        for category, profiles in SCAN_PROFILES.items():
-            if profile in profiles:
-                # Found it
-                raw_args = profiles[profile]['args']
-                scan_args = raw_args.split()
-                self.log(f"Using profile '{profile}': {raw_args}", "INFO")
-                found_profile = True
-                break
-                
-        # 2. If not found, check compatibility mappings or fallback
-        if not found_profile:
-            if profile == 'quick': scan_args = ["-T4", "--top-ports", "100"] 
-            elif profile == 'full': scan_args = ["-p-", "-T4"] 
-            elif profile == 'vuln': scan_args = ["--script", "vuln"]
-            else: 
-                 self.log(f"Unknown profile '{profile}', defaulting to quick scan.", "WARN")
-                 scan_args = ["-F"]
-
-        self.log(f"Executing Nmap with: {shlex.join(scan_args)}", "DEBUG")
-        results['commands'].append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [self.target])})
-        
-        try:
-            stream = scanner.stream_scan(scan_args)
-        except Exception as e:
-            self.log(f"Failed to start nmap: {str(e)}", "ERROR")
-            return False
-            
-        output_buffer = []
-        discovered_ports = []
-        for event in stream:
-            if event["type"] == "stdout":
-                line = event["line"].strip()
-                if line:
-                    # Detect real-time port discovery (from Nmap -v)
-                    if "Discovered open port" in line:
-                        self.log(f"🔥 {line}", "SUCCESS")
-                        # Extract port/proto: "Discovered open port 80/tcp on 1.2.3.4"
-                        port_match = re.search(r"port (\d+)/(tcp|udp)", line)
-                        if port_match:
-                            p_num = int(port_match.group(1))
-                            discovered_ports.append({
-                                "port": p_num,
-                                "service_name": "probing...",
-                                "version": "detecting...",
-                                "priority_score": 0
-                            })
-                            # Send intermediate update to UI
-                            self.save_results(self.scan_id, {
-                                "phases": {
-                                    "recon": {
-                                        "open_ports": discovered_ports,
-                                        "raw_output": "\n".join(output_buffer[-50:]) # Send last 50 lines only for speed
-                                    }
-                                }
-                            })
-
-                    # Detect progress stats
-                    elif "Stats:" in line:
-                        self.log(line, "INFO")
-                    else:
-                        self.log(line, "INFO")
-                    output_buffer.append(line)
-            elif event["type"] == "exit":
-                self.log(f"Phase 1 finished with exit code {event['code']}", "SUCCESS" if event['code'] == 0 else "WARN")
-            elif event["type"] == "error":
-                self.log(f"Stream error: {event['message']}", "ERROR")
-                return False
-
-        full_output = "\n".join(output_buffer)
-        
-        # --- PHASE 2: Parsing ---
-        self._emit_progress(40, "Packet Analysis")
-        self.log("Phase 2: Parsing results...", "INFO")
-        open_ports = parse_nmap_open_ports(full_output)
-        self.log(f"Parsed {len(open_ports)} open ports.", "SUCCESS")
-        
-        # Update structured results (preserve existing phases like DNS)
-        results['phases']['recon']['open_ports'] = open_ports
-        results['phases']['recon']['raw_output'] = full_output
-        self.save_results(self.scan_id, results)
 
         # --- PHASE 3: Deep Analysis & Attack Vector Mapping ---
         self._emit_progress(50, "Intel Mapping")
@@ -622,37 +626,32 @@ class ScanOrchestrator:
                                 if not wpscan.check_tools():
                                     self.log("Skipping WPScan: tool not installed. Please install 'wpscan' to enable this feature.", "WARN")
                                 else:
-                                    wp_stream = wpscan.stream_scan(port, proto)
-                                    wp_findings = []
-                                    current_finding = []
+                                    # Optimization for 'quick' profiles
+                                    enumerate_all = False if profile.startswith('quick') else True
+                                    wp_stream = wpscan.stream_scan(port, proto, enumerate_all=enumerate_all)
+                                    # Use the new structured parser
+                                    wp_data, wp_raw_log = self._extract_wp_data(wp_stream, port)
                                     
-                                    for event in wp_stream:
-                                        if event["type"] == "stdout":
-                                            line = event["line"].strip()
-                                            if line:
-                                                self.log(line, "INFO")
-                                                
-                                                # Basic parsing to group relevant finding lines
-                                                if "[!]" in line or "[+]" in line:
-                                                    wp_findings.append(line)
-                                                    
-                                        elif event["type"] == "exit":
-                                            self.log(f"WPScan finished on port {port}.", "SUCCESS")
-
-                                    if wp_findings:
-                                        summary = "\n".join(wp_findings)
-                                        # Update results
+                                    if wp_data:
+                                        # Update results with structured data for the UI
                                         if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                                        results['phases']['vuln']['wpscan'] = results['phases']['vuln'].get('wpscan', {})
-                                        results['phases']['vuln']['wpscan'][str(port)] = summary
+                                        if 'wordpress' not in results['phases']['vuln']: results['phases']['vuln']['wordpress'] = {}
+                                        results['phases']['vuln']['wordpress'][str(port)] = wp_data
+                                        
+                                        # Also keep raw wpscan log for backward compatibility
+                                        if 'wpscan' not in results['phases']['vuln']: results['phases']['vuln']['wpscan'] = {}
+                                        results['phases']['vuln']['wpscan'][str(port)] = wp_raw_log
+                                        
                                         self.save_results(self.scan_id, results)
 
-                                        self.add_finding(
-                                            title=f"WordPress Scan Findings ({port})",
-                                            description=f"WPScan enumerated the following potential issues:\n\n{summary}",
-                                            severity="high",
-                                            tool_source="wpscan"
-                                        )
+                                        # Add finding if any vulnerabilities detected
+                                        if wp_data['vulns']:
+                                            self.add_finding(
+                                                title=f"WordPress Vulnerabilities Detected ({port})",
+                                                description=f"WPScan detected potential vulnerabilities:\n\n" + "\n".join(wp_data['vulns']),
+                                                severity="high",
+                                                tool_source="wpscan"
+                                            )
                             except Exception as e:
                                 self.log(f"WPScan failed: {e}", "ERROR")
 
@@ -1065,9 +1064,22 @@ class ScanOrchestrator:
                             if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
                             
                             found_any = False
-                            unsaved_changes = False
                             vuln_count = 0
+                            start_time = datetime.now()
+                            last_heartbeat = datetime.now()
+
                             for event in nuc_stream:
+                                # HEARTBEAT: Log every 2 minutes to show we're still alive
+                                if (datetime.now() - last_heartbeat).total_seconds() > 120:
+                                    elapsed = int((datetime.now() - start_time).total_seconds() / 60)
+                                    self.log(f"Nuclei is still scanning {self.target}:{port}... [Elapsed: {elapsed}m]", "INFO")
+                                    last_heartbeat = datetime.now()
+
+                                # SAFETY TIMEOUT: Don't let a single nuclei run block for more than 20 minutes
+                                if (datetime.now() - start_time).total_seconds() > 1200:
+                                    self.log(f"Nuclei on port {port} timed out (20m limit). Jumping to next audit phase.", "WARN")
+                                    break
+
                                 if event['type'] == 'stdout':
                                     line = ProcessManager.strip_ansi(event['line'].strip())
                                     if line:
@@ -1164,8 +1176,25 @@ class ScanOrchestrator:
             try:
                 self.log("Phase 6: Starting Automated Dirbusting (ffuf)...", "INFO")
                 
-                # Default wordlist path
+                # 1. Generate Custom Wordlist (Spidering)
+                custom_wordlist = None
+                try:
+                    cewl = CustomWordlistScanner(self.target)
+                    # Use first web port as start URL for spidering
+                    p0 = web_ports[0]
+                    pr0 = 'https' if p0 in [443, 8443] else 'http'
+                    start_url = f"{pr0}://{self.target}:{p0}"
+                    custom_wordlist = cewl.generate(start_url=start_url, logger=self.log)
+                except Exception as e:
+                    self.log(f"Custom Wordlist Generation Failed: {e}", "WARN")
+
+                # 2. Select Wordlist (Hybrid: Custom + Common)
                 wordlist = os.path.join(os.getcwd(), "data", "wordlists", "common.txt")
+                if custom_wordlist and os.path.exists(custom_wordlist):
+                    self.log(f"Using Custom Wordlist: {custom_wordlist}", "SUCCESS")
+                    wordlist = custom_wordlist
+                    results['target_info'] = {"wordlist": wordlist}
+
                 if not os.path.exists(wordlist):
                     # Create a minimal wordlist if it doesn't exist
                     os.makedirs(os.path.dirname(wordlist), exist_ok=True)
@@ -1258,6 +1287,11 @@ class ScanOrchestrator:
                 self.log(f"Phase 6 (Dirbusting) failed: {e}", "ERROR")
 
         self._emit_progress(100, "Operation Completed")
+        
+        # FINAL SYNC: Ensure JSON status is updated
+        results['status'] = "completed" if success else "failed"
+        self.save_results(self.scan_id, results)
+        
         return success
 
     def _analyze_security_headers(self, target, port, proto, results):

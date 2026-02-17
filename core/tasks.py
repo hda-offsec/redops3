@@ -1,6 +1,6 @@
 from core.celery_app import celery
 from core.extensions import db
-from core.models import Scan, ScanLog, Finding, Suggestion
+from core.models import Scan, ScanLog, Finding, Suggestion, Loot
 from scan_engine.orchestrator import ScanOrchestrator
 from core.results_store import save_results
 from datetime import datetime
@@ -27,7 +27,47 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
         
         scan.status = 'running'
         db.session.commit()
+        scan.status = 'running'
+        db.session.commit()
         
+        # --- CLEANUP STALE DATA (Smart Mode) ---
+        try:
+            print(f"DEBUG: Running SMART cleanup for scan_id={scan_id} target={scan.target.identifier}...")
+            
+            # WIPE Logs and Suggestions to ensure clean timeline
+            num_logs = ScanLog.query.filter_by(scan_id=scan_id).delete()
+            num_suggestions = Suggestion.query.filter_by(scan_id=scan_id).delete()
+            
+            # SMART FILTER Findings
+            findings_to_delete = []
+            for f in Finding.query.filter_by(scan_id=scan_id).all():
+                # If target strictly not in title/desc, mark for deletion
+                # (Simple heuristic; can be improved if target has alias)
+                if scan.target.identifier not in f.title and (not f.description or scan.target.identifier not in f.description):
+                    findings_to_delete.append(f.id)
+            
+            if findings_to_delete:
+                Finding.query.filter(Finding.id.in_(findings_to_delete)).delete(synchronize_session=False)
+
+            # SMART FILTER Loot
+            loot_to_delete = []
+            for l in Loot.query.filter_by(scan_id=scan_id).all():
+                # Keep if content or context mentions target
+                content_match = scan.target.identifier in l.content
+                context_match = l.context and scan.target.identifier in l.context
+                if not (content_match or context_match):
+                    loot_to_delete.append(l.id)
+            
+            if loot_to_delete:
+                Loot.query.filter(Loot.id.in_(loot_to_delete)).delete(synchronize_session=False)
+
+            db.session.commit()
+            print(f"DEBUG: Cleanup Report - Logs: {num_logs}, Sugg: {num_suggestions}, Findings: {len(findings_to_delete)}, Loot: {len(loot_to_delete)}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"ERROR: Failed to cleanup stale data: {e}")
+        # --------------------------
+
         def _log_and_emit(scan_id, msg, level="INFO"):
             try:
                 from core.extensions import socketio
@@ -156,18 +196,25 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             except Exception as e:
                 print(f"Results Emit Error: {e}")
 
+        import json
+        scan_options = json.loads(scan.params) if scan.params else {}
+
+        print(f"DEBUG TASK: scan_id={scan_id} db_target={scan.target.identifier} arg_target={target_identifier}")
+
         orchestrator = ScanOrchestrator(
             scan_id=scan_id,
-            target=target_identifier,
+            target=scan.target.identifier, # Force use of DB source of truth
             logger_func=lambda msg, lvl: _log_and_emit(scan_id, msg, lvl),
             finding_func=add_finding_cb,
             suggestion_func=add_suggestion_cb,
             results_func=results_update_cb,
-            loot_func=add_loot_cb
+            loot_func=add_loot_cb,
+            options=scan_options
         )
         
         try:
-            success = orchestrator.run_pipeline(profile=scan_type)
+            # Force use of DB source of truth for scan_type as well
+            success = orchestrator.run_pipeline(profile=scan.scan_type)
             scan.status = 'completed' if success else 'failed'
         except Exception as e:
             _log_and_emit(scan_id, f"Pipeline Error: {str(e)}", "ERROR")

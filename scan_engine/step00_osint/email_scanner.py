@@ -39,6 +39,29 @@ class EmailScanner:
                 continue
         return list(emails)
 
+    def find_emails_via_dig(self, logger=None):
+        """Find emails in DNS records (SOA, TXT) via dig"""
+        from scan_engine.helpers.process_manager import ProcessManager
+        emails = set()
+        if logger: logger("OSINT: Checking DNS records for contact info (dig)...", "INFO")
+        
+        try:
+            # Check SOA and TXT records where emails often hide
+            cmd = ["dig", "ANY", self.target, "+short"]
+            success, stdout, stderr, code = ProcessManager.run_command(cmd)
+            
+            if success:
+                # Regex for emails
+                matches = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}', stdout)
+                for email in matches:
+                    # Basic validity check (must contain domain or obvious parts)
+                    if '.' in email and 'hostmaster' not in email:
+                         emails.add(email)
+        except Exception as e:
+            if logger: logger(f"Dig email search failed: {e}", "WARN")
+            
+        return list(emails)
+
     def scan(self, logger=None, extra_urls=None):
         if logger: logger(f"OSINT: Searching for emails associated with {self.target}...", "INFO")
         
@@ -49,7 +72,11 @@ class EmailScanner:
         crt_emails = self.search_crtsh(logger)
         findings.update(crt_emails)
         
-        # Source 2: Scraping discovered pages
+        # Source 2: DNS (Dig) - NEW
+        dns_emails = self.find_emails_via_dig(logger)
+        findings.update(dns_emails)
+        
+        # Source 3: Scraping discovered pages
         if extra_urls:
             web_emails = self.scan_pages(extra_urls, logger)
             findings.update(web_emails)

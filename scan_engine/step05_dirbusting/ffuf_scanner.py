@@ -32,6 +32,7 @@ class FfufScanner:
             "-w", wlist,
             "-mc", "200,204,301,302,307,401,403,405",
             "-r",
+            "-ac",
             "-t", "50",
             "-noninteractive"
         ]

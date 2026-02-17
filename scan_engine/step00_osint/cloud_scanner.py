@@ -63,33 +63,45 @@ class CloudScanner:
         return None
 
     def scan_all(self, logger=None):
-        # Professional Red Team Permutations
+        # Professional Red Team Permutations (Expanded CloudEnum Style)
         bases = [self.target_name, self.target_name.replace('-', ''), self.target_name.replace('_', '')]
-        suffixes = [
-            # Environment
-            "dev", "development", "staging", "stg", "prod", "production", "test", "demo",
-            # Content
-            "assets", "data", "static", "media", "images", "img", "files", "public", "private", "secret",
-            # Technical
-            "backup", "bak", "archive", "arc", "old", "new", "temp", "tmp", "db", "sql", "database",
-            # Functional
-            "logs", "logging", "audit", "internal", "corp", "admin", "management", "client", "customer",
-            # Infrastructure
-            "web", "app", "api", "infra", "kubernetes", "k8s", "docker", "registry", "mirror"
-        ]
+        
+        # 1. Environment & Stage
+        envs = ["dev", "development", "stage", "staging", "prod", "production", "test", "testing", "qa", "uat", "beta", "ops", "internal"]
+        
+        # 2. Content & Assets
+        assets = ["assets", "static", "media", "images", "img", "css", "js", "files", "content", "upload", "uploads", "public", "cdn", "bucket"]
+        
+        # 3. Data & Sensitive
+        sensitive = ["data", "db", "sql", "backup", "bak", "archive", "logs", "log", "audit", "private", "secret", "conf", "config", "dump"]
+        
+        # 4. Infrastructure & Tech
+        infra = ["app", "web", "api", "core", "server", "infra", "deploy", "build", "ci", "cd", "k8s", "docker", "jenkins", "gitlab", "registry"]
+        
+        # 5. Business & Func
+        biz = ["admin", "dashboard", "client", "customer", "user", "users", "corp", "finance", "hr", "sales", "marketing", "docs", "report", "reports"]
+
+        suffixes = envs + assets + sensitive + infra + biz
         
         patterns = set()
         for b in bases:
             patterns.add(b)
+            # Standard: target-suffix, targetsuffix, suffix-target
             for s in suffixes:
                 patterns.add(f"{b}-{s}")
                 patterns.add(f"{b}{s}")
                 patterns.add(f"{s}-{b}")
-        
+                patterns.add(f"{s}{b}")
+                
+            # Double permutations for high value (e.g. dev-assets)
+            for e in envs:
+                for a in assets:
+                     patterns.add(f"{b}-{e}-{a}")
+                     patterns.add(f"{b}-{a}-{e}")
+
         if logger: logger(f"Cloud Audit: Checking {len(patterns)*3} potential cloud storage buckets (aggressive mode)...", "INFO")
         
         found = []
-        # Use simple threading to speed up the large number of checks
         import threading
         from queue import Queue
 
@@ -99,7 +111,11 @@ class CloudScanner:
 
         def worker():
             while not q.empty():
-                p = q.get()
+                try:
+                    p = q.get_nowait()
+                except:
+                    break
+                    
                 # AWS
                 s3 = self.check_s3(p)
                 if s3: found.append(s3)
@@ -112,7 +128,7 @@ class CloudScanner:
                 q.task_done()
 
         threads = []
-        for i in range(10): # 10 threads for cloud discovery
+        for i in range(25): # Increased to 25 threads for larger wordlist
             t = threading.Thread(target=worker)
             t.start()
             threads.append(t)

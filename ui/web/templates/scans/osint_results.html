@@ -11,22 +11,44 @@
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <label class="text-muted small text-uppercase">Organization</label>
-                        <div class="h5 text-info">{{ intel.shodan.data.organization }}</div>
+                        <div class="h5 text-info">
+                            {% if intel.shodan.status == 'Success' and intel.shodan.data.organization %}
+                            {{ intel.shodan.data.organization }}
+                            {% elif scan.geolocation_data and scan.geolocation_data.org %}
+                            {{ scan.geolocation_data.org }}
+                            {% else %}
+                            <span class="text-muted fst-italic">Unknown</span>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label class="text-muted small text-uppercase">ISP / Cloud</label>
-                        <div class="h5 text-cyber">{{ intel.shodan.data.isp }}</div>
+                        <div class="h5 text-cyber">
+                            {% if intel.shodan.status == 'Success' and intel.shodan.data.isp %}
+                            {{ intel.shodan.data.isp }}
+                            {% elif scan.geolocation_data and scan.geolocation_data.isp %}
+                            {{ scan.geolocation_data.isp }}
+                            {% else %}
+                            <span class="text-muted fst-italic">Unknown</span>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
 
                 <div class="mb-4">
                     <label class="text-muted small text-uppercase">Known Vulnerabilities (Public Records)</label>
                     <ul class="list-group list-group-flush bg-transparent">
+                        {% if intel.shodan.status == 'Success' and intel.shodan.data.vulnerabilities %}
                         {% for vuln in intel.shodan.data.vulnerabilities %}
                         <li class="list-group-item bg-transparent text-danger border-secondary">
                             <i class="fas fa-exclamation-triangle me-2"></i>{{ vuln }}
                         </li>
                         {% endfor %}
+                        {% else %}
+                        <li class="list-group-item bg-transparent text-muted border-secondary fst-italic">
+                            No public vulnerability records found (Shodan unavailable).
+                        </li>
+                        {% endif %}
                     </ul>
                 </div>
 

@@ -69,11 +69,29 @@ class RedOpsReport(FPDF):
             self.set_text_color(0, 255, 100)
             self.cell(0, 10, 'CLEAN BILL OF HEALTH - NO CRITICAL VECTORS FOUND', ln=True, align='C')
 
+    def safe_text(self, text):
+        """Sanitizes text to be compatible with latin-1 encoding used by core fonts."""
+        if not text: return ""
+        # Map common problematic chars
+        replacements = {
+            "✅": "[YES]", "❌": "[NO]", "⚠️": "[WARN]", "🔥": "[CRIT]",
+            "✓": "[OK]", "—": "-", "’": "'", "“": "\"", "”": "\"",
+            "…": "..."
+        }
+        for k, v in replacements.items():
+            text = text.replace(k, v)
+        
+        # Fallback: encode/decode to strip unhandled chars
+        try:
+            return text.encode('latin-1', 'replace').decode('latin-1')
+        except:
+            return text
+
     def chapter_title(self, title, color=(255, 42, 42)):
         self.ln(10)
         self.set_font('helvetica', 'B', 16)
         self.set_text_color(*color)
-        self.cell(0, 10, title, ln=True)
+        self.cell(0, 10, self.safe_text(title), ln=True)
         self.set_draw_color(*color)
         self.line(self.get_x(), self.get_y(), self.get_x() + 190, self.get_y())
         self.ln(5)
@@ -90,7 +108,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     
     # 2. Executive Summary
     pdf.add_page()
-    pdf.set_text_color(0, 0, 0) # Normal black for text
+    pdf.set_text_color(0, 0, 0)
     pdf.chapter_title("1. Executive Summary")
     
     pdf.set_font("helvetica", "", 10)
@@ -99,7 +117,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         f"The operation was initiated on {scan_obj.start_time.strftime('%Y-%m-%d %H:%M:%S')} using the {scan_obj.scan_type} profile. "
         f"A total of {len(findings)} unique findings were recorded across multiple attack surfaces."
     )
-    pdf.multi_cell(0, 6, summary)
+    pdf.multi_cell(0, 6, pdf.safe_text(summary))
     
     # Severity breakdown
     sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -136,30 +154,122 @@ def generate_scan_report(scan_id, scan_obj, findings):
             else: pdf.set_text_color(0, 0, 0)
             
             pdf.cell(20, 7, f"{p['port']}/tcp", border=1)
-            pdf.cell(40, 7, p['service_name'], border=1)
-            pdf.cell(100, 7, str(p.get('version', 'Not Fingerprinted'))[:55], border=1)
+            pdf.cell(40, 7, pdf.safe_text(p['service_name']), border=1)
+            ver = pdf.safe_text(str(p.get('version', 'Not Fingerprinted')))
+            pdf.cell(100, 7, ver[:100], border=1)
             pdf.cell(20, 7, str(score), border=1, ln=True)
     pdf.set_text_color(0, 0, 0)
 
-    # 4. OSINT / Subdomains
-    if results and 'phases' in results and 'dns' in results['phases']:
-        subs = results['phases']['dns'].get('subdomains', [])
-        if subs:
-            pdf.chapter_title("3. Infrastructure Intelligence (OSINT)")
+    # 4. OSINT Intelligence
+    pdf.chapter_title("3. Infrastructure Intelligence (OSINT)")
+    
+    # Cloud Assets
+    if results and 'phases' in results and 'osint' in results['phases']:
+        osint = results['phases']['osint']
+        
+        # Subdomains
+        if 'phases' in results and 'dns' in results['phases']:
+            subs = results['phases']['dns'].get('subdomains', [])
+            if subs:
+                pdf.set_font("helvetica", "B", 10)
+                pdf.cell(0, 7, f"Discovered Subdomains ({len(subs)}):", ln=True)
+                pdf.set_font("helvetica", "", 8)
+                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(subs)))
+                pdf.ln(3)
+
+        # Cloud
+        if osint.get('cloud'):
             pdf.set_font("helvetica", "B", 10)
-            pdf.cell(0, 7, f"Discovered Subdomains ({len(subs)}):", ln=True)
+            pdf.cell(0, 7, f"Cloud Assets Found ({len(osint['cloud'])}):", ln=True)
             pdf.set_font("helvetica", "", 8)
-            pdf.multi_cell(0, 5, ", ".join(subs))
+            for c in osint['cloud']:
+                pdf.cell(0, 5, pdf.safe_text(f"- [{c['provider']}] {c.get('bucket', c.get('account'))} ({c['status']})"), ln=True)
+            pdf.ln(3)
+
+        # GitHub
+        if osint.get('github'):
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 7, f"GitHub Leaks ({len(osint['github'])}):", ln=True)
+            pdf.set_font("helvetica", "", 8)
+            for g in osint['github']:
+                pdf.cell(0, 5, pdf.safe_text(f"- {g['repository']}: {g['path']}"), ln=True)
+            pdf.ln(3)
+
+        # Emails
+        if osint.get('emails'):
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 7, f"Email Addresses ({len(osint['emails'])}):", ln=True)
+            pdf.set_font("helvetica", "", 8)
+            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(osint['emails'])))
+            pdf.ln(3)
+
+    # 4.5 Technology Intelligence
+    if results and 'phases' in results and 'enum' in results['phases'] and 'tech' in results['phases']['enum']:
+        tech = results['phases']['enum']['tech']
+        pdf.chapter_title("4. Technology Stack Intelligence")
+        
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(50, 7, "Modernization Level:", border=1)
+        pdf.set_font("helvetica", "", 10)
+        pdf.cell(0, 7, pdf.safe_text(tech.get('modernization_level', 'Unknown')), border=1, ln=True)
+        
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(50, 7, "Technology Score:", border=1)
+        pdf.set_font("helvetica", "", 10)
+        score = tech.get('technology_score', 0)
+        pdf.cell(0, 7, f"{score}/100", border=1, ln=True)
+        
+        pdf.ln(3)
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(0, 7, "Detected Frameworks & Libraries:", ln=True)
+        pdf.set_font("helvetica", "", 9)
+        
+        # Combine WhatWeb and Tech Detector
+        all_techs = []
+        if 'whatweb' in results['phases']['enum']:
+            for port, techs in results['phases']['enum']['whatweb'].items():
+                all_techs.extend([t for t in techs if t not in all_techs])
+                
+        if all_techs:
+             pdf.multi_cell(0, 5, pdf.safe_text(", ".join(all_techs)))
+        else:
+             pdf.cell(0, 5, "No specific frameworks identified.", ln=True)
+        pdf.ln(3)
+
+    # 4.6 API & Web Endpoints
+    if results and 'phases' in results and 'enum' in results['phases'] and 'api' in results['phases']['enum']:
+        api = results['phases']['enum']['api']
+        if api.get('endpoints'):
+            pdf.add_page()
+            pdf.chapter_title("5. API & Web Entpoints Analysis")
+            
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 7, f"Discovered API Endpoints ({len(api['endpoints'])}):", ln=True)
+            
+            pdf.set_font("helvetica", "", 8)
+            pdf.set_fill_color(240, 240, 245)
+            
+            # Table header
+            pdf.cell(20, 6, "Method", border=1, fill=True)
+            pdf.cell(15, 6, "Status", border=1, fill=True) 
+            pdf.cell(155, 6, "URL / Path", border=1, fill=True, ln=True)
+            
+            for ep in api['endpoints'][:100]: # Limit to 100 to avoid 500 pages
+                pdf.cell(20, 6, "GET", border=1) # Katana usually GET
+                pdf.cell(15, 6, str(ep.get('status', '200')), border=1)
+                pdf.cell(155, 6, pdf.safe_text(ep.get('url', '')[:180]), border=1, ln=True)
+                
+            if len(api['endpoints']) > 100:
+                pdf.cell(0, 6, f"... and {len(api['endpoints']) - 100} more endpoints.", border=1, ln=True)
+            pdf.ln(5)
 
     # 5. FINDINGS
-    pdf.chapter_title("4. Detailed Vulnerabilities & Vectors")
+    pdf.chapter_title("6. Detailed Vulnerabilities & Vectors")
     
-    # Sort findings by severity
     sev_map = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     sorted_findings = sorted(findings, key=lambda x: sev_map.get(x.severity.lower(), 4))
     
     for f in sorted_findings:
-        # Check if we need a new page
         if pdf.get_y() > 250: pdf.add_page()
         
         sev = f.severity.lower()
@@ -171,15 +281,16 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.set_fill_color(*color)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("helvetica", "B", 11)
-        pdf.cell(0, 8, f" {f.severity.upper()}: {f.title}", fill=True, ln=True)
+        title_cleaned = f.title.replace(f"{f.severity.upper()}:", "").strip()
+        pdf.cell(0, 8, pdf.safe_text(f" {f.severity.upper()}: {title_cleaned}"), fill=True, ln=True)
         
         pdf.set_text_color(50, 50, 50)
         pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 6, f" Source: {f.tool_source}", ln=True)
+        pdf.cell(0, 6, pdf.safe_text(f" Source: {f.tool_source}"), ln=True)
         
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(80, 80, 80)
-        pdf.multi_cell(0, 5, f.description)
+        pdf.multi_cell(0, 5, pdf.safe_text(f.description))
         
         if f.screenshot_path:
             full_img_path = os.path.join("ui/web/static", f.screenshot_path)
@@ -204,10 +315,10 @@ def generate_scan_report(scan_id, scan_obj, findings):
         
         pdf.set_font("helvetica", "", 8)
         for l in loots:
-            masked_content = l.content[:15] + "..." if len(l.content) > 20 else l.content
-            pdf.cell(40, 7, l.type, border=1)
-            pdf.cell(100, 7, masked_content, border=1)
-            pdf.cell(50, 7, str(l.context)[:30], border=1, ln=True)
+            masked_content = l.content[:80] + "..." if len(l.content) > 85 else l.content
+            pdf.cell(40, 7, pdf.safe_text(l.type), border=1)
+            pdf.cell(100, 7, pdf.safe_text(masked_content), border=1)
+            pdf.cell(50, 7, pdf.safe_text(str(l.context)[:100]), border=1, ln=True)
 
     # 7. Notes
     if scan_obj.notes:
@@ -215,9 +326,43 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.chapter_title("6. Operational Mission Notes", color=(100, 100, 100))
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(50, 50, 50)
-        pdf.multi_cell(0, 6, scan_obj.notes)
+        pdf.multi_cell(0, 6, pdf.safe_text(scan_obj.notes))
 
     filename = f"redops_report_{scan_id}_{datetime.now().strftime('%Y%m%d%H%M')}.pdf"
     path = os.path.join(REPORTS_DIR, filename)
     pdf.output(path)
+    return filename
+
+def generate_html_report(scan_id, scan_obj, findings, suggestions):
+    if not os.path.exists(REPORTS_DIR):
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        
+    results = load_results(scan_id)
+    
+    # Calculate duration
+    duration = "N/A"
+    if scan_obj.end_time and scan_obj.start_time:
+        delta = scan_obj.end_time - scan_obj.start_time
+        duration = str(delta).split('.')[0]
+        
+    # We need to render the template. 
+    # Since this might be called from background task or context where render_template works:
+    from flask import render_template
+    
+    html_content = render_template(
+        "reports/standard_report.html",
+        scan=scan_obj,
+        results=results,
+        findings=findings,
+        suggestions=suggestions,
+        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        duration=duration
+    )
+    
+    filename = f"redops_report_{scan_id}_{datetime.now().strftime('%Y%m%d%H%M')}.html"
+    path = os.path.join(REPORTS_DIR, filename)
+    
+    with open(path, "w", encoding='utf-8') as f:
+        f.write(html_content)
+        
     return filename

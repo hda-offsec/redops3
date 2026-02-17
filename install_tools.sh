@@ -28,7 +28,9 @@ else
     echo "[!] pdtm failed, falling back to direct go install..."
     go install github.com/projectdiscovery/katana/cmd/katana@latest || true
     go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest || true
+    go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest || true
     go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest || true
+    go install github.com/hahwul/dalfox/v2@latest || true
 fi
 
 # Install Playwright browsers for screenshots

@@ -33,10 +33,94 @@ class DNSScanner:
         command = [subfinder_path, "-d", self.target, "-silent"]
         return ProcessManager.run_command(command)
 
+    def analyze_security(self, records):
+        """
+        Analyze DNS records for security issues (SPF/DMARC/Takeover).
+        Ported from RedOps2.
+        """
+        analysis = {
+            "spf": {"present": False, "policy": "None", "rating": "High Risk"},
+            "dmarc": {"present": False, "policy": "None", "rating": "High Risk"},
+            "takeovers": [],
+            "cdn": [],
+            "mx_providers": []
+        }
+        
+        # Flatten and normalize records
+        txt_records = [r for r in records if r.get('type') == 'TXT']
+        cname_records = [r for r in records if r.get('type') == 'CNAME']
+        mx_records = [r for r in records if r.get('type') == 'MX']
+        
+        # SPF Analysis
+        for r in txt_records:
+            # dnsrecon stores TXT value in 'name' or 'strings'
+            val = r.get('strings', '') 
+            if isinstance(val, list): val = " ".join(val)
+            if not val: val = r.get('name', '')
+            
+            if not isinstance(val, str): val = str(val)
+            
+            if "v=spf1" in val.lower():
+                analysis['spf']['present'] = True
+                if "-all" in val:
+                    analysis['spf']['policy'] = "Strict (-all)"
+                    analysis['spf']['rating'] = "Secure"
+                elif "~all" in val:
+                    analysis['spf']['policy'] = "SoftFail (~all)"
+                    analysis['spf']['rating'] = "Medium Risk"
+                elif "?all" in val:
+                    analysis['spf']['policy'] = "Neutral (?all)"
+                    analysis['spf']['rating'] = "High Risk"
+                else:
+                    analysis['spf']['policy'] = "Permissive (+all)"
+                    analysis['spf']['rating'] = "Critical Risk"
+                    
+        # DMARC Analysis
+        for r in txt_records:
+            val = r.get('strings', '')
+            if isinstance(val, list): val = " ".join(val)
+            if not val: val = r.get('name', '')
+            if not isinstance(val, str): val = str(val)
+
+            if "v=DMARC1" in val or "v=dmarc1" in val:
+                analysis['dmarc']['present'] = True
+                if "p=reject" in val:
+                    analysis['dmarc']['policy'] = "Reject"
+                    analysis['dmarc']['rating'] = "Secure"
+                elif "p=quarantine" in val:
+                    analysis['dmarc']['policy'] = "Quarantine"
+                    analysis['dmarc']['rating'] = "Medium Risk"
+                else:
+                    analysis['dmarc']['policy'] = "None"
+                    analysis['dmarc']['rating'] = "High Risk"
+
+        # CNAME Takeovers & CDN
+        suspicious = ['github.io', 'herokuapp.com', "s3.amazonaws.com", "azurewebsites.net", "pantheon.io", "shopify.com"]
+        cdns = ['cloudfront.net', 'akamai', 'fastly', 'cloudflare', 'incapsula', 'cdn']
+        
+        for r in cname_records:
+            target = r.get('target', '').lower()
+            if any(s in target for s in suspicious):
+                analysis['takeovers'].append({'alias': r.get('name'), 'target': target})
+            if any(c in target for c in cdns):
+                analysis['cdn'].append(target)
+                
+        # MX Providers
+        for r in mx_records:
+             exchange = r.get('exchange', '').lower()
+             if 'google' in exchange or 'googlemail' in exchange: analysis['mx_providers'].append("GSuite")
+             elif 'outlook' in exchange or 'protection' in exchange: analysis['mx_providers'].append("Office365")
+             elif 'zoho' in exchange: analysis['mx_providers'].append("Zoho")
+             elif 'proton' in exchange: analysis['mx_providers'].append("ProtonMail")
+             
+        analysis['mx_providers'] = list(set(analysis['mx_providers']))
+        return analysis
+
     def enumerate_all(self, logger=None):
         results = {
             "subdomains": [],
-            "records": []
+            "records": [],
+            "security": {}
         }
         
         # Subfinder logic
@@ -62,6 +146,13 @@ class DNSScanner:
             if records:
                 results["records"] = records
                 if logger: logger(f"Parsed {len(records)} DNS records.", "SUCCESS")
+                
+                # NEW: Security Analysis
+                results["security"] = self.analyze_security(records)
+                sec = results["security"]
+                if logger:
+                    logger(f"DNS Security: SPF {sec['spf']['policy']} | DMARC {sec['dmarc']['policy']}", 
+                           "SUCCESS" if sec['spf']['present'] and sec['dmarc']['present'] else "WARN")
             else:
                 if logger: logger("No DNS records parsed from output.", "WARN")
         else:

@@ -1,16 +1,27 @@
 #!/bin/bash
 set -e
 
-# Kill existing processes
+# Function to kill processes on exit
+cleanup() {
+    echo ""
+    echo "🛑 Shutting down RedOps processes..."
+    pkill -f "celery" || true
+    pkill -f "python3 app.py" || true
+    # Optionally stop redis if we started it as a daemon
+    # sudo redis-cli shutdown || true
+    echo "Done. Bye!"
+    exit
+}
+
+# Trap signals (Ctrl+C, termination)
+trap cleanup SIGINT SIGTERM EXIT
+
+# Kill existing processes at start
 echo "Cleaning up old processes..."
 pkill -f "celery" || true
 pkill -f "python3 app.py" || true
 
 # Clean old data safely
-echo "Cleaning old session data..."
-# Keep DB if wanted? No, the user script removes it. 
-# rm -f data/redops3.db
-
 mkdir -p data/results
 mkdir -p data/reports
 mkdir -p data/wordlists
@@ -20,26 +31,28 @@ if ! command -v redis-server &> /dev/null; then
     echo "ERROR: redis-server not found. Please install redis."
     exit 1
 fi
-sudo redis-server --daemonize yes || echo "Redis might be already running..."
+sudo redis-server --daemonize yes &> /dev/null || echo "Redis might be already running..."
 
 # Ensure we are in the right directory
 cd "$(dirname "$0")"
 
 # Uninstall fpdf to avoid namespace conflict with fpdf2
 echo "Cleaning up PDF library conflicts..."
-python3 -m pip uninstall -y fpdf pypdf &> /dev/null || true
+./venv/bin/python3 -m pip uninstall -y fpdf pypdf &> /dev/null || true
 
 # Install missing dependencies
 echo "Ensuring dependencies are installed..."
-python3 -m pip install -r requirements.txt
-# Force reinstall fpdf2 to restore the namespace if it was wiped
-python3 -m pip install --force-reinstall fpdf2
+./venv/bin/python3 -m pip install -r requirements.txt
+./venv/bin/python3 -m pip install --force-reinstall fpdf2 &> /dev/null
 
-echo "Starting Celery Worker (Pool: solo)..."
+echo "🚀 Starting Celery Worker (Pool: solo)..."
 export PYTHONPATH=$PYTHONPATH:.
 # Solo pool is the most stable on Python 3.13 / Kali
-celery -A core.tasks.celery worker --loglevel=info --detach -P solo --logfile=data/celery.log
+# We run it in background but the trap will catch it
+./venv/bin/celery -A core.tasks.celery worker --loglevel=error -P solo --logfile=data/celery.log &
+CELERY_PID=$!
 
-echo "Starting Redops Flask App..."
+echo "🚀 Starting Redops Flask App..."
 # Force threading to avoid eventlet try-load
-python3 app.py
+export ALLOW_UNSAFE_WERKZEUG=true
+./venv/bin/python3 app.py

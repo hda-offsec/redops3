@@ -1,0 +1,183 @@
+<!-- LOOT VAULT -->
+<div class="card glass-panel mb-4 border-success">
+    <div class="card-header glass-header text-success d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-vault me-2"></i>Mission Loot Vault</span>
+        <span class="badge bg-success loot-counter-val">{{ loots|length if loots else 0 }}</span>
+    </div>
+    <div class="card-body p-0" id="loot-vault-container">
+        <div class="list-group list-group-flush bg-transparent">
+            {% if loots %}
+            {% for l in loots %}
+            <div class="list-group-item bg-transparent border-secondary border-opacity-25 py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="badge bg-black border border-success text-success x-small text-uppercase">{{
+                        l.type }}</span>
+                    <span class="x-small text-muted font-monospace">{{ l.created_at.strftime('%H:%M') }}</span>
+                </div>
+                <div class="mt-1 small font-monospace text-light text-break">{{ l.content }}</div>
+                {% if l.context %}
+                <div class="x-small text-muted mt-1 italic"><i class="fas fa-info-circle me-1"></i>{{ l.context
+                    }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="p-3 text-center text-muted small fst-italic">
+                <i class="fas fa-ghost fa-2x mb-2 opacity-25"></i>
+                <p class="mb-0">Vault is empty... harvest some intel.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- SUB-OPERATIONS (RECURSIVE SCANS) -->
+{% if scan.children %}
+<div class="card glass-panel mb-4 border-info">
+    <div class="card-header glass-header text-info d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-sitemap me-2"></i>Sub-Operations</span>
+        <span class="badge bg-info text-dark">{{ scan.children|length }}</span>
+    </div>
+    <div class="list-group list-group-flush bg-transparent" style="max-height: 300px; overflow-y: auto;">
+        {% for child in scan.children %}
+        <a href="{{ url_for('main.scan_detail', scan_id=child.id) }}"
+            class="list-group-item bg-transparent border-secondary border-opacity-25 py-2 px-3 list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+                <div class="font-monospace small text-light mb-1">
+                    <span class="text-muted me-1">#{{ child.id }}</span> {{ child.target.identifier }}
+                </div>
+                <div class="x-small text-muted">{{ child.scan_type }}</div>
+            </div>
+            <span
+                class="badge {{ 'bg-success' if child.status == 'completed' else 'bg-warning text-dark' if child.status == 'running' else 'bg-danger' if child.status == 'failed' else 'bg-secondary' }} rounded-pill x-small">
+                {{ child.status|upper }}
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- RAW OUTPUT -->
+<div class="card glass-panel mb-4 text-secondary" style="font-size: 0.8rem;">
+    <div class="card-header glass-header py-1" data-bs-toggle="collapse" data-bs-target="#rawOutput"
+        style="cursor: pointer; opacity: 0.7;">
+        <i class="fas fa-terminal me-2"></i>Raw Nmap View
+    </div>
+    <div id="rawOutput" class="collapse">
+        <div class="card-body bg-black p-2">
+            <pre class="m-0"
+                style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 0.7rem;">{{ results.phases.recon.raw_output if results and results.phases and results.phases.recon else 'No raw output.' }}</pre>
+        </div>
+    </div>
+</div>
+
+<!-- FINDINGS -->
+<div class="card glass-panel mb-4">
+    <div class="card-header glass-header"><i class="fas fa-bell me-2"></i>Findings</div>
+    <div class="card-body" id="findings-container" style="max-height: 600px; overflow-y: auto;">
+        {% if findings %}
+        <div class="result-list">
+            {% for finding in findings %}
+            <div
+                class="result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight">
+                <div class="d-flex w-100 justify-content-between mb-2">
+                    <span class="badge severity-badge {{ finding.severity }} text-uppercase">{{
+                        finding.severity
+                        }}</span>
+                    <span class="result-text fw-bold text-break">{{ finding.title }}</span>
+                </div>
+                {% if finding.description %}
+                <div class="mt-1 small text-muted text-break overflow-auto"
+                    style="max-height: 200px; white-space: pre-wrap;">{{
+                    finding.description }}</div>
+                {% endif %}
+                {% if finding.screenshot_path %}
+                <div class="mt-2 w-100">
+                    <img src="{{ url_for('static', filename=finding.screenshot_path) }}"
+                        class="img-fluid rounded border border-secondary shadow-sm"
+                        style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)">
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted">No findings recorded.</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- SUGGESTIONS -->
+<div class="card glass-panel mb-4">
+    <div class="card-header glass-header"><i class="fas fa-lightbulb me-2"></i>Suggestions</div>
+    <div class="card-body" id="suggestions-container">
+        {% if suggestions %}
+        <div class="result-list">
+            {% for suggestion in suggestions %}
+            <div
+                class="result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded">
+                <div>
+                    <span class="badge bg-secondary me-2">{{ suggestion.tool_name }}</span>
+                    <span class="result-text font-monospace small">{{ suggestion.command_suggestion
+                        }}</span>
+                    {% if suggestion.reason %}
+                    <div class="mt-1 x-small text-muted opacity-50">{{ suggestion.reason }}</div>
+                    {% endif %}
+                </div>
+                <button class="btn btn-xs btn-outline-warning"
+                    onclick='verifyFinding({{ suggestion.command_suggestion|tojson|safe }})'>
+                    <i class="fas fa-play me-1"></i>
+                </button>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted">No suggestions recorded.</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- NOTES -->
+<div class="card glass-panel mb-4">
+    <div class="card-header glass-header"><i class="fas fa-sticky-note me-2"></i>Operator Notes (War Room)
+    </div>
+    <div class="card-body">
+        <form action="{{ url_for('main.update_notes', scan_id=scan.id) }}" method="POST">
+            <textarea name="notes" class="form-control bg-dark text-light border-secondary mb-2" rows="6"
+                placeholder="Document your findings... Markdown supported">{{ scan.notes or '' }}</textarea>
+            <div class="text-end">
+                <button type="submit" class="btn btn-sm btn-outline-success">Save Notes</button>
+            </div>
+        </form>
+    </div>
+</div>
+</div>
+</div>
+
+<!-- SCAN PROGRESS TOAST (Tactical Overlay) -->
+<div id="scan-progress-toast" class="position-fixed bottom-0 end-0 m-4 shadow-lg animate__animated d-none"
+    style="z-index: 1060; width: 320px;">
+    <div class="glass-panel border-cyber p-3 rounded shadow-lg overflow-hidden position-relative">
+        <div class="d-flex align-items-center mb-2">
+            <div class="spinner-grow spinner-grow-sm text-cyber me-2" role="status"></div>
+            <span class="text-uppercase small fw-bold text-cyber letter-spacing-1">Tactical Analysis Active</span>
+            <button type="button" class="btn-close btn-close-white ms-auto scale-75 opacity-50"
+                onclick="toggleScanToast(false)"></button>
+        </div>
+        <div class="progress bg-black border border-secondary mb-2" style="height: 4px;">
+            <div id="toast-progress-bar"
+                class="progress-bar bg-cyber shadow-cyber progress-bar-striped progress-bar-animated"
+                style="width: 5%;"></div>
+        </div>
+        <div class="d-flex justify-content-between x-small font-monospace">
+            <span class="text-muted" id="toast-phase-text">Booting...</span>
+            <span class="text-cyber" id="toast-percent-text">5%</span>
+        </div>
+        <!-- Background Glow -->
+        <div class="position-absolute top-50 start-50 translate-middle w-100 h-100"
+            style="background: radial-gradient(circle, rgba(0, 240, 255, 0.05) 0%, transparent 70%); z-index: -1;">
+        </div>
+    </div>
+</div>

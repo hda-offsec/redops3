@@ -93,11 +93,24 @@ if __name__ == "__main__":
 
         # Create default admin user if not exists
         if not User.query.filter_by(username="admin").first():
-            user = User(username="admin")
-            user.set_password("redops3")
             db.session.add(user)
             db.session.commit()
             print("Default admin user created (admin/redops3)")
+
+        # --- MIGRATION CHECK ---
+        # Ensure parent_scan_id exists (SQLite doesn't support easy ALTER via SQLAlchemy)
+        if "sqlite" in app.config["SQLALCHEMY_DATABASE_URI"]:
+            try:
+                with db.engine.connect() as conn:
+                    # Check if column exists
+                    result = conn.execute(db.text("PRAGMA table_info(scans);")).fetchall()
+                    columns = [row[1] for row in result]
+                    if "parent_scan_id" not in columns:
+                        print("Migrating database: Adding parent_scan_id to scans table...")
+                        conn.execute(db.text("ALTER TABLE scans ADD COLUMN parent_scan_id INTEGER REFERENCES scans(id);"))
+                        print("Migration successful.")
+            except Exception as e:
+                print(f"Migration check failed: {e}")
 
     # Use environment variable for debug mode (defaulting to False for security)
     debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")

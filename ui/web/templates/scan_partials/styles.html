@@ -1,0 +1,141 @@
+<style>
+    :root {
+        --glass-bg: rgba(10, 10, 12, 0.7);
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --cyber-red: #ff2a2a;
+        --cyber-blue: #00f0ff;
+        --cyber-yellow: #f39c12;
+        --cyber-purple: #bc13fe;
+    }
+
+    .glass-panel {
+        background: var(--glass-bg);
+        backdrop-filter: blur(12px) saturate(160%);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+        transition: transform 0.3s ease, border-color 0.3s ease;
+    }
+
+    .glass-panel:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .glass-header {
+        background: rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid var(--glass-border);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #eee;
+    }
+
+    .tactical-summary-bar {
+        background: linear-gradient(90deg, rgba(255, 42, 42, 0.1), rgba(0, 240, 255, 0.05));
+        border-left: 4px solid var(--cyber-red);
+    }
+
+    .risk-indicator {
+        position: relative;
+        display: inline-block;
+    }
+
+    .pulse-danger {
+        box-shadow: 0 0 0 0 rgba(255, 42, 42, 0.7) !important;
+        animation: pulse-danger 2s infinite;
+    }
+
+    @keyframes pulse-danger {
+        0% {
+            box-shadow: 0 0 0 0 rgba(255, 42, 42, 0.7);
+        }
+
+        70% {
+            box-shadow: 0 0 0 10px rgba(255, 42, 42, 0);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(255, 42, 42, 0);
+        }
+    }
+
+    .hover-action:hover {
+        background: rgba(255, 255, 255, 0.05) !important;
+        transform: translateX(5px);
+    }
+
+    .animate-flicker {
+        animation: flicker 2s linear infinite;
+    }
+
+    @keyframes flicker {
+
+        0%,
+        19.999%,
+        22%,
+        62.999%,
+        64%,
+        64.999%,
+        70%,
+        100% {
+            opacity: 1;
+        }
+
+        20%,
+        21.999%,
+        63%,
+        63.999%,
+        65%,
+        69.999% {
+            opacity: 0.4;
+        }
+    }
+
+    .discovery-btn {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 0.7rem;
+        padding: 4px 10px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .discovery-btn.active {
+        color: var(--cyber-blue);
+        border-color: var(--cyber-blue);
+        background: rgba(0, 240, 255, 0.1);
+        box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+    }
+
+    .discovery-btn.discovered {
+        color: #fff;
+        border-color: var(--cyber-red);
+        background: rgba(255, 42, 42, 0.1);
+        box-shadow: 0 0 15px rgba(255, 42, 42, 0.3);
+        font-weight: bold;
+    }
+
+    .discovery-btn i {
+        font-size: 0.8rem;
+    }
+
+    .discovery-btn.active i {
+        animation: spin 2s infinite linear;
+    }
+
+    @keyframes spin {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
+    }
+</style>

@@ -13,14 +13,20 @@ class KatanaScanner:
         return [
             katana_path,
             "-u", url,
-            "-jc",
-            "-jsl", 
-            "-kf", "all",
-            "-d", "3",
-            "-fs", "fqdn", 
-            "-ct", "10", 
+            "-jc",           # JSON output
+            "-jsl",          # JS Library detection
+            "-kf", "all",    # Keep all fields
+            "-d", "3",       # Reduced depth slightly for speed
+            "-fs", "fqdn",   # Filter scope
+            "-ct", "10",     # Crawl duration
             "-silent",
-            "-nc" 
+            "-nc",
+            
+            # DEEP CRAWL FLAGS (Removed -headless as it causes issues)
+            "-js-crawl",     # Enable JavaScript crawling
+            "-xhr",          # Extract XHR requests
+            "-aff",          # Automatic Form Filling
+            "-dr",           # Disable redirect following (let katana handle it)
         ]
 
     def stream_katana(self, port, protocol='http'):

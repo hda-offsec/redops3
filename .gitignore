@@ -14,13 +14,23 @@ __pycache__/
 # OS / Editor
 .DS_Store
 Thumbs.db
+*.bak
+*_original.html
+fix_*.py
+test_*.py
+reorder_v*.py
+reorganize_pipeline.py
+analyze_deps.py
+gemini.md
+walkthrough_*.md
+/home/doomer/Bureau/redops3/walkthrough_enrichment.md
+/home/doomer/Bureau/redops3/walkthrough_fixes.md
 
 # Runtime / data
 *.db
 *.db-*
 instance/
-data/results/
-data/reports/
+data/
 
 # Logs
 *.log

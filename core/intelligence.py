@@ -48,7 +48,7 @@ class AttackVectorMapper:
                     "category": "TIP",
                     "risk": "INFO",
                     "score": 10,
-                    "name": f"Offensive Tip (Port {port})",
+                    "name": f"Offensive Tip (Port {port}) - {tip['tool']}",
                     "description": tip["tip"],
                     "action": f"Use {tip['tool']} for further enumeration."
                 })

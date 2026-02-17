@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 from flask_login import login_required, current_user
 from urllib.parse import urlparse
 import os
+import json
 import shutil
 import functools
 from datetime import datetime
@@ -12,7 +13,7 @@ from sqlalchemy.orm import joinedload
 from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
 from sqlalchemy import func
 from core.results_store import load_results, save_results, delete_results
-from core.reporting import generate_scan_report
+from core.reporting import generate_scan_report, generate_html_report
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
@@ -25,6 +26,11 @@ main_bp = Blueprint("main", __name__)
 @main_bp.route("/terminal")
 def terminal():
     return render_template("terminal.html")
+
+
+@main_bp.route("/test_graph")
+def test_graph():
+    return render_template("test_graph.html")
 
 
 @functools.lru_cache(maxsize=16)
@@ -163,6 +169,15 @@ def scan_detail(scan_id):
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).order_by(Suggestion.id.desc()).all()
     logs = ScanLog.query.filter_by(scan_id=scan_id).order_by(ScanLog.timestamp.asc()).all()
 
+    # Serialize findings for JS visualization
+    results['findings'] = [{
+        'id': f.id,
+        'title': f.title,
+        'severity': f.severity,
+        'description': f.description,
+        'tool_source': f.tool_source
+    } for f in findings]
+
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     for finding in findings:
         sev = (finding.severity or "info").lower()
@@ -172,6 +187,14 @@ def scan_detail(scan_id):
             severity_counts["info"] += 1
 
     loots = Loot.query.filter_by(scan_id=scan_id).all()
+
+    # Debug: Dump results to a file for review
+    try:
+        debug_path = os.path.join(current_app.root_path, '..', '..', f'debug_results_{scan_id}.json')
+        with open(debug_path, 'w') as f:
+            json.dump(results, f, default=str, indent=4)
+    except Exception as e:
+        print(f"Failed to write debug results: {e}")
 
     return render_template(
         "scan_detail.html",
@@ -183,7 +206,6 @@ def scan_detail(scan_id):
         severity_counts=severity_counts,
         loots=loots
     )
-
 
 def _normalize_target(value):
     if not value:
@@ -445,6 +467,7 @@ def new_scan():
     target_input = request.form.get("target")
     scan_type = request.form.get("scan_type", "pipeline")
     confirm_auth = request.form.get("confirm_auth")
+    recursive = request.form.get("recursive") == "on"
 
     if not target_input:
         flash("Target is required", "error")
@@ -468,9 +491,21 @@ def new_scan():
         db.session.add(target)
         db.session.commit()
 
-    scan = Scan(target_id=target.id, scan_type=scan_type, status="pending")
+    scan_params = {"recursive": recursive}
+    scan = Scan(target_id=target.id, scan_type=scan_type, status="pending", params=json.dumps(scan_params))
     db.session.add(scan)
     db.session.commit()
+
+    # CRITICAL: If scan ID is recycled (e.g. after purge), ensure we don't inherit orphaned data
+    # SQLite might not enforce FK constraints strictly, leading to orphans.
+    try:
+        ScanLog.query.filter_by(scan_id=scan.id).delete()
+        Finding.query.filter_by(scan_id=scan.id).delete()
+        Suggestion.query.filter_by(scan_id=scan.id).delete()
+        Loot.query.filter_by(scan_id=scan.id).delete()
+        db.session.commit()
+    except Exception as e:
+        print(f"Cleanup of potential orphans failed (non-blocking): {e}")
 
     # Ensure fresh results file (wipes stale data from previous deleted runs)
     delete_results(scan.id)
@@ -496,15 +531,21 @@ def scan_report(scan_id):
     scan = Scan.query.get_or_404(scan_id)
     findings = Finding.query.filter_by(scan_id=scan.id).all()
     results = load_results(scan_id)
+    suggestions = Suggestion.query.filter_by(scan_id=scan_id).all()
     
     format = request.args.get('format', 'html')
     if format == 'pdf':
         from flask import send_from_directory
         import os
         filename = generate_scan_report(scan_id, scan, findings)
-        return send_from_directory(os.path.join(current_app.root_path, "data/reports"), filename)
+        return send_from_directory(os.path.join(current_app.root_path, "data/reports"), filename, as_attachment=False)
+        
+    if format == 'html_download':
+        from flask import send_from_directory
+        import os
+        filename = generate_html_report(scan_id, scan, findings, suggestions)
+        return send_from_directory(os.path.join(current_app.root_path, "data/reports"), filename, as_attachment=True)
 
-    suggestions = Suggestion.query.filter_by(scan_id=scan_id).all()
     
     # Calculate duration
     duration = "N/A"
@@ -576,6 +617,31 @@ def mission_map(mission_id):
 def mission_list():
     missions = Mission.query.order_by(Mission.created_at.desc()).all()
     return render_template("missions/list.html", missions=missions)
+
+@main_bp.route("/gallery")
+def gallery():
+    screenshots_dir = os.path.join(current_app.static_folder, "screenshots")
+    images = []
+    if os.path.exists(screenshots_dir):
+        for f in os.listdir(screenshots_dir):
+            if f.endswith(".png"):
+                # parse filename: scan_{id}_port_{port}.png
+                parts = f.replace(".png", "").split("_")
+                port = "Unknown"
+                if "port" in parts:
+                    try:
+                        port_idx = parts.index("port")
+                        port = parts[port_idx + 1]
+                    except: pass
+                
+                images.append({
+                    "path": f"screenshots/{f}",
+                    "filename": f,
+                    "port": port,
+                    "service": "HTTP/HTTPS", # placeholder
+                    "protocol": "tcp"
+                })
+    return render_template("gallery.html", images=images)
 
 @main_bp.route("/mission/new", methods=["POST"])
 @login_required
@@ -650,6 +716,7 @@ def clear_logs():
         num_suggestions = db.session.query(Suggestion).delete()
         num_logs = db.session.query(ScanLog).delete()
         num_loots = db.session.query(Loot).delete()
+        num_targets = db.session.query(Target).delete()
         
         db.session.commit()
         

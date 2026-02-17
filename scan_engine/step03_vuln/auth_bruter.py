@@ -48,7 +48,7 @@ class AuthBruteScanner:
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
             
-            if "Accounts:" in result.stdout or "Valid credentials" in result.stdout:
+            if ("Accounts:" in result.stdout and "No valid accounts found" not in result.stdout) or "Valid credentials" in result.stdout:
                 import re
                 creds_match = re.search(r"Accounts:\s+([^\n-]+)", result.stdout)
                 found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found (check logs)"
@@ -100,7 +100,9 @@ class AuthBruteScanner:
                 self.target
             ]
             res_brute = subprocess.run(cmd_brute, capture_output=True, text=True, timeout=120)
-            if "Accounts:" in res_brute.stdout or "Valid credentials" in res_brute.stdout:
+            
+            # Fix: Explicitly check that we actually found accounts, not just the failure message
+            if ("Accounts:" in res_brute.stdout and "No valid accounts found" not in res_brute.stdout) or "Valid credentials" in res_brute.stdout:
                 import re
                 creds_match = re.search(r"Accounts:\s+([^\n-]+)", res_brute.stdout)
                 found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found (check logs)"

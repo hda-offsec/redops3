@@ -52,6 +52,8 @@ class Scan(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=False)
+    parent_scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True)
+    children = db.relationship("Scan", backref=db.backref("parent", remote_side=[id]), lazy=True)
     scan_type = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(20), default="pending")
     params = db.Column(db.Text, nullable=True)
