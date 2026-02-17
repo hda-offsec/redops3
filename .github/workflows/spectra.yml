@@ -1,0 +1,77 @@
+# .github/workflows/spectra.yml
+name: Spectra Quality Gate
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Optional: run tests to include coverage
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          pip install -r requirements.txt
+          pytest --cov=app --cov-report=xml:coverage.xml || true
+
+      - name: Register scan with Spectra
+        id: scan
+        run: |
+          RESPONSE=$(curl -sf -X POST "$SPECTRA_URL/api/v1/ci/scans" \
+            -H "X-CI-Key: $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"commit_sha\":\"$GITHUB_SHA\",\"branch\":\"${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}\"}")
+          SCAN_ID=$(echo "$RESPONSE" | jq -r '.data.scan_id')
+          echo "scan_id=$SCAN_ID" >> "$GITHUB_OUTPUT"
+          echo "sonar_url=$(echo "$RESPONSE" | jq -r '.data.sonar.host_url')" >> "$GITHUB_OUTPUT"
+          echo "sonar_token=$(echo "$RESPONSE" | jq -r '.data.sonar.token')" >> "$GITHUB_OUTPUT"
+          echo "sonar_key=$(echo "$RESPONSE" | jq -r '.data.sonar.project_key')" >> "$GITHUB_OUTPUT"
+        env:
+          SPECTRA_URL: ${{ vars.SPECTRA_URL }}
+          API_KEY: ${{ secrets.SPECTRA_CI_KEY }}
+
+      - name: Spectra Quality — Analyze
+        run: |
+          curl -sSLo sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-6.2.1.4610-linux-x64.zip"
+          unzip -q sonar-scanner.zip
+          ARGS="-Dsonar.host.url=${{ steps.scan.outputs.sonar_url }}"
+          ARGS="$ARGS -Dsonar.token=${{ steps.scan.outputs.sonar_token }}"
+          ARGS="$ARGS -Dsonar.projectKey=${{ steps.scan.outputs.sonar_key }}"
+          [ -f coverage.xml ] && ARGS="$ARGS -Dsonar.python.coverage.reportPaths=coverage.xml"
+          ./sonar-scanner-*/bin/sonar-scanner $ARGS
+
+      - name: Spectra — Notify completion
+        run: |
+          curl -sf -X POST "$SPECTRA_URL/api/v1/ci/scans/$SCAN_ID/complete" \
+            -H "X-CI-Key: $API_KEY"
+        env:
+          SPECTRA_URL: ${{ vars.SPECTRA_URL }}
+          API_KEY: ${{ secrets.SPECTRA_CI_KEY }}
+          SCAN_ID: ${{ steps.scan.outputs.scan_id }}
+
+      - name: Spectra — Wait for verdict
+        run: |
+          for i in $(seq 1 60); do
+            RESPONSE=$(curl -sf "$SPECTRA_URL/api/v1/ci/scans/$SCAN_ID/status" \
+              -H "X-CI-Key: $API_KEY")
+            STATUS=$(echo "$RESPONSE" | jq -r '.data.status')
+            echo "[$i/60] Status: $STATUS"
+            case "$STATUS" in
+              passed|bypassed) echo "Quality gate passed."; exit 0 ;;
+              failed) echo "Quality gate FAILED."; [ "$MODE" = "blocking" ] && exit 1 || exit 0 ;;
+              error) echo "Scan error."; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Timeout."; exit 1
+        env:
+          SPECTRA_URL: ${{ vars.SPECTRA_URL }}
+          API_KEY: ${{ secrets.SPECTRA_CI_KEY }}
+          SCAN_ID: ${{ steps.scan.outputs.scan_id }}
+          MODE: advisory
