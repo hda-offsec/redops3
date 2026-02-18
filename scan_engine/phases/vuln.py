@@ -148,7 +148,18 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # --- EXPERT: SSRF Probing (Cloud Metadata) ---
     try:
         # Use discovered API endpoints for SSRF probing
-        discovered_endpoints = results.get('phases', {}).get('enum', {}).get('api', {}).get('discovered_endpoints', [])
+        discovered_endpoints = []
+        api_data = results.get('phases', {}).get('enum', {}).get('api', {})
+        
+        # Iterate over all ports in api data
+        for port_key, port_val in api_data.items():
+            if isinstance(port_val, list):
+                for item in port_val:
+                    if isinstance(item, dict) and 'url' in item:
+                        discovered_endpoints.append(item['url'])
+                    elif isinstance(item, str):
+                        discovered_endpoints.append(item)
+                        
         if discovered_endpoints:
             ssrf = SSRFScanner(target)
             ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=log)

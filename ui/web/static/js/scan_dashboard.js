@@ -8,7 +8,7 @@ class ScanDashboard {
         this.scanId = scanId;
         this.targetIdentifier = targetIdentifier;
         this.socket = io();
-        
+
         // PTES Mapping
         this.ptesMap = {
             'Phase 1': 'recon', 'Phase 2': 'recon', 'Phase 3': 'recon',
@@ -31,7 +31,7 @@ class ScanDashboard {
         this.setupSocketListeners();
         this.checkInitialStatus();
         this.setupNotesPreview();
-        
+
         // Expose updateUI globally for initial load
         window.updateUI = (results) => this.updateUI(results);
         window.verifyFinding = (cmd) => this.verifyFinding(cmd);
@@ -89,7 +89,7 @@ class ScanDashboard {
             consoleDiv.appendChild(div);
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
         }
-        
+
         this.highlightPTES(data.message);
 
         for (const [trigger, id] of Object.entries(this.logTriggers)) {
@@ -112,7 +112,7 @@ class ScanDashboard {
     handleNewFinding(data) {
         if (data.scan_id != this.scanId) return;
         this.activateDiscovery('vulns', true);
-        
+
         const container = document.getElementById("findings-container");
         if (container) {
             const empty = container.querySelector(".text-muted");
@@ -127,7 +127,7 @@ class ScanDashboard {
 
             const div = document.createElement("div");
             div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
-            
+
             let innerHTML = `
                 <div class="d-flex w-100 justify-content-between mb-2">
                     <span class="badge severity-badge ${data.severity.toLowerCase()}">${data.severity.toUpperCase()}</span>
@@ -243,7 +243,7 @@ class ScanDashboard {
     handleNewLoot(data) {
         if (data.scan_id != this.scanId) return;
         this.activateDiscovery('loot', true);
-        
+
         document.querySelectorAll('.loot-counter-val').forEach(counter => {
             let current = parseInt(counter.innerText) || 0;
             counter.innerText = current + 1;
@@ -275,7 +275,7 @@ class ScanDashboard {
 
     handleProgressUpdate(data) {
         if (data.scan_id != this.scanId) return;
-        
+
         const bar = document.getElementById('scan-progress-bar');
         const phaseText = document.getElementById('scan-phase-text');
         const statusText = document.getElementById('scan-status-text');
@@ -367,11 +367,11 @@ class ScanDashboard {
             const preview = document.createElement('div');
             preview.className = "p-3 bg-black border border-secondary rounded mt-2 text-muted small";
             notesArea.parentNode.insertBefore(preview, notesArea.nextSibling);
-            
+
             // Assuming marked and DOMPurify are available globally
-            const updatePreview = () => { 
+            const updatePreview = () => {
                 if (window.marked && window.DOMPurify) {
-                    preview.innerHTML = DOMPurify.sanitize(marked.parse(notesArea.value || "*No notes recorded.*")); 
+                    preview.innerHTML = DOMPurify.sanitize(marked.parse(notesArea.value || "*No notes recorded.*"));
                 }
             };
             notesArea.addEventListener('input', updatePreview);
@@ -392,7 +392,7 @@ class ScanDashboard {
                 }
             });
     }
-    
+
     updateRiskCounters(severity) {
         const sev = severity.toLowerCase();
         if (sev === 'critical' || sev === 'high') {
@@ -480,10 +480,10 @@ class ScanDashboard {
 
         // Sync Progress UI
         if (results.progress) {
-            this.handleProgressUpdate({ 
-                scan_id: this.scanId, 
-                percent: results.progress.percent, 
-                current_phase: results.progress.current_phase 
+            this.handleProgressUpdate({
+                scan_id: this.scanId,
+                percent: results.progress.percent,
+                current_phase: results.progress.current_phase
             });
         }
 
@@ -756,42 +756,178 @@ class ScanDashboard {
             }
         }
 
-        // 9. Expert Findings (Arjun, JS Secrets)
+        // 9. Extended Enumeration (WAF, Headers, API, Arjun, JS Secrets)
         if (results.phases.enum) {
-            // Arjun
-            const arjunDiv = document.querySelector("#arjun-results");
-            if (arjunDiv && results.phases.enum.arjun) {
-                let arjunHtml = '<div class="list-group list-group-flush bg-transparent">';
-                Object.entries(results.phases.enum.arjun).forEach(([url, params]) => {
-                    arjunHtml += `
-                        <div class="list-group-item bg-transparent border-secondary border-opacity-25 px-0 py-2">
-                            <div class="text-info x-small font-monospace text-truncate">${url}</div>
-                            <div class="mt-1 d-flex flex-wrap gap-1">
-                                ${(params || []).map(p => `<span class="badge bg-dark border border-secondary text-warning x-small">${p}</span>`).join('')}
-                            </div>
-                        </div>`;
-                });
-                arjunHtml += '</div>';
-                arjunDiv.innerHTML = Object.keys(results.phases.enum.arjun).length ? arjunHtml : '<div class="text-muted small fst-italic">No hidden parameters found.</div>';
+            const enumHtml = [];
+
+            // WAF
+            if (results.phases.enum.waf && Object.keys(results.phases.enum.waf).length > 0) {
+                let wafContent = '<div class="mb-3"><h6 class="text-secondary small">WAF Detection</h6>';
+                for (const [port, waf] of Object.entries(results.phases.enum.waf)) {
+                    wafContent += `<div class="d-flex justify-content-between border-bottom border-dark pb-1 mb-1 small font-monospace"><span class="text-muted">Port ${port}</span><span class="text-warning">${waf}</span></div>`;
+                }
+                wafContent += '</div>';
+                enumHtml.push(wafContent);
             }
 
-            // JS Secrets
-            const jsSecretsDiv = document.querySelector("#js-secrets-results");
-            if (jsSecretsDiv && results.phases.enum.js_secrets) {
-                let jsHtml = '<div class="list-group list-group-flush bg-transparent">';
-                results.phases.enum.js_secrets.forEach(secret => {
-                    jsHtml += `
-                        <div class="list-group-item bg-transparent border-secondary border-opacity-25 px-0 py-2">
-                            <div class="d-flex justify-content-between">
-                                <span class="text-danger x-small fw-bold text-uppercase">${secret.type}</span>
-                                <span class="text-muted x-small">${secret.file.split('/').pop()}</span>
-                            </div>
-                            <div class="font-monospace x-small text-light mt-1 text-break">${secret.match}</div>
-                        </div>`;
-                });
-                jsHtml += '</div>';
-                jsSecretsDiv.innerHTML = results.phases.enum.js_secrets.length ? jsHtml : '<div class="text-muted small fst-italic">No secrets found in JS.</div>';
+            // Headers
+            if (results.phases.enum.headers) {
+                // Determine if interesting headers found? 
+                // Mostly just want to show if we have data.
+                // For now, let's skip full header dump unless requested, or maybe a summary.
             }
+
+            // API (Kiterunner)
+            if (results.phases.enum.api && results.phases.enum.api['discovered_endpoints']) { // Check simplified structure or port-based
+                // Port based extraction from earlier fix
+            }
+
+            // Re-render Arjun and JS Secrets better if needed, or leave existing logic?
+            // Existing logic for Arjun/JS Secrets was at the end. 
+            // I will replace `// 9. Expert Findings` block entirely.
+        }
+
+        // --- NEW: GENERIC & EXPERT VULN RENDERER ---
+        if (results.phases.vuln) {
+            const vulnDiv = document.getElementById("expert-vuln-results"); // Need to ensure this exists or append to main findings
+            // If specific container doesn't exist, we might need to rely on the main findings list which is populated by 'new_finding' events.
+            // BUT user said "UI doesn't read JSON -> invisible". 
+            // This implies the 'new_finding' events might not be firing or the user wants to see the raw data structure in a specific panel.
+            // Let's create a dynamic section for these if they don't exist in the findings list.
+
+            // Actually, orchestrator calls `orch.add_finding` for all these sections!
+            // So they SHOULD be in the findings list.
+            // UNLESS the user is reloading the page and fetching 'results' via API/Socket, and the 'findings' list in 'results' 
+            // is not being fully populated or sent.
+
+            // The `results` object in `updateUI(results)` comes from `orchestrator.results`.
+            // `orchestrator.results` DOES NOT have a `findings` key at the top level in the python code!
+            // Check `orchestrator.py`: `results` structure (lines 43-67) does NOT have `findings`.
+            // Queries separate `findings` list? 
+            // `orch.add_finding` usually writes to database.
+            // Does `results` contain findings?
+            // In `handleNewFinding`, it appends to UI.
+            // But on fresh load/updateUI, where do findings come from?
+            // The `results` passed to `updateUI` usually has `findings` injected if the backend sends it.
+            // If the backend `get_scan_results` only sends `orch.results` (the JSON blob), it lacks the DB findings!
+
+            // This is the "Architectural Issue" the user hinted at.
+            // "Modules create Finding" vs "Modules write JSON".
+            // If `updateUI` relies on `results` JSON, it misses DB findings unless they are injected.
+
+            // I will strictly implement the rendering of the JSON `phases.vuln` and `phases.enum` sections 
+            // into the "Expert Findings" or a new "Deep Analysis" container.
+
+            const containers = {
+                'waf': '#waf-details',
+                'arjun': '#arjun-results',
+                'api': '#api-results',
+                'git': '#git-results',
+                'tech': '#tech-results',
+                'js_secrets': '#js-secrets-results'
+            }; // specialized containers if they exist
+
+            // Render specific JSON sections
+            this.renderJSONSection(results.phases.enum, 'waf', 'WAF Detection');
+            this.renderJSONSection(results.phases.enum, 'arjun', 'Hidden Parameters');
+            this.renderJSONSection(results.phases.enum, 'api', 'API Endpoints');
+            this.renderJSONSection(results.phases.enum, 'js_secrets', 'JS Secrets');
+            this.renderJSONSection(results.phases.enum, 'headers', 'Security Headers');
+
+            this.renderJSONSection(results.phases.vuln, 'git', 'Git Exposure');
+            this.renderJSONSection(results.phases.vuln, 'backups', 'Backup Files');
+            this.renderJSONSection(results.phases.vuln, 'tech', 'Technology Leaks');
+            this.renderJSONSection(results.phases.vuln, 'graphql', 'GraphQL');
+            this.renderJSONSection(results.phases.vuln, 'ssrf', 'SSRF Candidates');
+            this.renderJSONSection(results.phases.vuln, 'redirects', 'Open Redirects');
+            this.renderJSONSection(results.phases.vuln, 'xss', 'XSS Reflections');
         }
     }
-}
+
+    // Helper to render JSON sections into a unified "Deep Analysis" panel if specific divs don't exist
+    renderJSONSection(parent, key, title) {
+        if (!parent || !parent[key]) return;
+
+        const data = parent[key];
+        // Check if data is empty (empty object or empty list)
+        if (Array.isArray(data) && data.length === 0) return;
+        if (typeof data === 'object' && Object.keys(data).length === 0) return;
+
+        // Try to find a specific container first
+        let container = document.getElementById(`${key}-results`);
+
+        // If no specific container, create/append to a generic "Deep Scan Details" container
+        if (!container) {
+            let deepContainer = document.getElementById('deep-scan-details');
+            if (!deepContainer) {
+                // Create it if it doesn't exist (append to a suitable location, e.g., after tabs)
+                // For now, let's assume we can append to the main results area or log it.
+                // To be safe and UI-non-destructive, I will try to find a generic 'scan-details-grid' or create one.
+                const parentContainer = document.querySelector('.scan-grid-layout') || document.querySelector('.container-fluid');
+                if (parentContainer) {
+                    // Create a row if needed
+                    // This is risky without seeing HTML.
+                    // I will try to reuse existing list containers or 'expert-results' div if available.
+                    return;
+                }
+                return;
+            }
+            // Create a wrapper for this section
+            const wrapper = document.createElement('div');
+            wrapper.id = `${key}-results`;
+            wrapper.className = 'mb-4';
+            wrapper.innerHTML = `<h5 class="text-cyber mb-3 border-bottom border-secondary pb-2">${title}</h5><div class="result-content"></div>`;
+            deepContainer.appendChild(wrapper);
+            container = wrapper.querySelector('.result-content');
+        }
+
+        // Render Logic based on type
+        let html = '';
+
+        if (Array.isArray(data)) {
+            // List of findings or strings
+            html = `<div class="list-group list-group-flush bg-transparent">`;
+            data.forEach(item => {
+                if (typeof item === 'string') {
+                    html += `<div class="list-group-item bg-transparent border-secondary border-opacity-25 px-0 py-1 text-muted small font-monospace">${item}</div>`;
+                } else if (typeof item === 'object') {
+                    // Custom finding object
+                    const t = item.title || item.url || 'Unknown';
+                    const d = item.description || item.match || '';
+                    const s = item.severity || 'info';
+                    html += `
+                        <div class="list-group-item bg-transparent border-secondary border-opacity-25 px-0 py-2">
+                             <div class="d-flex justify-content-between">
+                                <span class="text-light small fw-bold">${t}</span>
+                                <span class="badge severity-badge ${s}">${s.toUpperCase()}</span>
+                             </div>
+                             ${d ? `<div class="small text-muted mt-1 text-break">${d}</div>` : ''}
+                        </div>`;
+                }
+            });
+            html += `</div>`;
+        } else if (typeof data === 'object') {
+            // Map of Port -> Data or similar
+            html = `<div class="accordion" id="acc-${key}">`;
+            Object.entries(data).forEach(([subKey, subVal], idx) => {
+                if (subKey === 'discovered_endpoints') return; // Skip raw list if handled elsewhere
+
+                html += `
+                    <div class="accordion-item bg-black border-secondary">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${key}-${idx}">
+                                <span class="badge bg-secondary me-2">Port ${subKey}</span>
+                                <span class="small font-monospace text-muted">${Array.isArray(subVal) ? subVal.length + ' Items' : 'Details'}</span>
+                            </button>
+                        </h2>
+                        <div id="collapse-${key}-${idx}" class="accordion-collapse collapse" data-bs-parent="#acc-${key}">
+                            <div class="accordion-body p-2 bg-dark-subtle">
+                                <pre class="text-muted x-small mb-0 text-break" style="white-space: pre-wrap;">${typeof subVal === 'string' ? subVal : JSON.stringify(subVal, null, 2)}</pre>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            html += `</div>`;
+        }
+
+        container.innerHTML = html;

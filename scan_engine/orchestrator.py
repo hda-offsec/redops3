@@ -38,6 +38,10 @@ class ScanOrchestrator:
         success = True
         start_time = datetime.utcnow()
         
+        # Initialize loop variables to avoid UnboundLocalError
+        full_ww = ""
+        endpoints = []
+        
         try:
             # Initialize Results Structure
             results = {
