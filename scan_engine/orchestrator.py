@@ -29,6 +29,7 @@ class ScanOrchestrator:
         self.add_loot = loot_func
         self.recursion_func = recursion_func  # New callback for spawning child scans
         self.options = options or {}
+        self.results = {} # Prevent AttributeError if emit_event called early
 
     def emit_event(self, event_type, module, port=None, level="INFO", data=None):
         evt = {
@@ -67,7 +68,15 @@ class ScanOrchestrator:
         socketio.emit("module_status", {"module": module, "port": str(port), "status": status, "artifacts": artifacts, "reason": reason}, room=f"scan_{self.scan_id}")
         
         # Emit Timeline Event
-        evt_type = "MODULE_END" if status == "executed" else "MODULE_ERROR" if status in ["failed", "error"] else "MODULE_SKIPPED"
+        if status == "executed":
+            evt_type = "MODULE_END"
+        elif status in ["failed", "error"]:
+            evt_type = "MODULE_ERROR"
+        elif status == "running":
+            evt_type = "MODULE_START"
+        else:
+            evt_type = "MODULE_SKIPPED"
+
         level = "ERROR" if status in ["failed", "error"] else "INFO"
         self.emit_event(evt_type, module, port, level=level, data={"artifacts": artifacts, "reason": reason})
 
@@ -82,7 +91,8 @@ class ScanOrchestrator:
                 # Use a specific tool_source to avoid clutter?
                 pass 
 
-        self.save_results(self.scan_id, self.results)
+        # Optimize: Partial update for modules to avoid race conditions
+        self.save_results(self.scan_id, {"modules": self.results["modules"]})
 
     def run_pipeline(self, profile='quick'):
         """
@@ -125,7 +135,6 @@ class ScanOrchestrator:
                     },
                 },
                 "target_info": {"wordlist": "common.txt"},
-                "target_info": {"wordlist": "common.txt"},
                 "modules": {},
                 "timeline": []
             }
@@ -160,7 +169,7 @@ class ScanOrchestrator:
                     svc = p_info.get('service_name', '').lower()
                     
                     # Identify Proto
-                    proto = 'https' if port in [443, 8443] or 'ssl' in svc else 'http'
+                    proto = 'https' if port in [443, 8443] or 'https' in svc or 'ssl' in svc else 'http'
                     if port == 80: proto = 'http'
                     
                     # Logic to determine if we should scan this port as web
