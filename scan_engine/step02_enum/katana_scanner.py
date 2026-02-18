@@ -17,7 +17,7 @@ class KatanaScanner:
             "-jsl",          # JS Library detection
             "-kf", "all",    # Keep all fields
             "-d", "3",       # Reduced depth slightly for speed
-            "-fs", "fqdn",   # Filter scope
+            "-fs", "rdn",    # Filter scope (Root Domain - captures static, cdn, etc)
             "-ct", "10",     # Crawl duration
             "-silent",
             "-nc",

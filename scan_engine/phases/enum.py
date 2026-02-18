@@ -18,7 +18,7 @@ def prioritize_endpoints(endpoints, arjun_params=None):
     scored = []
     arjun_params = arjun_params or []
     
-    unique_endpoints = set(endpoints)
+    unique_endpoints = set(x for x in endpoints if isinstance(x, str) and x.strip())
     
     for url in unique_endpoints:
         score = 0
@@ -32,20 +32,21 @@ def prioritize_endpoints(endpoints, arjun_params=None):
             score += 50
             
         # 3. Dynamic Extensions
-        if any(ext in url_lower for ext in ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb']):
+        if any(ext in url_lower for ext in ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb', '.pl', '.cgi']):
             score += 20
             
         # 4. Critical Keywords
-        if any(kw in url_lower for kw in ['admin', 'login', 'upload', 'search', 'view', 'id=', 'file=', 'redirect=', 'url=']):
+        if any(kw in url_lower for kw in ['admin', 'login', 'upload', 'search', 'view', 'id=', 'file=', 'redirect=', 'url=', 'cmd=', 'exec=', 'path=']):
             score += 30
             
         # 5. Penalize Static Assets
-        if any(ext in url_lower for ext in ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ttf', '.ico']):
+        if any(ext in url_lower for ext in ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ttf', '.ico', '.pdf', '.docx']):
             score -= 50
             
-        # 6. Inject Arjun params if not present (simple heuristics)
-        # Note: Ideally we would construct new URLs here, but for now we just rank existing.
-        # Future improvement: Synthesize new URLs from base + arjun params.
+        # 6. Bonus for Arjun-discovered parameters in the URL
+        for p in arjun_params:
+            if f"{p}=" in url_lower:
+                score += 15
             
         scored.append((score, url))
         
