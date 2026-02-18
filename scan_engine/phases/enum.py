@@ -9,52 +9,9 @@ from scan_engine.step02_enum.arjun_scanner import ArjunScanner
 from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.helpers.process_manager import ProcessManager
+from scan_engine.helpers.enum_seed_factory import EnumSeedFactory
 
-def prioritize_endpoints(endpoints, arjun_params=None):
-    """
-    Smart ranking for endpoints to prioritize dynamic/testable targets for vulnerability scanning.
-    Returns top 100 high-value endpoints.
-    """
-    scored = []
-    arjun_params = arjun_params or []
-    
-    unique_endpoints = set(x for x in endpoints if isinstance(x, str) and x.strip())
-    
-    for url in unique_endpoints:
-        score = 0
-        url_lower = url.lower()
-        
-        # 1. Base Score
-        score += 10
-        
-        # 2. Dynamic Parameters present
-        if "?" in url and "=" in url:
-            score += 50
-            
-        # 3. Dynamic Extensions
-        if any(ext in url_lower for ext in ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb', '.pl', '.cgi']):
-            score += 20
-            
-        # 4. Critical Keywords
-        if any(kw in url_lower for kw in ['admin', 'login', 'upload', 'search', 'view', 'id=', 'file=', 'redirect=', 'url=', 'cmd=', 'exec=', 'path=']):
-            score += 30
-            
-        # 5. Penalize Static Assets
-        if any(ext in url_lower for ext in ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ttf', '.ico', '.pdf', '.docx']):
-            score -= 50
-            
-        # 6. Bonus for Arjun-discovered parameters in the URL
-        for p in arjun_params:
-            if f"{p}=" in url_lower:
-                score += 15
-            
-        scored.append((score, url))
-        
-    # Sort descending
-    scored.sort(key=lambda x: x[0], reverse=True)
-    
-    # Return top N URLs
-    return [x[1] for x in scored[:100]]
+# prioritization moved to EnumSeedFactory
 
 def analyze_security_headers(target, port, proto, results, logger_func):
     """
@@ -109,6 +66,11 @@ def run_enum(orchestrator, port, proto):
     - JS Secrets
     - Parameter Discovery (Arjun)
     """
+    orch = orchestrator
+    results = orch.results
+    target = orch.target
+    log = orch.log
+    
     full_ww = ""
     
     # --- GUARANTEED INITIALIZATION (Pipeline Hardening) ---
@@ -121,6 +83,8 @@ def run_enum(orchestrator, port, proto):
     results['phases']['enum'].setdefault('arjun', {})
     results['phases']['enum'].setdefault('targets', {})
     results['phases']['enum'].setdefault('injection_points', {})
+    results['phases']['enum'].setdefault('normalized', {})
+    results['phases']['enum'].setdefault('derived', {})
     orch.save_results(orch.scan_id, results)
     
     # 1. Web Recon (WhatWeb)
@@ -485,80 +449,43 @@ def run_enum(orchestrator, port, proto):
         log(f"API discovery failed: {e}", "DEBUG")
         orch.mark_module("api_scanner", port, "failed")
     
-    # --- SYNTHESIZE & PRIORITIZE INJECTION POINTS ---
+    # --- SEED FACTORY (V4 Canonization) ---
     try:
-        # Gather all raw endpoints
-        raw_endpoints = []
+        factory = EnumSeedFactory(target, port, proto)
         
-        # Katana
+        # 1. Collect Katana
         if 'katana' in results['phases']['enum']:
-            raw_endpoints.extend(results['phases']['enum']['katana'].get(str(port), []))
+            factory.add_raw_endpoints(results['phases']['enum']['katana'].get(str(port), []), source="katana")
             
-        # API
+        # 2. Collect API
         if 'api' in results['phases']['enum']:
-            # 1. Port-specific items (list of dicts)
-            api_eps = results['phases']['enum']['api'].get(str(port), [])
-            for ep in api_eps:
-                if isinstance(ep, dict): raw_endpoints.append(ep.get('url'))
-                elif isinstance(ep, str): raw_endpoints.append(ep)
+            # Port-specific
+            factory.add_raw_endpoints(results['phases']['enum']['api'].get(str(port), []), source="kiterunner")
+            # Global
+            factory.add_raw_endpoints(results['phases']['enum']['api'].get('discovered_endpoints', []), source="kiterunner-global")
             
-            # 2. Global discovered endpoints (list of strings)
-            global_api = results['phases']['enum']['api'].get('discovered_endpoints', [])
-            raw_endpoints.extend(global_api)
+        # 3. Collect Arjun
+        if 'arjun' in results['phases']['enum']:
+            factory.add_arjun_params(results['phases']['enum']['arjun'].get(str(port), []))
+            
+        # 4. Produce Canonical Output
+        canonical = factory.produce_canonical_output()
         
-        # Arjun Params (for context)
-        arjun_params = results['phases']['enum'].get('arjun', {}).get(str(port), [])
+        # 5. Update Results with Contract-Strict structures
+        results['phases']['enum']['normalized'][str(port)] = canonical['normalized']
+        results['phases']['enum']['derived'][str(port)] = canonical['derived']
         
-        # Smart Rank
-        priority_endpoints = prioritize_endpoints(raw_endpoints, arjun_params)
-        
-        # Store for Vuln Phase consumption
-        if 'targets' not in results['phases']['enum']: results['phases']['enum']['targets'] = {}
-        results['phases']['enum']['targets'][str(port)] = priority_endpoints
+        # Compatibility layers for legacy consumers (UI/VulnScanners)
+        results['phases']['enum']['targets'][str(port)] = canonical['derived']['targets']
+        results['phases']['enum']['injection_points'][str(port)] = canonical['derived']['injection_points']
         
         orch.save_results(orch.scan_id, results)
-        log(f"Synthesized {len(priority_endpoints)} high-priority injection points for vulnerability scanning.", "INFO")
         
-        # --- BUILD INJECTION POINTS ---
-        try:
-            results['phases']['enum'].setdefault('injection_points', {})
-            seeds = []
-
-            # Use Smart Targets from prioritize_endpoints as base!
-            base_eps = priority_endpoints 
-            
-            # If empty, fallback to raw katana
-            if not base_eps:
-                 base_eps = results['phases']['enum'].get('katana', {}).get(str(port), [])
-
-            # Parameter Fallback (Hardening)
-            # If Arjun found nothing, use common high-value params to generate seeds
-            fallback_params = ["id", "q", "s", "search", "page", "file", "path", "url", "redirect", "next", "view", "cmd"]
-            use_params = arjun_params if arjun_params else fallback_params
-
-            for base in base_eps[:200]:
-                if isinstance(base, str):
-                    if "?" in base:
-                        seeds.append(base)
-                    else:
-                        # Append params
-                        for p in use_params[:12]:
-                            seeds.append(f"{base}?{p}=ROXSS123")
-
-            # fallback if no endpoints at all, try base URL
-            if not seeds:
-                target_base = f"{proto}://{target}:{port}"
-                for p in use_params[:12]:
-                    seeds.append(f"{target_base}/?{p}=ROXSS123")
-
-            seeds = list(dict.fromkeys(seeds))
-            results['phases']['enum']['injection_points'][str(port)] = seeds
-            orch.save_results(orch.scan_id, results)
-        except Exception as e:
-            log(f"Injection point build failed: {e}", "DEBUG")
+        stats = canonical['derived']['seed_stats']
+        log(f"Seed Factory: Synthesized {stats['seeds']} seeds from {stats['normalized']} unique endpoints (Raw: {stats['raw']}).", "SUCCESS")
 
     except Exception as e:
-        log(f"Endpoint synthesis failed: {e}", "ERROR")
+        log(f"Seed Factory failed: {e}", "ERROR")
 
     return full_ww
 

@@ -40,14 +40,17 @@ class KatanaScanner:
                 try:
                     # Katana output is JSON line
                     data = json.loads(line)
-                    # Extract endpoint URL
-                    url = data.get("request", {}).get("endpoint")
+                    # Robust extraction: check multiple potential fields
+                    req = data.get("request", {})
+                    resp = data.get("response", {})
+                    
+                    url = req.get("endpoint") or req.get("url") or resp.get("endpoint")
+                    
                     if url:
                         # Replace raw JSON line with cleaned URL
-                        # But keep event structure compatible with enum.py expectations
                         yield {"type": "stdout", "line": url, "original": line}
                     else:
-                        # Fallback for non-request lines or if structure fails
+                        # Fallback for non-request lines (info, etc)
                         yield event
                 except json.JSONDecodeError:
                     # Not JSON? Just yield as is (maybe error or info)
