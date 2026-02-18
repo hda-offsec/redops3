@@ -129,19 +129,33 @@ class DNSScanner:
         if success:
             found = [line.strip() for line in stdout.splitlines() if line.strip()]
             
-            # --- FILTERING FIX ---
-            # Ensure we only keep subdomains that match the target domain
+            # --- ROOT DOMAIN EXTRACTION ---
+            # If target is testphp.vulnweb.com, root is vulnweb.com
+            # Simple heuristic: last two parts for most domains, last three for .co.uk etc.
+            # But here we just want to avoid 'example.com' leak.
             target_domain = self.target
             if "://" in target_domain:
                  from urllib.parse import urlparse
                  target_domain = urlparse(target_domain).hostname
             
-            filtered = [sub for sub in found if sub.endswith(target_domain)]
+            parts = target_domain.split('.')
+            if len(parts) >= 2:
+                # heuristic: 'vulnweb.com' or 'vulnweb.com.au'
+                if len(parts) >= 3 and parts[-2] in ['com', 'org', 'net', 'edu', 'gov', 'co']:
+                    root_domain = ".".join(parts[-3:])
+                else:
+                    root_domain = ".".join(parts[-2:])
+            else:
+                root_domain = target_domain
+
+            # Filter subdomains against the root domain
+            filtered = [sub for sub in found if sub.endswith(root_domain)]
             results["subdomains"] = filtered
             
-            if logger: logger(f"Subfinder finished. Found {len(filtered)} subdomains (filtered from {len(found)}).", "SUCCESS")
+            if logger: logger(f"Subfinder finished. Found {len(filtered)} subdomains (root: {root_domain}).", "SUCCESS")
         else:
-            if logger: logger("Subfinder failed or find nothing.", "WARN")
+            if logger: logger("Subfinder failed or returned nothing.", "WARN")
+            results["subdomains"] = [] # Explicitly clear if failed
             
         # DNSRecon
         output_file = f"data/results/dns_{self.target}.json"

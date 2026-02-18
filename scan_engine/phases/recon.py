@@ -157,21 +157,34 @@ def run_dns_osint(orchestrator):
     emit_progress(orch, 30, "DNS Enumeration")
     log(f"Phase 2: DNS Enumeration on {target}...", "INFO")
     
+    # RESET State to prevent data leakage from stale scan files
+    if 'dns' not in results['phases']: results['phases']['dns'] = {}
+    results['phases']['dns']['subdomains'] = []
+    results['phases']['dns']['records'] = []
+    
+    if 'osint' not in results['phases']: results['phases']['osint'] = {}
+    results['phases']['osint']['cloud'] = []
+    results['phases']['osint']['emails'] = []
+    results['phases']['osint']['github'] = []
+    
     try:
         dns_scanner = DNSScanner(target)
         # Use high-level enumerate_all to handle subfinder + dnsrecon + parsing
         dns_data = dns_scanner.enumerate_all(logger=log)
         
         subdomains = dns_data.get('subdomains', [])
+        
+        if 'dns' not in results['phases']: results['phases']['dns'] = {}
+        results['phases']['dns']['subdomains'] = subdomains
+        results['phases']['dns']['records'] = dns_data.get('records', [])
+        results['phases']['dns']['security'] = dns_data.get('security', {})
+        
         if subdomains:
             log(f"Found {len(subdomains)} subdomains.", "SUCCESS")
-            if 'dns' not in results['phases']: results['phases']['dns'] = {}
-            results['phases']['dns']['subdomains'] = subdomains
-            results['phases']['dns']['records'] = dns_data.get('records', [])
-            results['phases']['dns']['security'] = dns_data.get('security', {})
-            orch.save_results(orch.scan_id, results)
         else:
-            log("No subdomains found.", "INFO")
+            log("No subdomains found for this target root.", "INFO")
+            
+        orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"DNS Enumeration failed: {e}", "ERROR")
 
