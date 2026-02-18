@@ -205,9 +205,8 @@ def run_enum(orchestrator, port, proto):
                          log(f"Katana found: {line}", "DEBUG")
              
              # Store results safely
-             if 'enum' not in results['phases']: results['phases']['enum'] = {}
              results['phases']['enum'].setdefault('katana', {})
-             results['phases']['enum']['katana'][str(port)] = endpoints
+             results['phases']['enum']['katana'][str(port)] = endpoints[:100]
              
              orch.save_results(orch.scan_id, results)
              orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
