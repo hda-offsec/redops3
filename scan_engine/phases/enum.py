@@ -99,22 +99,25 @@ def run_enum(orchestrator, port, proto):
     results = orch.results
     target = orch.target
     log = orch.log
-    
+
+    def _ts(fn):
+        return orch.thread_safe_results_update(fn)
+
     full_ww = ""
     
     # --- GUARANTEED INITIALIZATION ---
-    results.setdefault('phases', {})
-    results['phases'].setdefault('enum', {})
-    results['phases']['enum'].setdefault('whatweb', {'summary': {}, 'technologies': {}})
-    results['phases']['enum'].setdefault('katana', {})
-    results['phases']['enum'].setdefault('api', {'discovered_endpoints': []})
-    results['phases']['enum'].setdefault('arjun', {})
-    results['phases']['enum'].setdefault('targets', {})
-    results['phases']['enum'].setdefault('injection_points', {})
-    results['phases']['enum'].setdefault('seed_meta', {})
-    results['phases']['enum'].setdefault('normalized', {})
-    results['phases']['enum'].setdefault('derived', {})
-    results.setdefault('commands', [])
+    _ts(lambda: results.setdefault('phases', {}))
+    _ts(lambda: results['phases'].setdefault('enum', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('whatweb', {'summary': {}, 'technologies': {}}))
+    _ts(lambda: results['phases']['enum'].setdefault('katana', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('api', {'discovered_endpoints': []}))
+    _ts(lambda: results['phases']['enum'].setdefault('arjun', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('targets', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('injection_points', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('seed_meta', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('normalized', {}))
+    _ts(lambda: results['phases']['enum'].setdefault('derived', {}))
+    _ts(lambda: results.setdefault('commands', []))
     orch.save_results(orch.scan_id, results)
     
     # 1. Web Recon (WhatWeb)
@@ -122,7 +125,7 @@ def run_enum(orchestrator, port, proto):
         web_recon = WebReconScanner(target)
         if web_recon.check_tools():
             log(f"Fingerprinting {proto}://{target}:{port}...", "INFO")
-            results['commands'].append({'tool': 'whatweb', 'cmd': shlex.join(web_recon.get_command(port, proto))})
+            _ts(lambda: results['commands'].append({'tool': 'whatweb', 'cmd': shlex.join(web_recon.get_command(port, proto))}))
             ww_stream = web_recon.stream_whatweb(port, proto)
             for event in ww_stream:
                  if event["type"] == "stdout":
@@ -140,9 +143,11 @@ def run_enum(orchestrator, port, proto):
                 except Exception as parse_error:
                     log(f"WhatWeb parse failed: {parse_error}", "DEBUG")
 
-            ww = results['phases']['enum'].setdefault('whatweb', {})
-            ww.setdefault('summary', {})[str(port)] = full_ww
-            ww.setdefault('technologies', {})[str(port)] = techs
+            def _store_whatweb():
+                ww = results['phases']['enum'].setdefault('whatweb', {})
+                ww.setdefault('summary', {})[str(port)] = full_ww
+                ww.setdefault('technologies', {})[str(port)] = techs
+            _ts(_store_whatweb)
             orch.save_results(orch.scan_id, results)
             orch.mark_module("whatweb", port, "executed", artifacts=len(techs))
     except Exception as e:
@@ -162,10 +167,10 @@ def run_enum(orchestrator, port, proto):
          katana = KatanaScanner(target)
          if katana.check_tools():
              log(f"Crawling {proto}://{target}:{port} (Katana)...", "INFO")
-             results['commands'].append({'tool': 'katana', 'cmd': shlex.join(katana.get_command(port, proto))})
+             _ts(lambda: results['commands'].append({'tool': 'katana', 'cmd': shlex.join(katana.get_command(port, proto))}))
              kt_stream = katana.stream_scan(port, proto)
              endpoints = [ev["line"].strip() for ev in kt_stream if ev["type"] == "stdout" and ev["line"].strip()]
-             results['phases']['enum']['katana'][str(port)] = endpoints[:1000]
+             _ts(lambda: results['phases']['enum']['katana'].__setitem__(str(port), endpoints[:1000]))
              orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
     except Exception as e:
         log(f"Katana scan failed: {e}", "DEBUG")
@@ -175,12 +180,12 @@ def run_enum(orchestrator, port, proto):
     try:
         waf_scanner = WafScanner(target)
         if waf_scanner.check_tools():
-            results['commands'].append({'tool': 'wafw00f', 'cmd': shlex.join(waf_scanner.get_command(port, proto))})
+            _ts(lambda: results['commands'].append({'tool': 'wafw00f', 'cmd': shlex.join(waf_scanner.get_command(port, proto))}))
             waf_stream = waf_scanner.stream_wafw00f(port, proto)
             for event in waf_stream:
                 if "is behind" in event.get("line", ""):
                     res = event["line"].split("is behind")[-1].strip()
-                    results['phases']['enum'].setdefault('waf', {})[str(port)] = res
+                    _ts(lambda: results['phases']['enum'].setdefault('waf', {}).__setitem__(str(port), res))
                     log(f"🛡️ WAF: {res}", "SUCCESS")
             orch.mark_module("waf", port, "executed")
     except Exception as e:
@@ -192,7 +197,7 @@ def run_enum(orchestrator, port, proto):
         arjun = ArjunScanner(target)
         if arjun.check_tools():
             log(f"Discovering parameters (Arjun)...", "INFO")
-            results['commands'].append({'tool': 'arjun', 'cmd': shlex.join(arjun.get_command(port, proto))})
+            _ts(lambda: results['commands'].append({'tool': 'arjun', 'cmd': shlex.join(arjun.get_command(port, proto))}))
             ar_stream = arjun.stream_arjun(port, proto)
             params = []
             for ev in ar_stream:
@@ -200,7 +205,7 @@ def run_enum(orchestrator, port, proto):
                     p = ev["line"].split(":")[-1].strip()
                     if p: params.append(p)
             if params:
-                results['phases']['enum']['arjun'][str(port)] = params
+                _ts(lambda: results['phases']['enum']['arjun'].__setitem__(str(port), params))
             orch.mark_module("arjun", port, "executed", artifacts=len(params))
     except Exception as e:
         log(f"Arjun scan failed: {e}", "DEBUG")
@@ -211,7 +216,7 @@ def run_enum(orchestrator, port, proto):
          api_scanner = APIScanner(target)
          if api_scanner.check_tools():
             log(f"API Discovery (Kiterunner)...", "INFO")
-            results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto))})
+            _ts(lambda: results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto))}))
             api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log)
             api_endpoints = []
             for ev in api_stream:
@@ -223,10 +228,11 @@ def run_enum(orchestrator, port, proto):
                         api_endpoints.append(url)
             
             if api_endpoints:
-                 results['phases']['enum']['api'].setdefault('discovered_endpoints', []).extend(api_endpoints)
-                 results['phases']['enum']['api'][str(port)] = api_endpoints[:100]
-                 # Also keep a flat list for the report template (legacy compat)
-                 results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200} for url in api_endpoints])
+                 def _store_api():
+                     results['phases']['enum']['api'].setdefault('discovered_endpoints', []).extend(api_endpoints)
+                     results['phases']['enum']['api'][str(port)] = api_endpoints[:100]
+                     results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200} for url in api_endpoints])
+                 _ts(_store_api)
             orch.mark_module("api_scanner", port, "executed", artifacts=len(api_endpoints))
     except Exception as e:
         log(f"API discovery failed: {e}", "DEBUG")
@@ -247,11 +253,13 @@ def run_enum(orchestrator, port, proto):
         # Produce Canonical Output
         canonical = factory.produce_canonical_output()
         
-        results['phases']['enum']['normalized'][str(port)] = canonical['normalized']
-        results['phases']['enum']['derived'][str(port)] = canonical['derived']
-        results['phases']['enum']['targets'][str(port)] = canonical['derived']['targets']
-        results['phases']['enum']['injection_points'][str(port)] = canonical['derived']['injection_points']
-        results['phases']['enum']['seed_meta'][str(port)] = canonical['derived'].get('seed_meta', {})
+        def _store_canonical():
+            results['phases']['enum']['normalized'][str(port)] = canonical['normalized']
+            results['phases']['enum']['derived'][str(port)] = canonical['derived']
+            results['phases']['enum']['targets'][str(port)] = canonical['derived']['targets']
+            results['phases']['enum']['injection_points'][str(port)] = canonical['derived']['injection_points']
+            results['phases']['enum']['seed_meta'][str(port)] = canonical['derived'].get('seed_meta', {})
+        _ts(_store_canonical)
         
         orch.save_results(orch.scan_id, results)
         log(f"Seed Factory: derived {len(canonical['derived']['injection_points'])} seeds.", "SUCCESS")
@@ -261,9 +269,10 @@ def run_enum(orchestrator, port, proto):
             tech_scanner = TechExposureScanner(target)
             tech_data = tech_scanner.audit(port, protocol=proto, logger=log)
             if tech_data:
-                results['phases']['enum']['tech'] = tech_data
-                # Also mirror to vuln for template compatibility
-                results['phases']['vuln'].setdefault('tech', tech_data)
+                def _store_tech():
+                    results['phases']['enum']['tech'] = tech_data
+                    results['phases']['vuln'].setdefault('tech', tech_data)
+                _ts(_store_tech)
                 orch.save_results(orch.scan_id, results)
                 log(f"Tech Stack: {tech_data.get('modernization_level', 'Standard')} architecture identified.", "SUCCESS")
         except Exception as e:
@@ -274,8 +283,8 @@ def run_enum(orchestrator, port, proto):
             context_engine = ContextAttackEngine(results, logger=log)
             profile = context_engine.build_attack_profile(port)
             strategy = context_engine.derive_mutation_strategy(profile)
-            results['phases']['enum']['attack_profile'] = {str(port): profile}
-            results['phases']['enum']['mutation_strategy'] = {str(port): strategy}
+            _ts(lambda: results['phases']['enum'].__setitem__('attack_profile', {str(port): profile}))
+            _ts(lambda: results['phases']['enum'].__setitem__('mutation_strategy', {str(port): strategy}))
             orch.save_results(orch.scan_id, results)
         except Exception as e:
             log(f"Context attack engine failed: {e}", "DEBUG")

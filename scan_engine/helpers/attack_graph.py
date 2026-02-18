@@ -12,6 +12,7 @@ class AttackGraphBuilder:
         enum = phases.get("enum", {})
         vuln = phases.get("vuln", {})
 
+        endpoint_ids_by_port = {}
         for p in recon_ports:
             port = str(p.get("port"))
             service_id = f"service:{port}"
@@ -19,6 +20,7 @@ class AttackGraphBuilder:
 
             for ep in enum.get("targets", {}).get(port, []):
                 endpoint_id = f"endpoint:{port}:{ep}"
+                endpoint_ids_by_port.setdefault(port, []).append(endpoint_id)
                 self.nodes.append({"type": "endpoint", "id": endpoint_id, "data": {"url": ep}})
                 self.edges.append({"from": service_id, "to": endpoint_id, "type": "exposes"})
 
@@ -40,6 +42,8 @@ class AttackGraphBuilder:
                     },
                 })
                 self.edges.append({"from": service_id, "to": tech_profile_id, "type": "runs_stack"})
+                for endpoint_id in endpoint_ids_by_port.get(port, []):
+                    self.edges.append({"from": tech_profile_id, "to": endpoint_id, "type": "influences"})
 
         waf_map = enum.get("waf", {}) if isinstance(enum.get("waf", {}), dict) else {}
         for port, waf in waf_map.items():
@@ -58,6 +62,8 @@ class AttackGraphBuilder:
             self.nodes.append({"type": "finding", "id": fid, "data": xss_finding})
             port = str(xss_finding.get("port", "0")) if isinstance(xss_finding, dict) else "0"
             self.edges.append({"from": f"service:{port}", "to": fid, "type": "has_finding"})
+            for endpoint_id in endpoint_ids_by_port.get(port, []):
+                self.edges.append({"from": endpoint_id, "to": fid, "type": "vulnerable_to"})
 
         self._actions = self._derive_actions(results)
         return {"nodes": self.nodes, "edges": self.edges}
@@ -68,11 +74,21 @@ class AttackGraphBuilder:
         vuln = results.get("phases", {}).get("vuln", {})
         for port, targets in enum.get("targets", {}).items():
             if targets:
+                injection_points = enum.get("injection_points", {}).get(port, [])
+                waf_present = bool(enum.get("waf", {}).get(port)) if isinstance(enum.get("waf", {}), dict) else False
+                attack_profile = enum.get("attack_profile", {}).get(port, {})
+                profile_text = " ".join(str(v).lower() for v in attack_profile.values()) if isinstance(attack_profile, dict) else str(attack_profile).lower()
+                modern_frontend = any(token in profile_text for token in ["spa", "angular", "react"])
+                priority = 60 + (len(injection_points) * 0.2)
+                if waf_present:
+                    priority += 10
+                if modern_frontend:
+                    priority += 5
                 actions.append({
                     "id": f"action-enum-{port}",
                     "title": f"Deep endpoint testing on port {port}",
                     "category": "enum",
-                    "priority": 60,
+                    "priority": priority,
                     "confidence": 70,
                     "effort": "M",
                     "noise": "low",

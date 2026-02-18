@@ -3,7 +3,7 @@ import threading
 import traceback
 from datetime import datetime
 
-from core.extensions import socketio
+from core.extensions import get_socketio
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
@@ -33,6 +33,7 @@ class ScanOrchestrator:
         self._stop_requested = False
         self._skip_tasks = set()
         self._scheduler = None
+        self.socketio = get_socketio()
         self._start_time = None
         self.control_flags = {
             "pause": False,
@@ -59,7 +60,7 @@ class ScanOrchestrator:
             self.results["timeline"].append(evt)
 
         self.thread_safe_results_update(_update)
-        socketio.emit("pipeline_event", evt, room=f"scan_{self.scan_id}")
+        self.socketio.emit("pipeline_event", evt, room=f"scan_{self.scan_id}")
         self.save_results(self.scan_id, {"timeline": self.results.get("timeline", [])})
         return evt
 
@@ -80,7 +81,7 @@ class ScanOrchestrator:
 
         normalized_reason = self.thread_safe_results_update(_update_module)
 
-        socketio.emit(
+        self.socketio.emit(
             "module_status",
             {"module": module, "port": str(port), "status": status, "artifacts": artifacts, "reason": normalized_reason},
             room=f"scan_{self.scan_id}"
@@ -251,15 +252,44 @@ class ScanOrchestrator:
             scheduler.add_task("dns_osint", "phase", ["recon"], self._task_wrapper, args=("dns_osint", run_dns_osint, self))
             scheduler.add_task("intel", "phase", ["dns_osint"], self._task_wrapper, args=("intel", run_intel, self))
 
-            task_results = scheduler.run()
-            open_ports = task_results.get("recon") or self.results.get("phases", {}).get("recon", {}).get("open_ports", [])
-            web_ports = self._build_web_ports(open_ports)
+            def discover_web_ports_task():
+                open_ports = self.results.get("phases", {}).get("recon", {}).get("open_ports", [])
+                web_ports = self._build_web_ports(open_ports)
+                for port, proto in web_ports:
+                    enum_task_id = f"enum_{port}"
+                    vuln_task_id = f"vuln_{port}"
+                    scheduler.add_task(
+                        enum_task_id,
+                        "enum",
+                        ["intel", "discover_web_ports"],
+                        self._task_wrapper,
+                        args=(enum_task_id, run_enum, self, port, proto),
+                    )
+                    scheduler.add_task(
+                        vuln_task_id,
+                        "vuln",
+                        [enum_task_id],
+                        self._task_wrapper,
+                        args=(vuln_task_id, run_vuln_scans, self, port, proto),
+                        kwargs={"fingerprint_data": ""},
+                    )
+                    if "global_vuln" in scheduler.tasks:
+                        scheduler.tasks["global_vuln"].deps.append(vuln_task_id)
 
-            for port, proto in web_ports:
-                scheduler.add_task(f"enum_{port}", "enum", ["intel"], self._task_wrapper, args=(f"enum_{port}", run_enum, self, port, proto))
-                scheduler.add_task(f"vuln_{port}", "vuln", [f"enum_{port}"], self._task_wrapper, args=(f"vuln_{port}", run_vuln_scans, self, port, proto), kwargs={"fingerprint_data": ""})
+                def _recalc_total():
+                    self.results.setdefault("metrics", {})
+                    self.results["metrics"]["tasks_total"] = len(scheduler.tasks)
+                    for task_id in scheduler.tasks:
+                        self.results.setdefault("task_status", {})
+                        self.results["task_status"].setdefault(task_id, {"state": "pending", "reason": None})
+                    self._update_progress()
 
-            scheduler.add_task("global_vuln", "phase", ["intel"] + [f"vuln_{p}" for p, _ in web_ports], self._task_wrapper, args=("global_vuln", run_global_vuln_scans, self))
+                self.thread_safe_results_update(_recalc_total)
+                self.save_results(self.scan_id, {"metrics": self.results.get("metrics", {}), "task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
+                return web_ports
+
+            scheduler.add_task("discover_web_ports", "phase", ["recon"], self._task_wrapper, args=("discover_web_ports", discover_web_ports_task))
+            scheduler.add_task("global_vuln", "phase", ["discover_web_ports"], self._task_wrapper, args=("global_vuln", run_global_vuln_scans, self))
             scheduler.add_task("dirbusting", "phase", ["global_vuln"], self._task_wrapper, args=("dirbusting", run_dirbusting, self))
 
             def _prime_task_status():
