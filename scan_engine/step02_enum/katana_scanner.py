@@ -32,3 +32,7 @@ class KatanaScanner:
     def stream_katana(self, port, protocol='http'):
         command = self.get_command(port, protocol)
         return ProcessManager.stream_command(command)
+
+    def stream_scan(self, port, protocol='http'):
+        """Alias for stream_katana to satisfy enum.py contract"""
+        return self.stream_katana(port, protocol)

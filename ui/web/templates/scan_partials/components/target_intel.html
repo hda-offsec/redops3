@@ -1,0 +1,93 @@
+<!-- START: NEW ENUM TARGETS & INJECTION PANEL -->
+{% if results.phases.enum.targets or results.phases.enum.injection_points or
+results.phases.enum.api.discovered_endpoints %}
+<div class="col-12 animate__animated animate__fadeInUp">
+    <div class="card h-100 cyber-card">
+        <div class="card-header cyber-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 text-cyber fw-bold"><i class="fas fa-crosshairs me-2 text-danger"></i>Target Intelligence
+                (V4 Engine)</h5>
+            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger">ATTACK SURFACE</span>
+        </div>
+        <div class="card-body bg-dark text-light p-0">
+            <div class="row g-0">
+                <!-- COL 1: PRIORITIZED TARGETS -->
+                <div class="col-lg-4 border-end border-secondary">
+                    <div class="p-3">
+                        <h6 class="text-info fw-bold mb-3"><i class="fas fa-list-ol me-2"></i>Prioritized Targets</h6>
+                        {% if results.phases.enum.targets %}
+                        <div class="cyber-scroll" style="max-height: 300px; overflow-y: auto;">
+                            {% for port, eps in results.phases.enum.targets.items() %}
+                            <div class="mb-2">
+                                <span class="badge bg-secondary mb-1">Port {{ port }}</span>
+                                <ul class="list-unstyled ms-2 x-small font-monospace text-muted">
+                                    {% for e in eps[:20] %}
+                                    <li><i class="fas fa-angle-right me-1 text-cyber"></i>{{ e }}</li>
+                                    {% endfor %}
+                                    {% if eps|length > 20 %}
+                                    <li class="text-info fst-italic">+ {{ eps|length - 20 }} more...</li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-muted small fst-italic">No prioritized targets found.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- COL 2: INJECTION POINTS (SEEDS) -->
+                <div class="col-lg-4 border-end border-secondary">
+                    <div class="p-3">
+                        <h6 class="text-danger fw-bold mb-3"><i class="fas fa-syringe me-2"></i>Injection Points (Seeds)
+                        </h6>
+                        {% if results.phases.enum.injection_points %}
+                        <div class="cyber-scroll" style="max-height: 300px; overflow-y: auto;">
+                            {% for port, eps in results.phases.enum.injection_points.items() %}
+                            <div class="mb-2">
+                                <span class="badge bg-secondary mb-1">Port {{ port }}</span>
+                                <ul class="list-unstyled ms-2 x-small font-monospace text-warning">
+                                    {% for e in eps[:20] %}
+                                    <li class="text-break"><i class="fas fa-bug me-1"></i>{{ e }}</li>
+                                    {% endfor %}
+                                    {% if eps|length > 20 %}
+                                    <li class="text-info fst-italic">+ {{ eps|length - 20 }} more...</li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-muted small fst-italic">No injection vectors generated.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- COL 3: API DISCOVERY -->
+                <div class="col-lg-4">
+                    <div class="p-3">
+                        <h6 class="text-success fw-bold mb-3"><i class="fas fa-network-wired me-2"></i>API Endpoints
+                        </h6>
+                        {% if results.phases.enum.api.discovered_endpoints %}
+                        <div class="cyber-scroll" style="max-height: 300px; overflow-y: auto;">
+                            <ul class="list-unstyled ms-2 x-small font-monospace text-success">
+                                {% for e in results.phases.enum.api.discovered_endpoints[:50] %}
+                                <li class="text-break"><i class="fas fa-code-branch me-1"></i>{{ e }}</li>
+                                {% endfor %}
+                                {% if results.phases.enum.api.discovered_endpoints|length > 50 %}
+                                <li class="text-info fst-italic">+ {{
+                                    results.phases.enum.api.discovered_endpoints|length - 50 }} more...</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        {% else %}
+                        <p class="text-muted small fst-italic">No API endpoints discovered.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+<!-- END: TARGET INTELLIGENCE -->

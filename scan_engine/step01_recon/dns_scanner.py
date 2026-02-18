@@ -128,8 +128,18 @@ class DNSScanner:
         success, stdout, stderr, code = self.run_subfinder()
         if success:
             found = [line.strip() for line in stdout.splitlines() if line.strip()]
-            results["subdomains"] = found
-            if logger: logger(f"Subfinder finished. Found {len(found)} subdomains.", "SUCCESS")
+            
+            # --- FILTERING FIX ---
+            # Ensure we only keep subdomains that match the target domain
+            target_domain = self.target
+            if "://" in target_domain:
+                 from urllib.parse import urlparse
+                 target_domain = urlparse(target_domain).hostname
+            
+            filtered = [sub for sub in found if sub.endswith(target_domain)]
+            results["subdomains"] = filtered
+            
+            if logger: logger(f"Subfinder finished. Found {len(filtered)} subdomains (filtered from {len(found)}).", "SUCCESS")
         else:
             if logger: logger("Subfinder failed or find nothing.", "WARN")
             
