@@ -413,8 +413,14 @@ def run_enum(orchestrator, port, proto):
             if api_endpoints:
                  log(f"Found {len(api_endpoints)} potential API endpoints.", "SUCCESS")
                  if 'enum' not in results['phases']: results['phases']['enum'] = {}
-                 if 'api' not in results['phases']['enum']: results['phases']['enum']['api'] = {}
-                 results['phases']['enum']['api']['discovered_endpoints'] = api_endpoints
+                 results['phases']['enum'].setdefault('api', {})
+                 results['phases']['enum']['api'].setdefault('discovered_endpoints', [])
+                 results['phases']['enum']['api']['discovered_endpoints'].extend(api_endpoints)
+
+                 # deduplicate
+                 results['phases']['enum']['api']['discovered_endpoints'] = list(
+                     dict.fromkeys(results['phases']['enum']['api']['discovered_endpoints'])
+                 )
                  
                  found_items_api = []
                  for ep in api_endpoints[:20]: # Limit for UI
@@ -501,3 +507,32 @@ def run_enum(orchestrator, port, proto):
         log(f"Endpoint synthesis failed: {e}", "ERROR")
 
     return full_ww
+
+    try:
+        results['phases']['enum'].setdefault('injection_points', {})
+        seeds = []
+
+        katana_eps = results['phases']['enum'].get('katana', {}).get(str(port), [])
+        arjun_params = results['phases']['enum'].get('arjun', {}).get(str(port), [])
+
+        for base in katana_eps[:200]:
+            if isinstance(base, str):
+                if "?" in base:
+                    seeds.append(base)
+                else:
+                    for p in arjun_params[:10]:
+                        seeds.append(f"{base}?{p}=ROXSS123")
+
+        # fallback if no katana
+        if not seeds and arjun_params:
+            base = f"{proto}://{target}:{port}"
+            for p in arjun_params[:10]:
+                seeds.append(f"{base}/?{p}=ROXSS123")
+
+        seeds = list(dict.fromkeys(seeds))
+        results['phases']['enum']['injection_points'][str(port)] = seeds
+
+        orch.save_results(orch.scan_id, results)
+
+    except Exception as e:
+        log(f"Injection point build failed: {e}", "DEBUG")

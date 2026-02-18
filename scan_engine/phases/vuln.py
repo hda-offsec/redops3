@@ -170,16 +170,22 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     try:
         discovered_endpoints = []
         
-        # Priority Source: Smart Targets from Enum Phase
-        if 'enum' in results['phases'] and 'targets' in results['phases']['enum'] and str(port) in results['phases']['enum']['targets']:
-             discovered_endpoints = results['phases']['enum']['targets'][str(port)]
-        
-        # Fallback Source: API Map (Historic)
-        if not discovered_endpoints:
-            api_map = results.get('phases', {}).get('enum', {}).get('api', {})
-            for port_key, endpoints in api_map.items():
-                if isinstance(endpoints, list):
-                    discovered_endpoints.extend(endpoints)
+        api = results.get('phases', {}).get('enum', {}).get('api', {})
+        seed = []
+
+        seed.extend([x for x in api.get("discovered_endpoints", []) if isinstance(x, str)])
+
+        for k, v in api.items():
+            if k == "discovered_endpoints":
+                continue
+            if isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict) and item.get("url"):
+                        seed.append(item["url"])
+                    elif isinstance(item, str):
+                        seed.append(item)
+
+        discovered_endpoints = list(dict.fromkeys(seed))
         
         if discovered_endpoints:
             ssrf = SSRFScanner(target)
@@ -242,6 +248,11 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         dalfox = DalfoxScanner(target)
         if dalfox.check_tools():
             log(f"Checking for XSS on {proto}://{target}:{port}...", "INFO")
+
+            seeds = results['phases']['enum'].get('injection_points', {}).get(str(port), [])
+            for u in seeds[:200]:
+                dalfox.stream_scan_url(u)
+
             cmd_df = dalfox.get_command(port, proto)
             results['commands'].append({'tool': 'dalfox', 'cmd': shlex.join(cmd_df)})
             
