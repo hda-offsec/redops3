@@ -10,7 +10,9 @@ from scan_engine.helpers.process_manager import ProcessManager
 class XssAssaultScanner:
     """
     Phase 4: XSS Assault.
-    Combines Dalfox (Go) for speed with RedOps3 Mutation Engine for WAF evasion.
+    Combines Dalfox (Go) for speed with ParamExpander for surface discovery.
+    MutationEngine is NOT used here — Phase 3 vuln already mutates seeds.
+    Phase 4 consumes raw enum seeds / injection_points only.
     """
     
     def __init__(self):
@@ -19,20 +21,25 @@ class XssAssaultScanner:
     def scan(self, target, scan_id, urls=None, logger=None, finding_callback=None):
         if logger: logger("XSS Assault: initializing...", "INFO")
         
-        # 1. Gather URLs
-        target_urls = set()
-        if urls:
-            target_urls.update(urls)
-        target_urls.add(target)
+        # 1. Gather URLs — deterministic order, deduped
+        seen = set()
+        target_urls = []
+        for u in (urls or []):
+            if u not in seen:
+                target_urls.append(u)
+                seen.add(u)
+        if target not in seen:
+            target_urls.append(target)
+            seen.add(target)
         
         # 2. Expand Attack Surface (Param Expander)
-        # For XSS, we want to find reflected parameters.
-        # We add some common XSS params to the target.
-        expanded_urls = ParamExpander.expand(target, attack_type="generic") # generic includes generic params
-        target_urls.update(expanded_urls)
+        expanded_urls = ParamExpander.expand(target, attack_type="generic")
+        for u in expanded_urls:
+            if u not in seen:
+                target_urls.append(u)
+                seen.add(u)
         
-        # Filter: Dalfox needs URLs with parameters to be effective in 'url' mode, 
-        # or we feed it raw file.
+        # Filter: Dalfox needs URLs with parameters
         param_urls = [u for u in target_urls if "?" in u]
         
         if not param_urls:
@@ -50,7 +57,7 @@ class XssAssaultScanner:
                     title=f['title'],
                     description=f['description'],
                     severity=f['severity'],
-                    tool_source="Dalfox [Mutated]",
+                    tool_source="Dalfox [Assault]",
                     raw_loot=f['url']
                 )
         
@@ -70,23 +77,15 @@ class XssAssaultScanner:
             
             dalfox_path = ProcessManager.find_binary_path("dalfox") or "dalfox"
             
-            # We use Dalfox with some custom flags to mimic our 'Mutation' desire
-            # --mining-dict: we could pass our mutated payloads here?
-            # Actually, Dalfox has built-in evasion. 
-            # To strictly follow Phase 4 "RedOps Logic", we should pre-mutate logic or 
-            # use dalfox's payload list.
-            # Dalfox supports --remote-payloads or built-in.
-            
             command = [
                 dalfox_path, "file", url_file,
                 "--format", "json",
                 "-o", output_file,
-                "--skip-bav", # faster
+                "--skip-bav",
                 "--silence",
                 "--no-color",
                 "--worker", "40",
                 "--follow-redirects",
-                "--mining-dict-word", "scan_engine/helpers/param_expander.py" # Hacky way to point to wordlist if valid path, but let's stick to default for now
             ]
             
             success, stdout, stderr, code = ProcessManager.run_command(command, timeout=600)
@@ -111,3 +110,4 @@ class XssAssaultScanner:
             if os.path.exists(output_file): os.remove(output_file)
             
         return findings
+

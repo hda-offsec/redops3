@@ -69,13 +69,13 @@ def run_dirbusting(orchestrator):
                              results['phases']['dirbusting'].setdefault('ffuf', {})
                              results['phases']['dirbusting']['ffuf'].setdefault('endpoints', [])
 
-                             # item = {"url": line, "status": 200} # Minimal parse for strict mode suitability
-                             item = line if isinstance(line, dict) else {"url": line, "status": 200} 
+                             # Extract path from line if possible
+                             path_part = line.split(" | ")[0].strip() if " | " in line else line
+                             item = {"url": line, "path": path_part, "status": 200} 
                              
-                             existing = {(e.get("url"), e.get("status")) for e in results['phases']['dirbusting']['ffuf']['endpoints'] if isinstance(e, dict)}
-                             key = (item.get("url") if isinstance(item, dict) else item, item.get("status") if isinstance(item, dict) else 200)
-
-                             if key not in existing:
+                             existing = {e.get("url") for e in results['phases']['dirbusting']['ffuf']['endpoints'] if isinstance(e, dict)}
+                             
+                             if item["url"] not in existing:
                                  results['phases']['dirbusting']['ffuf']['endpoints'].append(item)
                                  found_count += 1
                              

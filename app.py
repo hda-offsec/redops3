@@ -109,6 +109,8 @@ if __name__ == "__main__":
 
         # Create default admin user if not exists
         if not User.query.filter_by(username="admin").first():
+            user = User(username="admin")
+            user.set_password("redops3")
             db.session.add(user)
             db.session.commit()
             print("Default admin user created (admin/redops3)")

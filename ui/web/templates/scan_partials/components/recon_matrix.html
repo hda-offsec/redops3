@@ -65,8 +65,9 @@
 
                                     <!-- Dynamic Tech Badges -->
                                     {% if results.phases.enum and results.phases.enum.whatweb and
-                                    results.phases.enum.whatweb[port_key] %}
-                                    {% set ww = results.phases.enum.whatweb[port_key] %}
+                                    results.phases.enum.whatweb.summary and
+                                    results.phases.enum.whatweb.summary[port_key] %}
+                                    {% set ww = results.phases.enum.whatweb.summary[port_key] %}
 
                                     <!-- CMS Detection -->
                                     {% if "WordPress" in ww %}

@@ -33,8 +33,9 @@
                         <td class="border-secondary">
                             {% set port_key = port.port|string %}
                             {% if results.phases.enum and results.phases.enum.whatweb and
-                            results.phases.enum.whatweb[port_key] %}
-                            {% set ww = results.phases.enum.whatweb[port_key] %}
+                            results.phases.enum.whatweb.summary and
+                            results.phases.enum.whatweb.summary[port_key] %}
+                            {% set ww = results.phases.enum.whatweb.summary[port_key] %}
                             <!-- Simple inline badges for the matrix -->
                             {% if "WordPress" in ww or "wp-content" in ww %}<span class="badge bg-primary"
                                 title="WordPress"><i class="fab fa-wordpress"></i> WP</span>{% endif %}

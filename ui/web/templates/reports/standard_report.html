@@ -235,8 +235,13 @@
         {% if results.phases.enum.whatweb %}
         <hr>
         <strong>Detected Frameworks:</strong><br>
-        {% for port, techs in results.phases.enum.whatweb.items() %}
+        {% if results.phases.enum.whatweb.technologies %}
+        {% for port, techs in results.phases.enum.whatweb.technologies.items() %}
         <small>Port {{ port }}: {{ techs|join(', ') }}</small><br>
+        {% endfor %}
+        {% elif results.phases.enum.whatweb.summary %}
+        {% for port, summary in results.phases.enum.whatweb.summary.items() %}
+        <small>Port {{ port }}: {{ (summary[:100] + '...') if summary|length > 100 else summary }}</small><br>
         {% endfor %}
         {% endif %}
     </div>
@@ -244,7 +249,8 @@
 
     <!-- 5. API & Web Analysis -->
     <h2>5. Web & API Endpoints</h2>
-    {% if results.phases.enum and results.phases.enum.api and results.phases.enum.api.endpoints %}
+    {% set api_list = results.phases.enum.api.endpoints or results.phases.enum.api.discovered_endpoints %}
+    {% if results.phases.enum and results.phases.enum.api and api_list %}
     <table>
         <thead>
             <tr>
@@ -254,17 +260,18 @@
             </tr>
         </thead>
         <tbody>
-            {% for ep in results.phases.enum.api.endpoints[:100] %}
+            {% for ep in api_list[:100] %}
             <tr>
                 <td>GET</td>
-                <td>{{ ep.status }}</td>
-                <td><a href="{{ ep.url }}" target="_blank">{{ ep.url }}</a></td>
+                <td>{{ ep.status if ep is mapping else '200' }}</td>
+                <td><a href="{{ ep.url if ep is mapping else ep }}" target="_blank">{{ ep.url if ep is mapping else ep
+                        }}</a></td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    {% if results.phases.enum.api.endpoints|length > 100 %}
-    <p><em>... and {{ results.phases.enum.api.endpoints|length - 100 }} more endpoints not shown.</em></p>
+    {% if api_list|length > 100 %}
+    <p><em>... and {{ api_list|length - 100 }} more endpoints not shown.</em></p>
     {% endif %}
     {% else %}
     <p>No accessible API endpoints discovered.</p>

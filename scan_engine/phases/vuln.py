@@ -10,6 +10,21 @@ from scan_engine.step03_vuln.git_scanner import GitExposureScanner
 from scan_engine.step03_vuln.backup_scanner import BackupScanner
 from scan_engine.step03_vuln.graphql_scanner import GraphQLScanner
 from scan_engine.step03_vuln.js_vuln_scanner import JSVulnScanner
+from scan_engine.step03_vuln.ssti_scanner import SSTIScanner
+from scan_engine.step03_vuln.cors_scanner import CORSScanner
+from scan_engine.step03_vuln.lfi_assault import LfiAssaultScanner
+from scan_engine.step03_vuln.spring_boot_scanner import SpringBootScanner
+from scan_engine.step03_vuln.crlf_scanner import CRLFScanner
+from scan_engine.step03_vuln.firebase_scanner import FirebaseScanner
+from scan_engine.step03_vuln.xxe_scanner import XXEScanner
+from scan_engine.step03_vuln.deserialization_scanner import DeserializationScanner
+from scan_engine.step03_vuln.acl_scanner import AccessControlScanner
+from scan_engine.step03_vuln.email_security_scanner import EmailSecurityScanner
+from scan_engine.step03_vuln.kube_docker_scanner import KubeDockerScanner
+from scan_engine.step03_vuln.websocket_scanner import WebSocketScanner
+from scan_engine.step03_vuln.prototype_pollution_scanner import PrototypePollutionScanner
+from scan_engine.step03_vuln.data_miner import SensitiveDataMiner
+from scan_engine.step03_vuln.secret_scanner import SecretScanner
 from scan_engine.phases.utils import extract_wp_data, emit_progress
 from scan_engine.helpers.mutation_engine import MutationEngine
 from scan_engine.helpers.budget_manager import BudgetManager
@@ -199,12 +214,19 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
         discovered_endpoints_raw = list(dict.fromkeys(seed))
         discovered_endpoints = []
+        variant_meta = {}  # url -> variant metadata for telemetry
         
         # MUTATION: Apply SSRF specific mutations
         for u in discovered_endpoints_raw[:50]: # Cap for SSRF
             vars = mutation_engine.generate_variants(u, attack_type="ssrf", strategy=mutation_strategy)
             for v in vars:
                 discovered_endpoints.append(v['url'])
+                variant_meta[v['url']] = {
+                    "attack_type": v.get("attack_type"),
+                    "mutation_type": v.get("mutation_type"),
+                    "payload_hash": v.get("payload_hash"),
+                    "source_seed": v.get("source_seed"),
+                }
         
         log(f"Mutation Engine: Generated {len(discovered_endpoints)} SSRF variants.", "DEBUG")
         
@@ -276,42 +298,59 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             for rs in raw_seeds[:100]: # Top 100 seeds for mutation
                 variants = mutation_engine.generate_variants(rs, attack_type="xss", strategy=mutation_strategy)
                 for v in variants:
+                    # Skip noise: null-payload non-original variants
+                    if v.get("payload") is None and v.get("mutation_type") != "original":
+                        continue
                     mutated_seeds.append(v['url'])
             
             log(f"Mutation Engine: Generated {len(mutated_seeds)} XSS variants for Dalfox.", "DEBUG")
 
-            for u in mutated_seeds[:300]: # Cap for dalfox
-                try:
-                    # Consume the stream to ensure it runs!
-                    for _ in dalfox.stream_scan_url(u): pass 
-                except: pass
-
-            cmd_df = dalfox.get_command(port, proto)
-            results['commands'].append({'tool': 'dalfox', 'cmd': shlex.join(cmd_df)})
-            
-            df_stream = dalfox.stream_scan_xss(port, proto)
+            # Batch scan: feed ALL mutated URLs to Dalfox via file mode
+            capped_seeds = mutated_seeds[:300]
             xss_found = []
-            
-            for event in df_stream:
-                if event["type"] == "stdout":
-                    line = event["line"].strip()
-                    if "[V]" in line or "PoC" in line:
-                         log(f"XSS Discovered: {line}", "SUCCESS")
-                         xss_found.append(line)
-                         
-                         # NORMALIZED FINDING
-                         normalized_f = normalizer.normalize({"url": "", "param": "", "poison": "", "evidence": line}, "dalfox")
-                         orch.add_finding(
-                            title=normalized_f["title"],
-                            description=normalized_f["description"],
-                            severity=normalized_f["severity"],
-                            tool_source="dalfox"
-                         )
+
+            if capped_seeds:
+                results['commands'].append({
+                    'tool': 'dalfox',
+                    'cmd': f'dalfox file <{len(capped_seeds)} mutated URLs>'
+                })
+
+                df_stream = dalfox.stream_scan_pipe(capped_seeds)
+                for event in df_stream:
+                    if event["type"] == "stdout":
+                        line = event["line"].strip()
+                        if "[V]" in line or "PoC" in line:
+                             log(f"XSS Discovered: {line}", "SUCCESS")
+                             
+                             # Parse Dalfox line into structured object for UI template
+                             import re
+                             xss_obj = {"url": "", "method": "GET", "payload": line, "evidence": line, "port": port}
+                             method_match = re.search(r'\[(GET|POST|PUT|DELETE)\]', line)
+                             if method_match:
+                                 xss_obj["method"] = method_match.group(1)
+                             url_match = re.search(r'(https?://[^\s\[\]]+)', line)
+                             if url_match:
+                                 xss_obj["url"] = url_match.group(1)
+                             poc_match = re.search(r'PoC:\s*(.+)', line)
+                             if poc_match:
+                                 xss_obj["payload"] = poc_match.group(1).strip()
+                             
+                             xss_found.append(xss_obj)
+                             
+                             # NORMALIZED FINDING
+                             normalized_f = normalizer.normalize({"url": "", "param": "", "poison": "", "evidence": line}, "dalfox")
+                             orch.add_finding(
+                                title=normalized_f["title"],
+                                description=normalized_f["description"],
+                                severity=normalized_f["severity"],
+                                tool_source="dalfox"
+                             )
             
             if xss_found:
                 if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = {}
-                results['phases']['vuln']['xss'][str(port)] = xss_found
+                # Flatten: append to single list (template iterates vuln.xss directly)
+                if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = []
+                results['phases']['vuln']['xss'].extend(xss_found)
                 orch.save_results(orch.scan_id, results)
             
             orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found))
@@ -367,6 +406,163 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         log(f"Open Redirect audit failed: {e}", "DEBUG")
         orch.mark_module("redirect_scanner", port, "failed")
 
+    # --- EXPERT: ADVANCED VULNERABILITY AUDIT (PHASE 4) ---
+    log(f"Phase 4: Executing Advanced Vuln Audit (Expert Scanners) on port {port}...", "INFO")
+    
+    # 1. SSTI
+    try:
+        ssti = SSTIScanner(target)
+        ssti_findings = ssti.scan_ssti(port, proto, logger=log)
+        if ssti_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['ssti'] = ssti_findings
+            for f in ssti_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"SSTI Scanner Error: {e}", "DEBUG")
+
+    # 2. CORS
+    try:
+        cors = CORSScanner(target)
+        cors_findings = cors.scan_cors(port, proto, logger=log)
+        if cors_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['cors_audit'] = cors_findings
+            for f in cors_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"CORS Scanner Error: {e}", "DEBUG")
+
+    # 3. LFI Assault
+    try:
+        lfi = LfiAssaultScanner()
+        lfi_urls = results['phases']['enum'].get('targets', {}).get(str(port), [])
+        if not lfi_urls: lfi_urls = [f"{proto}://{target}:{port}/"]
+        lfi_findings = lfi.scan(target, orch.scan_id, urls=lfi_urls, logger=log)
+        if lfi_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['lfi'] = lfi_findings
+            for f in lfi_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"LFI Assault Error: {e}", "DEBUG")
+
+    # 4. Spring Boot Actuators
+    try:
+        spring = SpringBootScanner(target)
+        spring_findings = spring.scan_actuators(port, proto, logger=log)
+        if spring_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['spring_boot'] = spring_findings
+            for f in spring_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Spring Boot Scanner Error: {e}", "DEBUG")
+
+    # 5. CRLF Injection
+    try:
+        crlf = CRLFScanner(target)
+        crlf_findings = crlf.scan_crlf(port, proto, logger=log)
+        if crlf_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['crlf'] = crlf_findings
+            for f in crlf_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"CRLF Scanner Error: {e}", "DEBUG")
+
+    # 6. XXE
+    try:
+        xxe = XXEScanner(target)
+        xxe_findings = xxe.scan_xxe(port, proto, logger=log)
+        if xxe_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['xxe'] = xxe_findings
+            for f in xxe_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"XXE Scanner Error: {e}", "DEBUG")
+
+    # 7. Prototype Pollution
+    try:
+        proto_scanner = PrototypePollutionScanner(target)
+        proto_findings = proto_scanner.scan_prototype(port, proto, logger=log)
+        if proto_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['prototype'] = proto_findings
+            for f in proto_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Prototype Pollution Error: {e}", "DEBUG")
+
+    # 8. Access Control (ACL)
+    try:
+        acl = AccessControlScanner(target)
+        acl_findings = acl.scan_acl(port, proto, logger=log)
+        if acl_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['acl_bypass'] = acl_findings
+            for f in acl_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"ACL Scanner Error: {e}", "DEBUG")
+
+    # --- OSINT & DATA MINING (PHASE 6) ---
+    try:
+        # Sensitive Data Mining on Response Bodies
+        if fingerprint_data:
+            miner = SensitiveDataMiner()
+            miner_findings = miner.scan(fingerprint_data, f"{proto}://{target}:{port}")
+            if miner_findings:
+                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                results['phases']['vuln']['data_leaks'] = miner_findings
+                for f in miner_findings:
+                    orch.add_finding(
+                        title=f"Data Leak: {f['type'].upper()} Detected",
+                        description=f"Found {f['count']} matches in response. Sample: {', '.join(f['matches'])}",
+                        severity="high",
+                        tool_source="data_miner"
+                    )
+                orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Data Miner Error: {e}", "DEBUG")
+
+    try:
+        # Global Secret Scanning
+        secret_scanner = SecretScanner()
+        secrets = secret_scanner.scan_text(fingerprint_data, source_info=f"Port {port}", target_domain=target)
+        if secrets:
+            if 'enum' not in results['phases']: results['phases']['enum'] = {}
+            if 'js_secrets' not in results['phases']['enum']: results['phases']['enum']['js_secrets'] = {}
+            results['phases']['enum']['js_secrets'][str(port)] = secrets
+            for s in secrets:
+                orch.add_finding(**normalizer.normalize(s))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Secret Scanner Error: {e}", "DEBUG")
+
+    # 10. Container & Kube Exposure
+    try:
+        kube = KubeDockerScanner(target)
+        kube_findings = kube.scan_exposure(port, proto, logger=log)
+        if kube_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['container_exposure'] = kube_findings
+            for f in kube_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Kube Scanner Error: {e}", "DEBUG")
+
+    # 11. WebSockets Audit
+    try:
+        ws = WebSocketScanner(target)
+        ws_findings = ws.scan_websocket(port, proto, logger=log)
+        if ws_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['websocket'] = ws_findings
+            for f in ws_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"WebSocket Scanner Error: {e}", "DEBUG")
+
 
 def run_global_vuln_scans(orchestrator):
     """
@@ -404,8 +600,35 @@ def run_global_vuln_scans(orchestrator):
         orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
 
     except Exception as e:
-        log(f"Takeover check failed: {e}", "WARN")
         orch.mark_module("takeover_scanner", 0, "failed")
+
+    # --- PHASE 3.5: Email Security & Infrastructure ---
+    try:
+        email = EmailSecurityScanner(target)
+        email_findings = email.scan_security(logger=log)
+        if email_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['email_security'] = email_findings
+            for f in email_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+        orch.mark_module("email_security", 0, "executed")
+    except Exception as e:
+        log(f"Email security scan failed: {e}", "WARN")
+
+    # --- PHASE 3.6: Firebase Audit ---
+    try:
+        firebase = FirebaseScanner(target)
+        fb_findings = firebase.scan_firebase(logger=log)
+        if fb_findings:
+            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+            results['phases']['vuln']['firebase'] = fb_findings
+            for f in fb_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+        orch.mark_module("firebase_scanner", 0, "executed")
+    except Exception as e:
+        log(f"Firebase scan failed: {e}", "WARN")
 
     # --- PHASE 5: Nuclei ---
     emit_progress(orch, 80, "Vulnerability Assessment (Nuclei)")

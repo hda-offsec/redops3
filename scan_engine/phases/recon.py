@@ -128,6 +128,7 @@ def probe_web_ports(orchestrator):
             open_ports.append({
                 "port": fp,
                 "service": "http" if fp == 80 else "ssl/http", # Standardized schema
+                "service_name": "http" if fp == 80 else "ssl/http", # Template-compatible key
                 "version": f"Detected via Fallback (Status: {resp.status_code})",
                 "priority_score": 70
             })

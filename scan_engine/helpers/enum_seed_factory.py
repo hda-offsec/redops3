@@ -1,215 +1,109 @@
-import json
-import shlex
-import os
 from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
+import hashlib
 from scan_engine.helpers.budget_manager import BudgetManager
 
+def normalize_endpoint(url: str) -> str:
+    """V6 Normalization: OSCP-grade endpoint sanitization."""
+    if not url: return ""
+    try:
+        parsed = urlparse(url)
+        # 1. Normalize scheme and netloc
+        scheme = parsed.scheme.lower() if parsed.scheme else "http"
+        netloc = parsed.netloc.lower()
+        # 2. Strip fragments and normalize path
+        path = parsed.path.replace("//", "/")
+        if not path: path = "/"
+        # 3. Canonicalize query order
+        query_dict = parse_qs(parsed.query)
+        sorted_query = urlencode(sorted(query_dict.items()), doseq=True)
+        return urlunparse((scheme, netloc, path, "", sorted_query, ""))
+    except Exception:
+        return url.strip()
+
 class EnumSeedFactory:
-    def __init__(self, target, port, protocol):
+    def __init__(self, target, port, protocol, config=None):
         self.target = target
         self.port = str(port)
         self.protocol = protocol
         self.raw_endpoints = []
         self.arjun_params = []
-        self.dynamic_extensions = ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb', '.pl', '.cgi', '.do', '.action']
-        self.static_extensions = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ttf', '.ico', '.pdf', '.docx', '.txt', '.xml']
-        self.high_value_params = ["id", "q", "s", "search", "page", "file", "path", "url", "redirect", "next", "view", "cmd", "exec", "dir", "action", "mode", "cb", "callback"]
-        self.budget = BudgetManager(max_seeds=500, max_total_variants=1500)
-    
+        self.config = config or {}
+        
+        self.high_risk_params = ["id", "file", "url", "redirect", "callback", "path", "template", "include"]
+        self.dynamic_exts = ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb', '.pl', '.cgi']
+        self.static_exts = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ico', '.pdf']
 
     def add_raw_endpoints(self, endpoints, source="unknown"):
-        """Adds endpoints from various tools. Handles list of strings or list of dicts."""
-        if not endpoints:
-            return
-            
         for ep in endpoints:
-            if isinstance(ep, str):
-                self.raw_endpoints.append({"url": ep, "source": source, "confidence": 50})
-            elif isinstance(ep, dict):
-                url = ep.get("url") or ep.get("endpoint")
-                if url:
-                    self.raw_endpoints.append({
-                        "url": url,
-                        "source": source,
-                        "confidence": ep.get("confidence", 50),
-                        "status": ep.get("status")
-                    })
+            url = ep if isinstance(ep, str) else ep.get("url")
+            if url:
+                self.raw_endpoints.append({"url": url, "source": source})
 
     def add_arjun_params(self, params):
-        """Adds parameters discovered by Arjun."""
         if params:
-            self.arjun_params.extend(params)
-            # Deduplicate
-            self.arjun_params = list(dict.fromkeys(self.arjun_params))
+            self.arjun_params = list(set(self.arjun_params + params))
 
-    def normalize(self):
-        """Clean and deduplicate all raw endpoints using canonical keys."""
-        seen_keys = set()
-        normalized = []
-        
-        for ep in self.raw_endpoints:
-            url = ep["url"].strip()
-            if not url:
-                continue
-            
-            # Simple validation & reconstruction
-            parsed = urlparse(url)
-            if not parsed.netloc:
-                if url.startswith("/"):
-                    url = f"{self.protocol}://{self.target}:{self.port}{url}"
-                else:
-                    url = f"{self.protocol}://{self.target}:{self.port}/{url}"
-            
-            # Generate CANONICAL KEY
-            key = BudgetManager.get_canonical_key(url)
-            if key in seen_keys:
-                continue
-            
-            seen_keys.add(key)
-            ep["canonical_key"] = key
-            normalized.append(ep)
-            
-        return normalized
+    def produce_canonical_output(self):
+        """Pipeline Phase 1 & 2: Normalize -> Prioritize -> Synthesize."""
+        # 1. Normalize
+        normalized_eps = []
+        seen = set()
+        for raw in self.raw_endpoints:
+            norm_url = normalize_endpoint(raw["url"])
+            if norm_url and norm_url not in seen:
+                seen.add(norm_url)
+                normalized_eps.append({"url": norm_url, "source": raw["source"]})
 
-    def prioritize(self, normalized_eps):
-        """Score and rank endpoints with CONTEXTUAL intelligence."""
+        # 2. Prioritize (Weighted Scoring)
         scored = []
-        
-        # 1. Identify high-value namespaces (path prefixes)
-        high_value_namespaces = ['/api', '/admin', '/v1', '/v2', '/auth', '/manage', '/config', '/dev']
-        namespace_hits = {ns: 0 for ns in high_value_namespaces}
-        
-        for ep in normalized_eps:
-            path = urlparse(ep["url"]).path.lower()
-            for ns in high_value_namespaces:
-                if path.startswith(ns):
-                    namespace_hits[ns] += 1
-
-        # 2. Score each endpoint
         for ep in normalized_eps:
             url = ep["url"]
-            url_lower = url.lower()
-            path_lower = urlparse(url).path.lower()
+            parsed = urlparse(url)
+            path = parsed.path.lower()
             score = 10 # Base
             
-            # Contextual Bonus: if in a high-value namespace
-            for ns, count in namespace_hits.items():
-                if path_lower.startswith(ns) and count > 0:
-                    score += 20
+            # Weighted scoring logic
+            if parsed.query: score += 70  # Dynamic param present
+            if any(p in url.lower() for p in self.high_risk_params): score += 40
+            if any(api in path for api in ["/api/", "/v1/", "/rest/"]): score += 20
+            if ".json" in path or "json" in url.lower(): score += 15
+            if any(ext in path for ext in self.static_exts): score -= 60
             
-            # Dynamic markers
-            if "?" in url and "=" in url:
-                score += 50
-            
-            if any(ext in url_lower for ext in self.dynamic_extensions):
-                score += 30
-                
-            if any(kw in url_lower for kw in ['admin', 'login', 'upload', 'search', 'view', 'api', 'v1', 'v2', 'debug']):
-                score += 20
-                
-            # Heuristic High Value Params
-            if any(f"{p}=" in url_lower for p in self.high_value_params):
-                score += 40
-
-            # Arjun Params presence
-            for p in self.arjun_params:
-                if f"{p}=" in url_lower:
-                    score += 25
-
-            # Penalize static
-            if any(ext in url_lower for ext in self.static_extensions):
-                score -= 70 # Aggressive penalty
-                
             scored.append((score, ep))
-            
+        
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [x[1] for x in scored]
+        limit = self.config.get("enum_limit", 100)
+        top_eps = [x[1] for x in scored[:limit]]
 
-    def expand_seeds(self, prioritized_eps):
-        """The core factory logic: normalizes, expands, and propagates."""
+        # 3. Synthesis (Phase 2 Injection Point Generation)
         seeds = []
         seed_meta = {}
         
-        # 1. Collect all usable parameters (Arjun + Heuristics)
-        primary_params = self.arjun_params if self.arjun_params else self.high_value_params[:8]
-        
-        # Risk vector keywords for tagging
-        vector_keywords = {
-            "redirect": ["redirect", "url=", "next=", "dest=", "return", "goto"],
-            "file": ["file", "path", "page", "include", "template", "doc"],
-            "auth": ["login", "admin", "auth", "session", "user"],
-            "api": ["api", "v1", "v2", "json", "graphql", "rest"]
-        }
-
-        # 2. Process prioritized endpoints
-        for ep in prioritized_eps[:500]:
+        for ep in top_eps:
             url = ep["url"]
             parsed = urlparse(url)
-            query = parse_qs(parsed.query)
             
-            # Tag vectors
-            vectors = []
-            for v, kws in vector_keywords.items():
-                if any(kw in url.lower() for kw in kws):
-                    vectors.append(v)
-
-            # CASE A: URL already has parameters
-            if query:
+            if parsed.query:
+                # IF endpoint has params: keep structure
                 seeds.append(url)
-                seed_meta[url] = {
-                    "source": ep.get("source", "unknown"),
-                    "risk_vector": vectors,
-                    "confidence": ep.get("confidence", 50)
-                }
-            
-            # CASE B: Dynamic path without parameters
-            path_lower = parsed.path.lower()
-            is_dynamic = any(ext in path_lower for ext in self.dynamic_extensions) or not "." in path_lower.split("/")[-1]
-            
-            if is_dynamic:
-                for p in primary_params[:10]:
-                    new_query = urlencode({p: "ROXSS123"})
-                    new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+                seed_meta[url] = {"source": ep["source"], "dynamic": True, "score": 100}
+            elif self.arjun_params:
+                # ELSE IF Arjun params exist: synthesize seeds
+                for p in self.arjun_params[:10]:
+                    new_url = f"{url}?{p}=__seed__" if "?" not in url else f"{url}&{p}=__seed__"
                     seeds.append(new_url)
-                    seed_meta[new_url] = {
-                        "source": f"propagation:{ep.get('source', 'unknown')}",
-                        "risk_vector": vectors,
-                        "confidence": 40
-                    }
+                    seed_meta[new_url] = {"source": f"arjun:{ep['source']}", "dynamic": True, "score": 80}
+            else:
+                # ELSE: DO NOT generate empty seeds (except original as target)
+                pass
 
-        # fallback if nothing generated
-        if not seeds:
-            base_url = f"{self.protocol}://{self.target}:{self.port}/"
-            for p in primary_params[:10]:
-                u = f"{base_url}?{p}=ROXSS123"
-                seeds.append(u)
-                seed_meta[u] = {"source": "fallback", "risk_vector": ["generic"], "confidence": 30}
-
-        # Final deduplication
-        unique_seeds = list(dict.fromkeys(seeds))
-        return unique_seeds, seed_meta
-
-    def produce_canonical_output(self):
-        """Run the full factory and return the structured dict."""
-        normalized_all = self.normalize()
-        prioritized = self.prioritize(normalized_all)
-        seeds, seed_meta = self.expand_seeds(prioritized)
-        
         return {
-            "normalized": {
-                "endpoints": prioritized[:500], # Top 500 for engine
-                "count": len(prioritized)
-            },
+            "normalized": {"endpoints": top_eps, "count": len(top_eps)},
             "derived": {
-                "targets": [ep["url"] for ep in prioritized[:100]], # Top 100 for UI consumption as high-value
-                "injection_points": seeds[:1000], # High volume for scanners
+                "targets": [ep["url"] for ep in top_eps],
+                "injection_points": seeds,
                 "seed_meta": seed_meta,
-                "seed_stats": {
-                    "raw": len(self.raw_endpoints),
-                    "normalized": len(prioritized),
-                    "seeds": len(seeds),
-                    "arjun_hit": len(self.arjun_params) > 0
-                }
+                "seed_stats": {"raw": len(self.raw_endpoints), "normalized": len(normalized_eps), "seeds": len(seeds)}
             }
         }
 

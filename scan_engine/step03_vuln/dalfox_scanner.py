@@ -1,3 +1,6 @@
+import tempfile
+import os
+from urllib.parse import urlparse
 from scan_engine.helpers.process_manager import ProcessManager
 
 class DalfoxScanner:
@@ -28,9 +31,39 @@ class DalfoxScanner:
 
     def stream_scan_pipe(self, urls):
         """
-        Takes a list of URLs (with parameters) and scans them via pipe simulation or file input.
+        Writes URLs to a temp file and runs dalfox in file mode for batch scanning.
+        Returns a stream of events (same contract as stream_command).
         """
-        pass 
+        if not urls:
+            return iter([])
+
+        # Scope enforcement: only allow URLs whose host matches/is subdomain of target
+        target_host = self.target.lower()
+        scoped_urls = []
+        for u in urls:
+            p = urlparse(u)
+            if p.hostname and p.hostname.lower().endswith(target_host):
+                scoped_urls.append(u)
+
+        if not scoped_urls:
+            return iter([])
+
+        fd, url_file = tempfile.mkstemp(suffix=".txt", prefix="redops_dalfox_")
+        try:
+            with os.fdopen(fd, 'w') as f:
+                for u in scoped_urls:
+                    f.write(u + "\n")
+
+            path = ProcessManager.find_binary_path("dalfox") or "dalfox"
+            command = [
+                path, "file", url_file,
+                "--no-color", "--silence",
+                "--skip-bav", "--worker", "4",
+            ]
+            yield from ProcessManager.stream_command(command)
+        finally:
+            if os.path.exists(url_file):
+                os.remove(url_file)
 
     def stream_scan_url(self, url):
         """
@@ -44,4 +77,4 @@ class DalfoxScanner:
         stream = ProcessManager.stream_command(command)
         for event in stream:
             pass # Just execute, we rely on logs or CLI output if any (silenced)
-            # Ideally we would return findings but strict patch in vuln.py ignores return.
+

@@ -30,6 +30,13 @@ class SSRFScanner:
             test_url = f"{base_url}{'&' if '?' in base_url else '?'}{param}={payload}"
             r = requests.get(test_url, timeout=5, verify=False, allow_redirects=True)
             
+            # Guard: only match on 200 with text content (avoids WAF/redirect false positives)
+            if r.status_code != 200:
+                return False, None, None
+            ctype = r.headers.get("Content-Type", "")
+            if "text" not in ctype and "json" not in ctype:
+                return False, None, None
+
             # Signatures for success
             signatures = [
                 "ami-id", "instance-id", "local-hostname",  # AWS

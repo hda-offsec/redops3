@@ -19,7 +19,8 @@ def parse_nmap_open_ports(nmap_output):
             
             open_ports.append({
                 "port": port,
-                "service": service, # Normalized schema
+                "service": service, # Normalized schema (backend)
+                "service_name": service, # Template-compatible key
                 "version": version if version else None,
                 "priority_score": 0
             })

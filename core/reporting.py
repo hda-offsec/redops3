@@ -331,7 +331,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
             
             # Simple list mechanism or table
             for d in dirs[:100]:
-                pdf.cell(0, 5, pdf.safe_text(d), border=1, ln=True)
+                url = d.get('url', str(d)) if isinstance(d, dict) else str(d)
+                pdf.cell(0, 5, pdf.safe_text(url), border=1, ln=True)
                 
             if len(dirs) > 100:
                 pdf.cell(0, 5, f"... and {len(dirs) - 100} more paths.", border=1, ln=True)

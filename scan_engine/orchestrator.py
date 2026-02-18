@@ -29,6 +29,7 @@ class ScanOrchestrator:
         self.add_loot = loot_func
         self.recursion_func = recursion_func  # New callback for spawning child scans
         self.options = options or {}
+        self.config = self.options.get('config', {})
         self.results = {} # Prevent AttributeError if emit_event called early
 
     def emit_event(self, event_type, module, port=None, level="INFO", data=None):
@@ -128,7 +129,7 @@ class ScanOrchestrator:
                         "cloud": [], "favicon": {}, "github": [], "emails": [], "dorks": [], "origin_ips": []
                     },
                     "enum": {
-                        "whatweb": {"summary": {}}, "katana": {}, "waf": {}, "arjun": {}, "js_secrets": [], "api": {}, "headers": {}
+                        "whatweb": {"summary": {}, "technologies": {}}, "katana": {}, "waf": {}, "arjun": {}, "js_secrets": [], "api": {}, "headers": {}
                     },
                     "vuln": {
                         "nuclei": {"findings": []}, "takeover": [], "wpscan": {}, "wordpress": {}, "git": [], "backups": [], "graphql": [], "ssrf": [], "js_vulns": [], "xss": [], "redirects": [], "tech": []

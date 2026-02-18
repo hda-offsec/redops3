@@ -141,7 +141,7 @@ def scan_detail(scan_id):
                 "origin_ips": []
             },
             "enum": {
-                "whatweb": {"summary": {}},
+                "whatweb": {"summary": {}, "technologies": {}},
                 "katana": {},
                 "waf": {},
                 "arjun": {},
@@ -152,7 +152,29 @@ def scan_detail(scan_id):
                 "nuclei": {"findings": []},
                 "takeover": [],
                 "wpscan": {},
-                "wordpress": {}
+                "wordpress": {},
+                "git": [],
+                "backups": [],
+                "graphql": [],
+                "ssrf": [],
+                "js_vulns": {},
+                "xss": [],
+                "redirects": [],
+                "tech": {},
+                "spring_boot": [],
+                "ssti": [],
+                "lfi": [],
+                "cors_audit": [],
+                "crlf": [],
+                "firebase": [],
+                "xxe": [],
+                "deserialization": [],
+                "acl_bypass": [],
+                "email_security": [],
+                "container_exposure": [],
+                "websocket": [],
+                "data_leaks": [],
+                "prototype": []
             },
             "dirbusting": {
                 "ffuf": {"endpoints": []}
