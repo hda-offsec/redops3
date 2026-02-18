@@ -46,6 +46,9 @@ class ScanOrchestrator:
         self.results["timeline"].append(evt)
         # Emit via SocketIO to specific room
         socketio.emit("pipeline_event", evt, room=f"scan_{self.scan_id}")
+        
+        # PERSIST TIMELINE (Fix #1: Ensure events are saved to DB/File)
+        self.save_results(self.scan_id, {"timeline": self.results["timeline"]})
         return evt
 
     def mark_module(self, module, port, status, artifacts=0, reason=None):
@@ -148,8 +151,9 @@ class ScanOrchestrator:
             open_ports = run_recon(self)
             
             if not open_ports:
-                self.log("No open ports found. Aborting deep scan phases.", "WARN")
-                success = False
+                self.log("No open ports found. Continuing with passive reconnaissance...", "WARN")
+                # Fix #2: Don't fail the pipeline, just warn
+                # success = False 
                 # Continue to OSINT/DNS though? 
                 # Original logic didn't abort fully, but let's proceed to DNS/OSINT mainly.
             

@@ -10,6 +10,51 @@ from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.helpers.process_manager import ProcessManager
 
+def prioritize_endpoints(endpoints, arjun_params=None):
+    """
+    Smart ranking for endpoints to prioritize dynamic/testable targets for vulnerability scanning.
+    Returns top 100 high-value endpoints.
+    """
+    scored = []
+    arjun_params = arjun_params or []
+    
+    unique_endpoints = set(endpoints)
+    
+    for url in unique_endpoints:
+        score = 0
+        url_lower = url.lower()
+        
+        # 1. Base Score
+        score += 10
+        
+        # 2. Dynamic Parameters present
+        if "?" in url and "=" in url:
+            score += 50
+            
+        # 3. Dynamic Extensions
+        if any(ext in url_lower for ext in ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb']):
+            score += 20
+            
+        # 4. Critical Keywords
+        if any(kw in url_lower for kw in ['admin', 'login', 'upload', 'search', 'view', 'id=', 'file=', 'redirect=', 'url=']):
+            score += 30
+            
+        # 5. Penalize Static Assets
+        if any(ext in url_lower for ext in ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ttf', '.ico']):
+            score -= 50
+            
+        # 6. Inject Arjun params if not present (simple heuristics)
+        # Note: Ideally we would construct new URLs here, but for now we just rank existing.
+        # Future improvement: Synthesize new URLs from base + arjun params.
+            
+        scored.append((score, url))
+        
+    # Sort descending
+    scored.sort(key=lambda x: x[0], reverse=True)
+    
+    # Return top N URLs
+    return [x[1] for x in scored[:100]]
+
 def analyze_security_headers(target, port, proto, results, logger_func):
     """
     Analyzes HTTP headers for security configurations.
@@ -422,4 +467,37 @@ def run_enum(orchestrator, port, proto):
         log(f"API discovery failed: {e}", "DEBUG")
         orch.mark_module("api_scanner", port, "failed")
     
+    # --- SYNTHESIZE & PRIORITIZE INJECTION POINTS ---
+    try:
+        # Gather all raw endpoints
+        raw_endpoints = []
+        
+        # Katana
+        if 'katana' in results['phases']['enum']:
+            raw_endpoints.extend(results['phases']['enum']['katana'].get(str(port), []))
+            
+        # API
+        if 'api' in results['phases']['enum']:
+            # Handle list of dicts or strings
+            api_eps = results['phases']['enum']['api'].get(str(port), [])
+            for ep in api_eps:
+                if isinstance(ep, dict): raw_endpoints.append(ep.get('url'))
+                elif isinstance(ep, str): raw_endpoints.append(ep)
+        
+        # Arjun Params (for context)
+        arjun_params = results['phases']['enum'].get('arjun', {}).get(str(port), [])
+        
+        # Smart Rank
+        priority_endpoints = prioritize_endpoints(raw_endpoints, arjun_params)
+        
+        # Store for Vuln Phase consumption
+        if 'targets' not in results['phases']['enum']: results['phases']['enum']['targets'] = {}
+        results['phases']['enum']['targets'][str(port)] = priority_endpoints
+        
+        orch.save_results(orch.scan_id, results)
+        log(f"Synthesized {len(priority_endpoints)} high-priority injection points for vulnerability scanning.", "INFO")
+        
+    except Exception as e:
+        log(f"Endpoint synthesis failed: {e}", "ERROR")
+
     return full_ww

@@ -168,12 +168,18 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     # --- EXPERT: SSRF Probing (Cloud Metadata) ---
     try:
-        api_map = results.get('phases', {}).get('enum', {}).get('api', {})
         discovered_endpoints = []
-
-        for port_key, endpoints in api_map.items():
-            if isinstance(endpoints, list):
-                discovered_endpoints.extend(endpoints)
+        
+        # Priority Source: Smart Targets from Enum Phase
+        if 'enum' in results['phases'] and 'targets' in results['phases']['enum'] and str(port) in results['phases']['enum']['targets']:
+             discovered_endpoints = results['phases']['enum']['targets'][str(port)]
+        
+        # Fallback Source: API Map (Historic)
+        if not discovered_endpoints:
+            api_map = results.get('phases', {}).get('enum', {}).get('api', {})
+            for port_key, endpoints in api_map.items():
+                if isinstance(endpoints, list):
+                    discovered_endpoints.extend(endpoints)
         
         if discovered_endpoints:
             ssrf = SSRFScanner(target)
@@ -274,17 +280,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         # Orchestrator passed 'endpoints' which presumably came from Katana/Ffuf.
         # Here we can grab them from results['phases']['dirbusting'] or ['enum']['api']
         
-        endpoints = []
-        # Gather all known endpoints
-        if 'dirbusting' in results['phases']:
-             for tool, data in results['phases']['dirbusting'].items():
-                 if 'endpoints' in data:
-                     for ep in data['endpoints']:
-                         if isinstance(ep, dict) and 'url' in ep: endpoints.append(ep['url'])
-                         elif isinstance(ep, str): endpoints.append(ep)
+        if 'enum' in results['phases'] and 'targets' in results['phases']['enum'] and str(port) in results['phases']['enum']['targets']:
+             endpoints = results['phases']['enum']['targets'][str(port)]
         
-        if 'enum' in results['phases'] and 'api' in results['phases']['enum']:
-            endpoints.extend(results['phases']['enum']['api'].get('discovered_endpoints', []))
+        if not endpoints:
+             # Gather all known endpoints (Fallback)
+             if 'dirbusting' in results['phases']:
+                  for tool, data in results['phases']['dirbusting'].items():
+                      if 'endpoints' in data:
+                          for ep in data['endpoints']:
+                              if isinstance(ep, dict) and 'url' in ep: endpoints.append(ep['url'])
+                              elif isinstance(ep, str): endpoints.append(ep)
+        
+             if 'enum' in results['phases'] and 'api' in results['phases']['enum']:
+                 endpoints.extend(results['phases']['enum']['api'].get('discovered_endpoints', []))
 
         if endpoints:
             or_scanner = OpenRedirectScanner(target)
