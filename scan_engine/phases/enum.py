@@ -408,7 +408,11 @@ def run_enum(orchestrator, port, proto):
                     if len(parts) >= 2:
                         status = parts[1] # heuristic
                         if status.isdigit() and status.startswith(('2', '3')):
-                             api_endpoints.append(line)
+                             url_only = parts[0]
+                             # Ensure full URL if kiterunner returns paths
+                             if not url_only.startswith("http"):
+                                 url_only = f"{proto}://{target}:{port}{url_only}" if url_only.startswith("/") else f"{proto}://{target}:{port}/{url_only}"
+                             api_endpoints.append(url_only)
             
             if api_endpoints:
                  log(f"Found {len(api_endpoints)} potential API endpoints.", "SUCCESS")
@@ -503,36 +507,42 @@ def run_enum(orchestrator, port, proto):
         orch.save_results(orch.scan_id, results)
         log(f"Synthesized {len(priority_endpoints)} high-priority injection points for vulnerability scanning.", "INFO")
         
+        # --- BUILD INJECTION POINTS (Patch 2 Fix: Moved before return) ---
+        try:
+            results['phases']['enum'].setdefault('injection_points', {})
+            seeds = []
+
+            # Use Smart Targets from prioritize_endpoints as base! (Patch 2 Refinement)
+            base_eps = priority_endpoints 
+            
+            # If empty, fallback to raw katana
+            if not base_eps:
+                 base_eps = results['phases']['enum'].get('katana', {}).get(str(port), [])
+
+            for base in base_eps[:200]:
+                if isinstance(base, str):
+                    if "?" in base:
+                        seeds.append(base)
+                    else:
+                        # Append Arjun params if available
+                        for p in arjun_params[:10]:
+                            seeds.append(f"{base}?{p}=ROXSS123")
+
+            # fallback if no endpoints but arjun params exist
+            if not seeds and arjun_params:
+                base = f"{proto}://{target}:{port}"
+                for p in arjun_params[:10]:
+                    seeds.append(f"{base}/?{p}=ROXSS123")
+
+            seeds = list(dict.fromkeys(seeds))
+            results['phases']['enum']['injection_points'][str(port)] = seeds
+            orch.save_results(orch.scan_id, results)
+        except Exception as e:
+            log(f"Injection point build failed: {e}", "DEBUG")
+
     except Exception as e:
         log(f"Endpoint synthesis failed: {e}", "ERROR")
 
     return full_ww
 
-    try:
-        results['phases']['enum'].setdefault('injection_points', {})
-        seeds = []
 
-        katana_eps = results['phases']['enum'].get('katana', {}).get(str(port), [])
-        arjun_params = results['phases']['enum'].get('arjun', {}).get(str(port), [])
-
-        for base in katana_eps[:200]:
-            if isinstance(base, str):
-                if "?" in base:
-                    seeds.append(base)
-                else:
-                    for p in arjun_params[:10]:
-                        seeds.append(f"{base}?{p}=ROXSS123")
-
-        # fallback if no katana
-        if not seeds and arjun_params:
-            base = f"{proto}://{target}:{port}"
-            for p in arjun_params[:10]:
-                seeds.append(f"{base}/?{p}=ROXSS123")
-
-        seeds = list(dict.fromkeys(seeds))
-        results['phases']['enum']['injection_points'][str(port)] = seeds
-
-        orch.save_results(orch.scan_id, results)
-
-    except Exception as e:
-        log(f"Injection point build failed: {e}", "DEBUG")
