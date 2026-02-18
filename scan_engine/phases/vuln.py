@@ -251,7 +251,11 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
             seeds = results['phases']['enum'].get('injection_points', {}).get(str(port), [])
             for u in seeds[:200]:
-                dalfox.stream_scan_url(u)
+                try:
+                    # Consume the stream to ensure it runs!
+                    for _ in dalfox.stream_scan_url(u): pass 
+                    log(f"Seeded Dalfox scan for {u}", "DEBUG")
+                except: pass
 
             cmd_df = dalfox.get_command(port, proto)
             results['commands'].append({'tool': 'dalfox', 'cmd': shlex.join(cmd_df)})
@@ -287,6 +291,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     # --- OPEN REDIRECT ---
     try:
+        endpoints = []
         # Use endpoints from enum phase if available, otherwise just check base if needed?
         # Orchestrator passed 'endpoints' which presumably came from Katana/Ffuf.
         # Here we can grab them from results['phases']['dirbusting'] or ['enum']['api']
