@@ -109,12 +109,19 @@ def run_enum(orchestrator, port, proto):
     - JS Secrets
     - Parameter Discovery (Arjun)
     """
-    orch = orchestrator
-    results = orch.results
-    target = orch.target
-    log = orch.log
-    
     full_ww = ""
+    
+    # --- GUARANTEED INITIALIZATION (Pipeline Hardening) ---
+    # Ensures results structure exists even if modules fail early
+    results.setdefault('phases', {})
+    results['phases'].setdefault('enum', {})
+    results['phases']['enum'].setdefault('whatweb', {'summary': {}, 'technologies': {}})
+    results['phases']['enum'].setdefault('katana', {})
+    results['phases']['enum'].setdefault('api', {'discovered_endpoints': []})
+    results['phases']['enum'].setdefault('arjun', {})
+    results['phases']['enum'].setdefault('targets', {})
+    results['phases']['enum'].setdefault('injection_points', {})
+    orch.save_results(orch.scan_id, results)
     
     # 1. Web Recon (WhatWeb)
     # Using existing WebReconScanner wrapper
@@ -250,9 +257,9 @@ def run_enum(orchestrator, port, proto):
                          endpoints.append(line)
                          log(f"Katana found: {line}", "DEBUG")
              
-             # Store results safely
+             # Store results safely (removed 100 limit for engine, UI handles scroll)
              results['phases']['enum'].setdefault('katana', {})
-             results['phases']['enum']['katana'][str(port)] = endpoints[:100]
+             results['phases']['enum']['katana'][str(port)] = endpoints[:1000]
              
              orch.save_results(orch.scan_id, results)
              orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
@@ -428,7 +435,7 @@ def run_enum(orchestrator, port, proto):
                  )
                  
                  found_items_api = []
-                 for ep in api_endpoints[:20]: # Limit for UI
+                 for ep in api_endpoints[:100]: # Capacity for UI detail view
                      found_items_api.append({'url': ep, 'status': '200'}) # Mock status parsing for UI
                      
                      orch.add_finding(
@@ -489,11 +496,15 @@ def run_enum(orchestrator, port, proto):
             
         # API
         if 'api' in results['phases']['enum']:
-            # Handle list of dicts or strings
+            # 1. Port-specific items (list of dicts)
             api_eps = results['phases']['enum']['api'].get(str(port), [])
             for ep in api_eps:
                 if isinstance(ep, dict): raw_endpoints.append(ep.get('url'))
                 elif isinstance(ep, str): raw_endpoints.append(ep)
+            
+            # 2. Global discovered endpoints (list of strings)
+            global_api = results['phases']['enum']['api'].get('discovered_endpoints', [])
+            raw_endpoints.extend(global_api)
         
         # Arjun Params (for context)
         arjun_params = results['phases']['enum'].get('arjun', {}).get(str(port), [])
@@ -508,32 +519,37 @@ def run_enum(orchestrator, port, proto):
         orch.save_results(orch.scan_id, results)
         log(f"Synthesized {len(priority_endpoints)} high-priority injection points for vulnerability scanning.", "INFO")
         
-        # --- BUILD INJECTION POINTS (Patch 2 Fix: Moved before return) ---
+        # --- BUILD INJECTION POINTS ---
         try:
             results['phases']['enum'].setdefault('injection_points', {})
             seeds = []
 
-            # Use Smart Targets from prioritize_endpoints as base! (Patch 2 Refinement)
+            # Use Smart Targets from prioritize_endpoints as base!
             base_eps = priority_endpoints 
             
             # If empty, fallback to raw katana
             if not base_eps:
                  base_eps = results['phases']['enum'].get('katana', {}).get(str(port), [])
 
+            # Parameter Fallback (Hardening)
+            # If Arjun found nothing, use common high-value params to generate seeds
+            fallback_params = ["id", "q", "s", "search", "page", "file", "path", "url", "redirect", "next", "view", "cmd"]
+            use_params = arjun_params if arjun_params else fallback_params
+
             for base in base_eps[:200]:
                 if isinstance(base, str):
                     if "?" in base:
                         seeds.append(base)
                     else:
-                        # Append Arjun params if available
-                        for p in arjun_params[:10]:
+                        # Append params
+                        for p in use_params[:12]:
                             seeds.append(f"{base}?{p}=ROXSS123")
 
-            # fallback if no endpoints but arjun params exist
-            if not seeds and arjun_params:
-                base = f"{proto}://{target}:{port}"
-                for p in arjun_params[:10]:
-                    seeds.append(f"{base}/?{p}=ROXSS123")
+            # fallback if no endpoints at all, try base URL
+            if not seeds:
+                target_base = f"{proto}://{target}:{port}"
+                for p in use_params[:12]:
+                    seeds.append(f"{target_base}/?{p}=ROXSS123")
 
             seeds = list(dict.fromkeys(seeds))
             results['phases']['enum']['injection_points'][str(port)] = seeds
