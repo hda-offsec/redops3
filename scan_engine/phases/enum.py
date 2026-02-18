@@ -10,6 +10,7 @@ from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
 from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.helpers.process_manager import ProcessManager
 from scan_engine.helpers.enum_seed_factory import EnumSeedFactory
+from scan_engine.helpers.context_attack_engine import ContextAttackEngine
 
 # prioritization moved to EnumSeedFactory
 
@@ -483,6 +484,22 @@ def run_enum(orchestrator, port, proto):
         
         stats = canonical['derived']['seed_stats']
         log(f"Seed Factory: Synthesized {stats['seeds']} seeds from {stats['normalized']} unique endpoints (Raw: {stats['raw']}).", "SUCCESS")
+
+        # --- CONTEXT ATTACK ENGINE (V6 Evolution) ---
+        try:
+            context_engine = ContextAttackEngine(results, logger=log)
+            profile = context_engine.build_attack_profile(port)
+            strategy = context_engine.derive_mutation_strategy(profile)
+            
+            results['phases']['enum'].setdefault('attack_profile', {})
+            results['phases']['enum'].setdefault('mutation_strategy', {})
+            results['phases']['enum']['attack_profile'][str(port)] = profile
+            results['phases']['enum']['mutation_strategy'][str(port)] = strategy
+            
+            orch.save_results(orch.scan_id, results)
+        except Exception as e:
+            log(f"ContextAttackEngine failed: {e}", "DEBUG")
+
 
     except Exception as e:
         log(f"Seed Factory failed: {e}", "ERROR")

@@ -33,10 +33,14 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     log = orch.log
     profile = orch.options.get('profile', 'quick')
 
-    # Initialize Mutation Layer
+    # Initialize Mutation Layer & Strategy
     budget = BudgetManager(max_seeds=200, max_total_variants=1000)
     mutation_engine = MutationEngine(budget)
     normalizer = FindingNormalizer()
+    
+    # Retrieve pre-computed mutation strategy from Enum phase
+    mutation_strategy = results.get('phases', {}).get('enum', {}).get('mutation_strategy', {}).get(str(port), {})
+
 
     # --- CMS SPECIFIC SCANS (WordPress) ---
     # Enhanced Detection: Check WhatWeb + HTTP Headers
@@ -198,7 +202,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         
         # MUTATION: Apply SSRF specific mutations
         for u in discovered_endpoints_raw[:50]: # Cap for SSRF
-            vars = mutation_engine.generate_variants(u, attack_type="ssrf")
+            vars = mutation_engine.generate_variants(u, attack_type="ssrf", strategy=mutation_strategy)
             for v in vars:
                 discovered_endpoints.append(v['url'])
         
@@ -270,7 +274,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             raw_seeds = results['phases']['enum'].get('injection_points', {}).get(str(port), [])
             mutated_seeds = []
             for rs in raw_seeds[:100]: # Top 100 seeds for mutation
-                variants = mutation_engine.generate_variants(rs, attack_type="xss")
+                variants = mutation_engine.generate_variants(rs, attack_type="xss", strategy=mutation_strategy)
                 for v in variants:
                     mutated_seeds.append(v['url'])
             
