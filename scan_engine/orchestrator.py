@@ -1,17 +1,16 @@
+import json
 import threading
 import traceback
-import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-from scan_engine.phases.recon import run_recon, run_dns_osint
-from scan_engine.phases.intel import run_intel
-from scan_engine.phases.enum import run_enum
-from scan_engine.phases.vuln import run_vuln_scans, run_global_vuln_scans
-from scan_engine.phases.dirbusting import run_dirbusting
-from scan_engine.helpers.task_scheduler import TaskScheduler
-from scan_engine.helpers.attack_graph import AttackGraphBuilder
 from core.extensions import socketio
+from scan_engine.helpers.attack_graph import AttackGraphBuilder
+from scan_engine.helpers.task_scheduler import TaskScheduler
+from scan_engine.phases.dirbusting import run_dirbusting
+from scan_engine.phases.enum import run_enum
+from scan_engine.phases.intel import run_intel
+from scan_engine.phases.recon import run_dns_osint, run_recon
+from scan_engine.phases.vuln import run_global_vuln_scans, run_vuln_scans
 
 
 class ScanOrchestrator:
@@ -35,6 +34,14 @@ class ScanOrchestrator:
         self._skip_tasks = set()
         self._scheduler = None
         self._start_time = None
+        self.control_flags = {
+            "pause": False,
+            "stop": False,
+        }
+
+    def thread_safe_results_update(self, fn):
+        with self._results_lock:
+            return fn()
 
     def emit_event(self, event_type, module, port=None, level="INFO", data=None):
         evt = {
@@ -45,26 +52,33 @@ class ScanOrchestrator:
             "level": level,
             "data": data or {}
         }
-        if 'timeline' not in self.results:
-            self.results['timeline'] = []
 
-        self.results["timeline"].append(evt)
+        def _update():
+            if 'timeline' not in self.results:
+                self.results['timeline'] = []
+            self.results["timeline"].append(evt)
+
+        self.thread_safe_results_update(_update)
         socketio.emit("pipeline_event", evt, room=f"scan_{self.scan_id}")
-        self.save_results(self.scan_id, {"timeline": self.results["timeline"]})
+        self.save_results(self.scan_id, {"timeline": self.results.get("timeline", [])})
         return evt
 
     def mark_module(self, module, port, status, artifacts=0, reason=None):
-        if 'modules' not in self.results:
-            self.results['modules'] = {}
-        if module not in self.results['modules']:
-            self.results['modules'][module] = {}
+        def _update_module():
+            if 'modules' not in self.results:
+                self.results['modules'] = {}
+            if module not in self.results['modules']:
+                self.results['modules'][module] = {}
 
-        normalized_reason = reason if reason is not None else ("" if status == "executed" else "no_reason_provided")
-        self.results['modules'][module][str(port)] = {
-            "status": status,
-            "artifacts": int(artifacts),
-            "reason": normalized_reason
-        }
+            normalized_reason = reason if reason is not None else ("" if status == "executed" else "no_reason_provided")
+            self.results['modules'][module][str(port)] = {
+                "status": status,
+                "artifacts": int(artifacts),
+                "reason": normalized_reason
+            }
+            return normalized_reason
+
+        normalized_reason = self.thread_safe_results_update(_update_module)
 
         socketio.emit(
             "module_status",
@@ -83,19 +97,22 @@ class ScanOrchestrator:
 
         level = "ERROR" if status in ["failed", "error"] else "INFO"
         self.emit_event(evt_type, module, port, level=level, data={"artifacts": artifacts, "reason": normalized_reason})
-        self.save_results(self.scan_id, {"modules": self.results["modules"]})
+        self.save_results(self.scan_id, {"modules": self.results.get("modules", {})})
 
     def pause(self):
         with self._control_lock:
+            self.control_flags["pause"] = True
             self._pause_event.clear()
 
     def resume(self):
         with self._control_lock:
+            self.control_flags["pause"] = False
             self._pause_event.set()
 
     def stop(self):
         with self._control_lock:
             self._stop_requested = True
+            self.control_flags["stop"] = True
             self._pause_event.set()
 
     def skip_task(self, task_id):
@@ -110,35 +127,57 @@ class ScanOrchestrator:
             raise RuntimeError(f"task_skipped:{task_id}")
 
     def _set_task_state(self, task_id, state, reason=None):
-        self.results.setdefault("task_status", {})
-        self.results["task_status"][task_id] = {"state": state, "reason": reason}
-        self._update_progress()
-        self.save_results(self.scan_id, {"task_status": self.results["task_status"], "progress": self.results.get("progress", 0.0)})
+        def _update():
+            self.results.setdefault("task_status", {})
+            self.results["task_status"][task_id] = {"state": state, "reason": reason}
+            self._update_progress()
+
+        self.thread_safe_results_update(_update)
+        self.save_results(self.scan_id, {"task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
 
     def _update_progress(self):
-        metrics = self.results.setdefault("metrics", {})
-        total = int(metrics.get("tasks_total", 0))
-        done = int(metrics.get("tasks_done", 0))
+        task_status = self.results.get("task_status", {})
+        total = len(task_status)
+        completed_states = {"executed", "skipped", "failed"}
+        done = sum(1 for info in task_status.values() if info.get("state") in completed_states)
         self.results["progress"] = float((done / total) * 100.0) if total else 0.0
+
+    def _on_scheduler_progress(self, scheduler):
+        def _update():
+            self.results.setdefault("task_status", {})
+            for task_id, task in scheduler.tasks.items():
+                self.results["task_status"][task_id] = {"state": task.state, "reason": task.reason}
+            self._update_progress()
+
+        self.thread_safe_results_update(_update)
+        self.save_results(self.scan_id, {"task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
 
     def _task_wrapper(self, task_id, func, *args, **kwargs):
         self._check_control(task_id)
         self._set_task_state(task_id, "running", None)
         try:
             ret = func(*args, **kwargs)
-            self.results.setdefault("metrics", {})
-            self.results["metrics"]["tasks_done"] = int(self.results["metrics"].get("tasks_done", 0)) + 1
+
+            def _update_success():
+                self.results.setdefault("metrics", {})
+                self.results["metrics"]["tasks_done"] = int(self.results["metrics"].get("tasks_done", 0)) + 1
+
+            self.thread_safe_results_update(_update_success)
             self._set_task_state(task_id, "executed", None)
             return ret
         except Exception as exc:
             reason = str(exc)
-            if reason.startswith("task_skipped:"):
+
+            def _update_error():
                 self.results.setdefault("metrics", {})
                 self.results["metrics"]["tasks_done"] = int(self.results["metrics"].get("tasks_done", 0)) + 1
+
+            self.thread_safe_results_update(_update_error)
+
+            if reason.startswith("task_skipped:"):
                 self._set_task_state(task_id, "skipped", reason)
                 return None
-            self.results.setdefault("metrics", {})
-            self.results["metrics"]["tasks_done"] = int(self.results["metrics"].get("tasks_done", 0)) + 1
+
             self._set_task_state(task_id, "failed", reason)
             self.log(f"Task {task_id} failed: {reason}", "ERROR")
             self.log(traceback.format_exc(), "DEBUG")
@@ -201,6 +240,8 @@ class ScanOrchestrator:
             self.save_results(self.scan_id, self.results, overwrite=True)
 
             scheduler = TaskScheduler()
+            scheduler.set_orchestrator(self)
+            scheduler.set_progress_callback(self._on_scheduler_progress)
             self._scheduler = scheduler
 
             def recon_task():
@@ -210,12 +251,10 @@ class ScanOrchestrator:
             scheduler.add_task("dns_osint", "phase", ["recon"], self._task_wrapper, args=("dns_osint", run_dns_osint, self))
             scheduler.add_task("intel", "phase", ["dns_osint"], self._task_wrapper, args=("intel", run_intel, self))
 
-            # execute sequential roots
             task_results = scheduler.run()
             open_ports = task_results.get("recon") or self.results.get("phases", {}).get("recon", {}).get("open_ports", [])
             web_ports = self._build_web_ports(open_ports)
 
-            # Dynamic per-port tasks with bounded concurrency
             for port, proto in web_ports:
                 scheduler.add_task(f"enum_{port}", "enum", ["intel"], self._task_wrapper, args=(f"enum_{port}", run_enum, self, port, proto))
                 scheduler.add_task(f"vuln_{port}", "vuln", [f"enum_{port}"], self._task_wrapper, args=(f"vuln_{port}", run_vuln_scans, self, port, proto), kwargs={"fingerprint_data": ""})
@@ -223,27 +262,16 @@ class ScanOrchestrator:
             scheduler.add_task("global_vuln", "phase", ["intel"] + [f"vuln_{p}" for p, _ in web_ports], self._task_wrapper, args=("global_vuln", run_global_vuln_scans, self))
             scheduler.add_task("dirbusting", "phase", ["global_vuln"], self._task_wrapper, args=("dirbusting", run_dirbusting, self))
 
-            self.results["metrics"]["tasks_total"] = len(scheduler.tasks)
-            for task_id in scheduler.tasks:
-                self.results["task_status"].setdefault(task_id, {"state": "pending", "reason": None})
-            self._update_progress()
+            def _prime_task_status():
+                self.results["metrics"]["tasks_total"] = len(scheduler.tasks)
+                for task_id in scheduler.tasks:
+                    self.results["task_status"].setdefault(task_id, {"state": "pending", "reason": None})
+                self._update_progress()
+
+            self.thread_safe_results_update(_prime_task_status)
             self.save_results(self.scan_id, {"metrics": self.results["metrics"], "task_status": self.results["task_status"], "progress": self.results["progress"]})
 
-            # run per-port concurrently then tail tasks
-            max_workers = int(self.options.get("max_parallel_ports", 4))
-            enum_tasks = [f"enum_{p}" for p, _ in web_ports]
-            vuln_tasks = [f"vuln_{p}" for p, _ in web_ports]
-
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(scheduler.execute_task, tid): tid for tid in enum_tasks}
-                for _ in as_completed(futures):
-                    pass
-                futures = {executor.submit(scheduler.execute_task, tid): tid for tid in vuln_tasks}
-                for _ in as_completed(futures):
-                    pass
-
-            scheduler.execute_task("global_vuln")
-            scheduler.execute_task("dirbusting")
+            scheduler.run()
 
             attack_builder = AttackGraphBuilder()
             attack_builder.build(self.results)
