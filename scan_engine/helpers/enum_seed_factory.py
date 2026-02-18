@@ -128,55 +128,72 @@ class EnumSeedFactory:
     def expand_seeds(self, prioritized_eps):
         """The core factory logic: normalizes, expands, and propagates."""
         seeds = []
+        seed_meta = {}
         
         # 1. Collect all usable parameters (Arjun + Heuristics)
-        # We use Arjun as high confidence, and a subset of heuristics as fallback/propagation
         primary_params = self.arjun_params if self.arjun_params else self.high_value_params[:8]
         
+        # Risk vector keywords for tagging
+        vector_keywords = {
+            "redirect": ["redirect", "url=", "next=", "dest=", "return", "goto"],
+            "file": ["file", "path", "page", "include", "template", "doc"],
+            "auth": ["login", "admin", "auth", "session", "user"],
+            "api": ["api", "v1", "v2", "json", "graphql", "rest"]
+        }
+
         # 2. Process prioritized endpoints
-        for ep in prioritized_eps[:500]: # Capacity high for engine
+        for ep in prioritized_eps[:500]:
             url = ep["url"]
             parsed = urlparse(url)
             query = parse_qs(parsed.query)
             
+            # Tag vectors
+            vectors = []
+            for v, kws in vector_keywords.items():
+                if any(kw in url.lower() for kw in kws):
+                    vectors.append(v)
+
             # CASE A: URL already has parameters
             if query:
-                # Keep original
                 seeds.append(url)
-                # Inject payload into existing params
-                for param in query:
-                    # We create a new query where only ONE param is injected at a time? 
-                    # For vulnerability scanning, Dalfox handles it if we give the URL.
-                    # But for LFI/SSRF we might want explicit seeds.
-                    pass
+                seed_meta[url] = {
+                    "source": ep.get("source", "unknown"),
+                    "risk_vector": vectors,
+                    "confidence": ep.get("confidence", 50)
+                }
             
             # CASE B: Dynamic path without parameters
-            # Propagate parameters to likely-dynamic paths
             path_lower = parsed.path.lower()
             is_dynamic = any(ext in path_lower for ext in self.dynamic_extensions) or not "." in path_lower.split("/")[-1]
             
             if is_dynamic:
-                # Propagate top params
                 for p in primary_params[:10]:
-                    # Create seeds like /page.php?id=ROXSS123
                     new_query = urlencode({p: "ROXSS123"})
                     new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
                     seeds.append(new_url)
+                    seed_meta[new_url] = {
+                        "source": f"propagation:{ep.get('source', 'unknown')}",
+                        "risk_vector": vectors,
+                        "confidence": 40
+                    }
 
         # fallback if nothing generated
         if not seeds:
             base_url = f"{self.protocol}://{self.target}:{self.port}/"
             for p in primary_params[:10]:
-                seeds.append(f"{base_url}?{p}=ROXSS123")
+                u = f"{base_url}?{p}=ROXSS123"
+                seeds.append(u)
+                seed_meta[u] = {"source": "fallback", "risk_vector": ["generic"], "confidence": 30}
 
         # Final deduplication
-        return list(dict.fromkeys(seeds))
+        unique_seeds = list(dict.fromkeys(seeds))
+        return unique_seeds, seed_meta
 
     def produce_canonical_output(self):
         """Run the full factory and return the structured dict."""
         normalized_all = self.normalize()
         prioritized = self.prioritize(normalized_all)
-        seeds = self.expand_seeds(prioritized)
+        seeds, seed_meta = self.expand_seeds(prioritized)
         
         return {
             "normalized": {
@@ -186,6 +203,7 @@ class EnumSeedFactory:
             "derived": {
                 "targets": [ep["url"] for ep in prioritized[:100]], # Top 100 for UI consumption as high-value
                 "injection_points": seeds[:1000], # High volume for scanners
+                "seed_meta": seed_meta,
                 "seed_stats": {
                     "raw": len(self.raw_endpoints),
                     "normalized": len(prioritized),
@@ -194,3 +212,4 @@ class EnumSeedFactory:
                 }
             }
         }
+

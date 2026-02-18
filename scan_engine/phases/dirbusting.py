@@ -19,7 +19,7 @@ def run_dirbusting(orchestrator):
     web_ports = []
     if 'recon' in results['phases'] and 'open_ports' in results['phases']['recon']:
         for p_info in results['phases']['recon']['open_ports']:
-            svc = p_info.get('service_name', p_info.get('service', '')).lower()
+            svc = p_info.get('service', p_info.get('service_name', '')).lower()
             port_num = p_info.get('port')
             
             if svc in ['http', 'https', 'ssl/http', 'http-alt'] or port_num in [80, 443, 8080, 8443]:

@@ -127,8 +127,7 @@ def probe_web_ports(orchestrator):
             log(f"  [+] Fallback: Target is ALIVE on {url} (Status: {resp.status_code})", "SUCCESS")
             open_ports.append({
                 "port": fp,
-                "service": "http" if fp == 80 else "ssl/http", # Standardize service name 'http' vs 'service_name'
-                "service_name": "http" if fp == 80 else "ssl/http",
+                "service": "http" if fp == 80 else "ssl/http", # Standardized schema
                 "version": f"Detected via Fallback (Status: {resp.status_code})",
                 "priority_score": 70
             })

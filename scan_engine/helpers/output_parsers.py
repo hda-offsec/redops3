@@ -19,7 +19,7 @@ def parse_nmap_open_ports(nmap_output):
             
             open_ports.append({
                 "port": port,
-                "service_name": service,
+                "service": service, # Normalized schema
                 "version": version if version else None,
                 "priority_score": 0
             })

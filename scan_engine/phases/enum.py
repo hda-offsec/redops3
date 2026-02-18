@@ -56,6 +56,27 @@ def analyze_security_headers(target, port, proto, results, logger_func):
         logger_func(f"Header Analysis Error: {e}", "DEBUG")
         return [], {}
 
+def sanitize_endpoints(raw_list):
+    """Clean and filter raw endpoints: only http(s) strings, no dict leaks."""
+    if not raw_list:
+        return []
+    clean = []
+    for ep in raw_list:
+        if not ep: continue
+        # Handle dict leaks from API/Recon modules
+        if isinstance(ep, dict):
+            url = ep.get("url") or ep.get("endpoint")
+        elif isinstance(ep, str):
+            url = ep
+        else:
+            continue
+            
+        if url and isinstance(url, str):
+            url = url.strip()
+            if url.startswith("http"):
+                clean.append(url)
+    return list(set(clean))
+
 def run_enum(orchestrator, port, proto):
     """
     Executes Phase 2: Enumeration on a specific port
@@ -74,8 +95,7 @@ def run_enum(orchestrator, port, proto):
     
     full_ww = ""
     
-    # --- GUARANTEED INITIALIZATION (Pipeline Hardening) ---
-    # Ensures results structure exists even if modules fail early
+    # --- GUARANTEED INITIALIZATION (Pipeline Hardening V6) ---
     results.setdefault('phases', {})
     results['phases'].setdefault('enum', {})
     results['phases']['enum'].setdefault('whatweb', {'summary': {}, 'technologies': {}})
@@ -84,8 +104,10 @@ def run_enum(orchestrator, port, proto):
     results['phases']['enum'].setdefault('arjun', {})
     results['phases']['enum'].setdefault('targets', {})
     results['phases']['enum'].setdefault('injection_points', {})
+    results['phases']['enum'].setdefault('seed_meta', {}) # V6 Metadata
     results['phases']['enum'].setdefault('normalized', {})
     results['phases']['enum'].setdefault('derived', {})
+    results.setdefault('commands', [])
     orch.save_results(orch.scan_id, results)
     
     # 1. Web Recon (WhatWeb)
@@ -456,19 +478,29 @@ def run_enum(orchestrator, port, proto):
         
         # 1. Collect Katana
         if 'katana' in results['phases']['enum']:
-            factory.add_raw_endpoints(results['phases']['enum']['katana'].get(str(port), []), source="katana")
+            factory.add_raw_endpoints(sanitize_endpoints(results['phases']['enum']['katana'].get(str(port), [])), source="katana")
             
         # 2. Collect API
         if 'api' in results['phases']['enum']:
             # Port-specific
-            factory.add_raw_endpoints(results['phases']['enum']['api'].get(str(port), []), source="kiterunner")
+            factory.add_raw_endpoints(sanitize_endpoints(results['phases']['enum']['api'].get(str(port), [])), source="kiterunner")
             # Global
-            factory.add_raw_endpoints(results['phases']['enum']['api'].get('discovered_endpoints', []), source="kiterunner-global")
+            factory.add_raw_endpoints(sanitize_endpoints(results['phases']['enum']['api'].get('discovered_endpoints', [])), source="kiterunner-global")
             
         # 3. Collect Arjun
         if 'arjun' in results['phases']['enum']:
-            factory.add_arjun_params(results['phases']['enum']['arjun'].get(str(port), []))
-            
+            arjun_data = results['phases']['enum']['arjun'].get(str(port), [])
+            # Arjun can return list of strings or list of dicts
+            if isinstance(arjun_data, list):
+                for item in arjun_data:
+                    if isinstance(item, dict):
+                        url = item.get("endpoint") or item.get("url")
+                        if url:
+                            factory.add_raw_endpoints([url], source="arjun")
+                            factory.add_arjun_params(item.get("params", []))
+                    else:
+                        factory.add_raw_endpoints([item], source="arjun")
+
         # 4. Produce Canonical Output
         canonical = factory.produce_canonical_output()
         
@@ -479,11 +511,12 @@ def run_enum(orchestrator, port, proto):
         # Compatibility layers for legacy consumers (UI/VulnScanners)
         results['phases']['enum']['targets'][str(port)] = canonical['derived']['targets']
         results['phases']['enum']['injection_points'][str(port)] = canonical['derived']['injection_points']
+        results['phases']['enum']['seed_meta'][str(port)] = canonical['derived'].get('seed_meta', {})
         
         orch.save_results(orch.scan_id, results)
         
         stats = canonical['derived']['seed_stats']
-        log(f"Seed Factory: Synthesized {stats['seeds']} seeds from {stats['normalized']} unique endpoints (Raw: {stats['raw']}).", "SUCCESS")
+        log(f"Seed Factory: normalized={stats['normalized']} derived={stats['seeds']} (dropped={stats['raw'] - stats['normalized']})", "SUCCESS")
 
         # --- CONTEXT ATTACK ENGINE (V6 Evolution) ---
         try:

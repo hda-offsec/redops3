@@ -10,24 +10,37 @@ class KatanaScanner:
     def get_command(self, port, protocol='http'):
         url = f"{protocol}://{self.target}:{port}"
         katana_path = ProcessManager.find_binary_path("katana") or "katana"
-        return [
+        
+        # --- IP TARGET SAFETY ---
+        import re
+        is_ip = re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", self.target)
+        
+        cmd = [
             katana_path,
             "-u", url,
             "-jc",           # JSON output
             "-jsl",          # JS Library detection
             "-kf", "all",    # Keep all fields
             "-d", "3",       # Reduced depth slightly for speed
-            "-fs", "rdn",    # Filter scope (Root Domain - captures static, cdn, etc)
             "-ct", "10",     # Crawl duration
             "-silent",
             "-nc",
-            
-            # DEEP CRAWL FLAGS (Removed -headless as it causes issues)
             "-js-crawl",     # Enable JavaScript crawling
             "-xhr",          # Extract XHR requests
             "-aff",          # Automatic Form Filling
-            "-dr",           # Disable redirect following (let katana handle it)
         ]
+        
+        # Only apply Root Domain Filter if NOT an IP
+        if not is_ip:
+            cmd.extend(["-fs", "rdn"])
+            
+        # REDIRECT STRATEGY: removed -dr to allow katana handle redirects properly for coverage
+        # unless explicit strict mode is enabled (hardcoded to False for offensive depth)
+        ENABLE_STRICT_REDIRECT_MODE = False
+        if ENABLE_STRICT_REDIRECT_MODE:
+            cmd.append("-dr")
+            
+        return cmd
 
     def stream_katana(self, port, protocol='http'):
         import json
@@ -37,26 +50,30 @@ class KatanaScanner:
         for event in ProcessManager.stream_command(command):
             if event.get("type") == "stdout":
                 line = event.get("line", "").strip()
+                if not line: continue
+                
                 try:
                     # Katana output is JSON line
                     data = json.loads(line)
-                    # Robust extraction: check multiple potential fields
+                    # --- FALLBACK CHAIN FOR JSON EXTRACTION ---
                     req = data.get("request", {})
                     resp = data.get("response", {})
                     
-                    url = req.get("endpoint") or req.get("url") or resp.get("endpoint")
+                    url = req.get("endpoint") or req.get("url") or resp.get("endpoint") or resp.get("url")
                     
-                    if url:
+                    if url and isinstance(url, str) and url.startswith("http"):
                         # Replace raw JSON line with cleaned URL
                         yield {"type": "stdout", "line": url, "original": line}
                     else:
-                        # Fallback for non-request lines (info, etc)
+                        # Silently drop invalid/meta lines or yield info
+                        if "level" in data: pass
+                        else: yield event
+                except (json.JSONDecodeError, Exception):
+                    # Not JSON or extraction failed? Just yield if looks like URL
+                    if line.startswith("http"):
+                        yield {"type": "stdout", "line": line}
+                    else:
                         yield event
-                except json.JSONDecodeError:
-                    # Not JSON? Just yield as is (maybe error or info)
-                    yield event
-                except Exception:
-                    yield event
             else:
                 yield event
 

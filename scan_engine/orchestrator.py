@@ -170,7 +170,8 @@ class ScanOrchestrator:
                 web_ports_count = 0
                 for p_info in open_ports:
                     port = p_info['port']
-                    svc = p_info.get('service_name', '').lower()
+                    # prefers normalized 'service', fallbacks to 'service_name' for legacy compat
+                    svc = p_info.get('service', p_info.get('service_name', '')).lower()
                     
                     # Identify Proto
                     proto = 'https' if port in [443, 8443] or 'https' in svc or 'ssl' in svc else 'http'

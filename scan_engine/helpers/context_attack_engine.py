@@ -34,9 +34,14 @@ class ContextAttackEngine:
         if any(x in full_text for x in ['asp.net', 'iis', '.net', 'aspx']):
             stack.append("dotnet")
 
+        # Fallback to generic if nothing detected
+        if not stack:
+            stack = ["generic"]
+
         # 2. Analyze Endpoint Semantics (Risk Vectors)
         # We look at normalized endpoints found on this port
-        endpoints = enum_data.get('normalized', {}).get(port_str, {}).get('endpoints', [])
+        norm_data = enum_data.get('normalized', {}).get(port_str, {})
+        endpoints = norm_data.get('endpoints', []) if isinstance(norm_data, dict) else []
         
         vector_keywords = {
             "redirect": ["redirect", "url=", "next=", "dest=", "return", "goto"],
@@ -46,7 +51,7 @@ class ContextAttackEngine:
             "upload": ["upload", "import", "attachment"]
         }
         
-        seen_paths = " ".join([ep.get('url', '').lower() for ep in endpoints])
+        seen_paths = " ".join([ep.get('url', '').lower() for ep in endpoints if isinstance(ep, dict)])
         for vector, keywords in vector_keywords.items():
             if any(kw in seen_paths for kw in keywords):
                 risk_vectors.append(vector)
@@ -54,13 +59,14 @@ class ContextAttackEngine:
         profile = {
             "stack": list(set(stack)),
             "risk_vectors": list(set(risk_vectors)),
-            "confidence": 70 if stack else 40
+            "confidence": 70 if stack != ["generic"] else 30
         }
         
         if self.log:
             self.log(f"ContextAttackEngine: profile={profile['stack']} vectors={profile['risk_vectors']}", "DEBUG")
             
         return profile
+
 
     def derive_mutation_strategy(self, profile):
         """

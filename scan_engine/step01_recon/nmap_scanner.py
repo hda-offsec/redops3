@@ -115,11 +115,11 @@ class NmapScanner:
         
         return "-T3" # Safe default
 
-    def get_recommended_scripts(self, service_name):
+    def get_recommended_scripts(self, service):
         """
         Returns a list of Nmap scripts relevant to the discovered service.
         """
-        service = service_name.lower()
+        service = service.lower()
         scripts = []
         
         # Web

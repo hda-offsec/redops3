@@ -23,6 +23,15 @@ class DNSScanner:
         """Run dnsrecon for standard enumeration"""
         if output_file is None:
             output_file = f"data/results/dns_{self.target}.json"
+        
+        # --- STALE OUTPUT CLEANUP ---
+        import os
+        if os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+            except:
+                pass
+                
         command = ["dnsrecon", "-d", self.target, "-t", "std", "--json", output_file]
         return ProcessManager.run_command(command)
 
@@ -129,24 +138,26 @@ class DNSScanner:
         if success:
             found = [line.strip() for line in stdout.splitlines() if line.strip()]
             
-            # --- ROOT DOMAIN EXTRACTION ---
-            # If target is testphp.vulnweb.com, root is vulnweb.com
-            # Simple heuristic: last two parts for most domains, last three for .co.uk etc.
-            # But here we just want to avoid 'example.com' leak.
-            target_domain = self.target
-            if "://" in target_domain:
-                 from urllib.parse import urlparse
-                 target_domain = urlparse(target_domain).hostname
-            
-            parts = target_domain.split('.')
-            if len(parts) >= 2:
-                # heuristic: 'vulnweb.com' or 'vulnweb.com.au'
-                if len(parts) >= 3 and parts[-2] in ['com', 'org', 'net', 'edu', 'gov', 'co']:
-                    root_domain = ".".join(parts[-3:])
+            # --- ROOT DOMAIN EXTRACTION (Hardened) ---
+            try:
+                import tldextract
+                ext = tldextract.extract(self.target)
+                root_domain = f"{ext.domain}.{ext.suffix}"
+            except ImportError:
+                # Fallback heuristic
+                target_domain = self.target
+                if "://" in target_domain:
+                     from urllib.parse import urlparse
+                     target_domain = urlparse(target_domain).hostname
+                
+                parts = target_domain.split('.')
+                if len(parts) >= 2:
+                    if len(parts) >= 3 and parts[-2] in ['com', 'org', 'net', 'edu', 'gov', 'co', 'ac']:
+                        root_domain = ".".join(parts[-3:])
+                    else:
+                        root_domain = ".".join(parts[-2:])
                 else:
-                    root_domain = ".".join(parts[-2:])
-            else:
-                root_domain = target_domain
+                    root_domain = target_domain
 
             # Filter subdomains against the root domain
             filtered = [sub for sub in found if sub.endswith(root_domain)]
