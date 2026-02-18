@@ -11,6 +11,9 @@ from scan_engine.step03_vuln.backup_scanner import BackupScanner
 from scan_engine.step03_vuln.graphql_scanner import GraphQLScanner
 from scan_engine.step03_vuln.js_vuln_scanner import JSVulnScanner
 from scan_engine.phases.utils import extract_wp_data, emit_progress
+from scan_engine.helpers.mutation_engine import MutationEngine
+from scan_engine.helpers.budget_manager import BudgetManager
+from scan_engine.helpers.finding_normalizer import FindingNormalizer
 
 def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     """
@@ -29,6 +32,11 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     target = orch.target
     log = orch.log
     profile = orch.options.get('profile', 'quick')
+
+    # Initialize Mutation Layer
+    budget = BudgetManager(max_seeds=200, max_total_variants=1000)
+    mutation_engine = MutationEngine(budget)
+    normalizer = FindingNormalizer()
 
     # --- CMS SPECIFIC SCANS (WordPress) ---
     # Enhanced Detection: Check WhatWeb + HTTP Headers
@@ -185,7 +193,16 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                     elif isinstance(item, str):
                         seed.append(item)
 
-        discovered_endpoints = list(dict.fromkeys(seed))
+        discovered_endpoints_raw = list(dict.fromkeys(seed))
+        discovered_endpoints = []
+        
+        # MUTATION: Apply SSRF specific mutations
+        for u in discovered_endpoints_raw[:50]: # Cap for SSRF
+            vars = mutation_engine.generate_variants(u, attack_type="ssrf")
+            for v in vars:
+                discovered_endpoints.append(v['url'])
+        
+        log(f"Mutation Engine: Generated {len(discovered_endpoints)} SSRF variants.", "DEBUG")
         
         if discovered_endpoints:
             ssrf = SSRFScanner(target)
@@ -249,12 +266,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         if dalfox.check_tools():
             log(f"Checking for XSS on {proto}://{target}:{port}...", "INFO")
 
-            seeds = results['phases']['enum'].get('injection_points', {}).get(str(port), [])
-            for u in seeds[:200]:
+            # SEED MUTATION & DISPATCH
+            raw_seeds = results['phases']['enum'].get('injection_points', {}).get(str(port), [])
+            mutated_seeds = []
+            for rs in raw_seeds[:100]: # Top 100 seeds for mutation
+                variants = mutation_engine.generate_variants(rs, attack_type="xss")
+                for v in variants:
+                    mutated_seeds.append(v['url'])
+            
+            log(f"Mutation Engine: Generated {len(mutated_seeds)} XSS variants for Dalfox.", "DEBUG")
+
+            for u in mutated_seeds[:300]: # Cap for dalfox
                 try:
                     # Consume the stream to ensure it runs!
                     for _ in dalfox.stream_scan_url(u): pass 
-                    log(f"Seeded Dalfox scan for {u}", "DEBUG")
                 except: pass
 
             cmd_df = dalfox.get_command(port, proto)
@@ -269,10 +294,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                     if "[V]" in line or "PoC" in line:
                          log(f"XSS Discovered: {line}", "SUCCESS")
                          xss_found.append(line)
+                         
+                         # NORMALIZED FINDING
+                         normalized_f = normalizer.normalize({"url": "", "param": "", "poison": "", "evidence": line}, "dalfox")
                          orch.add_finding(
-                            title=f"Cross-Site Scripting (XSS) Detected ({port})",
-                            description=f"Dalfox output:\n{line}",
-                            severity="high",
+                            title=normalized_f["title"],
+                            description=normalized_f["description"],
+                            severity=normalized_f["severity"],
                             tool_source="dalfox"
                          )
             

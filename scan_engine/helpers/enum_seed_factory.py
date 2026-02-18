@@ -2,6 +2,7 @@ import json
 import shlex
 import os
 from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
+from scan_engine.helpers.budget_manager import BudgetManager
 
 class EnumSeedFactory:
     def __init__(self, target, port, protocol):
@@ -13,6 +14,8 @@ class EnumSeedFactory:
         self.dynamic_extensions = ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb', '.pl', '.cgi', '.do', '.action']
         self.static_extensions = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ttf', '.ico', '.pdf', '.docx', '.txt', '.xml']
         self.high_value_params = ["id", "q", "s", "search", "page", "file", "path", "url", "redirect", "next", "view", "cmd", "exec", "dir", "action", "mode", "cb", "callback"]
+        self.budget = BudgetManager(max_seeds=500, max_total_variants=1500)
+    
 
     def add_raw_endpoints(self, endpoints, source="unknown"):
         """Adds endpoints from various tools. Handles list of strings or list of dicts."""
@@ -40,36 +43,59 @@ class EnumSeedFactory:
             self.arjun_params = list(dict.fromkeys(self.arjun_params))
 
     def normalize(self):
-        """Clean and deduplicate all raw endpoints."""
-        seen_urls = set()
+        """Clean and deduplicate all raw endpoints using canonical keys."""
+        seen_keys = set()
         normalized = []
         
         for ep in self.raw_endpoints:
             url = ep["url"].strip()
-            if not url or url in seen_urls:
+            if not url:
                 continue
             
-            # Simple validation: must be for our target/port (optional but safer)
+            # Simple validation & reconstruction
             parsed = urlparse(url)
-            # If path only, reconstruct
             if not parsed.netloc:
                 if url.startswith("/"):
                     url = f"{self.protocol}://{self.target}:{self.port}{url}"
                 else:
                     url = f"{self.protocol}://{self.target}:{self.port}/{url}"
             
-            seen_urls.add(url)
+            # Generate CANONICAL KEY
+            key = BudgetManager.get_canonical_key(url)
+            if key in seen_keys:
+                continue
+            
+            seen_keys.add(key)
+            ep["canonical_key"] = key
             normalized.append(ep)
             
         return normalized
 
     def prioritize(self, normalized_eps):
-        """Score and rank endpoints."""
+        """Score and rank endpoints with CONTEXTUAL intelligence."""
         scored = []
+        
+        # 1. Identify high-value namespaces (path prefixes)
+        high_value_namespaces = ['/api', '/admin', '/v1', '/v2', '/auth', '/manage', '/config', '/dev']
+        namespace_hits = {ns: 0 for ns in high_value_namespaces}
+        
+        for ep in normalized_eps:
+            path = urlparse(ep["url"]).path.lower()
+            for ns in high_value_namespaces:
+                if path.startswith(ns):
+                    namespace_hits[ns] += 1
+
+        # 2. Score each endpoint
         for ep in normalized_eps:
             url = ep["url"]
             url_lower = url.lower()
+            path_lower = urlparse(url).path.lower()
             score = 10 # Base
+            
+            # Contextual Bonus: if in a high-value namespace
+            for ns, count in namespace_hits.items():
+                if path_lower.startswith(ns) and count > 0:
+                    score += 20
             
             # Dynamic markers
             if "?" in url and "=" in url:
@@ -92,7 +118,7 @@ class EnumSeedFactory:
 
             # Penalize static
             if any(ext in url_lower for ext in self.static_extensions):
-                score -= 60
+                score -= 70 # Aggressive penalty
                 
             scored.append((score, ep))
             
