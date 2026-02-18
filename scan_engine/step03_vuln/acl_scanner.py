@@ -40,7 +40,8 @@ class AccessControlScanner:
                                 "raw_loot": target_url
                             })
                             return findings # Return on first success
-                    except: pass
+                    except Exception:
+                        continue
                     
                 # 2. URL Methods
                 # /%2e/admin, /admin/., /admin?
@@ -57,7 +58,8 @@ class AccessControlScanner:
                                 "tool_source": "acl_scanner",
                                 "raw_loot": url_var
                             })
-                    except: pass
+                    except Exception:
+                        continue
 
         except:
             pass

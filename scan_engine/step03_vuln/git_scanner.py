@@ -95,7 +95,8 @@ class GitExposureScanner:
                     r = requests.get(url, verify=False, timeout=5)
                     if r.status_code == 200:
                         with open(dest, 'wb') as f: f.write(r.content)
-                except: pass
+                except Exception:
+                    return
 
             save_url(base_url + "config", os.path.join(output_dir, "config"))
             save_url(base_url + "HEAD", os.path.join(output_dir, "HEAD"))

@@ -24,8 +24,8 @@ def analyze_security_headers(target, port, proto, results, logger_func):
         # logger_func(f"Fetching headers from {url}...", "DEBUG") # Too verbose?
         try:
             resp = requests.head(url, timeout=5, verify=False, allow_redirects=True)
-        except:
-             resp = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+        except Exception:
+            resp = requests.get(url, timeout=5, verify=False, allow_redirects=True)
              
         headers = resp.headers
         
@@ -88,7 +88,7 @@ def normalize_endpoint(url: str) -> str:
         query = parse_qs(parsed.query)
         sorted_query = urlencode(sorted(query.items()), doseq=True)
         return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, "", sorted_query, ""))
-    except:
+    except Exception:
         return url.strip()
 
 def run_enum(orchestrator, port, proto):
@@ -122,6 +122,7 @@ def run_enum(orchestrator, port, proto):
         web_recon = WebReconScanner(target)
         if web_recon.check_tools():
             log(f"Fingerprinting {proto}://{target}:{port}...", "INFO")
+            results['commands'].append({'tool': 'whatweb', 'cmd': shlex.join(web_recon.get_command(port, proto))})
             ww_stream = web_recon.stream_whatweb(port, proto)
             for event in ww_stream:
                  if event["type"] == "stdout":
@@ -136,7 +137,8 @@ def run_enum(orchestrator, port, proto):
                         for t in parts[1].split(', '):
                             t = t.strip()
                             if t and t not in techs: techs.append(t)
-                except: pass
+                except Exception as parse_error:
+                    log(f"WhatWeb parse failed: {parse_error}", "DEBUG")
 
             ww = results['phases']['enum'].setdefault('whatweb', {})
             ww.setdefault('summary', {})[str(port)] = full_ww
@@ -145,29 +147,35 @@ def run_enum(orchestrator, port, proto):
             orch.mark_module("whatweb", port, "executed", artifacts=len(techs))
     except Exception as e:
         log(f"WhatWeb failed: {e}", "ERROR")
-        orch.mark_module("whatweb", port, "failed")
+        orch.mark_module("whatweb", port, "failed", reason=str(e))
 
     # 2. Security Headers
     try:
         analyze_security_headers(target, port, proto, results, log)
         orch.mark_module("headers", port, "executed")
-    except: pass
+    except Exception as e:
+        log(f"Security headers scan failed: {e}", "DEBUG")
+        orch.mark_module("headers", port, "failed", reason=str(e))
 
     # 3. Katana Crawler
     try:
          katana = KatanaScanner(target)
          if katana.check_tools():
              log(f"Crawling {proto}://{target}:{port} (Katana)...", "INFO")
+             results['commands'].append({'tool': 'katana', 'cmd': shlex.join(katana.get_command(port, proto))})
              kt_stream = katana.stream_scan(port, proto)
              endpoints = [ev["line"].strip() for ev in kt_stream if ev["type"] == "stdout" and ev["line"].strip()]
              results['phases']['enum']['katana'][str(port)] = endpoints[:1000]
              orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
-    except: pass
+    except Exception as e:
+        log(f"Katana scan failed: {e}", "DEBUG")
+        orch.mark_module("katana", port, "failed", reason=str(e))
 
     # 4. WAF Detection
     try:
         waf_scanner = WafScanner(target)
         if waf_scanner.check_tools():
+            results['commands'].append({'tool': 'wafw00f', 'cmd': shlex.join(waf_scanner.get_command(port, proto))})
             waf_stream = waf_scanner.stream_wafw00f(port, proto)
             for event in waf_stream:
                 if "is behind" in event.get("line", ""):
@@ -175,13 +183,16 @@ def run_enum(orchestrator, port, proto):
                     results['phases']['enum'].setdefault('waf', {})[str(port)] = res
                     log(f"🛡️ WAF: {res}", "SUCCESS")
             orch.mark_module("waf", port, "executed")
-    except: pass
+    except Exception as e:
+        log(f"WAF scan failed: {e}", "DEBUG")
+        orch.mark_module("waf", port, "failed", reason=str(e))
 
     # 5. Arjun Param Discovery
     try:
         arjun = ArjunScanner(target)
         if arjun.check_tools():
             log(f"Discovering parameters (Arjun)...", "INFO")
+            results['commands'].append({'tool': 'arjun', 'cmd': shlex.join(arjun.get_command(port, proto))})
             ar_stream = arjun.stream_arjun(port, proto)
             params = []
             for ev in ar_stream:
@@ -191,13 +202,16 @@ def run_enum(orchestrator, port, proto):
             if params:
                 results['phases']['enum']['arjun'][str(port)] = params
             orch.mark_module("arjun", port, "executed", artifacts=len(params))
-    except: pass
+    except Exception as e:
+        log(f"Arjun scan failed: {e}", "DEBUG")
+        orch.mark_module("arjun", port, "failed", reason=str(e))
 
     # 6. API Discovery (Kiterunner)
     try:
          api_scanner = APIScanner(target)
          if api_scanner.check_tools():
             log(f"API Discovery (Kiterunner)...", "INFO")
+            results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto))})
             api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log)
             api_endpoints = []
             for ev in api_stream:
@@ -214,7 +228,9 @@ def run_enum(orchestrator, port, proto):
                  # Also keep a flat list for the report template (legacy compat)
                  results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200} for url in api_endpoints])
             orch.mark_module("api_scanner", port, "executed", artifacts=len(api_endpoints))
-    except: pass
+    except Exception as e:
+        log(f"API discovery failed: {e}", "DEBUG")
+        orch.mark_module("api_scanner", port, "failed", reason=str(e))
 
     # --- SEED FACTORY (V6 Aggressive Synthesis) ---
     try:
@@ -261,9 +277,11 @@ def run_enum(orchestrator, port, proto):
             results['phases']['enum']['attack_profile'] = {str(port): profile}
             results['phases']['enum']['mutation_strategy'] = {str(port): strategy}
             orch.save_results(orch.scan_id, results)
-        except: pass
+        except Exception as e:
+            log(f"Context attack engine failed: {e}", "DEBUG")
 
     except Exception as e:
         log(f"Seed Factory Error: {e}", "ERROR")
+        orch.mark_module("seed_factory", port, "failed", reason=str(e))
 
     return full_ww

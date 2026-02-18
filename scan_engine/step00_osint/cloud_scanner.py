@@ -24,7 +24,8 @@ class CloudScanner:
                         key = item.find('s3:Key', ns)
                         if key is not None:
                             files.append(key.text)
-                except: pass
+                except Exception:
+                    files = []
                 
                 return {
                     "provider": "AWS S3", 
@@ -35,8 +36,8 @@ class CloudScanner:
                 }
             elif r.status_code == 403:
                 return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "PROTECTED"}
-        except:
-            pass
+        except Exception:
+            return None
         return None
 
     def check_azure(self, account_name):
@@ -46,8 +47,8 @@ class CloudScanner:
             # 400 or 403 on base URL usually means account exists
             if r.status_code in [400, 403]:
                 return {"provider": "Azure Blob", "account": account_name, "url": url, "status": "EXISTS"}
-        except:
-            pass
+        except Exception:
+            return None
         return None
 
     def check_gcp(self, bucket_name):
@@ -58,8 +59,8 @@ class CloudScanner:
                  return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC"}
             elif r.status_code == 403:
                 return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "EXISTS"}
-        except:
-            pass
+        except Exception:
+            return None
         return None
 
     def scan_all(self, logger=None):

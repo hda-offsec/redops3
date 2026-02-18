@@ -90,7 +90,8 @@ class BypassExpertScanner:
                              # Interesting status change (e.g. 500, 302, 404)
                              pass 
                              
-                    except: pass
+                    except Exception:
+                        continue
 
                 # 3. Path Permutation Bypass
                 path_clean = path.strip("/")
@@ -124,7 +125,8 @@ class BypassExpertScanner:
                             if logger: logger(f"🔓 BYPASS SUCCESS: {path} via {variation}", "CRITICAL")
                             return findings
 
-                    except: pass
+                    except Exception:
+                        continue
                     
                 # 4. HTTP Verb Bypass (Simple)
                 for verb in ["POST", "PUT", "TRACE", "HEAD"]:
@@ -138,7 +140,8 @@ class BypassExpertScanner:
                                 "tool_source": "bypass_expert",
                                 "raw_loot": f"{verb} {target_url}"
                             })
-                    except: pass
+                    except Exception:
+                        continue
 
             except Exception:
                 pass

@@ -59,6 +59,7 @@ class KubeDockerScanner:
                                 "tool_source": "kube_scanner"
                             })
 
-            except: pass
+            except Exception:
+                continue
             
         return findings

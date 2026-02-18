@@ -51,7 +51,8 @@ class HeaderFuzzer:
                     "severity": "medium",
                     "tool_source": "header_fuzzer"
                 })
-        except: pass
+        except Exception:
+            pass
 
         # 3. Test for WAF Bypass / IP Spoofing
         for header, values in self.fuzz_headers.items():
