@@ -723,11 +723,30 @@ def clear_logs():
     try:
         from core.celery_app import celery
         
-        # Stop running tasks
+        # Stop specific tracked tasks first
         active_scans = Scan.query.filter(Scan.status == 'running').all()
+        revoked_ids = set()
+        
         for s in active_scans:
             if s.task_id:
                 celery.control.revoke(s.task_id, terminate=True)
+                revoked_ids.add(s.task_id)
+        
+        # AGGRESSIVE CLEANUP: Kill any other active tasks (Renegade/Zombie scans)
+        try:
+            inspector = celery.control.inspect()
+            active_tasks = inspector.active()
+            if active_tasks:
+                for worker, tasks in active_tasks.items():
+                    for task in tasks:
+                        tid = task.get('id')
+                        if tid and tid not in revoked_ids:
+                            celery.control.revoke(tid, terminate=True)
+                            print(f"Killed zombie task: {tid}")
+        except Exception as e:
+            print(f"Failed to kill zombie tasks: {e}")
+
+        # Clear database records
 
         # Clear database records
         num_scans = db.session.query(Scan).delete()
