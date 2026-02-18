@@ -31,8 +31,11 @@ def run_dirbusting(orchestrator):
     if not web_ports: web_ports = [80, 443]
 
     try:
+        # Phase Structure Hardening
         if 'dirbusting' not in results['phases']: results['phases']['dirbusting'] = {}
-        if 'ffuf' not in results['phases']['dirbusting']: results['phases']['dirbusting']['ffuf'] = {'endpoints': []}
+        # Use setdefault/dict access to ensure persistence across ports
+        results['phases']['dirbusting'].setdefault('ffuf', {})
+        results['phases']['dirbusting']['ffuf'].setdefault('endpoints', [])
         
         for port in web_ports:
             proto = 'https' if port in [443, 8443] or 'ssl' in str(port) else 'http'
@@ -43,6 +46,7 @@ def run_dirbusting(orchestrator):
             scanner = FfufScanner(target)
             if not scanner.check_tools():
                 log("Ffuf not found. Skipping.", "WARN")
+                orch.mark_module("ffuf", port, "skipped")
                 continue
                 
             cmd = scanner.get_command(port, proto)
@@ -50,20 +54,20 @@ def run_dirbusting(orchestrator):
             
             try:
                 stream = scanner.stream_fuzz(port, proto)
+                found_count = 0
                 
                 for event in stream:
                     if event["type"] == "stdout":
                         line = event["line"].strip()
                         if not line: continue
                         
-                        # Ffuf output format: [Status: 200, ... ] URL
-                        # or just raw URL if configured?
-                        # Default is roughly: "index.php [Status: 200, Size: 123...]"
-                        # We just want to extract useful info.
-                        
                         if "[Status: 200]" in line or "[Status: 301]" in line or "[Status: 403]" in line:
                              log(f"DirBust Found: {line}", "SUCCESS")
-                             results['phases']['dirbusting']['ffuf']['endpoints'].append(line)
+                             
+                             # Prevent duplicates
+                             if line not in results['phases']['dirbusting']['ffuf']['endpoints']:
+                                 results['phases']['dirbusting']['ffuf']['endpoints'].append(line)
+                                 found_count += 1
                              
                              orch.add_finding(
                                  title=f"Directory Discovered ({port})",
@@ -72,9 +76,13 @@ def run_dirbusting(orchestrator):
                                  tool_source="ffuf"
                              )
                              orch.save_results(orch.scan_id, results)
+                
+                orch.mark_module("ffuf", port, "executed", artifacts=found_count)
+                orch.add_finding(title=f"Module Executed: ffuf", description=f"Ffuf directory busting finished on port {port}", severity="info", tool_source="redops-core")
                              
             except Exception as e:
                 log(f"Ffuf error on port {port}: {e}", "ERROR")
+                orch.mark_module("ffuf", port, "failed")
                 
     except Exception as e:
         log(f"Dirbusting phase failed: {e}", "ERROR")

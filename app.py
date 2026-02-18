@@ -125,6 +125,11 @@ if __name__ == "__main__":
                         print("Migrating database: Adding parent_scan_id to scans table...")
                         conn.execute(db.text("ALTER TABLE scans ADD COLUMN parent_scan_id INTEGER REFERENCES scans(id);"))
                         print("Migration successful.")
+                    
+                    if "task_id" not in columns:
+                        print("Migrating database: Adding task_id to scans table...")
+                        conn.execute(db.text("ALTER TABLE scans ADD COLUMN task_id TEXT;"))
+                        print("Migration successful.")
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

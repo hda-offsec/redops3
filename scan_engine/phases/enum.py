@@ -7,6 +7,7 @@ from scan_engine.step03_vuln.api_expert_scanner import APIExpertScanner
 from scan_engine.step02_enum.js_scanner import JSSecretScanner
 from scan_engine.step02_enum.arjun_scanner import ArjunScanner
 from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
+from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.helpers.process_manager import ProcessManager
 
 def analyze_security_headers(target, port, proto, results, logger_func):
@@ -66,6 +67,8 @@ def run_enum(orchestrator, port, proto):
     results = orch.results
     target = orch.target
     log = orch.log
+    
+    full_ww = ""
     
     # 1. Web Recon (WhatWeb)
     # Using existing WebReconScanner wrapper
@@ -159,11 +162,14 @@ def run_enum(orchestrator, port, proto):
             results['phases']['enum']['tech']['modernization_level'] = level
             
             orch.save_results(orch.scan_id, results)
+            orch.mark_module("whatweb", port, "executed", artifacts=len(techs))
+            orch.add_finding(title=f"Module Executed: whatweb", description=f"WhatWeb completed on port {port}", severity="info", tool_source="redops-core")
             
-            return full_ww # Return fingerprint for further decisions (like WP detection)
+            # return full_ww # MOVED TO END
             
     except Exception as e:
         log(f"Web Recon failed: {e}", "ERROR")
+        orch.mark_module("whatweb", port, "failed")
 
     # 2. Security Headers (Moved BEFORE specialized scans for better detection context)
     try:
@@ -173,9 +179,43 @@ def run_enum(orchestrator, port, proto):
         
         # Ensure headers are actually saved!
         orch.save_results(orch.scan_id, results)
+        orch.mark_module("headers", port, "executed", artifacts=len(headers_dict))
+        orch.add_finding(title=f"Module Executed: headers", description=f"Headers analyzed on port {port}", severity="info", tool_source="redops-core")
             
     except Exception as e:
         log(f"Security Header Analysis failed: {e}", "ERROR")
+        orch.mark_module("headers", port, "failed")
+
+    # 2.5 Katana (New)
+    try:
+         katana = KatanaScanner(target)
+         if katana.check_tools():
+             log(f"Crawling {proto}://{target}:{port} with Katana...", "INFO")
+             cmd_kat = katana.get_command(port, proto)
+             results['commands'].append({'tool': 'katana', 'cmd': shlex.join(cmd_kat)})
+             
+             kt_stream = katana.stream_scan(port, proto)
+             endpoints = []
+             
+             for event in kt_stream:
+                 if event["type"] == "stdout":
+                     line = event["line"].strip()
+                     if line:
+                         endpoints.append(line)
+                         log(f"Katana found: {line}", "DEBUG")
+             
+             # Store results safely
+             if 'enum' not in results['phases']: results['phases']['enum'] = {}
+             results['phases']['enum'].setdefault('katana', {})
+             results['phases']['enum']['katana'][str(port)] = endpoints
+             
+             orch.save_results(orch.scan_id, results)
+             orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
+             orch.add_finding(title=f"Module Executed: katana", description=f"Katana crawler finished on port {port}", severity="info", tool_source="redops-core")
+             
+    except Exception as e:
+        log(f"Katana crawl failed: {e}", "ERROR")
+        orch.mark_module("katana", port, "failed")
 
     # 3. WAF Detection
     try:
@@ -198,8 +238,11 @@ def run_enum(orchestrator, port, proto):
             if 'waf' not in results['phases']['enum']: results['phases']['enum']['waf'] = {}
             results['phases']['enum']['waf'][str(port)] = waf_result
             orch.save_results(orch.scan_id, results)
+            orch.mark_module("waf", port, "executed", artifacts=1)
+            orch.add_finding(title=f"Module Executed: waf", description=f"WAF detection finished on port {port}", severity="info", tool_source="redops-core")
     except Exception as e:
         log(f"WAF Check failed: {e}", "ERROR")
+        orch.mark_module("waf", port, "failed")
 
     # 4. Tech Exposure
     try:
@@ -216,9 +259,13 @@ def run_enum(orchestrator, port, proto):
                      severity=f['severity'],
                      tool_source="tech_audit"
                  )
-             orch.save_results(orch.scan_id, results)
+         orch.save_results(orch.scan_id, results)
+         orch.mark_module("tech_scanner", port, "executed", artifacts=len(ts_findings) if ts_findings else 0)
+         orch.add_finding(title=f"Module Executed: tech_scanner", description=f"Tech exposure audit finished on port {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"Tech exposure audit failed on port {port}: {e}", "DEBUG")
+        orch.mark_module("tech_scanner", port, "failed")
 
     # 5. Arjun (Parameters)
     try:
@@ -242,9 +289,13 @@ def run_enum(orchestrator, port, proto):
                 if 'enum' not in results['phases']: results['phases']['enum'] = {}
                 if 'arjun' not in results['phases']['enum']: results['phases']['enum']['arjun'] = {}
                 results['phases']['enum']['arjun'][str(port)] = params
-                orch.save_results(orch.scan_id, results)
+            
+            orch.save_results(orch.scan_id, results)
+            orch.mark_module("arjun", port, "executed", artifacts=len(params))
+            orch.add_finding(title=f"Module Executed: arjun", description=f"Arjun completed on port {port}", severity="info", tool_source="redops-core")
     except Exception as e:
         log(f"Arjun failed: {e}", "DEBUG")
+        orch.mark_module("arjun", port, "failed")
 
     # 6. JS Secrets
     try:
@@ -286,10 +337,13 @@ def run_enum(orchestrator, port, proto):
                             content=f['raw_secret'],
                             context=f"Discovered in {f['tool_source']} at {url}"
                         )
-                orch.save_results(orch.scan_id, results)
+             orch.save_results(orch.scan_id, results)
+             orch.mark_module("js_scanner", port, "executed", artifacts=len(s_findings))
+             orch.add_finding(title=f"Module Executed: js_scanner", description=f"JS secret scan finished on {port}", severity="info", tool_source="redops-core")
         except Exception:
             pass
     except Exception:
+        orch.mark_module("js_scanner", port, "failed")
         pass
 
     # 7. API Discovery
@@ -362,7 +416,11 @@ def run_enum(orchestrator, port, proto):
                  except Exception as e:
                      log(f"API Expert analysis failed for port {port}: {e}", "DEBUG")
 
+            orch.mark_module("api_scanner", port, "executed", artifacts=len(api_endpoints))
+            orch.add_finding(title=f"Module Executed: api_scanner", description=f"API discovery finished on port {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"API discovery failed: {e}", "DEBUG")
+        orch.mark_module("api_scanner", port, "failed")
     
-    return "" # Default return
+    return full_ww

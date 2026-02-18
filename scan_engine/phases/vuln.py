@@ -48,6 +48,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             wpscan = WPScanScanner(target)
             if not wpscan.check_tools():
                 log("Skipping WPScan: tool not installed.", "WARN")
+                orch.mark_module("wpscan", port, "skipped")
             else:
                 enumerate_all = False if profile.startswith('quick') else True
                 wp_stream = wpscan.stream_scan(port, proto, enumerate_all=enumerate_all)
@@ -76,8 +77,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                             severity="high",
                             tool_source="wpscan"
                         )
+                
+                orch.mark_module("wpscan", port, "executed", artifacts=1)
+                orch.add_finding(title=f"Module Executed: wpscan", description=f"WPScan finished on port {port}", severity="info", tool_source="redops-core")
+                
         except Exception as e:
             log(f"WPScan failed: {e}", "ERROR")
+            orch.mark_module("wpscan", port, "failed")
 
     # --- SENSITIVE DIR AUDIT (.git, etc.) ---
     try:
@@ -94,8 +100,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                     tool_source="git_scanner"
                 )
             orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("git_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
+        orch.add_finding(title=f"Module Executed: git_scanner", description=f"Git exposure audit finished on port {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"Git exposure audit failed on port {port}: {e}", "DEBUG")
+        orch.mark_module("git_scanner", port, "failed")
 
     # --- EXPERT: Backup & Archive Audit ---
     try:
@@ -118,8 +129,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                         context=f"Discovered in backup audit on {target}:{port}"
                     )
             orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("backup_scanner", port, "executed", artifacts=len(bs_findings) if bs_findings else 0)
+        orch.add_finding(title=f"Module Executed: backup_scanner", description=f"Backup audit finished on port {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"Backup audit failed on port {port}: {e}", "DEBUG")
+        orch.mark_module("backup_scanner", port, "failed")
 
     # --- EXPERT: GraphQL Audit ---
     try:
@@ -142,24 +158,47 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                         context=f"Discovered via GraphQL audit on {target}:{port}"
                     )
             orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("graphql_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
+        orch.add_finding(title=f"Module Executed: graphql_scanner", description=f"GraphQL audit finished on port {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
+        orch.mark_module("graphql_scanner", port, "failed")
 
     # --- EXPERT: SSRF Probing (Cloud Metadata) ---
     try:
         # Use discovered API endpoints for SSRF probing
         discovered_endpoints = []
-        api_data = results.get('phases', {}).get('enum', {}).get('api', {})
+        # Correctly initialized safe extraction
+        api_dict = results.get('phases', {}).get('enum', {}).get('api', {})
         
         # Iterate over all ports in api data
-        for port_key, port_val in api_data.items():
+        # Structure is results['phases']['enum']['api'][port] = list of dicts (for UI) or logic
+        # But wait, logic in enum.py was: results['phases']['enum']['api'][str(port)] = found_items_api
+        # found_items_api is alist of dicts: {'url': ep, 'status': '200'}
+        # But discovered_endpoints in enum.py was also stored: results['phases']['enum']['api']['discovered_endpoints'] = api_endpoints (list of strings)
+        
+        # Checking enum.py again:
+        # results['phases']['enum']['api']['discovered_endpoints'] = api_endpoints
+        # AND
+        # results['phases']['enum']['api'][str(port)] = found_items_api
+        
+        # So we can just grab 'discovered_endpoints' directly?
+        # Creating a robust extraction just in case
+        
+        if 'discovered_endpoints' in api_dict:
+            discovered_endpoints.extend(api_dict['discovered_endpoints'])
+        
+        # Also check port-specific data
+        for port_key, port_val in api_dict.items():
+            if port_key == 'discovered_endpoints': continue
             if isinstance(port_val, list):
                 for item in port_val:
                     if isinstance(item, dict) and 'url' in item:
-                        discovered_endpoints.append(item['url'])
-                    elif isinstance(item, str):
-                        discovered_endpoints.append(item)
-                        
+                        if item['url'] not in discovered_endpoints:
+                            discovered_endpoints.append(item['url'])
+        
         if discovered_endpoints:
             ssrf = SSRFScanner(target)
             ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=log)
@@ -180,8 +219,15 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                             context=f"Discovered via SSRF on {target}"
                         )
                 orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("ssrf_expert", port, "executed", artifacts=len(discovered_endpoints))
+        # SSRF is technically global for found endpoints, but we attribute to current port loop for visibility or mark it once?
+        # Since it runs per port loop if new endpoints are found, marking it 'executed' per port is fine.
+        orch.add_finding(title=f"Module Executed: ssrf_expert", description=f"SSRF probe finished using endpoints from {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"SSRF Expert probe failed: {e}", "DEBUG")
+        orch.mark_module("ssrf_expert", port, "failed")
 
     # --- JS VULNERABILITY AUDIT ---
     try:
@@ -201,8 +247,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                     tool_source="js_vuln_audit"
                 )
             orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("js_vuln_audit", port, "executed", artifacts=len(js_findings) if js_findings else 0)
+        orch.add_finding(title=f"Module Executed: js_vuln_audit", description=f"JS vulnerability audit finished on {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
          log(f"JS Vuln audit failed: {e}", "DEBUG")
+         orch.mark_module("js_vuln_audit", port, "failed")
 
     # --- DALFOX (XSS) ---
     try:
@@ -233,8 +284,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = {}
                 results['phases']['vuln']['xss'][str(port)] = xss_found
                 orch.save_results(orch.scan_id, results)
+            
+            orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found))
+            orch.add_finding(title=f"Module Executed: dalfox", description=f"Dalfox XSS scan finished on {port}", severity="info", tool_source="redops-core")
+            
     except Exception as e:
         log(f"Dalfox failed: {e}", "ERROR")
+        orch.mark_module("dalfox", port, "failed")
 
     # --- OPEN REDIRECT ---
     try:
@@ -270,8 +326,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                         tool_source="redirect_scanner"
                     )
                 orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("redirect_scanner", port, "executed", artifacts=len(endpoints)) # approximate artifacts
+        orch.add_finding(title=f"Module Executed: redirect_scanner", description=f"Open redirect check finished on {port}", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"Open Redirect audit failed: {e}", "DEBUG")
+        orch.mark_module("redirect_scanner", port, "failed")
 
 
 def run_global_vuln_scans(orchestrator):
@@ -305,8 +366,13 @@ def run_global_vuln_scans(orchestrator):
                              tool_source="takeover_scanner"
                          )
                 orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("takeover_scanner", 0, "executed", artifacts=len(subdomains))
+        orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
+
     except Exception as e:
         log(f"Takeover check failed: {e}", "WARN")
+        orch.mark_module("takeover_scanner", 0, "failed")
 
     # --- PHASE 5: Nuclei ---
     emit_progress(orch, 80, "Vulnerability Assessment (Nuclei)")
@@ -386,9 +452,14 @@ def run_global_vuln_scans(orchestrator):
                                 
                     if not found_any:
                         log(f"No Nuclei findings on port {port}.", "SUCCESS")
+                    
+                    orch.mark_module("nuclei", port, "executed", artifacts=1 if found_any else 0)
+                    orch.add_finding(title=f"Module Executed: nuclei", description=f"Nuclei scan finished on port {port}", severity="info", tool_source="redops-core")
                         
                 except Exception as e:
                     log(f"Nuclei error on {port}: {e}", "ERROR")
+                    orch.mark_module("nuclei", port, "failed")
 
     except Exception as e:
         log(f"Nuclei scan failed: {e}", "ERROR")
+

@@ -56,6 +56,7 @@ class Scan(db.Model):
     children = db.relationship("Scan", backref=db.backref("parent", remote_side=[id]), lazy=True)
     scan_type = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(20), default="pending")
+    task_id = db.Column(db.String(50), nullable=True)
     params = db.Column(db.Text, nullable=True)
     start_time = db.Column(db.DateTime, default=datetime.utcnow)
     end_time = db.Column(db.DateTime, nullable=True)

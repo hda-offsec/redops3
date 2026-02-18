@@ -518,7 +518,11 @@ def new_scan():
     delete_results(scan.id)
 
     # Launch via Celery
-    run_scan_task.delay(scan.id, target.identifier, scan_type)
+    task = run_scan_task.delay(scan.id, target.identifier, scan_type)
+    
+    # Save Task ID for revocation
+    scan.task_id = task.id
+    db.session.commit()
 
     flash(f"Started {scan_type} scan for {target_input}", "success")
     return redirect(url_for("main.scan_detail", scan_id=scan.id))
@@ -717,6 +721,14 @@ def verify_finding():
 @login_required
 def clear_logs():
     try:
+        from core.celery_app import celery
+        
+        # Stop running tasks
+        active_scans = Scan.query.filter(Scan.status == 'running').all()
+        for s in active_scans:
+            if s.task_id:
+                celery.control.revoke(s.task_id, terminate=True)
+
         # Clear database records
         num_scans = db.session.query(Scan).delete()
         num_findings = db.session.query(Finding).delete()

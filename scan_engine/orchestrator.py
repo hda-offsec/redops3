@@ -27,6 +27,22 @@ class ScanOrchestrator:
         self.recursion_func = recursion_func  # New callback for spawning child scans
         self.options = options or {}
 
+    def mark_module(self, module, port, status, artifacts=0):
+        """
+        Updates the module execution status in the results.
+        """
+        if 'modules' not in self.results:
+            self.results['modules'] = {}
+        
+        if module not in self.results['modules']:
+            self.results['modules'][module] = {}
+            
+        self.results['modules'][module][str(port)] = {
+            "status": status,
+            "artifacts": artifacts
+        }
+        self.save_results(self.scan_id, self.results)
+
     def run_pipeline(self, profile='quick'):
         """
         Executes the logic pipeline: 
@@ -67,7 +83,8 @@ class ScanOrchestrator:
                         "ffuf": {"endpoints": []}
                     },
                 },
-                "target_info": {"wordlist": "common.txt"}
+                "target_info": {"wordlist": "common.txt"},
+                "modules": {}
             }
             # Attach results to self for phases to modify
             self.results = results

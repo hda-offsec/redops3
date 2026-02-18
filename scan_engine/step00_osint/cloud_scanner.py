@@ -10,7 +10,7 @@ class CloudScanner:
     def check_s3(self, bucket_name):
         url = f"http://{bucket_name}.s3.amazonaws.com"
         try:
-            r = requests.get(url, timeout=5)
+            r = requests.get(url, timeout=1)
             if r.status_code == 200:
                 # RED TEAM: Attempt to list files for impact demonstration
                 files = []
@@ -42,7 +42,7 @@ class CloudScanner:
     def check_azure(self, account_name):
         url = f"https://{account_name}.blob.core.windows.net"
         try:
-            r = requests.get(url, timeout=5)
+            r = requests.get(url, timeout=1)
             # 400 or 403 on base URL usually means account exists
             if r.status_code in [400, 403]:
                 return {"provider": "Azure Blob", "account": account_name, "url": url, "status": "EXISTS"}
@@ -53,7 +53,7 @@ class CloudScanner:
     def check_gcp(self, bucket_name):
         url = f"https://www.googleapis.com/storage/v1/b/{bucket_name}"
         try:
-            r = requests.get(url, timeout=5)
+            r = requests.get(url, timeout=1)
             if r.status_code == 200:
                  return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC"}
             elif r.status_code == 403:
