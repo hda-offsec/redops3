@@ -21,8 +21,9 @@ class EmailSecurityScanner:
                     if txt.startswith("v=spf1"):
                         spf_record = txt
                         break
-            except: pass
-            
+            except Exception:
+                spf_record = None
+
             if not spf_record:
                 findings.append({
                     "title": "High: Missing SPF Record",
@@ -48,8 +49,9 @@ class EmailSecurityScanner:
                     if txt.startswith("v=DMARC1"):
                         dmarc_record = txt
                         break
-            except: pass
-            
+            except Exception:
+                dmarc_record = None
+
             if not dmarc_record:
                 findings.append({
                     "title": "High: Missing DMARC Record",

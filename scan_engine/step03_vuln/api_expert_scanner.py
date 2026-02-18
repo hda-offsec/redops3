@@ -85,7 +85,8 @@ class APIExpertScanner:
                         "severity": "critical",
                         "tool_source": "API-Assault (SQLi)"
                     })
-            except: pass
+            except Exception:
+                continue
 
         # 2. XSS (Reflected)
         for payload in self.XSS_PAYLOADS[:2]:
@@ -99,7 +100,8 @@ class APIExpertScanner:
                         "severity": "high",
                         "tool_source": "API-Assault (XSS)"
                     })
-            except: pass
+            except Exception:
+                continue
 
         # 3. SSTI
         for payload in self.SSTI_PAYLOADS[:2]:
@@ -113,7 +115,8 @@ class APIExpertScanner:
                         "severity": "critical",
                         "tool_source": "API-Assault (SSTI)"
                     })
-            except: pass
+            except Exception:
+                continue
 
         return findings
 
@@ -142,7 +145,8 @@ class APIExpertScanner:
                         "severity": "critical",
                         "tool_source": "API-Assault (Auth)"
                     })
-            except: pass
+            except Exception:
+                continue
             
         return findings
 

@@ -132,8 +132,8 @@ def probe_web_ports(orchestrator):
                 "version": f"Detected via Fallback (Status: {resp.status_code})",
                 "priority_score": 70
             })
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"Fallback probe failed for {url}: {e}", "DEBUG")
             
     if open_ports:
         log(f"Fallback discovery: {len(open_ports)} open ports.", "SUCCESS")

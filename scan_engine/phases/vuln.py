@@ -110,7 +110,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 
         except Exception as e:
             log(f"WPScan failed: {e}", "ERROR")
-            orch.mark_module("wpscan", port, "failed")
+            orch.mark_module("wpscan", port, "failed", reason=str(e))
 
     # --- SENSITIVE DIR AUDIT (.git, etc.) ---
     try:
@@ -258,7 +258,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     except Exception as e:
         log(f"SSRF Expert probe failed: {e}", "DEBUG")
-        orch.mark_module("ssrf_expert", port, "failed")
+        orch.mark_module("ssrf_expert", port, "failed", reason=str(e))
 
     # --- JS VULNERABILITY AUDIT ---
     try:
@@ -284,7 +284,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     except Exception as e:
          log(f"JS Vuln audit failed: {e}", "DEBUG")
-         orch.mark_module("js_vuln_audit", port, "failed")
+         orch.mark_module("js_vuln_audit", port, "failed", reason=str(e))
 
     # --- DALFOX (XSS) ---
     try:
@@ -358,7 +358,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             
     except Exception as e:
         log(f"Dalfox failed: {e}", "ERROR")
-        orch.mark_module("dalfox", port, "failed")
+        orch.mark_module("dalfox", port, "failed", reason=str(e))
 
     # --- OPEN REDIRECT ---
     try:
@@ -404,7 +404,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     except Exception as e:
         log(f"Open Redirect audit failed: {e}", "DEBUG")
-        orch.mark_module("redirect_scanner", port, "failed")
+        orch.mark_module("redirect_scanner", port, "failed", reason=str(e))
 
     # --- EXPERT: ADVANCED VULNERABILITY AUDIT (PHASE 4) ---
     log(f"Phase 4: Executing Advanced Vuln Audit (Expert Scanners) on port {port}...", "INFO")
@@ -574,6 +574,7 @@ def run_global_vuln_scans(orchestrator):
     results = orch.results
     target = orch.target
     log = orch.log
+    normalizer = FindingNormalizer()
     
     # --- PHASE 3: Subdomain Takeover ---
     emit_progress(orch, 50, "Subdomain Takeover Check")
@@ -600,7 +601,8 @@ def run_global_vuln_scans(orchestrator):
         orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
 
     except Exception as e:
-        orch.mark_module("takeover_scanner", 0, "failed")
+        log(f"Takeover scan failed: {e}", "WARN")
+        orch.mark_module("takeover_scanner", 0, "failed", reason=str(e))
 
     # --- PHASE 3.5: Email Security & Infrastructure ---
     try:
@@ -615,6 +617,7 @@ def run_global_vuln_scans(orchestrator):
         orch.mark_module("email_security", 0, "executed")
     except Exception as e:
         log(f"Email security scan failed: {e}", "WARN")
+        orch.mark_module("email_security", 0, "failed", reason=str(e))
 
     # --- PHASE 3.6: Firebase Audit ---
     try:
@@ -629,6 +632,7 @@ def run_global_vuln_scans(orchestrator):
         orch.mark_module("firebase_scanner", 0, "executed")
     except Exception as e:
         log(f"Firebase scan failed: {e}", "WARN")
+        orch.mark_module("firebase_scanner", 0, "failed", reason=str(e))
 
     # --- PHASE 5: Nuclei ---
     emit_progress(orch, 80, "Vulnerability Assessment (Nuclei)")
@@ -714,7 +718,7 @@ def run_global_vuln_scans(orchestrator):
                         
                 except Exception as e:
                     log(f"Nuclei error on {port}: {e}", "ERROR")
-                    orch.mark_module("nuclei", port, "failed")
+                    orch.mark_module("nuclei", port, "failed", reason=str(e))
 
     except Exception as e:
         log(f"Nuclei scan failed: {e}", "ERROR")

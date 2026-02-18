@@ -101,7 +101,8 @@ class XssAssaultScanner:
                                 "severity": "critical",
                                 "url": vuln.get('url')
                             })
-                        except: pass
+                        except Exception:
+                            continue
                         
         except Exception as e:
             if logger: logger(f"Dalfox Error: {e}", "ERROR")

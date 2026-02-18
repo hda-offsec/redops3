@@ -66,13 +66,17 @@ class TakeoverScanner:
                 for e in first_run:
                     yield e
                 if target_file and os.path.exists(target_file):
-                    try: os.remove(target_file)
-                    except: pass
+                    try:
+                        os.remove(target_file)
+                    except Exception:
+                        target_file = None
 
             return gen()
         except Exception as e:
             if logger: logger(f"Takeover scan failed: {e}", "ERROR")
             if target_file and os.path.exists(target_file):
-                try: os.remove(target_file)
-                except: pass
+                try:
+                    os.remove(target_file)
+                except Exception:
+                    target_file = None
             return []
