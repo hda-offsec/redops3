@@ -30,8 +30,32 @@ class KatanaScanner:
         ]
 
     def stream_katana(self, port, protocol='http'):
+        import json
         command = self.get_command(port, protocol)
-        return ProcessManager.stream_command(command)
+        
+        # Parse JSON output because -jc is used
+        for event in ProcessManager.stream_command(command):
+            if event.get("type") == "stdout":
+                line = event.get("line", "").strip()
+                try:
+                    # Katana output is JSON line
+                    data = json.loads(line)
+                    # Extract endpoint URL
+                    url = data.get("request", {}).get("endpoint")
+                    if url:
+                        # Replace raw JSON line with cleaned URL
+                        # But keep event structure compatible with enum.py expectations
+                        yield {"type": "stdout", "line": url, "original": line}
+                    else:
+                        # Fallback for non-request lines or if structure fails
+                        yield event
+                except json.JSONDecodeError:
+                    # Not JSON? Just yield as is (maybe error or info)
+                    yield event
+                except Exception:
+                    yield event
+            else:
+                yield event
 
     def stream_scan(self, port, protocol='http'):
         """Alias for stream_katana to satisfy enum.py contract"""
