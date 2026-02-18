@@ -1,0 +1,100 @@
+<!-- TACTICAL BREACH ASSESSMENT (BREACH REPORT) -->
+{% set breaches = [] %}
+
+{# 1. Add Critical and High Findings #}
+{% for f in findings %}
+{% if f.severity in ['critical', 'high'] %}
+{% do breaches.append({'type': 'finding', 'title': f.title, 'desc': f.description, 'severity': f.severity,
+'tool': f.tool_source}) %}
+{% endif %}
+{% endfor %}
+
+{# 2. Add Open Cloud Assets #}
+{% if results.phases.osint and results.phases.osint.cloud %}
+{% for asset in results.phases.osint.cloud %}
+{% if asset.status == 'OPEN/PUBLIC' or 'found' in asset.status|lower %}
+{% do breaches.append({'type': 'cloud', 'title': 'Exposed Cloud Storage: ' ~ asset.bucket, 'desc':
+'Provider: ' ~ asset.provider ~ ' | URL: ' ~ asset.url, 'severity': 'high', 'tool': 'cloud_scanner'}) %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{# 3. Add Sensitive Discovered Endpoints (APIs, ffuf) #}
+{% if results.phases.enum and results.phases.enum.api and results.phases.enum.api.endpoints %}
+{% for ep in results.phases.enum.api.endpoints %}
+{% if ep.status in ['200', '201', '301', '302'] %}
+{% do breaches.append({'type': 'endpoint', 'title': 'Sensitive API Endpoint: ' ~ ep.path, 'desc': 'Full URL:
+' ~ ep.url ~ ' (Status: ' ~ ep.status ~ ')', 'severity': 'medium', 'tool': 'ffuf-api'}) %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if results.phases.dirbusting and results.phases.dirbusting.ffuf and
+results.phases.dirbusting.ffuf.endpoints %}
+{% for ep in results.phases.dirbusting.ffuf.endpoints %}
+{% if ep.status in ['200', '201'] %}
+{% do breaches.append({'type': 'endpoint', 'title': 'Discovered Entry Point: ' ~ ep.path, 'desc': 'Full URL:
+' ~ ep.url ~ ' (Status: ' ~ ep.status ~ ')', 'severity': 'high', 'tool': 'ffuf'}) %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if breaches %}
+<div class="col-12 animate__animated animate__fadeIn">
+    <div class="card glass-panel border-danger border-2"
+        style="background: linear-gradient(135deg, rgba(255, 42, 42, 0.1), rgba(10, 10, 12, 0.9));">
+        <div class="card-header glass-header text-danger fw-bold d-flex justify-content-between align-items-center"
+            style="border-bottom: 2px solid rgba(255, 42, 42, 0.3);">
+            <span class="fs-5"><i class="fas fa-biohazard me-2 animate-flicker"></i>TACTICAL BREACH
+                REPORT</span>
+            <div class="d-flex gap-2">
+                <span class="badge bg-danger pulse-danger">{{ breaches|length }} VECTORS IDENTIFIED</span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="list-group list-group-flush bg-transparent">
+                {% for b in breaches %}
+                <div
+                    class="list-group-item bg-transparent border-secondary border-opacity-10 d-flex align-items-center p-3 hover-action">
+                    <div class="me-3 fs-3">
+                        {% if b.type == 'finding' %}
+                        <i
+                            class="fas fa-shield-virus {{ 'text-danger' if b.severity == 'critical' else 'text-warning' }}"></i>
+                        {% elif b.type == 'cloud' %}
+                        <i class="fas fa-cloud-download-alt text-warning"></i>
+                        {% elif b.type == 'endpoint' %}
+                        <i class="fas fa-door-open text-info"></i>
+                        {% else %}
+                        <i class="fas fa-skull-crossbones text-danger"></i>
+                        {% endif %}
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex align-items-center gap-2">
+                            <span
+                                class="fw-bold {{ 'text-danger' if b.severity == 'critical' else ('text-warning' if b.severity == 'high' else 'text-info') }} text-uppercase"
+                                style="font-size: 0.9rem;">
+                                {{ b.title }}
+                            </span>
+                            <span class="badge bg-dark border border-secondary text-muted x-small uppercase">{{
+                                b.tool }}</span>
+                        </div>
+                        <div class="text-muted small mt-1 font-monospace" style="font-size: 0.75rem;">{{
+                            b.desc }}</div>
+                    </div>
+                    <div class="ms-auto">
+                        <div
+                            class="badge {{ 'bg-danger' if b.severity in ['critical', 'high'] else 'bg-secondary' }} opacity-75">
+                            {{ b.severity|upper }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="card-footer glass-header py-2 d-flex justify-content-between">
+            <span class="text-muted x-small">TOTAL SURFACE BREACHED: {{ breaches|length }} vectors</span>
+            <span class="text-danger x-small"><i class="fas fa-exclamation-triangle me-1"></i>PRIORITY
+                ACTION REQUIRED</span>
+        </div>
+    </div>
+</div>
+{% endif %}

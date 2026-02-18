@@ -8,7 +8,7 @@ class WPScanScanner:
         """Verifier que wpscan est installé"""
         return ProcessManager.find_binary_path("wpscan") is not None
 
-    def stream_scan(self, port, protocol='http'):
+    def stream_scan(self, port, protocol='http', enumerate_all=False):
         """Scanner un site Wordpress en streaming"""
         url = f"{protocol}://{self.target}:{port}"
         
@@ -18,13 +18,15 @@ class WPScanScanner:
         # Pour le streaming live on va rester sur le format par defaut (cli) qui est plus parlant
         # on peut ajouter --no-banner pour cleaner
         
+        enum_flags = "vp,vt,u1-20" if enumerate_all else "p,t,u"
+        
         scan_args = [
             "wpscan",
             "--url", url,
             "--no-banner",
             "--random-user-agent",
             "--disable-tls-checks", # Souvent utile
-            "--enumerate", "p,t,u", # Plugins, themes, users
+            "--enumerate", enum_flags, # Plugins, themes, users (plus complet si enumerate_all)
         ]
         
         return ProcessManager.stream_command(scan_args)

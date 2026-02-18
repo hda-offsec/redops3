@@ -1,0 +1,52 @@
+<!-- API DISCOVERY RESULTS -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header"><i class="fas fa-project-diagram me-2"></i>API Discovery
+            (Endpoint Mapping)</div>
+        <div class="card-body" id="api-results">
+            {% if results and results.phases and results.phases.enum and results.phases.enum.api %}
+            <div class="accordion" id="accordionAPI">
+                {% for port, endpoints in results.phases.enum.api.items() %}
+                <div class="accordion-item bg-black border-secondary">
+                    <h2 class="accordion-header" id="heading-api-{{ port }}">
+                        <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                            type="button" data-bs-toggle="collapse" data-bs-target="#collapse-api-{{ port }}">
+                            <span class="badge bg-info me-2">Port {{ port }}</span>
+                            <span class="font-monospace small text-muted">{{ endpoints|length }} API
+                                Endpoints Found</span>
+                        </button>
+                    </h2>
+                    <div id="collapse-api-{{ port }}" class="accordion-collapse collapse"
+                        data-bs-parent="#accordionAPI">
+                        <div class="accordion-body p-2">
+                            <div class="row g-1">
+                                {% for ep in endpoints %}
+                                <div class="col-md-6">
+                                    <div
+                                        class="d-flex justify-content-between align-items-center p-2 bg-dark mb-1 rounded border border-secondary border-opacity-25 hover-action">
+                                        <div class="font-monospace x-small text-info text-truncate flex-grow-1"
+                                            title="{{ ep.url if ep.url is defined else ep }}">
+                                            /{{ ep.path if ep.path is defined else ep }}
+                                        </div>
+                                        <div class="ms-2">
+                                            {% if ep.status is defined %}
+                                            <span
+                                                class="badge {% if ep.status|int < 300 %}bg-success{% elif ep.status|int < 400 %}bg-info{% else %}bg-warning text-dark{% endif %} x-small">{{
+                                                ep.status }}</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No specific API structures mapped.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

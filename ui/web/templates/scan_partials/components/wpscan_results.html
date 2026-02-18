@@ -1,0 +1,24 @@
+<!-- WPSCAN RESULTS -->
+{% if results and results.phases and results.phases.vuln and results.phases.vuln.wpscan %}
+<div class="col-12">
+    <div class="card glass-panel border-info">
+        <div class="card-header glass-header text-info d-flex justify-content-between align-items-center">
+            <span><i class="fab fa-wordpress me-2"></i>CMS Audit: WordPress Scan</span>
+            <span class="badge bg-info text-dark x-small">WPScan</span>
+        </div>
+        <div class="card-body">
+            {% for port, summary in results.phases.vuln.wpscan.items() %}
+            <div class="mb-3">
+                <div class="d-flex align-items-center mb-2">
+                    <div class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50 me-2">
+                        PORT {{ port }}</div>
+                    <div class="small text-muted">Vulnerability & Enumeration Report</div>
+                </div>
+                <pre class="x-small font-monospace p-3 bg-black bg-opacity-60 border border-secondary rounded text-light mb-0"
+                    style="max-height: 300px; overflow-y: auto;">{{ summary }}</pre>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}

@@ -1,0 +1,35 @@
+<!-- WAF INTELLIGENCE -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header"><i class="fas fa-user-shield me-2"></i>WAF Intelligence
+            (wafw00f)</div>
+        <div class="card-body" id="waf-results">
+            {% if results and results.phases and results.phases.enum and results.phases.enum.waf %}
+            <div class="row g-3">
+                {% for port, waf in results.phases.enum.waf.items() %}
+                <div class="col-md-6">
+                    <div
+                        class="p-3 bg-black border {{ 'border-success' if waf == 'None' else 'border-warning' }} rounded d-flex align-items-center justify-content-between">
+                        <div>
+                            <div class="text-muted small text-uppercase">Port {{ port }}</div>
+                            <div class="fw-bold {{ 'text-success' if waf == 'None' else 'text-warning' }}">
+                                {{ waf if waf != 'None' else 'No WAF Detected' }}
+                            </div>
+                        </div>
+                        <div class="fs-4">
+                            {% if waf == 'None' %}
+                            <i class="fas fa-unlock text-success opacity-50"></i>
+                            {% else %}
+                            <i class="fas fa-shield-alt text-warning"></i>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No WAF analysis results available.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

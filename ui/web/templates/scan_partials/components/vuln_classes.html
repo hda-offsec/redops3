@@ -1,0 +1,131 @@
+<!-- VULNERABILITY CLASSES DASHBOARD -->
+<div class="col-12">
+    <div class="card glass-panel mb-4">
+        <div class="card-header glass-header"><i class="fas fa-crosshairs me-2"></i>Advanced Exploitation
+            Recon</div>
+        <div class="card-body p-3">
+            <div class="row row-cols-2 row-cols-md-3 row-cols-lg-5 g-3 text-center">
+                {% set vuln_types = {
+                'XSS': 'xss',
+                'LFI': 'lfi',
+                'SQLi': 'sql',
+                'API': 'api',
+                'CMS': 'cms',
+                'SECRETS': 'secret',
+                'SSRF': 'ssrf',
+                'GRAPHQL': 'graphql',
+                'BACKUPS': 'backup',
+                'CLOUD': 'cloud',
+                'REDIRECT': 'redirect',
+                'SPRING': 'spring',
+                'PROTO': 'prototype',
+                'SSTI': 'ssti',
+                'LFI': 'lfi',
+                'CORS': 'cors_audit',
+                'CRLF': 'crlf',
+                'FIREBASE': 'firebase',
+                'XXE': 'xxe',
+                'DESER': 'deserialization',
+                'ACL': 'acl_bypass',
+                'EMAIL': 'email_security',
+                'KUBE': 'container_exposure',
+                'WS': 'websocket'
+                } %}
+                {% for label, keyword in vuln_types.items() %}
+                {% set detected = false %}
+
+                <!-- 1. Check general findings list -->
+                {% for finding in findings %}
+                {% if keyword in finding.title|lower or keyword in (finding.tool_source|lower if
+                finding.tool_source else '') %}
+                {% set detected = true %}
+                {% endif %}
+                {% endfor %}
+
+                <!-- 2. Check Nuclei specifically -->
+                {% if not detected and results.phases.vuln and results.phases.vuln.nuclei and
+                results.phases.vuln.nuclei.findings %}
+                {% for f in results.phases.vuln.nuclei.findings %}
+                {% if keyword in f.title|lower %}
+                {% set detected = true %}
+                {% endif %}
+                {% endfor %}
+                {% endif %}
+
+                <!-- 3. Check Dedicated Phase Results -->
+                {% if not detected %}
+                {% if keyword == 'api' and results.phases.enum and results.phases.enum.api %}
+                {% set detected = true %}
+                {% elif keyword == 'cloud' and results.phases.osint and results.phases.osint.cloud %}
+                {% set detected = true %}
+                {% elif keyword == 'secret' and results.phases.enum and results.phases.enum.js_secrets %}
+                {% set detected = true %}
+                {% elif keyword == 'spring' and results.phases.vuln and results.phases.vuln.spring_boot %}
+                {% set detected = true %}
+                {% elif keyword == 'prototype' and results.phases.vuln and results.phases.vuln.prototype %}
+                {% set detected = true %}
+                {% elif keyword == 'ssti' and results.phases.vuln and results.phases.vuln.ssti %}
+                {% set detected = true %}
+                {% elif keyword == 'lfi' and results.phases.vuln and results.phases.vuln.lfi %}
+                {% set detected = true %}
+                {% elif keyword == 'xss' and results.phases.vuln and results.phases.vuln.xss %}
+                {% set detected = true %}
+                {% elif keyword == 'cors_audit' and results.phases.vuln and results.phases.vuln.cors_audit %}
+                {% set detected = true %}
+                {% elif keyword == 'crlf' and results.phases.vuln and results.phases.vuln.crlf %}
+                {% set detected = true %}
+                {% elif keyword == 'firebase' and results.phases.vuln and results.phases.vuln.firebase %}
+                {% set detected = true %}
+                {% elif keyword == 'xxe' and results.phases.vuln and results.phases.vuln.xxe %}
+                {% set detected = true %}
+                {% elif keyword == 'deserialization' and results.phases.vuln and results.phases.vuln.deserialization
+                %}
+                {% set detected = true %}
+                {% elif keyword == 'acl_bypass' and results.phases.vuln and results.phases.vuln.acl_bypass %}
+                {% set detected = true %}
+                {% elif keyword == 'email_security' and results.phases.vuln and results.phases.vuln.email_security
+                %}
+                {% set detected = true %}
+                {% elif keyword == 'container_exposure' and results.phases.vuln and
+                results.phases.vuln.container_exposure %}
+                {% set detected = true %}
+                {% elif keyword == 'websocket' and results.phases.vuln and results.phases.vuln.websocket %}
+                {% set detected = true %}
+                {% endif %}
+                {% endif %}
+
+                <div class="col">
+                    <div
+                        class="p-3 border rounded {{ 'border-danger bg-danger bg-opacity-10 pulse-danger' if detected else 'border-success bg-success bg-opacity-10 opacity-75' }} position-relative overflow-hidden transition-all duration-300">
+                        <div class="fw-bold fs-4 mb-0 {{ 'text-cyber-red' if detected else 'text-success' }}">
+                            {% if detected %}
+                            <i class="fas fa-biohazard animate-flicker"></i>
+                            {% else %}
+                            <i class="fas fa-check-circle"></i>
+                            {% endif %}
+                        </div>
+                        <div class="small fw-bold text-uppercase mt-1 {{ 'text-cyber-red' if detected else 'text-success' }}"
+                            style="font-size: 0.65rem; letter-spacing: 1px;">
+                            {{ label }}</div>
+                        <div class="text-lowercase x-small text-muted opacity-75">
+                            {% if detected %}
+                            {% if keyword == 'api' or keyword == 'cloud' %}exposed{% else %}breached{% endif
+                            %}
+                            {% else %}
+                            secure
+                            {% endif %}
+                        </div>
+
+                        {% if detected %}
+                        <div class="position-absolute top-0 end-0 p-1">
+                            <span class="badge bg-danger p-0"
+                                style="width: 5px; height: 5px; border-radius: 50%;"></span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>

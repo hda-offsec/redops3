@@ -1,0 +1,25 @@
+<!-- EXECUTION LOG -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-terminal me-2"></i>Execution Log</span>
+            <span id="socket-status" class="badge bg-secondary" style="font-size: 0.6rem;">connecting...</span>
+        </div>
+        <div class="card-body font-monospace log-console"
+            style="max-height: 400px; min-height: 300px; overflow-y: auto; background: #000;">
+            {% if logs %}
+            {% for log in logs %}
+            <div>
+                <span class="text-muted opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
+                <span
+                    class="{% if log.level == 'INFO' %}text-secondary{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %}">{{
+                    log.level }}</span>
+                {{ log.message }}
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="text-muted">No logs recorded.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

@@ -1,6 +1,6 @@
 from core.celery_app import celery
 from core.extensions import db
-from core.models import Scan, ScanLog, Finding, Suggestion, Loot
+from core.models import Scan, ScanLog, Finding, Suggestion, Loot, Target
 from scan_engine.orchestrator import ScanOrchestrator
 from core.results_store import save_results
 from datetime import datetime
@@ -196,6 +196,59 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             except Exception as e:
                 print(f"Results Emit Error: {e}")
 
+        def recurse_scan_cb(subdomains, parent_scan_id, current_depth, max_depth):
+            if current_depth >= max_depth:
+                _log_and_emit(parent_scan_id, f"Max recursion depth ({max_depth}) reached. Stopping recursion.", "WARN")
+                return
+
+            _log_and_emit(parent_scan_id, f"Recursion: Processing {len(subdomains)} subdomains for depth {current_depth + 1}...", "INFO")
+            
+            try:
+                # Get Parent Scan Context
+                parent_scan = Scan.query.get(parent_scan_id)
+                if not parent_scan: return
+
+                mission_id = parent_scan.target.mission_id
+                
+                triggered_count = 0
+                for sub in subdomains:
+                    # Clean/Validate subdomain string if needed
+                    sub = sub.strip()
+                    if not sub: continue
+
+                    # Check/Create Target
+                    target = Target.query.filter_by(identifier=sub, mission_id=mission_id).first()
+                    if not target:
+                        target = Target(identifier=sub, mission_id=mission_id)
+                        db.session.add(target)
+                        db.session.commit()
+                    
+                    # Create Child Scan
+                    # Inherit options but Increment depth
+                    new_options = scan_options.copy()
+                    new_options['current_recursion_depth'] = current_depth + 1
+                    
+                    new_scan = Scan(
+                        target_id=target.id,
+                        scan_type=parent_scan.scan_type,
+                        status='pending',
+                        params=json.dumps(new_options),
+                        parent_scan_id=parent_scan_id
+                    )
+                    db.session.add(new_scan)
+                    db.session.commit()
+                    
+                    # Trigger Celery Task
+                    # Use self.delay() to queue the task
+                    self.delay(new_scan.id, sub, parent_scan.scan_type)
+                    triggered_count += 1
+                
+                _log_and_emit(parent_scan_id, f"Recursion: Triggered {triggered_count} child scans.", "SUCCESS")
+            
+            except Exception as e:
+                db.session.rollback()
+                _log_and_emit(parent_scan_id, f"Recursion Error: {e}", "ERROR")
+
         import json
         scan_options = json.loads(scan.params) if scan.params else {}
 
@@ -209,17 +262,26 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             suggestion_func=add_suggestion_cb,
             results_func=results_update_cb,
             loot_func=add_loot_cb,
+            recursion_func=recurse_scan_cb,
             options=scan_options
         )
         
         try:
             # Force use of DB source of truth for scan_type as well
-            success = orchestrator.run_pipeline(profile=scan.scan_type)
-            scan.status = 'completed' if success else 'failed'
+            scan_profile = scan.scan_type # Cache this
+            success = orchestrator.run_pipeline(profile=scan_profile)
+            
+            # Re-fetch scan logic to avoid ObjectDeletedError / Stale Session
+            scan = Scan.query.get(scan_id)
+            if scan:
+                scan.status = 'completed' if success else 'failed'
+                scan.end_time = datetime.utcnow()
+                db.session.commit()
         except Exception as e:
             _log_and_emit(scan_id, f"Pipeline Error: {str(e)}", "ERROR")
-            scan.status = 'failed'
+            scan = Scan.query.get(scan_id)
+            if scan:
+                scan.status = 'failed'
+                db.session.commit()
         
-        scan.end_time = datetime.utcnow()
-        db.session.commit()
-        return scan.status
+        return "Scan Finished"

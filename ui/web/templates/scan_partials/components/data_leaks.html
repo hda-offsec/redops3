@@ -1,0 +1,36 @@
+<!-- SENSITIVE DATA LEAKS (PHASE 6) -->
+{% if results and results.phases and results.phases.vuln and results.phases.vuln.data_leaks %}
+<div class="col-12 animate__animated animate__fadeIn">
+    <div class="card glass-panel border-danger">
+        <div class="card-header glass-header text-danger d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-file-contract me-2 animate-flicker"></i>Sensitive Data Exposure (Miners)</span>
+            <span class="badge bg-danger pulse-danger">{{ results.phases.vuln.data_leaks|length }} Risk
+                Categories</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                {% for leak in results.phases.vuln.data_leaks %}
+                <div class="col-md-6 col-lg-4">
+                    <div
+                        class="p-3 bg-black bg-opacity-60 border border-secondary rounded h-100 position-relative overflow-hidden">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-uppercase text-info small fw-bold">{{ leak.type|replace('_', ' ')
+                                }}</span>
+                            <span class="badge bg-secondary text-light">{{ leak.count }} Found</span>
+                        </div>
+                        <div class="font-monospace x-small text-muted" style="max-height: 100px; overflow-y: auto;">
+                            {% for match in leak.matches %}
+                            <div class="mb-1 text-break border-bottom border-dark pb-1">{{ match }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="mt-2 text-danger x-small">
+                            <i class="fas fa-exclamation-circle me-1"></i>Potential Leak
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}

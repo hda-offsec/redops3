@@ -1,0 +1,73 @@
+<!-- DEEP CRAWLING (Katana) -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana)</div>
+        <div class="card-body" id="katana-results">
+            {% if results and results.phases and results.phases.enum and results.phases.enum.katana %}
+            <div class="accordion" id="accordionKatana">
+                {% for port, endpoints in results.phases.enum.katana.items() %}
+                <div class="accordion-item bg-black border-secondary">
+                    <h2 class="accordion-header" id="heading-katana-{{ port }}">
+                        <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                            type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-{{ port }}"
+                            aria-expanded="false" aria-controls="collapse-katana-{{ port }}">
+                            <span class="badge bg-info me-2">Port {{ port }}</span>
+                            <span class="font-monospace small text-muted">{{ endpoints|length }} Endpoints
+                                Discovered</span>
+                        </button>
+                    </h2>
+                    <div id="collapse-katana-{{ port }}" class="accordion-collapse collapse"
+                        aria-labelledby="heading-katana-{{ port }}" data-bs-parent="#accordionKatana">
+                        <div class="accordion-body p-0">
+                            <div class="p-2" style="max-height: 300px; overflow-y: auto;">
+                                {% for ep in endpoints %}
+                                {% set ep_lower = ep|lower %}
+                                {% set is_crit = ".env" in ep_lower or ".git" in ep_lower or "config" in
+                                ep_lower or ".bak" in ep_lower or ".sql" in ep_lower or ".db" in ep_lower %}
+                                {% set is_admin = "admin" in ep_lower or "login" in ep_lower or "dashboard"
+                                in ep_lower or "setup" in ep_lower %}
+                                {% set is_js = ".js" in ep_lower %}
+                                {% set is_img = ".jpg" in ep_lower or ".png" in ep_lower or ".gif" in
+                                ep_lower or ".svg" in ep_lower or ".ico" in ep_lower or ".css" in ep_lower
+                                %}
+
+                                <div
+                                    class="small font-monospace mb-1 border-bottom border-dark pb-1 text-break d-flex align-items-center">
+                                    {% if is_crit %}
+                                    <i class="fas fa-radiation text-danger me-2" title="CRITICAL ASSET"></i>
+                                    <a href="{{ ep }}" target="_blank"
+                                        class="text-decoration-none text-danger fw-bold hover-action">{{ ep
+                                        }}</a>
+                                    {% elif is_admin %}
+                                    <i class="fas fa-user-shield text-warning me-2" title="Admin Interface"></i>
+                                    <a href="{{ ep }}" target="_blank"
+                                        class="text-decoration-none text-warning hover-action">{{ ep }}</a>
+                                    {% elif is_js %}
+                                    <i class="fab fa-js text-info opacity-50 me-2" style="width: 16px;"></i>
+                                    <a href="{{ ep }}" target="_blank"
+                                        class="text-decoration-none text-info opacity-75 hover-action">{{ ep
+                                        }}</a>
+                                    {% elif is_img %}
+                                    <i class="fas fa-image text-secondary opacity-25 me-2" style="width: 16px;"></i>
+                                    <a href="{{ ep }}" target="_blank"
+                                        class="text-decoration-none text-secondary opacity-50 hover-action">{{
+                                        ep }}</a>
+                                    {% else %}
+                                    <i class="fas fa-link text-muted opacity-25 me-2" style="width: 16px;"></i>
+                                    <a href="{{ ep }}" target="_blank"
+                                        class="text-decoration-none text-cyber hover-action">{{ ep }}</a>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No crawling results yet.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

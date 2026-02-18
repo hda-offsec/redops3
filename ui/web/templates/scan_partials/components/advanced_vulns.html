@@ -1,0 +1,299 @@
+<!-- ADVANCED VULNERABILITY FINDINGS (NEW MODULES) -->
+{% if results and results.phases and results.phases.vuln and (results.phases.vuln.prototype or
+results.phases.vuln.ssti or results.phases.vuln.lfi or results.phases.vuln.cors_audit or results.phases.vuln.crlf or
+results.phases.vuln.firebase or results.phases.vuln.xxe or results.phases.vuln.deserialization or
+results.phases.vuln.acl_bypass or results.phases.vuln.email_security or results.phases.vuln.container_exposure or
+results.phases.vuln.websocket) %}
+<div class="col-12">
+    <div class="card glass-panel border-danger">
+        <div class="card-header glass-header text-danger"><i class="fas fa-radiation-alt me-2"></i>Advanced
+            Vulnerability Findings</div>
+        <div class="card-body">
+            <div class="row g-3">
+                {% if results.phases.vuln.firebase %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-danger rounded h-100">
+                        <div class="text-danger small fw-bold mb-2"><i class="fas fa-fire me-2"></i>Firebase
+                            Exposure</div>
+                        {% for f in results.phases.vuln.firebase %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-secondary border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.ssti %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                        <div class="text-danger small fw-bold mb-2"><i class="fas fa-code me-2"></i>SSTi (Template
+                            Injection)</div>
+                        {% for f in results.phases.vuln.ssti %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-danger border-opacity-50">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.method or f.payload or f.status_code %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 font-monospace">
+                                {% if f.method %}<div class="text-secondary"><span class="text-muted">Method:</span>
+                                    <span class="text-info">{{ f.method }}</span>
+                                </div>{% endif %}
+                                {% if f.raw_loot %}<div class="text-secondary"><span class="text-muted">URL:</span>
+                                    <a href="{{ f.raw_loot }}" target="_blank" class="text-info text-decoration-none">{{
+                                        f.raw_loot|truncate(50) }}</a>
+                                </div>{% endif %}
+                                {% if f.payload %}<div class="text-secondary"><span class="text-muted">Payload:</span>
+                                    <span class="text-warning">{{ f.payload }}</span>
+                                </div>{% endif %}
+                                {% if f.response_snippet %}<div class="mt-1 p-1 bg-black rounded text-muted x-small">
+                                    Response: {{ f.response_snippet }}</div>{% endif %}
+                            </div>
+                            {% else %}
+                            <code class="d-block mt-2 text-warning p-1 bg-black rounded">{{ f.raw_loot }}</code>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.lfi %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-warning rounded h-100">
+                        <div class="text-warning small fw-bold mb-2"><i class="fas fa-file-medical-alt me-2"></i>Local
+                            File Inclusion</div>
+                        {% for f in results.phases.vuln.lfi %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-warning border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.method or f.payload or f.status_code %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 font-monospace">
+                                {% if f.method %}<div class="text-secondary"><span class="text-muted">Method:</span>
+                                    <span class="text-info">{{ f.method }}</span>
+                                </div>{% endif %}
+                                {% if f.raw_loot %}<div class="text-secondary"><span class="text-muted">URL:</span>
+                                    <a href="{{ f.raw_loot }}" target="_blank" class="text-info text-decoration-none">{{
+                                        f.raw_loot|truncate(50) }}</a>
+                                </div>{% endif %}
+                                {% if f.payload %}<div class="text-secondary"><span class="text-muted">Payload:</span>
+                                    <span class="text-warning">{{ f.payload
+                                        }}</span>
+                                </div>{% endif %}
+                                {% if f.response_snippet %}<div class="mt-1 p-1 bg-black rounded text-muted x-small">
+                                    Response: {{
+                                    f.response_snippet }}</div>{% endif %}
+                            </div>
+                            {% elif f.raw_loot %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                                <span class="text-secondary me-1">Payload URL:</span>
+                                <a href="{{ f.raw_loot }}" target="_blank"
+                                    class="text-info font-monospace text-break text-decoration-none">
+                                    {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.prototype %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-info rounded h-100">
+                        <div class="text-info small fw-bold mb-2"><i class="fab fa-js me-2"></i>Prototype Pollution
+                        </div>
+                        {% for f in results.phases.vuln.prototype %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-info border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.cors_audit %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-secondary rounded h-100">
+                        <div class="text-secondary small fw-bold mb-2"><i class="fas fa-globe me-2"></i>CORS
+                            Misconfiguration</div>
+                        {% for f in results.phases.vuln.cors_audit %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-secondary border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.crlf %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-secondary rounded h-100">
+                        <div class="text-secondary small fw-bold mb-2"><i class="fas fa-stream me-2"></i>CRLF
+                            Injection</div>
+                        {% for f in results.phases.vuln.crlf %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-secondary border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.xxe %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                        <div class="text-danger small fw-bold mb-2"><i class="fas fa-code me-2"></i>XXE Detected
+                        </div>
+                        {% for f in results.phases.vuln.xxe %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-danger border-opacity-50">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.method or f.payload or f.status_code %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 font-monospace">
+                                {% if f.method %}<div class="text-secondary"><span class="text-muted">Method:</span>
+                                    <span class="text-info">{{ f.method }}</span>
+                                </div>{% endif %}
+                                {% if f.raw_loot %}<div class="text-secondary"><span class="text-muted">URL:</span>
+                                    <a href="{{ f.raw_loot }}" target="_blank" class="text-info text-decoration-none">{{
+                                        f.raw_loot|truncate(50) }}</a>
+                                </div>{% endif %}
+                                {% if f.payload %}<div class="text-secondary"><span class="text-muted">Payload:</span>
+                                    <span class="text-warning">{{ f.payload
+                                        }}</span>
+                                </div>{% endif %}
+                                {% if f.response_snippet %}<div class="mt-1 p-1 bg-black rounded text-muted x-small">
+                                    Response: {{
+                                    f.response_snippet }}</div>{% endif %}
+                            </div>
+                            {% elif f.raw_loot %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                                <span class="text-secondary me-1">Payload URL:</span>
+                                <a href="{{ f.raw_loot }}" target="_blank"
+                                    class="text-info font-monospace text-break text-decoration-none">
+                                    {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.deserialization %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-danger rounded h-100">
+                        <div class="text-danger small fw-bold mb-2"><i class="fas fa-cube me-2"></i>Insecure
+                            Deserialization</div>
+                        {% for f in results.phases.vuln.deserialization %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-secondary border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.raw_loot %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                                <span class="text-secondary me-1">Target URL:</span>
+                                <a href="{{ f.raw_loot }}" target="_blank"
+                                    class="text-info font-monospace text-break text-decoration-none">
+                                    {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.acl_bypass %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-warning rounded h-100">
+                        <div class="text-warning small fw-bold mb-2"><i class="fas fa-lock-open me-2"></i>ACL Bypass
+                            (403/401)</div>
+                        {% for f in results.phases.vuln.acl_bypass %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-warning border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.raw_loot %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                                <span class="text-secondary me-1">Bypassed URL:</span>
+                                <a href="{{ f.raw_loot }}" target="_blank"
+                                    class="text-warning font-monospace text-break text-decoration-none">
+                                    {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.email_security %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-info rounded h-100">
+                        <div class="text-info small fw-bold mb-2"><i class="fas fa-envelope me-2"></i>Email Security
+                            (Spoofing)</div>
+                        {% for f in results.phases.vuln.email_security %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-info border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.container_exposure %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-danger rounded h-100">
+                        <div class="text-danger small fw-bold mb-2"><i class="fab fa-docker me-2"></i>Container/Cluster
+                            Exposure</div>
+                        {% for f in results.phases.vuln.container_exposure %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-danger border-opacity-50">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.raw_loot %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                                <span class="text-secondary me-1">Exposed Endpoint:</span>
+                                <a href="{{ f.raw_loot }}" target="_blank"
+                                    class="text-danger font-monospace text-break text-decoration-none">
+                                    {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.websocket %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-warning rounded h-100">
+                        <div class="text-warning small fw-bold mb-2"><i class="fas fa-plug me-2"></i>WebSocket
+                            Hijacking</div>
+                        {% for f in results.phases.vuln.websocket %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-warning border-opacity-25">
+                            <div class="fw-bold text-light">{{ f.title }}</div>
+                            <div class="text-muted mt-1">{{ f.description }}</div>
+                            {% if f.raw_loot %}
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                                <span class="text-secondary me-1">Target WS:</span>
+                                <code class="text-warning font-monospace text-break">{{ f.raw_loot }}</code>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}

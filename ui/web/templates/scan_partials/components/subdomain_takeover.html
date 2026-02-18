@@ -1,0 +1,19 @@
+<!-- SUBDOMAIN TAKEOVER -->
+{% if results and results.phases and results.phases.vuln and results.phases.vuln.takeover %}
+<div class="col-12">
+    <div class="card glass-panel border-danger shadow-danger">
+        <div class="card-header glass-header bg-danger bg-opacity-10 text-danger fw-bold">
+            <i class="fas fa-flag-checkered me-2 pulse"></i>VULNERABILITY: Subdomain Takeover Potential
+        </div>
+        <div class="card-body">
+            {% for tk in results.phases.vuln.takeover %}
+            <div class="p-3 bg-black border border-danger rounded mb-2">
+                <div class="text-danger fw-bold mb-1"><i class="fas fa-exclamation-triangle me-2"></i>Critical
+                    Finding</div>
+                <code class="text-light">{{ tk }}</code>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}

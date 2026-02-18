@@ -1,0 +1,48 @@
+<!-- ATTACK VECTOR ANALYSIS -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header"><i class="fas fa-brain me-2"></i>Attack Vector Analysis (Intel
+            Engine)</div>
+        <div class="card-body" id="intel-results">
+            {% if results and results.phases and results.phases.intel %}
+            <div class="accordion" id="accordionIntel">
+                {% for port, vectors in results.phases.intel.items() %}
+                <div class="accordion-item bg-black border-secondary">
+                    <h2 class="accordion-header" id="heading-intel-{{ port }}">
+                        <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
+                            type="button" data-bs-toggle="collapse" data-bs-target="#collapse-intel-{{ port }}"
+                            aria-expanded="false" aria-controls="collapse-intel-{{ port }}">
+                            <span class="badge bg-warning me-2">Port {{ port }}</span>
+                            <span class="font-monospace small text-muted">{{ vectors|length }} Vectors
+                                Identified</span>
+                        </button>
+                    </h2>
+                    <div id="collapse-intel-{{ port }}" class="accordion-collapse collapse"
+                        aria-labelledby="heading-intel-{{ port }}" data-bs-parent="#accordionIntel">
+                        <div class="accordion-body p-0">
+                            <div class="p-2">
+                                {% for v in vectors %}
+                                <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="fw-bold text-info small">{{ v.name }}</span>
+                                        <span
+                                            class="badge {% if v.score >= 80 %}bg-danger{% else %}bg-secondary{% endif %}">Score:
+                                            {{ v.score }}</span>
+                                    </div>
+                                    <div class="small text-muted mb-1">{{ v.description }}</div>
+                                    <div class="font-monospace x-small text-warning bg-black p-1 rounded">
+                                        Action: {{ v.action }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No specific attack vectors mapped.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

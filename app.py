@@ -42,6 +42,22 @@ def create_app():
     app.jinja_env.add_extension('jinja2.ext.do')
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 
+    # Configure logging
+    import logging
+    from logging.handlers import RotatingFileHandler
+    
+    if not os.path.exists('data'):
+        os.makedirs('data')
+        
+    file_handler = RotatingFileHandler('data/app.log', maxBytes=10240, backupCount=10)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('RedOps3 startup')
+
     basedir = os.path.abspath(os.path.dirname(__file__))
     default_db = "sqlite:///" + os.path.join(basedir, "data", "redops3.db")
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", default_db)

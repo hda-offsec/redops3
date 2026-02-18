@@ -136,10 +136,12 @@ def scan_detail(scan_id):
                 "cloud": [],
                 "favicon": {},
                 "github": [],
-                "emails": []
+                "emails": [],
+                "dorks": [],
+                "origin_ips": []
             },
             "enum": {
-                "whatweb": {},
+                "whatweb": {"summary": {}},
                 "katana": {},
                 "waf": {},
                 "arjun": {},
@@ -149,7 +151,8 @@ def scan_detail(scan_id):
             "vuln": {
                 "nuclei": {"findings": []},
                 "takeover": [],
-                "wpscan": {}
+                "wpscan": {},
+                "wordpress": {}
             },
             "dirbusting": {
                 "ffuf": {"endpoints": []}
@@ -168,6 +171,7 @@ def scan_detail(scan_id):
     findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).order_by(Suggestion.id.desc()).all()
     logs = ScanLog.query.filter_by(scan_id=scan_id).order_by(ScanLog.timestamp.asc()).all()
+    loots = Loot.query.filter_by(scan_id=scan_id).all()
 
     # Serialize findings for JS visualization
     results['findings'] = [{
@@ -177,6 +181,9 @@ def scan_detail(scan_id):
         'description': f.description,
         'tool_source': f.tool_source
     } for f in findings]
+    
+    # Add metadata for UI persistence
+    results['loot_count'] = len(loots)
 
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     for finding in findings:

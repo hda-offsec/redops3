@@ -49,7 +49,7 @@ echo "🚀 Starting Celery Worker (Pool: solo)..."
 export PYTHONPATH=$PYTHONPATH:.
 # Solo pool is the most stable on Python 3.13 / Kali
 # We run it in background but the trap will catch it
-./venv/bin/celery -A core.tasks.celery worker --loglevel=error -P solo --logfile=data/celery.log &
+./venv/bin/celery -A core.tasks.celery worker --loglevel=info -P solo --logfile=data/celery.log &
 CELERY_PID=$!
 
 echo "🚀 Starting Redops Flask App..."

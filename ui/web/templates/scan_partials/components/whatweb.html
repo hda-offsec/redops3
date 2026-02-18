@@ -1,0 +1,33 @@
+<!-- ENUM RESULTS (WhatWeb) -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header"><i class="fas fa-list-ul me-2"></i>Enumeration (WhatWeb)</div>
+        <div class="card-body" id="whatweb-results">
+            {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb %}
+            {% set ww = results.phases.enum.whatweb %}
+            {% if ww.summary %}
+            <div class="tag-grid d-flex flex-wrap gap-2 mb-3">
+                {% for key, value in ww.summary.items() %}
+                <div class="tag-item px-2 py-1 bg-black border border-secondary rounded small">
+                    <span class="tag-key text-muted me-1">{{ key }}:</span>
+                    <span class="tag-value text-cyber">{{ value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div class="whatweb-details">
+                {% for port, output in ww.items() %}
+                {% if port != 'summary' %}
+                <div
+                    class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break">
+                    <span class="badge bg-secondary me-2">Port {{ port }}</span> {{ output }}
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No enumeration summary available.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

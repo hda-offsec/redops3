@@ -1,0 +1,30 @@
+<!-- JS VULNERABILITY AUDIT -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-header glass-header"><i class="fab fa-node-js me-2"></i>Client-Side Vulnerabilities
+            (Retire.js)</div>
+        <div class="card-body" id="js-vuln-results">
+            {% if results and results.phases and results.phases.enum and results.phases.enum.js_vulns %}
+            <div class="d-flex flex-wrap gap-3">
+                {% for lib in results.phases.enum.js_vulns %}
+                <div class="p-3 bg-black border border-secondary rounded position-relative flex-grow-1"
+                    style="min-width: 250px;">
+                    {% if lib.severity == 'high' or lib.severity == 'critical' %}
+                    <div class="position-absolute top-0 end-0 p-2">
+                        <span class="badge bg-danger animate-pulse">VULNERABLE</span>
+                    </div>
+                    {% endif %}
+                    <div class="fw-bold text-info mb-1">{{ lib.library }} <span class="text-muted x-small">v{{
+                            lib.version }}</span></div>
+                    <div class="small text-light opacity-75 mb-2">{{ lib.vulnerability }}</div>
+                    <a href="{{ lib.advisory }}" target="_blank"
+                        class="btn btn-xs btn-outline-secondary w-100">Advisory</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No vulnerable JS libraries detected.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>

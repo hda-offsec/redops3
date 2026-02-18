@@ -1,0 +1,92 @@
+<!-- THREAT MATRIX -->
+<div class="col-12">
+    <div class="card glass-panel mb-4">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-biohazard me-2"></i>Threat Matrix (High Value Targets)</span>
+            {% if severity_counts['critical'] + severity_counts['high'] > 0 %}
+            <span class="badge bg-danger shadow-sm animate__animated animate__pulse animate__infinite">{{
+                severity_counts['critical'] + severity_counts['high'] }} Critical/High Issues</span>
+            {% else %}
+            <span class="badge bg-success shadow-sm"><i class="fas fa-check me-1"></i>Secure</span>
+            {% endif %}
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-dark table-sm mb-0 text-center align-middle small table-hover">
+                <thead>
+                    <tr class="text-muted text-uppercase" style="background: rgba(255,255,255,0.05);">
+                        <th class="py-2 border-secondary">Port/Service</th>
+                        <th class="py-2 border-secondary">Technology Stack</th>
+                        <th class="py-2 border-secondary">Threat Detection</th>
+                        <th class="py-2 border-secondary">Data Exposure Risk</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if results and results.phases and results.phases.recon and
+                    results.phases.recon.open_ports %}
+                    {% for port in results.phases.recon.open_ports %}
+                    {% if ((port.priority_score|default(0)) >= 50) or port.port in [80, 443, 8080] %}
+                    <tr class="border-secondary">
+                        <td class="font-monospace text-info border-secondary">
+                            <span class="badge bg-secondary me-1">{{ port.port }}</span> {{
+                            port.service_name }}
+                        </td>
+                        <td class="border-secondary">
+                            {% set port_key = port.port|string %}
+                            {% if results.phases.enum and results.phases.enum.whatweb and
+                            results.phases.enum.whatweb[port_key] %}
+                            {% set ww = results.phases.enum.whatweb[port_key] %}
+                            <!-- Simple inline badges for the matrix -->
+                            {% if "WordPress" in ww or "wp-content" in ww %}<span class="badge bg-primary"
+                                title="WordPress"><i class="fab fa-wordpress"></i> WP</span>{% endif %}
+                            {% if "Apache" in ww %}<span class="badge bg-danger" title="Apache"><i
+                                    class="fas fa-server"></i> Apache</span>{% endif %}
+                            {% if "Nginx" in ww %}<span class="badge bg-success" title="Nginx"><i
+                                    class="fas fa-server"></i> Nginx</span>{% endif %}
+                            {% if "PHP" in ww %}<span class="badge bg-info text-dark" title="PHP"><i
+                                    class="fab fa-php"></i> PHP</span>{% endif %}
+                            {% if "Microsoft-IIS" in ww %}<span class="badge bg-info" title="IIS"><i
+                                    class="fab fa-windows"></i> IIS</span>{% endif %}
+                            {% if "Amazon-ELB" in ww or "awselb" in ww %}<span class="badge bg-warning text-dark"
+                                title="AWS ELB"><i class="fab fa-aws"></i> ELB</span>{% endif %}
+                            {% if "Cloudflare" in ww or "cloudflare" in ww %}<span class="badge bg-info"
+                                title="Cloudflare"><i class="fab fa-cloudflare"></i> Cloudflare</span>{%
+                            endif %}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="border-secondary">
+                            {% if (port.priority_score|default(0)) >= 80 %}
+                            <span class="badge bg-danger w-100 shadow-danger">CRITICAL / HIGH</span>
+                            {% elif (port.priority_score|default(0)) >= 50 %}
+                            <span class="badge bg-warning text-dark w-100">MEDIUM / SUSPICIOUS</span>
+                            {% else %}
+                            <span class="badge bg-success bg-opacity-25 w-100 text-success">LOW RISK</span>
+                            {% endif %}
+                        </td>
+                        <td class="border-secondary">
+                            {% set port_key = port.port|string %}
+                            {% if results.phases.enum and results.phases.enum.js_secrets and
+                            results.phases.enum.js_secrets[port_key] %}
+                            <span class="badge bg-danger animate-pulse"><i class="fas fa-key"></i> JS LEAKS</span>
+                            {% elif results.phases.vuln and results.phases.vuln.data_leaks %}
+                            <span class="badge bg-warning text-dark"><i class="fas fa-file-contract"></i> DATA
+                                FOUND</span>
+                            {% else %}
+                            <span class="text-muted small">No specific leaks</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endif %}
+
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="py-3 text-muted">No high-risk services identified yet.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

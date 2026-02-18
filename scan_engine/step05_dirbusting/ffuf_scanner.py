@@ -33,6 +33,9 @@ class FfufScanner:
             "-mc", "200,204,301,302,307,401,403,405",
             "-r",
             "-ac",
+            "-recursion",
+            "-recursion-depth", "3",
+            "-e", ".php,.html,.js,.txt,.bak,.zip",
             "-t", "50",
             "-noninteractive"
         ]

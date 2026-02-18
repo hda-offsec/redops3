@@ -171,11 +171,25 @@ def generate_scan_report(scan_id, scan_obj, findings):
         if 'phases' in results and 'dns' in results['phases']:
             subs = results['phases']['dns'].get('subdomains', [])
             if subs:
-                pdf.set_font("helvetica", "B", 10)
-                pdf.cell(0, 7, f"Discovered Subdomains ({len(subs)}):", ln=True)
-                pdf.set_font("helvetica", "", 8)
-                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(subs)))
-                pdf.ln(3)
+                # Robustness: Ensure subs is a list of strings
+                if isinstance(subs, tuple):
+                     # Handle legacy bug where run_command tuple was stored
+                     if len(subs) > 1 and isinstance(subs[1], str):
+                         subs = subs[1].splitlines()
+                     else:
+                         subs = []
+                elif not isinstance(subs, list):
+                     subs = []
+                
+                # Filter non-string items and empty strings
+                subs = [s for s in subs if isinstance(s, str) and s.strip()]
+
+                if subs:
+                    pdf.set_font("helvetica", "B", 10)
+                    pdf.cell(0, 7, f"Discovered Subdomains ({len(subs)}):", ln=True)
+                    pdf.set_font("helvetica", "", 8)
+                    pdf.multi_cell(0, 5, pdf.safe_text(", ".join(subs)))
+                    pdf.ln(3)
 
         # Cloud
         if osint.get('cloud'):
@@ -227,21 +241,57 @@ def generate_scan_report(scan_id, scan_obj, findings):
         # Combine WhatWeb and Tech Detector
         all_techs = []
         if 'whatweb' in results['phases']['enum']:
-            for port, techs in results['phases']['enum']['whatweb'].items():
-                all_techs.extend([t for t in techs if t not in all_techs])
-                
+            ww_data = results['phases']['enum']['whatweb']
+            # Check for parsed technologies first (new format)
+            if 'technologies' in ww_data:
+                for port, port_techs in ww_data['technologies'].items():
+                     if isinstance(port_techs, list):
+                         for t in port_techs:
+                             if t not in all_techs: all_techs.append(t)
+            
+            # Fallback to summary parsing (legacy / backward compatibility)
+            elif 'summary' in ww_data:
+                 # Try to extract from summary if not parsed
+                 pass
+
         if all_techs:
              pdf.multi_cell(0, 5, pdf.safe_text(", ".join(all_techs)))
         else:
              pdf.cell(0, 5, "No specific frameworks identified.", ln=True)
         pdf.ln(3)
 
-    # 4.6 API & Web Endpoints
+    # 4.6 Security Headers
+    if results and 'phases' in results and 'enum' in results['phases'] and 'headers' in results['phases']['enum']:
+        headers_data = results['phases']['enum']['headers']
+        if headers_data:
+            pdf.chapter_title("5. Security Headers Analysis")
+            
+            for port, headers in headers_data.items():
+                pdf.set_font("helvetica", "B", 10)
+                pdf.cell(0, 6, f"Port {port}:", ln=True)
+                pdf.set_font("helvetica", "", 8)
+                
+                # Interesting headers to highlight
+                highlights = ['Server', 'X-Powered-By', 'Strict-Transport-Security', 'Content-Security-Policy', 'X-Frame-Options', 'X-Content-Type-Options']
+                
+                for k, v in headers.items():
+                    # Highlight key headers
+                    if any(h.lower() == k.lower() for h in highlights):
+                        pdf.set_font("helvetica", "B", 8)
+                        pdf.cell(50, 5, pdf.safe_text(k), border=1)
+                        pdf.set_font("helvetica", "", 8)
+                        pdf.multi_cell(0, 5, pdf.safe_text(v), border=1)
+                    else:
+                        # Optional: Skip common headers to save space, or list all
+                        pass
+                pdf.ln(2)
+
+    # 5. API & Web Endpoints
     if results and 'phases' in results and 'enum' in results['phases'] and 'api' in results['phases']['enum']:
         api = results['phases']['enum']['api']
         if api.get('endpoints'):
             pdf.add_page()
-            pdf.chapter_title("5. API & Web Entpoints Analysis")
+            pdf.chapter_title("6. API & Web Entpoints Analysis")
             
             pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 7, f"Discovered API Endpoints ({len(api['endpoints'])}):", ln=True)
@@ -263,8 +313,32 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.cell(0, 6, f"... and {len(api['endpoints']) - 100} more endpoints.", border=1, ln=True)
             pdf.ln(5)
 
-    # 5. FINDINGS
-    pdf.chapter_title("6. Detailed Vulnerabilities & Vectors")
+    # 5.5. Directory Busting (Recursive)
+    if results and 'phases' in results and 'dirbusting' in results['phases']:
+        dirs = []
+        if 'ffuf' in results['phases']['dirbusting'] and 'endpoints' in results['phases']['dirbusting']['ffuf']:
+            dirs = results['phases']['dirbusting']['ffuf']['endpoints']
+            
+        if dirs:
+            pdf.add_page()
+            pdf.chapter_title("7. Recursive Directory Analysis")
+            
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 7, f"Discovered Paths ({len(dirs)}):", ln=True)
+            
+            pdf.set_font("helvetica", "", 8)
+            pdf.set_fill_color(240, 240, 245)
+            
+            # Simple list mechanism or table
+            for d in dirs[:100]:
+                pdf.cell(0, 5, pdf.safe_text(d), border=1, ln=True)
+                
+            if len(dirs) > 100:
+                pdf.cell(0, 5, f"... and {len(dirs) - 100} more paths.", border=1, ln=True)
+            pdf.ln(5)
+
+    # 7. FINDINGS
+    pdf.chapter_title("8. Detailed Vulnerabilities & Vectors")
     
     sev_map = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     sorted_findings = sorted(findings, key=lambda x: sev_map.get(x.severity.lower(), 4))
@@ -307,7 +381,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     loots = Loot.query.filter_by(scan_id=scan_id).all()
     if loots:
         pdf.add_page()
-        pdf.chapter_title("5. Loot Vault (Classified Assets)", color=(0, 150, 50))
+        pdf.chapter_title("9. Loot Vault (Classified Assets)", color=(0, 150, 50))
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(40, 8, "Type", border=1, fill=True)
         pdf.cell(100, 8, "Content (Masked)", border=1, fill=True)
@@ -323,7 +397,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     # 7. Notes
     if scan_obj.notes:
         pdf.add_page()
-        pdf.chapter_title("6. Operational Mission Notes", color=(100, 100, 100))
+        pdf.chapter_title("10. Operational Mission Notes", color=(100, 100, 100))
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(50, 50, 50)
         pdf.multi_cell(0, 6, pdf.safe_text(scan_obj.notes))

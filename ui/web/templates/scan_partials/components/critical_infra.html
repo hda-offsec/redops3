@@ -1,0 +1,110 @@
+<!-- CRITICAL INFRASTRUCTURE & DATA EXPOSURE -->
+<div class="col-12">
+    <div class="card glass-panel">
+        <div class="card-body">
+            <div class="row g-3">
+                {% if results.phases.vuln.ssrf %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-danger border-opacity-50 rounded h-100">
+                        <div class="text-danger small fw-bold mb-2"><i class="fas fa-cloud-upload-alt me-2"></i>SSRF
+                            / Cloud Metadata</div>
+                        {% for f in results.phases.vuln.ssrf %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small">
+                            <div class="text-light fw-bold">{{ f.title }}</div>
+                            <div class="text-muted">{{ f.description|truncate(150) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.graphql %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-info border-opacity-50 rounded h-100">
+                        <div class="text-info small fw-bold mb-2"><i class="fas fa-project-diagram me-2"></i>GraphQL
+                            Intelligence</div>
+                        {% for f in results.phases.vuln.graphql %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small">
+                            <div class="text-light fw-bold">{{ f.title }}</div>
+                            <div class="text-muted">{{ f.description|truncate(150) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.git %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-warning border-opacity-50 rounded h-100">
+                        <div class="text-warning small fw-bold mb-2"><i class="fab fa-git-alt me-2"></i>Git
+                            Repository Exposure</div>
+                        {% for f in results.phases.vuln.git %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small">
+                            <div class="text-light fw-bold">{{ f.title }}</div>
+                            <code class="text-warning">{{ f.description|truncate(100) }}</code>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.backups %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-success border-opacity-50 rounded h-100">
+                        <div class="text-success small fw-bold mb-2"><i class="fas fa-archive me-2"></i>Backup &
+                            Archive Leaks</div>
+                        {% for f in results.phases.vuln.backups %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small">
+                            <div class="text-light fw-bold">{{ f.title }}</div>
+                            <div class="text-muted">{{ f.description|truncate(100) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.spring_boot %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-success border-opacity-75 rounded h-100">
+                        <div class="text-success small fw-bold mb-2"><i class="fas fa-leaf me-2"></i>Spring Boot
+                            Actuators</div>
+                        {% for f in results.phases.vuln.spring_boot %}
+                        <div class="mb-2 p-2 bg-dark rounded x-small border border-secondary border-opacity-25">
+                            <div class="d-flex justify-content-between">
+                                <div class="text-light fw-bold">{{ f.title }}</div>
+                                <span
+                                    class="badge {{ 'bg-danger' if f.severity in ['critical', 'high'] else 'bg-info' }} x-small">{{
+                                    f.severity|upper }}</span>
+                            </div>
+                            <div class="text-muted mt-1">{{ f.description|truncate(120) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if results.phases.vuln.tech %}
+                <div class="col-12">
+                    <div class="p-3 bg-black border border-secondary rounded">
+                        <div class="text-secondary small fw-bold mb-2"><i class="fas fa-file-code me-2"></i>Technical
+                            File Exposure (.env, config,
+                            logs)</div>
+                        <div class="row g-2">
+                            {% for f in results.phases.vuln.tech %}
+                            <div class="col-md-4">
+                                <div
+                                    class="p-2 bg-dark rounded x-small border border-secondary border-opacity-25 h-100">
+                                    <div class="text-info fw-bold">{{ f.title }}</div>
+                                    <div class="text-muted x-small font-monospace">{{
+                                        f.description|truncate(80) }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

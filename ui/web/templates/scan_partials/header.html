@@ -57,87 +57,95 @@
                     </div>
                 </div>
 
+
                 <!-- DISCOVERY STATUS BAR -->
-                <div
-                    class="discovery-status-bar d-flex flex-wrap gap-2 mb-4 p-2 bg-black bg-opacity-20 rounded border border-secondary border-opacity-10">
-                    <div id="discovery-dns" class="discovery-btn">
-                        <i class="fas fa-network-wired"></i> DNS
-                    </div>
-                    <div id="discovery-ports" class="discovery-btn">
-                        <i class="fas fa-plug"></i> Ports
-                    </div>
-                    <div id="discovery-crawl" class="discovery-btn">
-                        <i class="fas fa-spider"></i> Katana
-                    </div>
-                    <div id="discovery-fuzz" class="discovery-btn">
-                        <i class="fas fa-folder-open"></i> Ffuf
-                    </div>
-                    <div id="discovery-vulns" class="discovery-btn">
-                        <i class="fas fa-biohazard"></i> Vulns
-                    </div>
-                    <div id="discovery-intel" class="discovery-btn">
-                        <i class="fas fa-brain"></i> Intel
-                    </div>
-                    <div id="discovery-loot" class="discovery-btn">
-                        <i class="fas fa-treasure-chest"></i> Loot
-                    </div>
-                    <div class="ms-auto d-flex align-items-center">
-                        <span class="text-muted x-small text-uppercase me-2">Module Engine</span>
-                        <div class="d-flex gap-1">
-                            <div class="bg-cyber rounded-circle shadow-cyber" style="width: 8px; height: 8px;"></div>
+                <div class="col-12">
+                    <div
+                        class="discovery-status-bar d-flex flex-wrap gap-2 mb-4 p-2 bg-black bg-opacity-20 rounded border border-secondary border-opacity-10">
+                        <div id="discovery-dns" class="discovery-btn">
+                            <i class="fas fa-network-wired"></i> DNS
+                        </div>
+                        <div id="discovery-ports" class="discovery-btn">
+                            <i class="fas fa-plug"></i> Ports
+                        </div>
+                        <div id="discovery-crawl" class="discovery-btn">
+                            <i class="fas fa-spider"></i> Katana
+                        </div>
+                        <div id="discovery-fuzz" class="discovery-btn">
+                            <i class="fas fa-folder-open"></i> Ffuf
+                        </div>
+                        <div id="discovery-vulns" class="discovery-btn">
+                            <i class="fas fa-biohazard"></i> Vulns
+                        </div>
+                        <div id="discovery-intel" class="discovery-btn">
+                            <i class="fas fa-brain"></i> Intel
+                        </div>
+                        <div id="discovery-loot" class="discovery-btn">
+                            <i class="fas fa-treasure-chest"></i> Loot
+                        </div>
+                        <div class="ms-auto d-flex align-items-center">
+                            <span class="text-muted x-small text-uppercase me-2">Module Engine</span>
+                            <div class="d-flex gap-1">
+                                <div class="bg-cyber rounded-circle shadow-cyber" style="width: 8px; height: 8px;">
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Type</div>
-                        <div class="meta-value text-uppercase fw-bold text-light">{{ scan.scan_type }}</div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="meta-label text-muted small text-uppercase">Duration</div>
-                        <div class="meta-value font-monospace text-light">
-                            {% if scan.end_time and scan.start_time %}
-                            {{ (scan.end_time - scan.start_time)|string|truncate(7, true, '') }}
-                            {% else %}
-                            Running...
-                            {% endif %}
+                <div class="col-12">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <div class="meta-label text-muted small text-uppercase">Type</div>
+                            <div class="meta-value text-uppercase fw-bold text-light">{{ scan.scan_type }}</div>
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="meta-label text-muted small text-uppercase mb-1">Live Progress</div>
-                        <div class="d-flex align-items-center mb-1">
-                            <div class="spinner-border spinner-border-sm text-cyber me-2 {% if scan.status != 'running' %}d-none{% endif %}"
-                                id="scan-spinner" role="status"></div>
-                            <span class="meta-value font-monospace text-uppercase small" id="scan-status-text">{{
-                                scan.status }}</span>
-                            <span class="ms-auto small font-monospace text-muted"
-                                id="scan-phase-text">initializing...</span>
+                        <div class="col-md-3">
+                            <div class="meta-label text-muted small text-uppercase">Duration</div>
+                            <div class="meta-value font-monospace text-light">
+                                {% if scan.end_time and scan.start_time %}
+                                {{ (scan.end_time - scan.start_time)|string|truncate(7, true, '') }}
+                                {% else %}
+                                Running...
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="progress bg-dark border border-secondary"
-                            style="height: 6px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5);">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-cyber shadow-cyber"
-                                id="scan-progress-bar" role="progressbar"
-                                style="width: {% if scan.status == 'completed' %}100{% elif scan.status == 'running' %}5{% else %}0{% endif %}%">
+                        <div class="col-md-6">
+                            <div class="meta-label text-muted small text-uppercase mb-1">Live Progress</div>
+                            <div class="d-flex align-items-center mb-1">
+                                <div class="spinner-border spinner-border-sm text-cyber me-2 {% if scan.status != 'running' %}d-none{% endif %}"
+                                    id="scan-spinner" role="status"></div>
+                                <span class="meta-value font-monospace text-uppercase small" id="scan-status-text">{{
+                                    scan.status }}</span>
+                                <span class="ms-auto small font-monospace text-muted"
+                                    id="scan-phase-text">initializing...</span>
+                            </div>
+                            <div class="progress bg-dark border border-secondary"
+                                style="height: 6px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5);">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-cyber shadow-cyber"
+                                    id="scan-progress-bar" role="progressbar"
+                                    style="width: {% if scan.status == 'completed' %}100{% elif scan.status == 'running' %}5{% else %}0{% endif %}%">
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {% if scan.geolocation_data %}
-                <div
-                    class="mt-4 p-3 bg-black bg-opacity-30 border border-secondary border-opacity-25 rounded shadow-sm">
-                    <div class="row align-items-center">
-                        <div class="col-md-1 text-center">
-                            <i class="fas fa-globe-africa fa-2x text-cyber opacity-75"></i>
-                        </div>
-                        <div class="col-md-11">
-                            <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
-                            <div class="d-flex gap-4">
-                                <div class="font-monospace small"><span class="text-muted">LOCATION:</span> {{
-                                    scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
-                                <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
-                                    scan.geolocation_data.isp }}</div>
+                <div class="col-12">
+                    <div
+                        class="mt-4 p-3 bg-black bg-opacity-30 border border-secondary border-opacity-25 rounded shadow-sm">
+                        <div class="row align-items-center">
+                            <div class="col-md-1 text-center">
+                                <i class="fas fa-globe-africa fa-2x text-cyber opacity-75"></i>
+                            </div>
+                            <div class="col-md-11">
+                                <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
+                                <div class="d-flex gap-4">
+                                    <div class="font-monospace small"><span class="text-muted">LOCATION:</span> {{
+                                        scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
+                                    <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
+                                        scan.geolocation_data.isp }}</div>
+                                </div>
                             </div>
                         </div>
                     </div>

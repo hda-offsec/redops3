@@ -1,0 +1,29 @@
+<!-- XSS HUB (DALFOX) -->
+<div class="col-12">
+    <div class="card glass-panel border-warning">
+        <div class="card-header glass-header text-warning"><i class="fas fa-code me-2"></i>XSS
+            Vulnerability Hub (Dalfox)</div>
+        <div class="card-body" id="xss-results">
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.xss %}
+            <div class="row g-3">
+                {% for x in results.phases.vuln.xss %}
+                <div class="col-12">
+                    <div class="p-3 bg-black border border-danger rounded">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-danger">CONFIRMED XSS</span>
+                            <span class="text-muted small font-monospace">{{ x.method }}</span>
+                        </div>
+                        <div class="fw-bold text-light mb-1">{{ x.url }}</div>
+                        <div class="p-2 bg-dark rounded border border-secondary border-opacity-25 mt-2">
+                            <code class="text-warning small text-break">{{ x.payload }}</code>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic">No XSS vulnerabilities detected yet.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
