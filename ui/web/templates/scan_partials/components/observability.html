@@ -1,0 +1,100 @@
+<div class="row g-4 mb-4">
+    <!-- MODULES STATUS PANEL -->
+    <div class="col-md-6">
+        <div class="card bg-black border-secondary h-100">
+            <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 text-cyber"><i class="fas fa-microchip me-2"></i>Module Execution Status</h6>
+                <span class="badge bg-secondary" id="module-count">0 Active</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <table class="table table-dark table-hover table-sm mb-0" id="modules-table">
+                        <thead>
+                            <tr>
+                                <th class="text-muted x-small">Module</th>
+                                <th class="text-muted x-small">Port/Ctx</th>
+                                <th class="text-muted x-small">Status</th>
+                                <th class="text-muted x-small text-end">Artifacts</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Dynamic Content -->
+                            {% if results.modules %}
+                            {% for module_name, ports in results.modules.items() %}
+                            {% for port, data in ports.items() %}
+                            <tr id="mod-row-{{ module_name }}-{{ port }}">
+                                <td class="font-monospace text-info small">{{ module_name }}</td>
+                                <td class="font-monospace text-muted small">{{ port }}</td>
+                                <td>
+                                    {% if data.status == 'running' %}
+                                    <span
+                                        class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>
+                                    {% elif data.status == 'executed' %}
+                                    <span
+                                        class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>
+                                    {% elif data.status == 'skipped' %}
+                                    <span
+                                        class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>
+                                    {% elif data.status == 'failed' or data.status == 'error' %}
+                                    <span
+                                        class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>
+                                    {% else %}
+                                    <span class="badge bg-dark border border-secondary text-muted x-small">{{
+                                        data.status|upper }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end font-monospace small">{{ data.artifacts }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% endfor %}
+                            {% else %}
+                            <tr id="no-modules-row">
+                                <td colspan="4" class="text-center text-muted small fst-italic py-3">No modules executed
+                                    yet.</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TIMELINE FEED -->
+    <div class="col-md-6">
+        <div class="card bg-black border-secondary h-100">
+            <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 text-cyber"><i class="fas fa-stream me-2"></i>Live Operations Timeline</h6>
+                <div class="spinner-grow text-success spinner-grow-sm" role="status"></div>
+            </div>
+            <div class="card-body p-0 d-flex flex-column-reverse" id="timeline-feed"
+                style="max-height: 300px; overflow-y: auto;">
+                <!-- Newest items at bottom via flex-column-reverse/prepend logic or simple append? 
+                     Actually flex-column-reverse shows last element at top. 
+                     Standard log is Append to bottom, scroll to bottom. 
+                     Let's use standard. -->
+                <div class="d-flex flex-column p-2 gap-2" id="timeline-container">
+                    {% if results.timeline %}
+                    {% for evt in results.timeline %}
+                    <div class="d-flex justify-content-between align-items-start border-bottom border-dark pb-1">
+                        <div>
+                            <span class="text-muted x-small font-monospace">{{ evt.ts.split('T')[1].split('.')[0]
+                                }}</span>
+                            <span class="badge bg-dark border border-secondary text-light x-small ms-1">{{ evt.module
+                                }}</span>
+                            <span class="text-secondary small ms-1">{{ evt.type }}</span>
+                        </div>
+                        {% if evt.level == 'ERROR' %}
+                        <span class="text-danger x-small fw-bold">ERROR</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-center text-muted small fst-italic py-3" id="no-timeline-row">Waiting for events...
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

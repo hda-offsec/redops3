@@ -170,34 +170,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     try:
         # Use discovered API endpoints for SSRF probing
         discovered_endpoints = []
-        # Correctly initialized safe extraction
-        api_dict = results.get('phases', {}).get('enum', {}).get('api', {})
+        api_map = results.get('phases', {}).get('enum', {}).get('api', {})
         
-        # Iterate over all ports in api data
-        # Structure is results['phases']['enum']['api'][port] = list of dicts (for UI) or logic
-        # But wait, logic in enum.py was: results['phases']['enum']['api'][str(port)] = found_items_api
-        # found_items_api is alist of dicts: {'url': ep, 'status': '200'}
-        # But discovered_endpoints in enum.py was also stored: results['phases']['enum']['api']['discovered_endpoints'] = api_endpoints (list of strings)
+        for k, v in api_map.items():
+            if isinstance(v, list):
+                # Flatten all lists found in api_map (discovered_endpoints + per-port lists)
+                # Ensure we are extending with strings (URLs)
+                for item in v:
+                    if isinstance(item, str):
+                         discovered_endpoints.append(item)
+                    elif isinstance(item, dict) and 'url' in item:
+                         discovered_endpoints.append(item['url'])
         
-        # Checking enum.py again:
-        # results['phases']['enum']['api']['discovered_endpoints'] = api_endpoints
-        # AND
-        # results['phases']['enum']['api'][str(port)] = found_items_api
-        
-        # So we can just grab 'discovered_endpoints' directly?
-        # Creating a robust extraction just in case
-        
-        if 'discovered_endpoints' in api_dict:
-            discovered_endpoints.extend(api_dict['discovered_endpoints'])
-        
-        # Also check port-specific data
-        for port_key, port_val in api_dict.items():
-            if port_key == 'discovered_endpoints': continue
-            if isinstance(port_val, list):
-                for item in port_val:
-                    if isinstance(item, dict) and 'url' in item:
-                        if item['url'] not in discovered_endpoints:
-                            discovered_endpoints.append(item['url'])
+        # Deduplicate
+        discovered_endpoints = list(set(discovered_endpoints))
         
         if discovered_endpoints:
             ssrf = SSRFScanner(target)
