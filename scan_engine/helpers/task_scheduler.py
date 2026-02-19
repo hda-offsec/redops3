@@ -120,8 +120,11 @@ class TaskScheduler:
 
             with self._lock:
                 task_snapshot = dict(self.tasks)
-                remaining = {task_id for task_id, task in task_snapshot.items() if task.state == "pending"}
-            if not remaining:
+            
+            pending_ids = [tid for tid, t in task_snapshot.items() if t.state == "pending"]
+            running_ids = [tid for tid, t in task_snapshot.items() if t.state == "running"]
+
+            if not pending_ids and not running_ids:
                 break
 
             ready_queue = []
@@ -130,7 +133,18 @@ class TaskScheduler:
                     ready_queue.append(task_id)
 
             if not ready_queue:
-                break
+                if running_ids:
+                    time.sleep(0.5)
+                    continue
+                else:
+                    if pending_ids:
+                        msg = f"Scheduler breaking with {len(pending_ids)} pending tasks but none ready. Unmet dependencies: "
+                        for tid in pending_ids[:5]:
+                            task = task_snapshot[tid]
+                            unmet = [d for d in task.deps if task_snapshot.get(d) and task_snapshot[d].state not in {"executed", "skipped"}]
+                            msg += f"[{tid} needs {unmet}] "
+                        if self._orchestrator: self._orchestrator.log(msg, "DEBUG")
+                    break
 
             adaptive_hints = {}
             if self._orchestrator:
@@ -153,16 +167,15 @@ class TaskScheduler:
                 if self._stop_requested():
                     break
                 self.execute_task(task_id)
-                remaining.discard(task_id)
 
             if parallel_ids and not self._stop_requested():
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = {executor.submit(self.execute_task, task_id): task_id for task_id in parallel_ids}
                     for future in as_completed(futures):
                         _ = future.result()
-                        remaining.discard(futures[future])
 
         final_reason = "stop_requested" if self._stop_requested() else "unresolvable_dependencies"
+        skipped_count = 0
         for task_id, task in list(self.tasks.items()):
             notify_progress = False
             with self._lock:
@@ -170,7 +183,11 @@ class TaskScheduler:
                     task.state = "skipped"
                     task.reason = final_reason
                     notify_progress = True
+                    skipped_count += 1
             if notify_progress:
                 self._notify_progress()
+        
+        if skipped_count > 0 and self._orchestrator:
+            self._orchestrator.log(f"Scheduler finished. {skipped_count} tasks were skipped due to {final_reason}.", "DEBUG")
 
         return {task_id: task.result for task_id, task in self.tasks.items()}

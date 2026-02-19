@@ -56,6 +56,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     mutation_engine = MutationEngine(budget, logger=log)
     normalizer = FindingNormalizer()
     
+    # --- DATA RECOVERY: Fetch fingerprint from results if empty ---
+    if not fingerprint_data:
+        whatweb_summary = results.get('phases', {}).get('enum', {}).get('whatweb', {}).get('summary', {}).get(str(port), "")
+        if whatweb_summary:
+            fingerprint_data = whatweb_summary
+            log(f"Recovered fingerprint data from WhatWeb results ({len(fingerprint_data)} bytes).", "DEBUG")
+    
     # Retrieve pre-computed mutation strategy from Enum phase
     mutation_strategy = results.get('phases', {}).get('enum', {}).get('mutation_strategy', {}).get(str(port), {})
 
@@ -103,9 +110,40 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                     orch.save_results(orch.scan_id, results)
 
                     if wp_data['vulns']:
+                        # Build rich description with component context
+                        vuln_lines = []
+                        for v in wp_data['vulns']:
+                            component = v.get('component', 'Unknown')
+                            raw = v.get('raw_title', v.get('title', 'Vuln'))
+                            fixed = v.get('fixed_in', '')
+                            entry = f"• [{component}] {raw}"
+                            if fixed and fixed != "Check WPScan":
+                                entry += f" (fixed in {fixed})"
+                            vuln_lines.append(entry)
+
+                        # Also list detected plugins with versions
+                        plugin_summary = ""
+                        if wp_data['plugins']:
+                            plugin_lines = []
+                            for p in wp_data['plugins']:
+                                pline = f"  - {p['slug']} v{p['version']}"
+                                if p.get('latest_version'):
+                                    pline += f" (latest: {p['latest_version']})"
+                                if p.get('vulns'):
+                                    pline += f" ⚠ {len(p['vulns'])} issue(s)"
+                                plugin_lines.append(pline)
+                            plugin_summary = "\n\nPlugins Detected:\n" + "\n".join(plugin_lines)
+
+                        desc = (
+                            f"WPScan detected {len(wp_data['vulns'])} issue(s):\n\n"
+                            + "\n".join(vuln_lines)
+                            + plugin_summary
+                            + f"\n\nWordPress v{wp_data['version']} | Theme: {wp_data['theme']}"
+                        )
+
                         orch.add_finding(
                             title=f"WordPress Vulnerabilities Detected ({port})",
-                            description=f"WPScan detected potential vulnerabilities:\n\n" + "\n".join([v.get('title', 'Vuln') for v in wp_data['vulns']]),
+                            description=desc,
                             severity="high",
                             tool_source="wpscan"
                         )

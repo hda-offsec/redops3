@@ -1,3 +1,12 @@
+import sys
+import os
+
+# Ensure the project root is always in sys.path, even when Celery is launched
+# via nohup or from a different working directory.
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from core.celery_app import celery
 from core.extensions import db
 from core.models import Scan, ScanLog, Finding, Suggestion, Loot, Target
@@ -183,10 +192,18 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 
                 # If progress is in data, emit specifically for progress handlers
                 if "progress" in data:
+                    progress_data = data["progress"]
+                    if isinstance(progress_data, dict):
+                        percent = progress_data.get("percent", 0)
+                        phase = progress_data.get("current_phase", "Processing")
+                    else:
+                        percent = progress_data
+                        phase = "Executing Tasks"
+                        
                     socketio.emit("progress_update", {
                         "scan_id": scan_id,
-                        "percent": data["progress"]["percent"],
-                        "current_phase": data["progress"]["current_phase"]
+                        "percent": percent,
+                        "current_phase": phase
                     }, room=f"scan_{scan_id}")
 
                 socketio.emit('results_update', {

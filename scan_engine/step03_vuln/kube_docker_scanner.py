@@ -63,3 +63,8 @@ class KubeDockerScanner:
                 continue
             
         return findings
+
+    # Alias for orchestrator compatibility
+    def scan_exposure(self, port, protocol='http', logger=None):
+        return self.scan_containers(logger=logger)
+

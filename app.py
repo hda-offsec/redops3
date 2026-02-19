@@ -1,4 +1,10 @@
 import os
+import sys
+# Ensure project root is in path
+_root = os.path.dirname(os.path.abspath(__file__))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 from flask import Flask
 from dotenv import load_dotenv
 from sqlalchemy.engine.url import make_url
@@ -9,9 +15,10 @@ import urllib3
 # Suppress insecure request warnings for the local security tool
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Import models so they are registered with SQLAlchemy
+# Import models and tasks so they are registered
 from core import models
 from core.models import User
+import core.tasks
 
 load_dotenv()
 

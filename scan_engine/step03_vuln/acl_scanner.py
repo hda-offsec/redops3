@@ -64,3 +64,7 @@ class AccessControlScanner:
         except:
             pass
         return findings
+
+    # Alias for orchestrator compatibility
+    def scan_acl(self, port, protocol='http', logger=None):
+        return self.scan_403_bypass(port, protocol, logger=logger)

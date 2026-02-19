@@ -1,7 +1,14 @@
 import tempfile
 import os
+import signal
+import subprocess
+import threading
 from urllib.parse import urlparse
 from scan_engine.helpers.process_manager import ProcessManager
+
+# Maximum time (seconds) Dalfox may run for a batch scan before being killed.
+DALFOX_GLOBAL_TIMEOUT = 900  # 15 minutes
+
 
 class DalfoxScanner:
     def __init__(self, target):
@@ -19,7 +26,8 @@ class DalfoxScanner:
             "--no-color",
             "--silence",
             "--worker", "10",
-            "--skip-bav"
+            "--skip-bav",
+            "--timeout", "10",
         ]
 
     def stream_scan_xss(self, port, protocol='http'):
@@ -32,7 +40,7 @@ class DalfoxScanner:
     def stream_scan_pipe(self, urls):
         """
         Writes URLs to a temp file and runs dalfox in file mode for batch scanning.
-        Returns a stream of events (same contract as stream_command).
+        Includes a global timeout to prevent indefinite blocking on rate-limited sites.
         """
         if not urls:
             return iter([])
@@ -59,22 +67,59 @@ class DalfoxScanner:
                 path, "file", url_file,
                 "--no-color", "--silence",
                 "--skip-bav", "--worker", "4",
+                "--timeout", "10",
             ]
-            yield from ProcessManager.stream_command(command)
+
+            # --- GLOBAL TIMEOUT: Kill dalfox if it exceeds DALFOX_GLOBAL_TIMEOUT ---
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+            )
+
+            # Watchdog timer
+            killed = threading.Event()
+
+            def _kill_on_timeout():
+                killed.set()
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+            timer = threading.Timer(DALFOX_GLOBAL_TIMEOUT, _kill_on_timeout)
+            timer.daemon = True
+            timer.start()
+
+            try:
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        yield {"type": "stdout", "line": line.rstrip('\n\r')}
+                process.stdout.close()
+                return_code = process.wait()
+
+                if killed.is_set():
+                    yield {"type": "stdout", "line": f"[TIMEOUT] Dalfox killed after {DALFOX_GLOBAL_TIMEOUT}s global timeout."}
+                    yield {"type": "exit", "code": -9}
+                else:
+                    yield {"type": "exit", "code": return_code}
+            finally:
+                timer.cancel()
+
         finally:
             if os.path.exists(url_file):
                 os.remove(url_file)
 
     def stream_scan_url(self, url):
         """
-        Scans a single URL. Consumes the stream to ensure execution since caller might not iterate.
+        Scans a single URL.
         """
         path = ProcessManager.find_binary_path("dalfox") or "dalfox"
-        # Use basic scan options
-        command = [path, "url", url, "--no-color", "--silence", "--skip-bav", "--worker", "10"]
+        command = [path, "url", url, "--no-color", "--silence", "--skip-bav", "--worker", "10", "--timeout", "10"]
         
-        # Generator that we consume immediately to force execution
         stream = ProcessManager.stream_command(command)
         for event in stream:
-            pass # Just execute, we rely on logs or CLI output if any (silenced)
+            pass
 

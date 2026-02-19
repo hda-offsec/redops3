@@ -192,9 +192,24 @@ class ScanOrchestrator:
         self.save_results(self.scan_id, payload)
 
     def _task_wrapper(self, task_id, func, *args, **kwargs):
-        self._check_control(task_id)
-        self._set_task_state(task_id, "running", None)
+        from flask import has_app_context, current_app
+        
+        ctx = None
+        if not has_app_context():
+            # In a thread, we likely lost the context.
+            # We recreate it using the app instance if we can find it
+            try:
+                from app import create_app
+                _app = create_app()
+                ctx = _app.app_context()
+                ctx.push()
+            except Exception as e:
+                self.log(f"Failed to create app context in thread: {e}", "DEBUG")
+
         try:
+            self._check_control(task_id)
+            self._set_task_state(task_id, "running", None)
+            
             ret = func(*args, **kwargs)
 
             def _update_success():
@@ -221,6 +236,9 @@ class ScanOrchestrator:
             self.log(f"Task {task_id} failed: {reason}", "ERROR")
             self.log(traceback.format_exc(), "DEBUG")
             return None
+        finally:
+            if ctx:
+                ctx.pop()
 
     def _build_web_ports(self, open_ports):
         web_ports = []
@@ -248,6 +266,7 @@ class ScanOrchestrator:
                 "osint": {"cloud": [], "favicon": {}, "github": [], "emails": [], "dorks": [], "origin_ips": []},
                 "enum": {
                     "whatweb": {}, "katana": {}, "api": {}, "arjun": {}, "headers": {},
+                    "js_secrets": {},
                     "targets": {}, "injection_points": {}, "normalized": {}, "derived": {},
                     "seed_meta": {}, "attack_profile": {}, "mutation_strategy": {}
                 },
@@ -293,7 +312,10 @@ class ScanOrchestrator:
             def discover_web_ports_task():
                 open_ports = self.results.get("phases", {}).get("recon", {}).get("open_ports", [])
                 web_ports = self._build_web_ports(open_ports)
+                self.log(f"Discovery: Found {len(open_ports)} total ports, {len(web_ports)} web ports.", "DEBUG")
+                
                 for port, proto in web_ports:
+                    self.log(f"Dynamically adding tasks for {proto}://{self.target}:{port}", "DEBUG")
                     enum_task_id = f"enum_{port}"
                     vuln_task_id = f"vuln_{port}"
                     scheduler.add_task(
@@ -355,7 +377,21 @@ class ScanOrchestrator:
             cortex_recommendations = suggest_actions(self.results)
             self.results["phases"]["enum"]["derived"]["cortex_recommendations"] = cortex_recommendations
 
-            self.results["metrics"]["findings_count"] = len(self.results.get("phases", {}).get("vuln", {}).get("nuclei", {}).get("findings", []))
+            # Recalculate findings count from all vuln modules
+            total_findings = 0
+            vuln_data = self.results.get("phases", {}).get("vuln", {})
+            for module, data in vuln_data.items():
+                if isinstance(data, list):
+                    total_findings += len(data)
+                elif isinstance(data, dict):
+                    if "findings" in data and isinstance(data["findings"], list):
+                        total_findings += len(data["findings"])
+                    else:
+                        # Some modules like 'wordpress' might have nested vulns
+                        if "vulns" in data and isinstance(data["vulns"], list):
+                            total_findings += len(data["vulns"])
+            
+            self.results["metrics"]["findings_count"] = total_findings
             self.results["metrics"]["artifacts_count"] = sum(
                 int(item.get("artifacts", 0))
                 for module_data in self.results.get("modules", {}).values()

@@ -33,10 +33,27 @@ class EnumSeedFactory:
         self.dynamic_exts = ['.php', '.jsp', '.asp', '.aspx', '.cfm', '.py', '.rb', '.pl', '.cgi']
         self.static_exts = ['.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.ico', '.pdf']
 
+        # --- SCOPE ENFORCEMENT ---
+        # Extract the root domain for scope filtering (e.g. "iffen.fr" from "www.iffen.fr")
+        parts = self.target.lower().split('.')
+        if len(parts) >= 2:
+            self.root_domain = '.'.join(parts[-2:])  # e.g. "iffen.fr"
+        else:
+            self.root_domain = self.target.lower()
+
+    def _is_in_scope(self, url):
+        """Check if a URL belongs to the target domain (prevents cross-domain leakage via redirects)."""
+        try:
+            parsed = urlparse(url)
+            hostname = (parsed.hostname or "").lower()
+            return hostname.endswith(self.root_domain)
+        except Exception:
+            return False
+
     def add_raw_endpoints(self, endpoints, source="unknown"):
         for ep in endpoints:
             url = ep if isinstance(ep, str) else ep.get("url")
-            if url:
+            if url and self._is_in_scope(url):
                 self.raw_endpoints.append({"url": url, "source": source})
 
     def add_arjun_params(self, params):

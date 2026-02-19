@@ -71,3 +71,8 @@ class EmailSecurityScanner:
             if logger: logger(f"Email security check error: {e}", "DEBUG")
             
         return findings
+
+    # Alias for orchestrator compatibility
+    def scan_security(self, logger=None):
+        return self.scan_email_security(logger=logger)
+

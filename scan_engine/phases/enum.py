@@ -166,7 +166,26 @@ def run_enum(orchestrator, port, proto):
              log(f"Crawling {proto}://{target}:{port} (Katana)...", "INFO")
              _ts(lambda: results['commands'].append({'tool': 'katana', 'cmd': shlex.join(katana.get_command(port, proto))}))
              kt_stream = katana.stream_scan(port, proto)
-             endpoints = [ev["line"].strip() for ev in kt_stream if ev["type"] == "stdout" and ev["line"].strip()]
+             raw_endpoints = [ev["line"].strip() for ev in kt_stream if ev["type"] == "stdout" and ev["line"].strip()]
+             
+             # --- SCOPE ENFORCEMENT: Drop off-scope URLs ---
+             from urllib.parse import urlparse as _urlparse
+             t_parts = target.lower().split('.')
+             root_dom = '.'.join(t_parts[-2:]) if len(t_parts) >= 2 else target.lower()
+             endpoints = []
+             dropped = 0
+             for ep in raw_endpoints:
+                 try:
+                     h = (_urlparse(ep).hostname or "").lower()
+                     if h.endswith(root_dom):
+                         endpoints.append(ep)
+                     else:
+                         dropped += 1
+                 except:
+                     endpoints.append(ep)
+             if dropped:
+                 log(f"Katana Scope Filter: Dropped {dropped} off-scope URLs.", "WARN")
+             
              _ts(lambda: results['phases']['enum']['katana'].__setitem__(str(port), endpoints[:1000]))
              orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
     except Exception as e:

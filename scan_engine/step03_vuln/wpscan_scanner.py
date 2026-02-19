@@ -1,6 +1,10 @@
+import os
+import shutil
 from scan_engine.helpers.process_manager import ProcessManager
 
 class WPScanScanner:
+    WPSCAN_CACHE_DIR = "/tmp/wpscan/cache"
+
     def __init__(self, target):
         self.target = target
 
@@ -8,8 +12,19 @@ class WPScanScanner:
         """Verifier que wpscan est installé"""
         return ProcessManager.find_binary_path("wpscan") is not None
 
+    @staticmethod
+    def _purge_cache():
+        """Purge the WPScan cache to prevent 'No space left on device' errors."""
+        try:
+            if os.path.isdir(WPScanScanner.WPSCAN_CACHE_DIR):
+                shutil.rmtree(WPScanScanner.WPSCAN_CACHE_DIR, ignore_errors=True)
+        except Exception:
+            pass
+
     def stream_scan(self, port, protocol='http', enumerate_all=False):
         """Scanner un site Wordpress en streaming"""
+        # Purge stale cache to prevent disk-full crashes
+        self._purge_cache()
         url = f"{protocol}://{self.target}:{port}"
         
         # Commande wpscan de base

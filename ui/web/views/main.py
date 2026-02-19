@@ -792,6 +792,16 @@ def clear_logs():
                     except:
                         pass
         
+        # Clean temp directories that fill up /tmp (WPScan cache, chromedp orphans)
+        import glob
+        try:
+            if os.path.isdir("/tmp/wpscan/cache"):
+                shutil.rmtree("/tmp/wpscan/cache", ignore_errors=True)
+            for d in glob.glob("/tmp/chromedp-runner*"):
+                shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+        
         flash(f"Mission Log Purged ({num_scans} scans, {files_deleted} result files removed). Environment reset.", "success")
     except Exception as e:
         db.session.rollback()
