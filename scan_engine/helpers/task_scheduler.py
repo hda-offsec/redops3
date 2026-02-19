@@ -132,6 +132,20 @@ class TaskScheduler:
             if not ready_queue:
                 break
 
+            adaptive_hints = {}
+            if self._orchestrator:
+                adaptive_hints = (
+                    self._orchestrator.results.get("phases", {})
+                    .get("enum", {})
+                    .get("derived", {})
+                    .get("adaptive_hints", {})
+                )
+
+            ready_queue.sort(
+                key=lambda tid: adaptive_hints.get(tid, {}).get("priority_boost", 0),
+                reverse=True,
+            )
+
             sequential_ids = [tid for tid in ready_queue if not self._is_parallel_safe(task_snapshot[tid])]
             parallel_ids = [tid for tid in ready_queue if self._is_parallel_safe(task_snapshot[tid])]
 

@@ -12,6 +12,7 @@ except Exception:
                 pass
 
         return _Dummy()
+from scan_engine.helpers.adaptive_hints import derive_adaptive_hints
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
@@ -337,6 +338,9 @@ class ScanOrchestrator:
             self.save_results(self.scan_id, {"metrics": self.results["metrics"], "task_status": self.results["task_status"], "progress": self.results["progress"]})
 
             scheduler.run()
+
+            adaptive_hints = derive_adaptive_hints(self.results)
+            self.results["phases"]["enum"]["derived"]["adaptive_hints"] = adaptive_hints
 
             attack_builder = AttackGraphBuilder()
             attack_builder.build(self.results)
