@@ -36,7 +36,7 @@ class CloudMetadataScanner:
                 url = f"{base_url}{path}"
                 try:
                     # Short timeout because if it's not a proxy, it will likely 404 fast or timeout
-                    r = requests.get(url, headers=self.headers, timeout=3, verify=False, allow_redirects=False)
+                    r = requests.get(url, headers=self.headers, timeout=3, verify=True, allow_redirects=False)
                     
                     if r.status_code == 200:
                         # Validation logic to reduce false positives
@@ -58,7 +58,7 @@ class CloudMetadataScanner:
                             })
                             if logger: logger(f"CRITICAL: Found {provider.upper()} metadata at {url}", "CRITICAL")
                             return findings # Stop after first confirmed hit to avoid noise/alarms
-                except:
+                except Exception:
                     pass
         
         return findings

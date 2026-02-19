@@ -57,13 +57,13 @@ class OpenRedirectScanner:
                         ))
 
                         try:
-                            r = requests.get(test_url, timeout=5, verify=False, allow_redirects=False)
+                            r = requests.get(test_url, timeout=5, verify=True, allow_redirects=False)
                             loc = r.headers.get('Location', '')
                             if loc.startswith('//google.com') or 'google.com' in loc:
                                 if logger: logger(f"🔥 Open Redirect Found: {test_url} -> {loc}", "CRITICAL")
                                 vulnerable.append({"url": test_url, "destination": loc})
                                 break  # Next param
-                        except:
+                        except Exception:
                             continue
             except Exception:
                 continue

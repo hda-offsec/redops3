@@ -33,7 +33,7 @@ class KubeDockerScanner:
                         url = f"http://{self.target}:{port}/pods" if port in [10250, 10255] else f"http://{self.target}:{port}/version"
                         if port == 6443: url = f"https://{self.target}:{port}/version"
                         
-                        r = requests.get(url, timeout=3, verify=False)
+                        r = requests.get(url, timeout=3, verify=True)
                         if r.status_code == 200:
                             findings.append({
                                 "title": f"CRITICAL: Exposed {service}",
@@ -50,7 +50,7 @@ class KubeDockerScanner:
                                 "severity": "high",
                                 "tool_source": "kube_scanner"
                             })
-                    except:
+                    except Exception:
                         # Just open but timeout on HTTP
                          findings.append({
                                 "title": f"Medium: Exposed Container Port {port}",

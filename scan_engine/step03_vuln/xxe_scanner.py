@@ -43,6 +43,6 @@ class XXEScanner:
                         "response_snippet": r.text[:200] if len(r.text) > 200 else r.text
                     })
                     if logger: logger(f"💀 XXE CONFIRMED: {target_url}", "CRITICAL")
-            except:
+            except Exception:
                 pass
         return findings

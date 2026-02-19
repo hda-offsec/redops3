@@ -47,7 +47,7 @@ class JSDeepScanner:
     def scan_url(self, url, logger=None):
         results = {"secrets": [], "endpoints": [], "raw_size": 0}
         try:
-            r = requests.get(url, timeout=10, verify=False)
+            r = requests.get(url, timeout=10, verify=True)
             if r.status_code != 200:
                 return results
                 

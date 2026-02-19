@@ -60,6 +60,6 @@ class LFIScanner:
                         })
                         if logger: logger(f"🔓 LFI READ SUCCESS: {target_url}", "CRITICAL")
                         return findings
-                except:
+                except Exception:
                     pass
         return findings

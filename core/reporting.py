@@ -84,7 +84,7 @@ class RedOpsReport(FPDF):
         # Fallback: encode/decode to strip unhandled chars
         try:
             return text.encode('latin-1', 'replace').decode('latin-1')
-        except:
+        except Exception:
             return text
 
     def chapter_title(self, title, color=(255, 42, 42)):
@@ -374,7 +374,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
                     pdf.ln(2)
                     pdf.image(full_img_path, w=150)
                     pdf.ln(5)
-                except: pass
+                except Exception: pass
         pdf.ln(4)
 
     # 6. LOOT VAULT

@@ -8,12 +8,12 @@ jobs:
   quality-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           fetch-depth: 0
 
       # Optional: run tests to include coverage
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@f67e515f7e7121d9eec507d6537388701e91307b # v5.1.1
         with:
           python-version: '3.12'
       - run: |

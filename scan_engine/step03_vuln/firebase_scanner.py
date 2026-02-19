@@ -26,6 +26,6 @@ class FirebaseScanner:
                         "raw_loot": url
                     })
                     if logger: logger(f"🚨 FIREBASE BREACH: {url}", "CRITICAL")
-            except:
+            except Exception:
                 pass
         return findings

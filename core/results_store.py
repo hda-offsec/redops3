@@ -39,7 +39,7 @@ def save_results(scan_id, data, overwrite=False):
             try:
                 with open(filename, 'r') as f:
                     current_data = json.load(f)
-            except:
+            except Exception:
                 current_data = {}
 
         # Merge new data into current (or just use new data if overwriting)

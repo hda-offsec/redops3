@@ -23,9 +23,9 @@ def analyze_security_headers(target, port, proto, logger_func):
         url = f"{proto}://{target}:{port}"
         # logger_func(f"Fetching headers from {url}...", "DEBUG") # Too verbose?
         try:
-            resp = requests.head(url, timeout=5, verify=False, allow_redirects=True)
+            resp = requests.head(url, timeout=5, verify=True, allow_redirects=True)
         except Exception:
-            resp = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+            resp = requests.get(url, timeout=5, verify=True, allow_redirects=True)
              
         headers = resp.headers
         
@@ -181,7 +181,7 @@ def run_enum(orchestrator, port, proto):
                          endpoints.append(ep)
                      else:
                          dropped += 1
-                 except:
+                 except Exception:
                      endpoints.append(ep)
              if dropped:
                  log(f"Katana Scope Filter: Dropped {dropped} off-scope URLs.", "WARN")

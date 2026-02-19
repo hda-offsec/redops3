@@ -28,7 +28,7 @@ class SSRFScanner:
             # We don't want to use requests here for the final check because we want to see 
             # if the target acts as a proxy.
             test_url = f"{base_url}{'&' if '?' in base_url else '?'}{param}={payload}"
-            r = requests.get(test_url, timeout=5, verify=False, allow_redirects=True)
+            r = requests.get(test_url, timeout=5, verify=True, allow_redirects=True)
             
             # Guard: only match on 200 with text content (avoids WAF/redirect false positives)
             if r.status_code != 200:
@@ -47,7 +47,7 @@ class SSRFScanner:
             
             if any(sig in r.text for sig in signatures):
                 return True, r.text, test_url
-        except:
+        except Exception:
             pass
         return False, None, None
 

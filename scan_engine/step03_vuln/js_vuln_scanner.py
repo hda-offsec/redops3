@@ -36,7 +36,7 @@ class JSVulnScanner:
                             "severity": data.get('info', {}).get('severity', 'info'),
                             "tool_source": "js_dependency_scanner"
                         })
-                    except: continue
+                    except Exception: continue
         except Exception as e:
             if logger: logger(f"JS Audit failed: {e}", "DEBUG")
             

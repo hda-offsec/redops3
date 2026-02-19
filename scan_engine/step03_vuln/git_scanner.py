@@ -16,7 +16,7 @@ class GitExposureScanner:
             if logger: logger(f"Advanced: Checking for .git exposure on {protocol}://{self.target}:{port}...", "INFO")
             
             # 1. Check for .git/config
-            r = requests.get(url, timeout=7, verify=False, allow_redirects=False)
+            r = requests.get(url, timeout=7, verify=True, allow_redirects=False)
             if r.status_code == 200 and "[core]" in r.text:
                 config_content = r.text
                 
@@ -40,7 +40,7 @@ class GitExposureScanner:
                 if logger: logger(f"🔥 CRITICAL: Exposed .git directory found on port {port}!", "CRITICAL")
 
                 # 2. Check for .git/HEAD to confirm
-                r_head = requests.get(f"{protocol}://{self.target}:{port}/.git/HEAD", timeout=5, verify=False)
+                r_head = requests.get(f"{protocol}://{self.target}:{port}/.git/HEAD", timeout=5, verify=True)
                 if r_head.status_code == 200 and "ref:" in r_head.text:
                     if logger: logger(f"Confirmed: Valid .git/HEAD found: {r_head.text.strip()}", "SUCCESS")
                     
@@ -74,13 +74,13 @@ class GitExposureScanner:
             
         try:
             # Get HEAD to find current branch
-            r_head = requests.get(base_url + "HEAD", verify=False, timeout=10)
+            r_head = requests.get(base_url + "HEAD", verify=True, timeout=10)
             if "ref:" not in r_head.text: return
             
             ref_path = r_head.text.split(" ")[1].strip()
             
             # Get the object hash of the last commit
-            r_ref = requests.get(base_url + ref_path, verify=False, timeout=10)
+            r_ref = requests.get(base_url + ref_path, verify=True, timeout=10)
             if r_ref.status_code != 200: return
             
             commit_hash = r_ref.text.strip()
@@ -92,7 +92,7 @@ class GitExposureScanner:
             
             def save_url(url, dest):
                 try:
-                    r = requests.get(url, verify=False, timeout=5)
+                    r = requests.get(url, verify=True, timeout=5)
                     if r.status_code == 200:
                         with open(dest, 'wb') as f: f.write(r.content)
                 except Exception:

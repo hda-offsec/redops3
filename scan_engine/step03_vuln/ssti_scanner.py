@@ -42,6 +42,6 @@ class SSTIScanner:
                         })
                         if logger: logger(f"💀 SSTV RCE CONFIRMED: {target_url}", "CRITICAL")
                         return findings # Return early on confirm
-                except:
+                except Exception:
                     pass
         return findings

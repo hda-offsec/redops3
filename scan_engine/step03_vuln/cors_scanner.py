@@ -42,6 +42,6 @@ class CORSScanner:
                         "severity": "medium",
                         "tool_source": "cors_scanner"
                     })
-        except:
+        except Exception:
             pass
         return findings

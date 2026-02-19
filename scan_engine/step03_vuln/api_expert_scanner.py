@@ -34,7 +34,7 @@ class APIExpertScanner:
             data = json.loads(content)
             if any(k in data for k in ["swagger", "openapi", "paths", "info"]):
                 return True
-        except:
+        except Exception:
             if any(x in content for x in ["openapi:", "swagger:", "swagger-ui", "redoc-container"]):
                 return True
         return False
@@ -52,13 +52,13 @@ class APIExpertScanner:
             for endpoint in self.COMMON_ENDPOINTS:
                 url = urljoin(self.target, f"{prefix}{endpoint}")
                 try:
-                    r = requests.get(url, timeout=5, verify=False)
+                    r = requests.get(url, timeout=5, verify=True)
                     if r.status_code in [200, 401, 403, 405, 500]:
                         # Filter out generic 404 pages that might return 200
                         if "not found" not in r.text.lower():
                             discovered.append({'url': url, 'status': r.status_code, 'path': f"{prefix}{endpoint}"})
                             if logger: logger(f"API Discovery: Found {url} ({r.status_code})", "SUCCESS")
-                except:
+                except Exception:
                     pass
         
         return discovered
@@ -77,7 +77,7 @@ class APIExpertScanner:
         for payload in self.SQLI_PAYLOADS[:3]: # Limit to avoid DoS
             target = f"{url}?id={payload}&q={payload}"
             try:
-                r = requests.get(target, timeout=5, verify=False)
+                r = requests.get(target, timeout=5, verify=True)
                 if any(e in r.text.lower() for e in ['sql', 'mysql', 'postgresql', 'oracle', 'syntax error']):
                     findings.append({
                         "title": "CRITICAL: SQL Injection Detected",
@@ -92,7 +92,7 @@ class APIExpertScanner:
         for payload in self.XSS_PAYLOADS[:2]:
             target = f"{url}?q={payload}&search={payload}"
             try:
-                r = requests.get(target, timeout=5, verify=False)
+                r = requests.get(target, timeout=5, verify=True)
                 if payload in r.text:
                     findings.append({
                         "title": "HIGH: Reflected XSS",
@@ -107,7 +107,7 @@ class APIExpertScanner:
         for payload in self.SSTI_PAYLOADS[:2]:
             target = f"{url}?template={payload}&name={payload}"
             try:
-                r = requests.get(target, timeout=5, verify=False)
+                r = requests.get(target, timeout=5, verify=True)
                 if "49" in r.text and "7*7" not in r.text: # Simple check for 7*7=49
                     findings.append({
                         "title": "CRITICAL: Server-Side Template Injection",
@@ -137,7 +137,7 @@ class APIExpertScanner:
 
         for p in payloads:
             try:
-                r = requests.post(url, json=p, timeout=5, verify=False)
+                r = requests.post(url, json=p, timeout=5, verify=True)
                 if r.status_code == 200 and "token" in r.text.lower():
                      findings.append({
                         "title": "CRITICAL: Authentication Bypass / Logic Flaw",

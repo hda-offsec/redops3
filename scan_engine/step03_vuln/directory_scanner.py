@@ -54,7 +54,7 @@ class DirectoryScanner:
             if checked > 50: break # Guardrail
             
             try:
-                r = requests.get(ep, timeout=5, verify=False)
+                r = requests.get(ep, timeout=5, verify=True)
                 if self.is_directory_listing(r.text):
                     if logger: logger(f"🔥 DIRECTORY LISTING: Found at {ep}", "WARN")
                     
@@ -70,7 +70,7 @@ class DirectoryScanner:
                         "screenshot_path": screenshot
                     })
                 checked += 1
-            except:
+            except Exception:
                 continue
                 
         return findings

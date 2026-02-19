@@ -146,7 +146,7 @@ class LfiAssaultScanner:
                         final_url = self._inject(target_url, param, payload)
                         
                         try:
-                            resp = session.get(final_url, timeout=5, verify=False)
+                            resp = session.get(final_url, timeout=5, verify=True)
                             if self._check_success(resp, rule):
                                 findings.append({
                                     "title": f"LFI Detected ({rule['rule_id']})",

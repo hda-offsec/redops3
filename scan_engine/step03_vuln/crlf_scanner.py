@@ -29,6 +29,6 @@ class CRLFScanner:
                         "raw_loot": target_url
                     })
                     break
-        except:
+        except Exception:
             pass
         return findings

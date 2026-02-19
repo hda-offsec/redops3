@@ -92,7 +92,7 @@ class AttackVectorMapper:
                             "lat": data.get("lat"),
                             "lon": data.get("lon")
                         }
-            except:
+            except Exception:
                 pass
             return None
 

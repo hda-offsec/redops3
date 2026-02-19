@@ -20,7 +20,7 @@ class TechExposureScanner:
             url = base_url + file
             try:
                 # We use a custom User-Agent to avoid some basic filter and allow_redirects=False
-                r = requests.get(url, timeout=5, verify=False, allow_redirects=False, headers={"User-Agent": "Mozilla/5.0"})
+                r = requests.get(url, timeout=5, verify=True, allow_redirects=False, headers={"User-Agent": "Mozilla/5.0"})
                 
                 # Check if it looks like a real file (200 OK + not a generic login page)
                 if r.status_code == 200:
@@ -41,7 +41,7 @@ class TechExposureScanner:
                                 "severity": "critical" if any(x in file for x in ['.env', '.ssh', 'aws', 'docker']) else "high",
                                 "tool_source": "tech_audit"
                             })
-            except:
+            except Exception:
                 continue
                 
         return findings

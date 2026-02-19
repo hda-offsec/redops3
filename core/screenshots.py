@@ -32,7 +32,7 @@ async def capture_screenshot(url, filename):
                 # Attempt to wait for network idle but don't fail if it times out
                 try:
                     await page.wait_for_load_state("networkidle", timeout=5000)
-                except:
+                except Exception:
                     pass
             except Exception as e:
                 # If even "load" fails, one last try with no wait if we haven't timed out completely

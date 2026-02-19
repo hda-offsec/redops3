@@ -114,7 +114,7 @@ class CloudScanner:
             while not q.empty():
                 try:
                     p = q.get_nowait()
-                except:
+                except Exception:
                     break
                     
                 # AWS

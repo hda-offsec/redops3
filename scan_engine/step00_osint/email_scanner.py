@@ -30,7 +30,7 @@ class EmailScanner:
         if logger: logger(f"Email Discover: Scraping {len(urls)} pages for contact info...", "INFO")
         for url in urls[:50]: # limit to first 50 pages
             try:
-                response = requests.get(url, timeout=5, verify=False)
+                response = requests.get(url, timeout=5, verify=True)
                 if response.status_code == 200:
                     matches = re.findall(r'[a-zA-Z0-9._%+-]+@' + re.escape(self.target), response.text)
                     for email in matches:

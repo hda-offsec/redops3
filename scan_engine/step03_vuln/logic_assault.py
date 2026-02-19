@@ -96,10 +96,10 @@ class LogicAssaultScanner:
     def _test_bypass_headers(self, url):
         # First check baseline
         try:
-            base = self.session.get(url, timeout=5, verify=False)
+            base = self.session.get(url, timeout=5, verify=True)
             if base.status_code not in [401, 403]:
                 return None # Not protected, skip bypass attempt
-        except:
+        except Exception:
             return None
 
         # Try bypass headers
@@ -107,7 +107,7 @@ class LogicAssaultScanner:
             for val in values:
                 try:
                     headers = {header: val}
-                    resp = self.session.get(url, headers=headers, timeout=5, verify=False)
+                    resp = self.session.get(url, headers=headers, timeout=5, verify=True)
                     
                     # If status code changes to 200/202/302 from 403/401
                     if resp.status_code in [200, 202] and len(resp.content) > 0:
@@ -119,7 +119,7 @@ class LogicAssaultScanner:
                              "url": url,
                              "raw_loot": f"Bypass with {header}: {val}"
                          }
-                except:
+                except Exception:
                     pass
         return None
 
@@ -184,12 +184,12 @@ class LogicAssaultScanner:
         # Real IDOR checking is hard without comparing to authorized baseline.
         # But for an unauthorized scanner, 200 OK on /users/1 is interesting if /users/me is the norm.
         try:
-            resp = self.session.get(url, timeout=5, verify=False)
+            resp = self.session.get(url, timeout=5, verify=True)
             if resp.status_code == 200 and "login" not in resp.url and len(resp.text) > 500:
                 # Basic heuristic
                 if "error" not in resp.text.lower() and "unauthorized" not in resp.text.lower():
                     return True
-        except:
+        except Exception:
             pass
         return False
 

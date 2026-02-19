@@ -37,7 +37,7 @@ class OriginRevealer:
                 candidates.append({"ip": current_ip, "confidence": "high", "reason": "Direct DNS Resolution (No CDN detected)"})
             else:
                 if logger: logger(f"OriginRevealer: Domain is behind CDN ({current_ip}). probing deeper...", "INFO")
-        except:
+        except Exception:
             pass
 
         # 2. SSL Certificate Matching on Common Subnets (Aggressive)
@@ -64,7 +64,7 @@ class OriginRevealer:
             host = socket.gethostbyaddr(ip)[0]
             if "cloudflare" in host or "akamai" in host or "cloudfront" in host:
                 return True
-        except:
+        except Exception:
             pass
         return False
 
@@ -72,7 +72,7 @@ class OriginRevealer:
         try:
             import mmh3
             import codecs
-            response = requests.get(f"{url}/favicon.ico", timeout=5, verify=False)
+            response = requests.get(f"{url}/favicon.ico", timeout=5, verify=True)
             if response.status_code == 200:
                 favicon = codecs.encode(response.content, "base64")
                 hash_val = mmh3.hash(favicon)

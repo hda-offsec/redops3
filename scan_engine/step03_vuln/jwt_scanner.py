@@ -23,7 +23,7 @@ class JWTScanner:
             header = json.loads(b64_decode(parts[0]))
             payload = json.loads(b64_decode(parts[1]))
             return {"header": header, "payload": payload}
-        except:
+        except Exception:
             return None
 
     def audit_token(self, token, source_url):

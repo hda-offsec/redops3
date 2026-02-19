@@ -44,7 +44,7 @@ class WebSocketScanner:
                     "tool_source": "websocket_scanner",
                     "raw_loot": base_url
                 })
-        except:
+        except Exception:
             pass
             
         return findings

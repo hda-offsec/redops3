@@ -9,7 +9,7 @@ class FaviconScanner:
 
     def calculate_hash(self, url):
         try:
-            response = requests.get(url, timeout=10, verify=False)
+            response = requests.get(url, timeout=10, verify=True)
             if response.status_code == 200:
                 favicon = codecs.encode(response.content, 'base64')
                 hash_val = mmh3.hash(favicon)

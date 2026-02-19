@@ -61,7 +61,7 @@ class AccessControlScanner:
                     except Exception:
                         continue
 
-        except:
+        except Exception:
             pass
         return findings
 

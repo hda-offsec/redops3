@@ -35,7 +35,7 @@ class PrototypePollutionScanner:
                         "tool_source": "prototype_scanner",
                         "raw_loot": target_url
                     })
-        except:
+        except Exception:
             pass
             
         return findings

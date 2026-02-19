@@ -106,7 +106,7 @@ def probe_web_ports(orchestrator):
         url = f"{proto}://{target}:{fp}"
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
-            resp = requests.get(url, timeout=5, verify=False, allow_redirects=True, headers=headers)
+            resp = requests.get(url, timeout=5, verify=True, allow_redirects=True, headers=headers)
             log(f"  [+] Fallback: Target is ALIVE on {url} (Status: {resp.status_code})", "SUCCESS")
             open_ports.append({
                 "port": fp,

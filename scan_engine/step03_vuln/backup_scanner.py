@@ -77,7 +77,7 @@ class BackupScanner:
                         "loot_type": "Sensitive File"
                     })
                     if logger: logger(f"💰 LOOT FOUND: Exposed backup detected at {url}", "WARN")
-            except:
+            except Exception:
                 continue
 
         return findings

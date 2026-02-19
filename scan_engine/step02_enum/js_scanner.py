@@ -32,7 +32,7 @@ class JSSecretScanner:
         """Fetches a JS file and scans it for secrets and endpoints"""
         results = {"secrets": [], "endpoints": [], "raw": ""}
         try:
-            response = requests.get(url, timeout=10, verify=False)
+            response = requests.get(url, timeout=10, verify=True)
             if response.status_code == 200:
                 content = response.text
                 results["raw"] = content

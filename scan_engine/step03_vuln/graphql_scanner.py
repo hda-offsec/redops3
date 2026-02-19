@@ -122,13 +122,13 @@ class GraphQLScanner:
             url = f"{base_url}{ep}"
             try:
                 # 1. Check if endpoint exists
-                r = requests.options(url, timeout=3, verify=False)
+                r = requests.options(url, timeout=3, verify=True)
                 if r.status_code not in [200, 405, 400]: # Some APIs return 400 for empty GraphQL POST
                     continue
                 
                 # 2. Attempt Introspection
                 headers = {'Content-Type': 'application/json'}
-                r_int = requests.post(url, json=self.introspection_query, headers=headers, timeout=5, verify=False)
+                r_int = requests.post(url, json=self.introspection_query, headers=headers, timeout=5, verify=True)
                 
                 if r_int.status_code == 200 and "__schema" in r_int.text:
                     schema_data = r_int.json().get("data", {}).get("__schema", {})
@@ -145,7 +145,7 @@ class GraphQLScanner:
                     if logger: logger(f"📡 GRAPHQL VULN: Introspection enabled at {url}", "WARN")
                     
                 # 3. Check for GraphiQL (IDE)
-                r_ide = requests.get(url, timeout=3, verify=False)
+                r_ide = requests.get(url, timeout=3, verify=True)
                 if "GraphiQL" in r_ide.text or "graphql-playground" in r_ide.text.lower():
                     findings.append({
                         "title": "GraphQL IDE (GraphiQL/Playground) Exposed",
@@ -154,7 +154,7 @@ class GraphQLScanner:
                         "tool_source": "graphql_expert"
                     })
 
-            except:
+            except Exception:
                 continue
 
         return findings

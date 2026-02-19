@@ -32,16 +32,16 @@ class HeaderFuzzer:
 
         # 1. Base Request for baseline
         try:
-            baseline_resp = requests.get(url, timeout=5, verify=False, allow_redirects=False)
+            baseline_resp = requests.get(url, timeout=5, verify=True, allow_redirects=False)
             baseline_len = len(baseline_resp.content)
             baseline_status = baseline_resp.status_code
-        except:
+        except Exception:
             return []
 
         # 2. Test for Host Header Injection
         test_host = "redops-evil-host.com"
         try:
-            r_host = requests.get(url, headers={"Host": test_host}, timeout=5, verify=False, allow_redirects=False)
+            r_host = requests.get(url, headers={"Host": test_host}, timeout=5, verify=True, allow_redirects=False)
             # If 301/302 and Location contains our evil host
             loc = r_host.headers.get("Location", "")
             if test_host in loc or test_host in r_host.text:
@@ -58,7 +58,7 @@ class HeaderFuzzer:
         for header, values in self.fuzz_headers.items():
             for val in values:
                 try:
-                    r_bypass = requests.get(url, headers={header: val}, timeout=5, verify=False, allow_redirects=False)
+                    r_bypass = requests.get(url, headers={header: val}, timeout=5, verify=True, allow_redirects=False)
                     # If status code or response length significantly changes, it's a lead
                     if r_bypass.status_code != baseline_status and r_bypass.status_code == 200:
                          findings.append({
@@ -67,13 +67,13 @@ class HeaderFuzzer:
                             "severity": "high",
                             "tool_source": "header_fuzzer"
                         })
-                except: continue
+                except Exception: continue
 
         # 4. Test for Injection in Common Headers (User-Agent, Referer)
         for payload in self.injection_payloads:
             try:
                 # Test User-Agent reflection
-                r_ua = requests.get(url, headers={"User-Agent": payload}, timeout=5, verify=False)
+                r_ua = requests.get(url, headers={"User-Agent": payload}, timeout=5, verify=True)
                 if payload in r_ua.text:
                     findings.append({
                         "title": f"Header Reflection in Body ({port})",
@@ -81,6 +81,6 @@ class HeaderFuzzer:
                         "severity": "low",
                         "tool_source": "header_fuzzer"
                     })
-            except: continue
+            except Exception: continue
 
         return findings

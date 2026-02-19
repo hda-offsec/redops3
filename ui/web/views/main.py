@@ -665,7 +665,7 @@ def gallery():
                     try:
                         port_idx = parts.index("port")
                         port = parts[port_idx + 1]
-                    except: pass
+                    except Exception: pass
                 
                 images.append({
                     "path": f"screenshots/{f}",
@@ -723,11 +723,14 @@ def verify_finding():
         return {"status": "error", "message": "No command provided"}, 400
 
     def run_verification(sid, cmd, app):
+        import shlex
+        from subprocess import Popen, PIPE, STDOUT
         with app.app_context():
-            from subprocess import Popen, PIPE, STDOUT
             _log_and_emit(sid, f"Starting Verification: {cmd}", "INFO")
             try:
-                process = Popen(cmd, shell=True, stdout=PIPE, stderr=STDOUT, text=True)
+                # Use shlex.split for safe tokenization and shell=False to prevent injection
+                args = shlex.split(cmd)
+                process = Popen(args, shell=False, stdout=PIPE, stderr=STDOUT, text=True)
                 for line in process.stdout:
                     if line.strip():
                         _log_and_emit(sid, f"[Verify] {line.strip()}", "INFO")
@@ -789,7 +792,7 @@ def clear_logs():
                     try:
                         os.remove(os.path.join(results_dir, f))
                         files_deleted += 1
-                    except:
+                    except Exception:
                         pass
         
         # Clean temp directories that fill up /tmp (WPScan cache, chromedp orphans)

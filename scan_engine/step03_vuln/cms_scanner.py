@@ -55,7 +55,7 @@ class CMSScanner:
                             "severity": data.get('info', {}).get('severity', 'info'),
                             "tool_source": f"cms_scanner_{cms_name}"
                         })
-                    except: continue
+                    except Exception: continue
         except Exception as e:
             if logger: logger(f"CMS Audit failed for {cms_name}: {e}", "DEBUG")
             

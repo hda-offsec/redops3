@@ -40,6 +40,6 @@ class DeserializationScanner:
                     "tool_source": "deserialization_scanner",
                     "raw_loot": base_url
                 })
-        except:
+        except Exception:
             pass
         return findings

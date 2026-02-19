@@ -22,7 +22,15 @@ def login():
 
         login_user(user)
         next_page = request.args.get('next')
-        if not next_page or urlparse(next_page).netloc != '':
+        
+        # Robust Open Redirect Protection
+        def is_safe_url(target):
+            ref_url = urlparse(request.host_url)
+            test_url = urlparse(target)
+            return test_url.scheme in ('http', 'https', '') and \
+                   ref_url.netloc == test_url.netloc or not test_url.netloc
+
+        if not next_page or not is_safe_url(next_page):
             next_page = url_for('main.index')
         return redirect(next_page)
 

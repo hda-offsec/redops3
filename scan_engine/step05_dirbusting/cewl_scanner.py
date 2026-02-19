@@ -39,7 +39,7 @@ class CustomWordlistScanner:
                 visited.add(url)
                 
                 try:
-                    r = requests.get(url, timeout=5, verify=False)
+                    r = requests.get(url, timeout=5, verify=True)
                     soup = BeautifulSoup(r.text, 'html.parser')
                     
                     # 1. Extract Words
