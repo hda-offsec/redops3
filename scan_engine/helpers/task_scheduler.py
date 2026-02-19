@@ -64,12 +64,15 @@ class TaskScheduler:
     def execute_task(self, task_id):
         self._wait_if_paused()
         if self._stop_requested():
+            notify_progress = False
             with self._lock:
                 task = self.tasks[task_id]
                 if task.state == "pending":
                     task.state = "skipped"
                     task.reason = "stop_requested"
-            self._notify_progress()
+                    notify_progress = True
+            if notify_progress:
+                self._notify_progress()
             return None
 
         notify_progress = False

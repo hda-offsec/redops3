@@ -20,7 +20,7 @@ class AttackGraphBuilder:
 
             for ep in enum.get("targets", {}).get(port, []):
                 endpoint_id = f"endpoint:{port}:{ep}"
-                endpoint_ids_by_port.setdefault(port, []).append(endpoint_id)
+                endpoint_ids_by_port.setdefault(port, set()).add(endpoint_id)
                 self.nodes.append({"type": "endpoint", "id": endpoint_id, "data": {"url": ep}})
                 self.edges.append({"from": service_id, "to": endpoint_id, "type": "exposes"})
 
