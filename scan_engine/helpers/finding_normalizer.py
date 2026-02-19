@@ -75,11 +75,11 @@ class FindingNormalizer:
             payload_class = str(finding["category"])
             
             id_seed = f"{path_stable}{param_stable}{payload_class}"
-            finding["id_stable"] = hashlib.blake2b(id_seed.encode()).hexdigest()
+            finding["id_stable"] = hashlib.sha512(id_seed.encode(), usedforsecurity=False).hexdigest()
             finding["id"] = finding["id_stable"]
         except Exception:
             id_str = f"{finding['title']}{finding['target']}{finding['category']}"
-            finding["id"] = hashlib.blake2b(id_str.encode()).hexdigest()
+            finding["id"] = hashlib.sha512(id_str.encode(), usedforsecurity=False).hexdigest()
             finding["id_stable"] = finding["id"]
         
         return finding

@@ -156,9 +156,10 @@ class BudgetManager:
                 for v in vals:
                     stable_pairs.append((k, v))
             
-            # Using SHA256 for stronger fingerprinting (V8)
-            qv_hash = hashlib.blake2b(
-                urlencode(stable_pairs, doseq=False).encode()
+            # Using SHA512 for strong fingerprinting (non-security use)
+            qv_hash = hashlib.sha512(
+                urlencode(stable_pairs, doseq=False).encode(),
+                usedforsecurity=False
             ).hexdigest()[:16]
 
             # Deterministic param_shape: "A" for array-style, "S" for scalar.
@@ -181,9 +182,9 @@ class BudgetManager:
                 f"{method}|{scheme}|{host}|{path}"
                 f"|{qv_hash}|{param_shape}|{mutation_type}|{payload_hash}"
             )
-            return hashlib.blake2b(canonical.encode()).hexdigest()
+            return hashlib.sha512(canonical.encode(), usedforsecurity=False).hexdigest()
         except Exception:
-            return hashlib.blake2b(url.encode()).hexdigest()
+            return hashlib.sha512(url.encode(), usedforsecurity=False).hexdigest()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -193,4 +194,4 @@ class BudgetManager:
     def _seed_hash(source_seed):
         """Stable hash for a source seed URL."""
         raw = str(source_seed).strip()
-        return hashlib.blake2b(raw.encode()).hexdigest()[:16]
+        return hashlib.sha512(raw.encode(), usedforsecurity=False).hexdigest()[:16]

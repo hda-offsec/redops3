@@ -21,20 +21,13 @@ def login():
             return redirect(url_for('auth.login'))
 
         login_user(user)
+        from core.request_utils import is_safe_url
         next_page = request.args.get('next')
-        
-        # Robust Open Redirect Protection
-        def is_safe_url(target):
-            ref_url = urlparse(request.host_url)
-            test_url = urlparse(target)
-            return test_url.scheme in ('http', 'https', '') and \
-                   ref_url.netloc == test_url.netloc or not test_url.netloc
-
         if next_page and is_safe_url(next_page):
             return redirect(next_page)
         
         return redirect(url_for('main.index'))
-
+    
     return render_template('auth/login.html')
 
 @auth_bp.route('/logout')
