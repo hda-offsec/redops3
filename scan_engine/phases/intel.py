@@ -44,8 +44,11 @@ def run_intel(orchestrator):
             
             if vectors:
                  log(f"Mapped {len(vectors)} potential attack vectors.", "SUCCESS")
-                 if 'intel' not in results['phases']: results['phases']['intel'] = {}
-                 results['phases']['intel']['attack_vectors'] = vectors
+                 def _store_vectors():
+                     if 'intel' not in results['phases']:
+                         results['phases']['intel'] = {}
+                     results['phases']['intel']['attack_vectors'] = vectors
+                 orch.thread_safe_results_update(_store_vectors)
                  orch.save_results(orch.scan_id, results)
                  
                  for v in vectors:
@@ -64,19 +67,19 @@ def run_intel(orchestrator):
                 if 'http' in service or port in [80, 443, 8080, 8443]:
                      try:
                         # Update status
-                        p['screenshot_path'] = 'pending'
+                        orch.thread_safe_results_update(lambda: p.__setitem__('screenshot_path', 'pending'))
                         orch.save_results(orch.scan_id, results) # Save pending state
                         
                         shot_path = take_service_screenshot(orch.scan_id, port, target)
                         if shot_path:
                             log(f"Screenshot captured for port {port}.", "SUCCESS")
-                            p['screenshot_path'] = shot_path
+                            orch.thread_safe_results_update(lambda: p.__setitem__('screenshot_path', shot_path))
                         else:
-                            p['screenshot_path'] = None
+                            orch.thread_safe_results_update(lambda: p.__setitem__('screenshot_path', None))
                             
                      except Exception as e:
                          log(f"Screenshot failed for port {port}: {e}", "WARN")
-                         p['screenshot_path'] = None
+                         orch.thread_safe_results_update(lambda: p.__setitem__('screenshot_path', None))
             
             # Save final screenshot states
             orch.save_results(orch.scan_id, results)
