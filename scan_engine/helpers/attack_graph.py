@@ -119,7 +119,7 @@ class AttackGraphBuilder:
             if isinstance(justification, list):
                 just_score = len(justification)
             elif isinstance(justification, str):
-                just_score = 1 if justification else 0
+                just_score = 1 if justification.strip() else 0
             else:
                 just_score = 0
             return (action.get("priority", 0) * 0.5) + (action.get("confidence", 0) * 0.3) + (just_score * 5)
