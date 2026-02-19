@@ -2,11 +2,20 @@ class AttackGraphBuilder:
     def __init__(self):
         self.nodes = []
         self.edges = []
+        self._edge_keys = set()
         self._actions = []
+
+    def _add_edge(self, from_id, to_id, edge_type):
+        key = (from_id, to_id, edge_type)
+        if key in self._edge_keys:
+            return
+        self._edge_keys.add(key)
+        self.edges.append({"from": from_id, "to": to_id, "type": edge_type})
 
     def build(self, results):
         self.nodes = []
         self.edges = []
+        self._edge_keys = set()
         phases = results.get("phases", {})
         recon_ports = phases.get("recon", {}).get("open_ports", [])
         enum = phases.get("enum", {})
@@ -22,14 +31,14 @@ class AttackGraphBuilder:
                 endpoint_id = f"endpoint:{port}:{ep}"
                 endpoint_ids_by_port.setdefault(port, set()).add(endpoint_id)
                 self.nodes.append({"type": "endpoint", "id": endpoint_id, "data": {"url": ep}})
-                self.edges.append({"from": service_id, "to": endpoint_id, "type": "exposes"})
+                self._add_edge(service_id, endpoint_id, "exposes")
 
             for injection in enum.get("injection_points", {}).get(port, []):
                 injection_id = f"injection:{port}:{injection}"
                 self.nodes.append({"type": "injection_point", "id": injection_id, "data": {"value": injection}})
-                self.edges.append({"from": service_id, "to": injection_id, "type": "has_param"})
+                self._add_edge(service_id, injection_id, "has_param")
                 for endpoint_id in endpoint_ids_by_port.get(port, []):
-                    self.edges.append({"from": endpoint_id, "to": injection_id, "type": "has_param"})
+                    self._add_edge(endpoint_id, injection_id, "has_param")
 
             attack_profile = enum.get("attack_profile", {}).get(port)
             mutation_strategy = enum.get("mutation_strategy", {}).get(port)
@@ -43,29 +52,29 @@ class AttackGraphBuilder:
                         "mutation_strategy": mutation_strategy or {},
                     },
                 })
-                self.edges.append({"from": service_id, "to": tech_profile_id, "type": "runs_stack"})
+                self._add_edge(service_id, tech_profile_id, "runs_stack")
                 for endpoint_id in endpoint_ids_by_port.get(port, []):
-                    self.edges.append({"from": tech_profile_id, "to": endpoint_id, "type": "influences"})
+                    self._add_edge(tech_profile_id, endpoint_id, "influences")
 
         waf_map = enum.get("waf", {}) if isinstance(enum.get("waf", {}), dict) else {}
         for port, waf in waf_map.items():
             self.nodes.append({"type": "waf", "id": f"waf:{port}", "data": {"name": waf}})
-            self.edges.append({"from": f"service:{port}", "to": f"waf:{port}", "type": "protected_by"})
+            self._add_edge(f"service:{port}", f"waf:{port}", "protected_by")
 
         nuclei_findings = vuln.get("nuclei", {}).get("findings", [])
         for idx, finding in enumerate(nuclei_findings, 1):
             fid = f"finding:nuclei:{idx}"
             self.nodes.append({"type": "finding", "id": fid, "data": finding})
             port = str(finding.get("port", "0"))
-            self.edges.append({"from": f"service:{port}", "to": fid, "type": "has_finding"})
+            self._add_edge(f"service:{port}", fid, "has_finding")
 
         for idx, xss_finding in enumerate(vuln.get("xss", []), 1):
             fid = f"finding:xss:{idx}"
             self.nodes.append({"type": "finding", "id": fid, "data": xss_finding})
             port = str(xss_finding.get("port", "0")) if isinstance(xss_finding, dict) else "0"
-            self.edges.append({"from": f"service:{port}", "to": fid, "type": "has_finding"})
+            self._add_edge(f"service:{port}", fid, "has_finding")
             for endpoint_id in endpoint_ids_by_port.get(port, []):
-                self.edges.append({"from": endpoint_id, "to": fid, "type": "vulnerable_to"})
+                self._add_edge(endpoint_id, fid, "vulnerable_to")
 
         self._actions = self._derive_actions(results)
         return {"nodes": self.nodes, "edges": self.edges}

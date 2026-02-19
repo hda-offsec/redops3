@@ -48,6 +48,9 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     log = orch.log
     profile = orch.options.get('profile', 'quick')
 
+    def _ts(fn):
+        return orch.thread_safe_results_update(fn)
+
     # Initialize Mutation Layer & Strategy
     budget = BudgetManager(max_seeds=200, max_total_variants=1000)
     mutation_engine = MutationEngine(budget, logger=log)
@@ -84,16 +87,18 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 wp_data, wp_raw_log = extract_wp_data(wp_stream, port, log)
                 
                 if wp_data:
-                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                    if 'wordpress' not in results['phases']['vuln']: results['phases']['vuln']['wordpress'] = {}
-                    results['phases']['vuln']['wordpress'][str(port)] = wp_data
-                    
-                    if 'wpscan' not in results['phases']['vuln']: results['phases']['vuln']['wpscan'] = {}
-                    results['phases']['vuln']['wpscan'][str(port)] = wp_raw_log
-                    
-                    # Backward compatibility
-                    results['phases']['vuln']['wordpress'] = results['phases']['vuln'].get('wordpress', {})
-                    results['phases']['vuln']['wordpress'][str(port)] = wp_data
+                    def _store_wp():
+                        if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                        if 'wordpress' not in results['phases']['vuln']: results['phases']['vuln']['wordpress'] = {}
+                        results['phases']['vuln']['wordpress'][str(port)] = wp_data
+
+                        if 'wpscan' not in results['phases']['vuln']: results['phases']['vuln']['wpscan'] = {}
+                        results['phases']['vuln']['wpscan'][str(port)] = wp_raw_log
+
+                        # Backward compatibility
+                        results['phases']['vuln']['wordpress'] = results['phases']['vuln'].get('wordpress', {})
+                        results['phases']['vuln']['wordpress'][str(port)] = wp_data
+                    _ts(_store_wp)
                     
                     orch.save_results(orch.scan_id, results)
 
@@ -117,8 +122,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         gs = GitExposureScanner(target)
         gs_findings = gs.audit_git(port, proto, logger=log)
         if gs_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['git'] = gs_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('git', gs_findings)))
             for f in gs_findings:
                 orch.add_finding(
                     title=f['title'],
@@ -140,8 +144,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         bs = BackupScanner(target)
         bs_findings = bs.scan_backups(port, proto, logger=log)
         if bs_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['backups'] = bs_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('backups', bs_findings)))
             for f in bs_findings:
                 orch.add_finding(
                     title=f['title'],
@@ -169,8 +172,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         gs = GraphQLScanner(target)
         gs_findings = gs.audit_graphql(port, proto, logger=log)
         if gs_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['graphql'] = gs_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('graphql', gs_findings)))
             for f in gs_findings:
                 orch.add_finding(
                     title=f['title'],
@@ -234,8 +236,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             ssrf = SSRFScanner(target)
             ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=log)
             if ssrf_findings:
-                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                results['phases']['vuln']['ssrf'] = ssrf_findings
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('ssrf', ssrf_findings)))
                 for f in ssrf_findings:
                     orch.add_finding(
                         title=f['title'],
@@ -266,9 +267,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         js_scanner = JSVulnScanner(target)
         js_findings = js_scanner.audit_js_endpoints(url, logger=log)
         if js_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            if 'js_vulns' not in results['phases']['vuln']: results['phases']['vuln']['js_vulns'] = {}
-            results['phases']['vuln']['js_vulns'][str(port)] = js_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('js_vulns', {}), results['phases']['vuln']['js_vulns'].__setitem__(str(port), js_findings)))
             
             for f in js_findings:
                 orch.add_finding(
@@ -310,10 +309,10 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             xss_found = []
 
             if capped_seeds:
-                results['commands'].append({
+                _ts(lambda: results['commands'].append({
                     'tool': 'dalfox',
                     'cmd': f'dalfox file <{len(capped_seeds)} mutated URLs>'
-                })
+                }))
 
                 df_stream = dalfox.stream_scan_pipe(capped_seeds)
                 for event in df_stream:
@@ -347,10 +346,12 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                              )
             
             if xss_found:
-                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                # Flatten: append to single list (template iterates vuln.xss directly)
-                if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = []
-                results['phases']['vuln']['xss'].extend(xss_found)
+                def _store_xss():
+                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                    # Flatten: append to single list (template iterates vuln.xss directly)
+                    if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = []
+                    results['phases']['vuln']['xss'].extend(xss_found)
+                _ts(_store_xss)
                 orch.save_results(orch.scan_id, results)
             
             orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found))
@@ -387,8 +388,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             or_findings = or_scanner.scan_endpoints(endpoints, logger=log)
             
             if or_findings:
-                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                results['phases']['vuln']['redirects'] = or_findings
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('redirects', or_findings)))
                 
                 for f in or_findings:
                     orch.add_finding(
@@ -414,8 +414,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         ssti = SSTIScanner(target)
         ssti_findings = ssti.scan_ssti(port, proto, logger=log)
         if ssti_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['ssti'] = ssti_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('ssti', ssti_findings)))
             for f in ssti_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -426,8 +425,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         cors = CORSScanner(target)
         cors_findings = cors.scan_cors(port, proto, logger=log)
         if cors_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['cors_audit'] = cors_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('cors_audit', cors_findings)))
             for f in cors_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -440,8 +438,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         if not lfi_urls: lfi_urls = [f"{proto}://{target}:{port}/"]
         lfi_findings = lfi.scan(target, orch.scan_id, urls=lfi_urls, logger=log)
         if lfi_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['lfi'] = lfi_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('lfi', lfi_findings)))
             for f in lfi_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -452,8 +449,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         spring = SpringBootScanner(target)
         spring_findings = spring.scan_actuators(port, proto, logger=log)
         if spring_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['spring_boot'] = spring_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('spring_boot', spring_findings)))
             for f in spring_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -464,8 +460,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         crlf = CRLFScanner(target)
         crlf_findings = crlf.scan_crlf(port, proto, logger=log)
         if crlf_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['crlf'] = crlf_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('crlf', crlf_findings)))
             for f in crlf_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -476,8 +471,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         xxe = XXEScanner(target)
         xxe_findings = xxe.scan_xxe(port, proto, logger=log)
         if xxe_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['xxe'] = xxe_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('xxe', xxe_findings)))
             for f in xxe_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -488,8 +482,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         proto_scanner = PrototypePollutionScanner(target)
         proto_findings = proto_scanner.scan_prototype(port, proto, logger=log)
         if proto_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['prototype'] = proto_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('prototype', proto_findings)))
             for f in proto_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -500,8 +493,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         acl = AccessControlScanner(target)
         acl_findings = acl.scan_acl(port, proto, logger=log)
         if acl_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['acl_bypass'] = acl_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('acl_bypass', acl_findings)))
             for f in acl_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -514,8 +506,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             miner = SensitiveDataMiner()
             miner_findings = miner.scan(fingerprint_data, f"{proto}://{target}:{port}")
             if miner_findings:
-                if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                results['phases']['vuln']['data_leaks'] = miner_findings
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('data_leaks', miner_findings)))
                 for f in miner_findings:
                     orch.add_finding(
                         title=f"Data Leak: {f['type'].upper()} Detected",
@@ -531,9 +522,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         secret_scanner = SecretScanner()
         secrets = secret_scanner.scan_text(fingerprint_data, source_info=f"Port {port}", target_domain=target)
         if secrets:
-            if 'enum' not in results['phases']: results['phases']['enum'] = {}
-            if 'js_secrets' not in results['phases']['enum']: results['phases']['enum']['js_secrets'] = {}
-            results['phases']['enum']['js_secrets'][str(port)] = secrets
+            _ts(lambda: (results['phases'].setdefault('enum', {}), results['phases']['enum'].setdefault('js_secrets', {}), results['phases']['enum']['js_secrets'].__setitem__(str(port), secrets)))
             for s in secrets:
                 orch.add_finding(**normalizer.normalize(s))
             orch.save_results(orch.scan_id, results)
@@ -544,8 +533,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         kube = KubeDockerScanner(target)
         kube_findings = kube.scan_exposure(port, proto, logger=log)
         if kube_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['container_exposure'] = kube_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('container_exposure', kube_findings)))
             for f in kube_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -556,8 +544,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         ws = WebSocketScanner(target)
         ws_findings = ws.scan_websocket(port, proto, logger=log)
         if ws_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['websocket'] = ws_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('websocket', ws_findings)))
             for f in ws_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -609,8 +596,7 @@ def run_global_vuln_scans(orchestrator):
         email = EmailSecurityScanner(target)
         email_findings = email.scan_security(logger=log)
         if email_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['email_security'] = email_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('email_security', email_findings)))
             for f in email_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -624,8 +610,7 @@ def run_global_vuln_scans(orchestrator):
         firebase = FirebaseScanner(target)
         fb_findings = firebase.scan_firebase(logger=log)
         if fb_findings:
-            if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-            results['phases']['vuln']['firebase'] = fb_findings
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('firebase', fb_findings)))
             for f in fb_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -662,13 +647,12 @@ def run_global_vuln_scans(orchestrator):
                 
                 try:
                     cmd_nuc = nuclei.get_command(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
-                    results['commands'].append({'tool': 'nuclei', 'cmd': shlex.join(cmd_nuc)})
+                    _ts(lambda: results['commands'].append({'tool': 'nuclei', 'cmd': shlex.join(cmd_nuc)}))
                     log(f"Executing Nuclei on {target}:{port}...", "DEBUG")
                     
                     nuc_stream = nuclei.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
                     
-                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                    if 'nuclei' not in results['phases']['vuln']: results['phases']['vuln']['nuclei'] = {'findings': []}
+                    _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('nuclei', {'findings': []})))
                     
                     start_time = time.time()
                     found_any = False
@@ -695,11 +679,11 @@ def run_global_vuln_scans(orchestrator):
                             if sev in ['critical', 'high', 'medium', 'low']:
                                 log(f"Nuclei: {line}", 'WARN' if sev in ['critical', 'high'] else 'INFO')
                                 
-                                results['phases']['vuln']['nuclei']['findings'].append({
+                                _ts(lambda: results['phases']['vuln']['nuclei']['findings'].append({
                                     'severity': sev,
                                     'title': line,
                                     'port': port
-                                })
+                                }))
                                 found_any = True
                                 
                                 orch.add_finding(

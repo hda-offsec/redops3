@@ -14,10 +14,10 @@ from scan_engine.helpers.context_attack_engine import ContextAttackEngine
 
 # prioritization moved to EnumSeedFactory
 
-def analyze_security_headers(target, port, proto, results, logger_func):
+def analyze_security_headers(target, port, proto, logger_func):
     """
     Analyzes HTTP headers for security configurations.
-    Populates results['phases']['enum']['headers']
+    Returns tuple(missing_headers, headers_dict)
     """
     try:
         url = f"{proto}://{target}:{port}"
@@ -28,13 +28,6 @@ def analyze_security_headers(target, port, proto, results, logger_func):
             resp = requests.get(url, timeout=5, verify=False, allow_redirects=True)
              
         headers = resp.headers
-        
-        # Store in results
-        if 'enum' not in results['phases']: results['phases']['enum'] = {}
-        if 'headers' not in results['phases']['enum']: results['phases']['enum']['headers'] = {}
-        
-        # Convert CaseInsensitiveDict to dict for JSON serialization
-        results['phases']['enum']['headers'][str(port)] = dict(headers)
         
         # Analyze specific headers
         missing_sec_headers = []
@@ -159,7 +152,8 @@ def run_enum(orchestrator, port, proto):
 
     # 2. Security Headers
     try:
-        analyze_security_headers(target, port, proto, results, log)
+        missing_sec_headers, headers = analyze_security_headers(target, port, proto, log)
+        _ts(lambda: results['phases']['enum'].setdefault('headers', {}).__setitem__(str(port), headers))
         orch.mark_module("headers", port, "executed")
     except Exception as e:
         log(f"Security headers scan failed: {e}", "DEBUG")
@@ -286,8 +280,8 @@ def run_enum(orchestrator, port, proto):
             context_engine = ContextAttackEngine(results, logger=log)
             profile = context_engine.build_attack_profile(port)
             strategy = context_engine.derive_mutation_strategy(profile)
-            _ts(lambda: results['phases']['enum'].__setitem__('attack_profile', {str(port): profile}))
-            _ts(lambda: results['phases']['enum'].__setitem__('mutation_strategy', {str(port): strategy}))
+            _ts(lambda: results['phases']['enum'].setdefault('attack_profile', {}).__setitem__(str(port), profile))
+            _ts(lambda: results['phases']['enum'].setdefault('mutation_strategy', {}).__setitem__(str(port), strategy))
             orch.save_results(orch.scan_id, results)
         except Exception as e:
             log(f"Context attack engine failed: {e}", "DEBUG")
