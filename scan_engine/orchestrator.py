@@ -22,10 +22,10 @@ try:
     from scan_engine.phases.vuln import run_global_vuln_scans, run_vuln_scans
 except Exception:
     def run_global_vuln_scans(*args, **kwargs):
-        return True
+        raise RuntimeError("vuln_phase_import_unavailable")
 
     def run_vuln_scans(*args, **kwargs):
-        return True
+        raise RuntimeError("vuln_phase_import_unavailable")
 
 
 class ScanOrchestrator:
@@ -288,7 +288,7 @@ class ScanOrchestrator:
                         args=(vuln_task_id, run_vuln_scans, self, port, proto),
                         kwargs={"fingerprint_data": ""},
                     )
-                    if "global_vuln" in scheduler.tasks:
+                    if "global_vuln" in scheduler.tasks and vuln_task_id not in scheduler.tasks["global_vuln"].deps:
                         scheduler.tasks["global_vuln"].deps.append(vuln_task_id)
 
                 def _recalc_total():

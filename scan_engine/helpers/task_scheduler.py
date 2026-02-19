@@ -72,6 +72,7 @@ class TaskScheduler:
             self._notify_progress()
             return None
 
+        notify_progress = False
         with self._lock:
             task = self.tasks[task_id]
             if task.state in {"executed", "failed", "skipped"}:
@@ -80,9 +81,13 @@ class TaskScheduler:
                 unmet = [dep for dep in task.deps if self.tasks[dep].state not in {"executed", "skipped"}]
                 task.state = "skipped"
                 task.reason = f"dependencies_not_ready:{','.join(unmet)}"
-                self._notify_progress()
-                return None
-            task.state = "running"
+                notify_progress = True
+            else:
+                task.state = "running"
+
+        if notify_progress:
+            self._notify_progress()
+            return None
 
         try:
             result = task.callable(*task.args, **task.kwargs)
