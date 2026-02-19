@@ -126,11 +126,11 @@ class AttackGraphBuilder:
         def score(action):
             justification = action.get("justification", [])
             if isinstance(justification, list):
-                just_score = len(justification)
+                just_len = len(justification)
             elif isinstance(justification, str):
-                just_score = 1 if justification.strip() else 0
+                just_len = 1 if justification.strip() else 0
             else:
-                just_score = 0
-            return (action.get("priority", 0) * 0.5) + (action.get("confidence", 0) * 0.3) + (just_score * 5)
+                just_len = 0
+            return (action.get("priority", 0) * 0.5) + (action.get("confidence", 0) * 0.3) + (just_len * 5)
 
         return sorted(self._actions, key=score, reverse=True)

@@ -45,6 +45,9 @@ class TaskScheduler:
     def _deps_ready(self, task: Task):
         return all(self.tasks[dep].state in {"executed", "skipped"} for dep in task.deps)
 
+    def _deps_ready_snapshot(self, task: Task, task_snapshot: dict[str, Task]):
+        return all(task_snapshot[dep].state in {"executed", "skipped"} for dep in task.deps)
+
     def _wait_if_paused(self):
         while self._orchestrator and self._orchestrator.control_flags.get("pause", False):
             time.sleep(0.2)
@@ -115,20 +118,22 @@ class TaskScheduler:
             if self._stop_requested():
                 break
 
-            remaining = {task_id for task_id, task in self.tasks.items() if task.state == "pending"}
+            with self._lock:
+                task_snapshot = dict(self.tasks)
+                remaining = {task_id for task_id, task in task_snapshot.items() if task.state == "pending"}
             if not remaining:
                 break
 
             ready_queue = []
-            for task_id, task in list(self.tasks.items()):
-                if task.state == "pending" and self._deps_ready(task):
+            for task_id, task in list(task_snapshot.items()):
+                if task.state == "pending" and self._deps_ready_snapshot(task, task_snapshot):
                     ready_queue.append(task_id)
 
             if not ready_queue:
                 break
 
-            sequential_ids = [tid for tid in ready_queue if not self._is_parallel_safe(self.tasks[tid])]
-            parallel_ids = [tid for tid in ready_queue if self._is_parallel_safe(self.tasks[tid])]
+            sequential_ids = [tid for tid in ready_queue if not self._is_parallel_safe(task_snapshot[tid])]
+            parallel_ids = [tid for tid in ready_queue if self._is_parallel_safe(task_snapshot[tid])]
 
             for task_id in sequential_ids:
                 if self._stop_requested():
