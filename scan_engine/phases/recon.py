@@ -8,37 +8,27 @@ from scan_engine.step00_osint.github_scanner import GitHubScanner
 from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step00_osint.dork_scanner import DorkScanner
 from scan_engine.step00_osint.origin_revealer import OriginRevealer
-from core.scan_profiles import SCAN_PROFILES
 from scan_engine.phases.utils import emit_progress
 
+
 def run_recon(orchestrator):
-    """
-    Executes Phase 1: Reconnaissance & OSINT
-    - Nmap Port Scan
-    - DNS Enumeration
-    - Cloud Asset Discovery
-    - OSINT (Dorks, Emails, GitHub, Favicon)
-    """
     orch = orchestrator
-    results = orch.results # Reference to mutable results dict
+    results = orch.results
     target = orch.target
     log = orch.log
 
-    # --- PHASE 1: Port Scan ---
     emit_progress(orch, 20, "Port Scanning (nmap)")
-    log(f"Phase 1: Starting Recon (Standard Nmap)...", "INFO")
+    log("Phase 1: Starting Recon (Standard Nmap)...", "INFO")
     scanner = NmapScanner(target)
 
     if not scanner.check_tools():
         log("CRITICAL: 'nmap' not found in system path! Please install it.", "ERROR")
         return False
 
-    # Determine arguments
     scan_args = []
     found_profile = False
     profile = orch.options.get('profile', 'quick')
-    
-    # 1. Check if profile is a predefined key
+
     for category, profiles in SCAN_PROFILES.items():
         if profile in profiles:
             raw_args = profiles[profile]['args']
@@ -46,211 +36,199 @@ def run_recon(orchestrator):
             log(f"Using profile '{profile}': {raw_args}", "INFO")
             found_profile = True
             break
-            
-    # 2. If not found, check compatibility mappings or fallback
+
     if not found_profile:
-        if profile == 'quick': scan_args = ["-T4", "--top-ports", "100"] 
-        elif profile == 'full': scan_args = ["-p-", "-T4"] 
-        elif profile == 'vuln': scan_args = ["--script", "vuln"]
-        else: 
-             log(f"Unknown profile '{profile}', defaulting to quick scan.", "WARN")
-             scan_args = ["-F"]
+        if profile == 'quick':
+            scan_args = ["-T4", "--top-ports", "100"]
+        elif profile == 'full':
+            scan_args = ["-p-", "-T4"]
+        elif profile == 'vuln':
+            scan_args = ["--script", "vuln"]
+        else:
+            log(f"Unknown profile '{profile}', defaulting to quick scan.", "WARN")
+            scan_args = ["-F"]
 
     log(f"Executing Nmap with: {shlex.join(scan_args)}", "DEBUG")
-    results['commands'].append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [target])})
-    
+    orch.thread_safe_results_update(lambda: results['commands'].append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [target])}))
+
     try:
         stream = scanner.stream_scan(scan_args)
     except Exception as e:
         log(f"Failed to start nmap: {str(e)}", "ERROR")
         return False
-        
+
     output_buffer = []
-    discovered_ports = []
-    
     for event in stream:
         if event["type"] == "stdout":
             line = event["line"].strip()
-            if not line: continue
-            
-            # Real-time logging only for important lines
+            if not line:
+                continue
             if "Discovered open port" in line:
                 log(line, "SUCCESS")
             elif "Nmap scan report for" in line:
                 log(line, "INFO")
-            
             output_buffer.append(line)
         elif event["type"] == "error":
-             log(f"Nmap Error: {event['message']}", "ERROR")
+            log(f"Nmap Error: {event['message']}", "ERROR")
 
-    # Store raw output
-    if 'recon' not in results['phases']: results['phases']['recon'] = {}
-    results['phases']['recon']['raw_output'] = "\n".join(output_buffer)
+    def _store_recon_output():
+        results.setdefault('phases', {}).setdefault('recon', {})
+        results['phases']['recon']['raw_output'] = "\n".join(output_buffer)
 
-    # Parse Ports
+    orch.thread_safe_results_update(_store_recon_output)
+
     from scan_engine.helpers.output_parsers import parse_nmap_open_ports
     discovered_ports = parse_nmap_open_ports("\n".join(output_buffer))
-    
+
     if not discovered_ports:
         log("No open ports found via Nmap. Checking if host is up...", "WARN")
-        # Fallback Probe for Web Ports
         discovered_ports = probe_web_ports(orch)
     else:
-        results['phases']['recon']['open_ports'] = discovered_ports
+        orch.thread_safe_results_update(lambda: results['phases']['recon'].__setitem__('open_ports', discovered_ports))
         log(f"Final Open Ports: {discovered_ports}", "SUCCESS")
-    
+
     orch.save_results(orch.scan_id, results)
-    
-    # Returning parsed ports for strict typing
     return discovered_ports
 
+
 def probe_web_ports(orchestrator):
-    """
-    Fallback mechanism to detect web ports if Nmap fails (e.g., WAF blocking).
-    """
     orch = orchestrator
     log = orch.log
     target = orch.target
-    
+
     log("Attempting Web-Port Fallback (80/443)...", "WARN")
     fallback_ports = [80, 443]
     open_ports = []
-    
+
     import requests
     for fp in fallback_ports:
         proto = "https" if fp == 443 else "http"
         url = f"{proto}://{target}:{fp}"
         try:
-            # Use a browser-like User-Agent to bypass simple filters
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
             resp = requests.get(url, timeout=5, verify=False, allow_redirects=True, headers=headers)
             log(f"  [+] Fallback: Target is ALIVE on {url} (Status: {resp.status_code})", "SUCCESS")
             open_ports.append({
                 "port": fp,
-                "service": "http" if fp == 80 else "ssl/http", # Standardized schema
-                "service_name": "http" if fp == 80 else "ssl/http", # Template-compatible key
+                "service": "http" if fp == 80 else "ssl/http",
+                "service_name": "http" if fp == 80 else "ssl/http",
                 "version": f"Detected via Fallback (Status: {resp.status_code})",
                 "priority_score": 70
             })
         except Exception as e:
             log(f"Fallback probe failed for {url}: {e}", "DEBUG")
-            
+
     if open_ports:
         log(f"Fallback discovery: {len(open_ports)} open ports.", "SUCCESS")
-        # Update results
-        if 'recon' not in orch.results['phases']: orch.results['phases']['recon'] = {}
-        orch.results['phases']['recon']['open_ports'] = open_ports
+
+        def _update_fallback_ports():
+            orch.results.setdefault('phases', {}).setdefault('recon', {})
+            orch.results['phases']['recon']['open_ports'] = open_ports
+
+        orch.thread_safe_results_update(_update_fallback_ports)
         orch.save_results(orch.scan_id, orch.results)
-        
+
     return open_ports
 
+
 def run_dns_osint(orchestrator):
-    """
-    Executes DNS and OSINT phases
-    """
     orch = orchestrator
     results = orch.results
     target = orch.target
     log = orch.log
-    
-    # --- PHASE 2: DNS Enumeration ---
+
     emit_progress(orch, 30, "DNS Enumeration")
     log(f"Phase 2: DNS Enumeration on {target}...", "INFO")
-    
-    # RESET State to prevent data leakage from stale scan files
-    if 'dns' not in results['phases']: results['phases']['dns'] = {}
-    results['phases']['dns']['subdomains'] = []
-    results['phases']['dns']['records'] = []
-    
-    if 'osint' not in results['phases']: results['phases']['osint'] = {}
-    results['phases']['osint']['cloud'] = []
-    results['phases']['osint']['emails'] = []
-    results['phases']['osint']['github'] = []
-    
+
+    def _reset_dns_osint():
+        results.setdefault('phases', {}).setdefault('dns', {})
+        results['phases']['dns']['subdomains'] = []
+        results['phases']['dns']['records'] = []
+        results['phases'].setdefault('osint', {})
+        results['phases']['osint']['cloud'] = []
+        results['phases']['osint']['emails'] = []
+        results['phases']['osint']['github'] = []
+
+    orch.thread_safe_results_update(_reset_dns_osint)
+
     try:
         dns_scanner = DNSScanner(target)
-        # Use high-level enumerate_all to handle subfinder + dnsrecon + parsing
         dns_data = dns_scanner.enumerate_all(logger=log)
-        
         subdomains = dns_data.get('subdomains', [])
-        
-        if 'dns' not in results['phases']: results['phases']['dns'] = {}
-        results['phases']['dns']['subdomains'] = subdomains
-        results['phases']['dns']['records'] = dns_data.get('records', [])
-        results['phases']['dns']['security'] = dns_data.get('security', {})
-        
+
+        def _store_dns():
+            results.setdefault('phases', {}).setdefault('dns', {})
+            results['phases']['dns']['subdomains'] = subdomains
+            results['phases']['dns']['records'] = dns_data.get('records', [])
+            results['phases']['dns']['security'] = dns_data.get('security', {})
+
+        orch.thread_safe_results_update(_store_dns)
+
         if subdomains:
             log(f"Found {len(subdomains)} subdomains.", "SUCCESS")
         else:
             log("No subdomains found for this target root.", "INFO")
-            
+
         orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"DNS Enumeration failed: {e}", "ERROR")
 
-    # --- PHASE 0.X: CLOUD ASSETS ---
     try:
         cloud = CloudScanner(target)
         assets = cloud.scan_all(logger=log)
         if assets:
             log(f"Found {len(assets)} cloud assets.", "SUCCESS")
-            if 'osint' not in results['phases']: results['phases']['osint'] = {}
-            results['phases']['osint']['cloud'] = assets
+            orch.thread_safe_results_update(lambda: results['phases'].setdefault('osint', {}).__setitem__('cloud', assets))
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Cloud scan failed: {e}", "DEBUG")
 
-    # --- PHASE 0.X: EMAILS ---
     try:
         email_scanner = EmailScanner(target)
         emails = email_scanner.scan()
         if emails:
             log(f"Found {len(emails)} emails.", "SUCCESS")
-            results['phases']['osint']['emails'] = emails
+            orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('emails', emails))
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Email scan failed: {e}", "DEBUG")
 
-    # --- PHASE 0.X: GITHUB ---
     try:
         gh_scanner = GitHubScanner(target)
         leaks = gh_scanner.search_leaks(logger=log)
         if leaks:
-             log(f"Found {len(leaks)} GitHub leaks.", "SUCCESS")
-             results['phases']['osint']['github'] = leaks
-             orch.save_results(orch.scan_id, results)
+            log(f"Found {len(leaks)} GitHub leaks.", "SUCCESS")
+            orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('github', leaks))
+            orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"GitHub scan failed: {e}", "DEBUG")
 
-    # --- PHASE 0.X: FAVICON ---
     try:
         fav_scanner = FaviconScanner(target)
         fav_data = fav_scanner.scan()
         if fav_data:
-            log(f"Favicon analysis complete.", "SUCCESS")
-            results['phases']['osint']['favicon'] = fav_data
+            log("Favicon analysis complete.", "SUCCESS")
+            orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('favicon', fav_data))
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Favicon scan failed: {e}", "DEBUG")
-        
-    # --- PHASE 0.X: GOOGLE DORKS ---
+
     try:
         dork_scanner = DorkScanner(target)
         dorks = dork_scanner.scan()
         if dorks:
             log("Google Dorks generated.", "SUCCESS")
-            results['phases']['osint']['dorks'] = dorks
+            orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('dorks', dorks))
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Dork scan failed: {e}", "DEBUG")
 
-    # --- PHASE 0.X: ORIGIN REVEAL ---
     try:
         revealer = OriginRevealer(target)
         origins = revealer.scan()
         if origins:
             log(f"Origin IPs detected: {len(origins)}", "SUCCESS")
-            results['phases']['osint']['origin_ips'] = origins
+            orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('origin_ips', origins))
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Origin IP scan failed: {e}", "DEBUG")
