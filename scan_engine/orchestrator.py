@@ -13,6 +13,8 @@ except Exception:
 
         return _Dummy()
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
+from scan_engine.helpers.decision_cortex import suggest_actions
+from scan_engine.helpers.service_intelligence import derive_service_intel
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
@@ -341,6 +343,13 @@ class ScanOrchestrator:
             attack_builder = AttackGraphBuilder()
             attack_builder.build(self.results)
             self.results["attack_plan"] = attack_builder.rank_actions()
+
+            service_intel = derive_service_intel(self.results)
+            self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})
+            self.results["phases"]["enum"]["derived"]["service_intelligence"] = service_intel
+
+            cortex_recommendations = suggest_actions(self.results)
+            self.results["phases"]["enum"]["derived"]["cortex_recommendations"] = cortex_recommendations
 
             self.results["metrics"]["findings_count"] = len(self.results.get("phases", {}).get("vuln", {}).get("nuclei", {}).get("findings", []))
             self.results["metrics"]["artifacts_count"] = sum(
