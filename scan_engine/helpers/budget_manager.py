@@ -157,7 +157,7 @@ class BudgetManager:
                     stable_pairs.append((k, v))
             
             # Using SHA256 for stronger fingerprinting (V8)
-            qv_hash = hashlib.sha256(
+            qv_hash = hashlib.blake2b(
                 urlencode(stable_pairs, doseq=False).encode()
             ).hexdigest()[:16]
 
@@ -181,9 +181,9 @@ class BudgetManager:
                 f"{method}|{scheme}|{host}|{path}"
                 f"|{qv_hash}|{param_shape}|{mutation_type}|{payload_hash}"
             )
-            return hashlib.sha256(canonical.encode()).hexdigest()
+            return hashlib.blake2b(canonical.encode()).hexdigest()
         except Exception:
-            return hashlib.sha256(url.encode()).hexdigest()
+            return hashlib.blake2b(url.encode()).hexdigest()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -193,4 +193,4 @@ class BudgetManager:
     def _seed_hash(source_seed):
         """Stable hash for a source seed URL."""
         raw = str(source_seed).strip()
-        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+        return hashlib.blake2b(raw.encode()).hexdigest()[:16]

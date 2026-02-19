@@ -13,7 +13,7 @@ jobs:
           fetch-depth: 0
 
       # Optional: run tests to include coverage
-      - uses: actions/setup-python@f67e515f7e7121d9eec507d6537388701e91307b # v5.1.1
+      - uses: actions/setup-python@39cd14951b29e3b9095061b6c05bad068ee10eed # v5.1.1
         with:
           python-version: '3.12'
       - run: |

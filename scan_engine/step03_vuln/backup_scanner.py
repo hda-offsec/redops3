@@ -41,7 +41,7 @@ class BackupScanner:
 
         # Session for speed
         session = requests.Session()
-        session.verify = False 
+        session.verify = True 
         
         found_count = 0
         for path in fuzz_list:

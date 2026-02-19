@@ -59,7 +59,7 @@ class MutationEngine:
                 "template", "include", "callback", "view", "next", "return",
             ]
             combined_p = list(dict.fromkeys(extra_p + high_value))  # dedup, order-preserving
-            seed_entropy = int(hashlib.sha256(seed_url.encode()).hexdigest()[:8], 16) % 100
+            seed_entropy = int(hashlib.blake2b(seed_url.encode()).hexdigest()[:8], 16) % 100
             for p in combined_p[:12]:
                 query[p] = [f"__seed{seed_entropy}__"]
 
@@ -281,11 +281,11 @@ class MutationEngine:
 
         # 2. payload_hash — hash includes netloc+path for cross-origin collision resistance
         ph_input = f"{parsed.netloc}|{parsed.path}|{payload}|{sorted_q}"
-        payload_hash = hashlib.sha256(ph_input.encode()).hexdigest()[:8]
+        payload_hash = hashlib.blake2b(ph_input.encode()).hexdigest()[:8]
 
         # 3. variant_id — full identity hash
         id_input = f"{url}|{attack_type}|{mutation_type}|{payload_hash}|{param_shape}"
-        variant_id = hashlib.sha256(id_input.encode()).hexdigest()
+        variant_id = hashlib.blake2b(id_input.encode()).hexdigest()
 
         return {
             "url": url,
@@ -347,7 +347,7 @@ class MutationEngine:
         """
         def sort_key(v):
             prio = self._MUTATION_PRIORITY.get(v.get("mutation_type", ""), 1)
-            tie = hashlib.sha256(
+            tie = hashlib.blake2b(
                 f"{seed_url}|{attack_type}|{v['variant_id']}".encode()
             ).hexdigest()
             return (-prio, tie)

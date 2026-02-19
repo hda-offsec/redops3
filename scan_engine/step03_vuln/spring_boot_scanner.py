@@ -37,7 +37,7 @@ class SpringBootScanner:
 
         # Session for speed & reuse
         session = requests.Session()
-        session.verify = False
+        session.verify = True
         # Set a generic User-Agent
         session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RedOps3/SpringBootAudit)"})
         

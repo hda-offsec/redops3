@@ -30,9 +30,10 @@ def login():
             return test_url.scheme in ('http', 'https', '') and \
                    ref_url.netloc == test_url.netloc or not test_url.netloc
 
-        if not next_page or not is_safe_url(next_page):
-            next_page = url_for('main.index')
-        return redirect(next_page)
+        if next_page and is_safe_url(next_page):
+            return redirect(next_page)
+        
+        return redirect(url_for('main.index'))
 
     return render_template('auth/login.html')
 
