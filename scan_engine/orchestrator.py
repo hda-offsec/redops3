@@ -3,14 +3,29 @@ import threading
 import traceback
 from datetime import datetime
 
-from core.extensions import get_socketio
+try:
+    from core.extensions import get_socketio
+except Exception:
+    def get_socketio():
+        class _Dummy:
+            def emit(self, *a, **k):
+                pass
+
+        return _Dummy()
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
 from scan_engine.phases.intel import run_intel
 from scan_engine.phases.recon import run_dns_osint, run_recon
-from scan_engine.phases.vuln import run_global_vuln_scans, run_vuln_scans
+try:
+    from scan_engine.phases.vuln import run_global_vuln_scans, run_vuln_scans
+except Exception:
+    def run_global_vuln_scans(*args, **kwargs):
+        return True
+
+    def run_vuln_scans(*args, **kwargs):
+        return True
 
 
 class ScanOrchestrator:

@@ -101,16 +101,18 @@ class TaskScheduler:
 
     def run(self):
         max_workers = 4
-        remaining = set(self.tasks.keys())
 
-        while remaining:
+        while True:
             self._wait_if_paused()
             if self._stop_requested():
                 break
 
+            remaining = {task_id for task_id, task in self.tasks.items() if task.state == "pending"}
+            if not remaining:
+                break
+
             ready_queue = []
-            for task_id in list(remaining):
-                task = self.tasks[task_id]
+            for task_id, task in list(self.tasks.items()):
                 if task.state == "pending" and self._deps_ready(task):
                     ready_queue.append(task_id)
 
@@ -134,12 +136,11 @@ class TaskScheduler:
                         remaining.discard(futures[future])
 
         final_reason = "stop_requested" if self._stop_requested() else "unresolvable_dependencies"
-        for task_id in list(remaining):
+        for task_id, task in list(self.tasks.items()):
             with self._lock:
-                task = self.tasks[task_id]
                 if task.state == "pending":
                     task.state = "skipped"
                     task.reason = final_reason
-            self._notify_progress()
+                    self._notify_progress()
 
         return {task_id: task.result for task_id, task in self.tasks.items()}

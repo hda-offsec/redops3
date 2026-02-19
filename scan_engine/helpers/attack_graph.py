@@ -28,6 +28,8 @@ class AttackGraphBuilder:
                 injection_id = f"injection:{port}:{injection}"
                 self.nodes.append({"type": "injection_point", "id": injection_id, "data": {"value": injection}})
                 self.edges.append({"from": service_id, "to": injection_id, "type": "has_param"})
+                for endpoint_id in endpoint_ids_by_port.get(port, []):
+                    self.edges.append({"from": endpoint_id, "to": injection_id, "type": "has_param"})
 
             attack_profile = enum.get("attack_profile", {}).get(port)
             mutation_strategy = enum.get("mutation_strategy", {}).get(port)
@@ -84,6 +86,7 @@ class AttackGraphBuilder:
                     priority += 10
                 if modern_frontend:
                     priority += 5
+                priority = max(0, min(priority, 100))
                 actions.append({
                     "id": f"action-enum-{port}",
                     "title": f"Deep endpoint testing on port {port}",

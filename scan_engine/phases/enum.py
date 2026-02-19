@@ -106,18 +106,21 @@ def run_enum(orchestrator, port, proto):
     full_ww = ""
     
     # --- GUARANTEED INITIALIZATION ---
-    _ts(lambda: results.setdefault('phases', {}))
-    _ts(lambda: results['phases'].setdefault('enum', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('whatweb', {'summary': {}, 'technologies': {}}))
-    _ts(lambda: results['phases']['enum'].setdefault('katana', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('api', {'discovered_endpoints': []}))
-    _ts(lambda: results['phases']['enum'].setdefault('arjun', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('targets', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('injection_points', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('seed_meta', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('normalized', {}))
-    _ts(lambda: results['phases']['enum'].setdefault('derived', {}))
-    _ts(lambda: results.setdefault('commands', []))
+    def _init_enum_struct():
+        results.setdefault('phases', {})
+        results['phases'].setdefault('enum', {})
+        results['phases']['enum'].setdefault('whatweb', {'summary': {}, 'technologies': {}})
+        results['phases']['enum'].setdefault('katana', {})
+        results['phases']['enum'].setdefault('api', {'discovered_endpoints': []})
+        results['phases']['enum'].setdefault('arjun', {})
+        results['phases']['enum'].setdefault('targets', {})
+        results['phases']['enum'].setdefault('injection_points', {})
+        results['phases']['enum'].setdefault('seed_meta', {})
+        results['phases']['enum'].setdefault('normalized', {})
+        results['phases']['enum'].setdefault('derived', {})
+        results.setdefault('commands', [])
+
+    _ts(_init_enum_struct)
     orch.save_results(orch.scan_id, results)
     
     # 1. Web Recon (WhatWeb)
