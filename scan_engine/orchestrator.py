@@ -68,18 +68,22 @@ class ScanOrchestrator:
             "level": level,
             "data": data or {}
         }
+        payload = {}
 
         def _update():
             if 'timeline' not in self.results:
                 self.results['timeline'] = []
             self.results["timeline"].append(evt)
+            payload["timeline"] = list(self.results.get("timeline", []))
 
         self.thread_safe_results_update(_update)
         self.socketio.emit("pipeline_event", evt, room=f"scan_{self.scan_id}")
-        self.save_results(self.scan_id, {"timeline": self.results.get("timeline", [])})
+        self.save_results(self.scan_id, payload)
         return evt
 
     def mark_module(self, module, port, status, artifacts=0, reason=None):
+        payload = {}
+
         def _update_module():
             if 'modules' not in self.results:
                 self.results['modules'] = {}
@@ -92,6 +96,7 @@ class ScanOrchestrator:
                 "artifacts": int(artifacts),
                 "reason": normalized_reason
             }
+            payload["modules"] = dict(self.results.get("modules", {}))
             return normalized_reason
 
         normalized_reason = self.thread_safe_results_update(_update_module)
@@ -113,7 +118,7 @@ class ScanOrchestrator:
 
         level = "ERROR" if status in ["failed", "error"] else "INFO"
         self.emit_event(evt_type, module, port, level=level, data={"artifacts": artifacts, "reason": normalized_reason})
-        self.save_results(self.scan_id, {"modules": self.results.get("modules", {})})
+        self.save_results(self.scan_id, payload)
 
     def pause(self):
         with self._control_lock:
@@ -143,13 +148,17 @@ class ScanOrchestrator:
             raise RuntimeError(f"task_skipped:{task_id}")
 
     def _set_task_state(self, task_id, state, reason=None):
+        payload = {}
+
         def _update():
             self.results.setdefault("task_status", {})
             self.results["task_status"][task_id] = {"state": state, "reason": reason}
             self._update_progress()
+            payload["task_status"] = dict(self.results.get("task_status", {}))
+            payload["progress"] = self.results.get("progress", 0.0)
 
         self.thread_safe_results_update(_update)
-        self.save_results(self.scan_id, {"task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
+        self.save_results(self.scan_id, payload)
 
     def _update_progress(self):
         task_status = self.results.get("task_status", {})
@@ -159,14 +168,25 @@ class ScanOrchestrator:
         self.results["progress"] = float((done / total) * 100.0) if total else 0.0
 
     def _on_scheduler_progress(self, scheduler):
+        payload = {}
+
         def _update():
             self.results.setdefault("task_status", {})
             for task_id, task in scheduler.tasks.items():
                 self.results["task_status"][task_id] = {"state": task.state, "reason": task.reason}
+            self.results.setdefault("metrics", {})
+            self.results["metrics"]["tasks_total"] = len(self.results["task_status"])
+            completed_states = {"executed", "skipped", "failed"}
+            self.results["metrics"]["tasks_done"] = sum(
+                1 for info in self.results["task_status"].values() if info.get("state") in completed_states
+            )
             self._update_progress()
+            payload["task_status"] = dict(self.results.get("task_status", {}))
+            payload["progress"] = self.results.get("progress", 0.0)
+            payload["metrics"] = dict(self.results.get("metrics", {}))
 
         self.thread_safe_results_update(_update)
-        self.save_results(self.scan_id, {"task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
+        self.save_results(self.scan_id, payload)
 
     def _task_wrapper(self, task_id, func, *args, **kwargs):
         self._check_control(task_id)
