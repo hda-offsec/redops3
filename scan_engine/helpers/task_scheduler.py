@@ -142,10 +142,13 @@ class TaskScheduler:
 
         final_reason = "stop_requested" if self._stop_requested() else "unresolvable_dependencies"
         for task_id, task in list(self.tasks.items()):
+            notify_progress = False
             with self._lock:
                 if task.state == "pending":
                     task.state = "skipped"
                     task.reason = final_reason
-                    self._notify_progress()
+                    notify_progress = True
+            if notify_progress:
+                self._notify_progress()
 
         return {task_id: task.result for task_id, task in self.tasks.items()}
