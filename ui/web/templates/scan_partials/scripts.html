@@ -67,6 +67,7 @@
                     <td class="font-monospace text-muted small">${st.port}</td>
                     <td id="${rowId}-status">${badge}</td>
                     <td id="${rowId}-art" class="text-end font-monospace small">${st.artifacts}</td>
+                    <td id="${rowId}-reason" class="text-muted x-small">${st.reason || '-'}</td>
                 `;
             if (tbody) tbody.appendChild(row);
 
@@ -79,8 +80,10 @@
         } else {
             const statusCell = document.getElementById(`${rowId}-status`);
             const artCell = document.getElementById(`${rowId}-art`);
+            const reasonCell = document.getElementById(`${rowId}-reason`);
             if (statusCell) statusCell.innerHTML = badge;
             if (artCell) artCell.innerText = st.artifacts;
+            if (reasonCell) reasonCell.innerText = st.reason || "-";
         }
     };
     });
