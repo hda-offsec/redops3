@@ -15,7 +15,10 @@ except Exception:
 from scan_engine.helpers.adaptive_hints import derive_adaptive_hints
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
 from scan_engine.helpers.decision_cortex import suggest_actions
+from scan_engine.helpers.execution_hints import derive_execution_hints
+from scan_engine.helpers.safety_checks import validate_results_schema
 from scan_engine.helpers.service_intelligence import derive_service_intel
+from scan_engine.helpers.surface_expander import derive_surface_expansion
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
@@ -363,19 +366,32 @@ class ScanOrchestrator:
 
             scheduler.run()
 
+            def _set_enum_derived(key, value):
+                def _inner():
+                    self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})[key] = value
+                self.thread_safe_results_update(_inner)
+
             adaptive_hints = derive_adaptive_hints(self.results)
-            self.results["phases"]["enum"]["derived"]["adaptive_hints"] = adaptive_hints
+            _set_enum_derived("adaptive_hints", adaptive_hints)
 
             attack_builder = AttackGraphBuilder()
             attack_builder.build(self.results)
             self.results["attack_plan"] = attack_builder.rank_actions()
 
             service_intel = derive_service_intel(self.results)
-            self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})
-            self.results["phases"]["enum"]["derived"]["service_intelligence"] = service_intel
+            _set_enum_derived("service_intelligence", service_intel)
 
             cortex_recommendations = suggest_actions(self.results)
-            self.results["phases"]["enum"]["derived"]["cortex_recommendations"] = cortex_recommendations
+            _set_enum_derived("cortex_recommendations", cortex_recommendations)
+
+            surface_expansion = derive_surface_expansion(self.results)
+            _set_enum_derived("surface_expansion", surface_expansion)
+
+            execution_hints = derive_execution_hints(self.results)
+            _set_enum_derived("execution_hints", execution_hints)
+
+            safety_warnings = validate_results_schema(self.results)
+            _set_enum_derived("safety_warnings", safety_warnings[:50])
 
             # Recalculate findings count from all vuln modules
             total_findings = 0
