@@ -19,8 +19,8 @@ rm -rf ~/.cache/pip
 echo "[*] Nettoyage du cache Trivy (~900 Mo)..."
 rm -rf ~/.cache/trivy
 
-echo "[*] Nettoyage du cache Playwright (~1 Go)..."
-rm -rf ~/.cache/ms-playwright
+# echo "[*] Nettoyage du cache Playwright (~1 Go)..."
+# rm -rf ~/.cache/ms-playwright
 
 # 3. Vérification finale
 echo "============================================="

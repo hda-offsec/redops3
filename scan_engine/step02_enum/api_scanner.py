@@ -8,7 +8,7 @@ class APIScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("ffuf") is not None
 
-    def get_command(self, port, protocol='http'):
+    def get_command(self, port, protocol='http', quick=False):
         url = f"{protocol}://{self.target}:{port}/FUZZ"
         wordlist = os.path.join(os.getcwd(), "data", "wordlists", "api_endpoints.txt")
         
@@ -50,8 +50,16 @@ class APIScanner:
             'metrics', 'prometheus', 'robots.txt', 'sitemap.xml', '.env', '.git/config'
         ]
         
-        # Deduplicate and sort for consistency
-        unique_endpoints = sorted(list(set(endpoints)))
+        if quick:
+            # Top-tier most common API endpoints for quick discovery
+            unique_endpoints = [
+                'swagger-ui.html', 'openapi.json', 'v2/api-docs', 'v3/api-docs',
+                'swagger.json', 'api-docs', 'docs', 'api/v1', 'api/v2', 'graphql',
+                'actuator/health', 'health', 'version', '.env'
+            ]
+        else:
+            # Deduplicate and sort for consistency
+            unique_endpoints = sorted(list(set(endpoints)))
         
         # Always ensure wordlist is up-to-date with our enriched list
         os.makedirs(os.path.dirname(wordlist), exist_ok=True)
@@ -62,18 +70,16 @@ class APIScanner:
         return [
             "ffuf", "-u", url, "-w", wordlist,
             "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "-H", "X-Forwarded-For: 127.0.0.1",
-            "-H", "X-Originating-IP: 127.0.0.1",
-            "-H", "X-Forwarded-Host: localhost",
             "-mc", "200,201,204,301,302,401,403,405",
             "-r",
             "-ac",
-            "-t", "50",
+            "-t", "40",
             "-timeout", "5",
-            "-noninteractive"
+            "-noninteractive",
+            "-json" # Use JSON for robust parsing
         ]
 
-    def stream_api_discovery(self, port, protocol='http', logger=None):
-        command = self.get_command(port, protocol)
-        if logger: logger(f"Enrichment: Fuzzing for API Endpoints on port {port}...", "INFO")
+    def stream_api_discovery(self, port, protocol='http', logger=None, quick=False):
+        command = self.get_command(port, protocol, quick=quick)
+        if logger: logger(f"Enrichment: Fuzzing for API Endpoints on port {port} (Mode: {'Quick' if quick else 'Full'})...", "INFO")
         return ProcessManager.stream_command(command)

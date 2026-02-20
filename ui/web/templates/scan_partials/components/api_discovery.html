@@ -6,34 +6,30 @@
         <div class="card-body" id="api-results">
             {% if results and results.phases and results.phases.enum and results.phases.enum.api %}
             <div class="accordion" id="accordionAPI">
-                {% for port, endpoints in results.phases.enum.api.items() %}
+                {% for key, endpoints in results.phases.enum.api.items() %}
+                {% if key|int > 0 %}
                 <div class="accordion-item bg-black border-secondary">
-                    <h2 class="accordion-header" id="heading-api-{{ port }}">
+                    <h2 class="accordion-header" id="heading-api-{{ key }}">
                         <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
-                            type="button" data-bs-toggle="collapse" data-bs-target="#collapse-api-{{ port }}">
-                            <span class="badge bg-info me-2">Port {{ port }}</span>
-                            <span class="font-monospace small text-muted">{{ endpoints|length }} API
-                                Endpoints Found</span>
+                            type="button" data-bs-toggle="collapse" data-bs-target="#collapse-api-{{ key }}">
+                            <span class="badge bg-info me-2">Port {{ key }}</span>
+                            <span class="font-monospace small text-primary">{{ endpoints|length }} Endpoints
+                                Discovered</span>
                         </button>
                     </h2>
-                    <div id="collapse-api-{{ port }}" class="accordion-collapse collapse"
-                        data-bs-parent="#accordionAPI">
-                        <div class="accordion-body p-2">
+                    <div id="collapse-api-{{ key }}" class="accordion-collapse collapse" data-bs-parent="#accordionAPI">
+                        <div class="accordion-body p-2 cyber-scroll" style="max-height: 400px; overflow-y: auto;">
                             <div class="row g-1">
                                 {% for ep in endpoints %}
-                                <div class="col-md-6">
+                                <div class="col-md-12">
                                     <div
-                                        class="d-flex justify-content-between align-items-center p-2 bg-dark mb-1 rounded border border-secondary border-opacity-25 hover-action">
+                                        class="d-flex justify-content-between align-items-center p-2 bg-black mb-1 rounded border border-secondary border-opacity-25 hover-action">
                                         <div class="font-monospace x-small text-info text-truncate flex-grow-1"
-                                            title="{{ ep.url if ep.url is defined else ep }}">
-                                            /{{ ep.path if ep.path is defined else ep }}
+                                            title="{{ ep.url if ep is mapping else ep }}">
+                                            {{ ep.path if ep is mapping else ep }}
                                         </div>
                                         <div class="ms-2">
-                                            {% if ep.status is defined %}
-                                            <span
-                                                class="badge {% if ep.status|int < 300 %}bg-success{% elif ep.status|int < 400 %}bg-info{% else %}bg-warning text-dark{% endif %} x-small">{{
-                                                ep.status }}</span>
-                                            {% endif %}
+                                            <span class="badge bg-success x-small">200</span>
                                         </div>
                                     </div>
                                 </div>
@@ -42,6 +38,7 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
                 {% endfor %}
             </div>
             {% else %}

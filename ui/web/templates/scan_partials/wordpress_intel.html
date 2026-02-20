@@ -57,42 +57,51 @@
 
                 <!-- PLUGINS ENUMERATED -->
                 <div class="col-md-8">
-                    <h6 class="text-uppercase text-muted small border-bottom border-secondary pb-2 mb-3">
-                        <i class="fas fa-plug me-2"></i>Plugins & Components
-                    </h6>
-                    <div class="table-responsive">
-                        <table class="table table-dark table-sm table-hover bg-transparent">
-                            <thead>
-                                <tr class="text-muted x-small text-uppercase">
-                                    <th>Plugin Name</th>
-                                    <th>Version</th>
-                                    <th>Location</th>
-                                    <th>Vulnerabilities</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for plugin in wp.plugins %}
-                                <tr>
-                                    <td class="fw-bold text-light">{{ plugin.slug }}</td>
-                                    <td class="font-monospace text-info small">{{ plugin.version }}</td>
-                                    <td class="font-monospace text-muted x-small text-truncate"
-                                        style="max-width: 150px;" title="{{ plugin.location }}">{{ plugin.location }}
-                                    </td>
-                                    <td>
-                                        {% if plugin.vulns %}
-                                        <span class="badge bg-danger">{{ plugin.vulns|length }} Found</span>
-                                        {% else %}
-                                        <span class="badge bg-success bg-opacity-25 text-success">Safe</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% else %}
-                                <tr>
-                                    <td colspan="4" class="text-muted fst-italic text-center">No plugins detected.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <div class="d-flex justify-content-between align-items-center border-bottom border-secondary pb-2 mb-3 cursor-pointer"
+                        data-bs-toggle="collapse" data-bs-target="#wp-plugins-{{ port }}">
+                        <h6 class="text-uppercase text-muted small mb-0">
+                            <i class="fas fa-plug me-2"></i>Plugins & Components
+                        </h6>
+                        <i class="fas fa-chevron-down text-muted small"></i>
+                    </div>
+
+                    <div class="collapse show" id="wp-plugins-{{ port }}">
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm table-hover bg-transparent">
+                                <thead>
+                                    <tr class="text-muted x-small text-uppercase">
+                                        <th>Plugin Name</th>
+                                        <th>Version</th>
+                                        <th>Location</th>
+                                        <th>Vulnerabilities</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for plugin in wp.plugins %}
+                                    <tr>
+                                        <td class="fw-bold text-light">{{ plugin.slug }}</td>
+                                        <td class="font-monospace text-info small">{{ plugin.version }}</td>
+                                        <td class="font-monospace text-muted x-small text-truncate"
+                                            style="max-width: 150px;" title="{{ plugin.location }}">{{ plugin.location
+                                            }}
+                                        </td>
+                                        <td>
+                                            {% if plugin.vulns %}
+                                            <span class="badge bg-danger">{{ plugin.vulns|length }} Found</span>
+                                            {% else %}
+                                            <span class="badge bg-success bg-opacity-25 text-success">Safe</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="4" class="text-muted fst-italic text-center">No plugins detected.
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -100,33 +109,41 @@
             <!-- VULNERABILITY DETAILS -->
             {% if wp.vulns %}
             <div class="mt-4">
-                <h6 class="text-uppercase text-danger small border-bottom border-danger border-opacity-50 pb-2 mb-3">
-                    <i class="fas fa-bug me-2"></i>Identified Vulnerabilities
-                </h6>
-                <div class="table-responsive">
-                    <table class="table table-dark table-sm table-hover bg-transparent">
-                        <thead>
-                            <tr class="text-muted x-small text-uppercase">
-                                <th>Component</th>
-                                <th>Vulnerability Title</th>
-                                <th>Fixed In</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for vuln in wp.vulns %}
-                            <tr class="border-danger border-opacity-10">
-                                <td class="text-info small">{{ vuln.type }}</td>
-                                <td class="fw-bold text-light small">{{ vuln.title }}</td>
-                                <td class="font-monospace text-success x-small">{{ vuln.fixed_in|default('Unpatched') }}
-                                </td>
-                                <td>
-                                    <span class="badge bg-danger">Exp?</span>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="d-flex justify-content-between align-items-center border-bottom border-danger border-opacity-50 pb-2 mb-3 cursor-pointer"
+                    data-bs-toggle="collapse" data-bs-target="#wp-vulns-{{ port }}">
+                    <h6 class="text-uppercase text-danger small mb-0">
+                        <i class="fas fa-bug me-2"></i>Identified Vulnerabilities
+                    </h6>
+                    <i class="fas fa-chevron-down text-danger small"></i>
+                </div>
+
+                <div class="collapse show" id="wp-vulns-{{ port }}">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-sm table-hover bg-transparent">
+                            <thead>
+                                <tr class="text-muted x-small text-uppercase">
+                                    <th>Component</th>
+                                    <th>Vulnerability Title</th>
+                                    <th>Fixed In</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for vuln in wp.vulns %}
+                                <tr class="border-danger border-opacity-10">
+                                    <td class="text-info small">{{ vuln.component }}</td>
+                                    <td class="fw-bold text-light small">{{ vuln.raw_title }}</td>
+                                    <td class="font-monospace text-success x-small">{{ vuln.fixed_in|default('Check
+                                        WPScan') }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-danger">High Risk</span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             {% endif %}

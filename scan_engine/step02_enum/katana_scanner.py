@@ -7,7 +7,7 @@ class KatanaScanner:
     def check_tools(self):
         return ProcessManager.find_binary_path("katana") is not None
 
-    def get_command(self, port, protocol='http'):
+    def get_command(self, port, protocol='http', quick=False):
         url = f"{protocol}://{self.target}:{port}"
         katana_path = ProcessManager.find_binary_path("katana") or "katana"
         
@@ -21,14 +21,18 @@ class KatanaScanner:
             "-jc",           # JSON output
             "-jsl",          # JS Library detection
             "-kf", "all",    # Keep all fields
-            "-d", "3",       # Reduced depth slightly for speed
-            "-ct", "10",     # Crawl duration
+            "-d", "1" if quick else "3",
+            "-ct", "5" if quick else "10",
             "-silent",
             "-nc",
-            "-js-crawl",     # Enable JavaScript crawling
-            "-xhr",          # Extract XHR requests
             "-aff",          # Automatic Form Filling
         ]
+        
+        if not quick:
+            cmd.extend([
+                "-js-crawl",     # Enable JavaScript crawling
+                "-xhr",          # Extract XHR requests
+            ])
         
         # Only apply Root Domain Filter if NOT an IP
         if not is_ip:
@@ -42,9 +46,9 @@ class KatanaScanner:
             
         return cmd
 
-    def stream_katana(self, port, protocol='http'):
+    def stream_katana(self, port, protocol='http', quick=False):
         import json
-        command = self.get_command(port, protocol)
+        command = self.get_command(port, protocol, quick=quick)
         
         # Parse JSON output because -jc is used
         for event in ProcessManager.stream_command(command):
@@ -77,6 +81,6 @@ class KatanaScanner:
             else:
                 yield event
 
-    def stream_scan(self, port, protocol='http'):
+    def stream_scan(self, port, protocol='http', quick=False):
         """Alias for stream_katana to satisfy enum.py contract"""
-        return self.stream_katana(port, protocol)
+        return self.stream_katana(port, protocol, quick=quick)

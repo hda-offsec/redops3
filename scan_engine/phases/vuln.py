@@ -474,7 +474,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         lfi = LfiAssaultScanner()
         lfi_urls = results['phases']['enum'].get('targets', {}).get(str(port), [])
         if not lfi_urls: lfi_urls = [f"{proto}://{target}:{port}/"]
-        lfi_findings = lfi.scan(target, orch.scan_id, urls=lfi_urls, logger=log)
+        lfi_findings = lfi.scan(target, orch.scan_id, urls=lfi_urls, logger=log, quick=(profile.startswith('quick')))
         if lfi_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('lfi', lfi_findings)))
             for f in lfi_findings:
@@ -601,13 +601,15 @@ def run_global_vuln_scans(orchestrator):
     log = orch.log
     normalizer = FindingNormalizer()
     
+    def _ts(fn):
+        return orch.thread_safe_results_update(fn)
+    
     # --- PHASE 3: Subdomain Takeover ---
     emit_progress(orch, 50, "Subdomain Takeover Check")
     try:
+        subdomains = results.get('phases', {}).get('dns', {}).get('subdomains', [])
         takeover = TakeoverScanner(target)
         if takeover.check_tools():
-            # Get subdomains from DNS phase
-            subdomains = results.get('phases', {}).get('dns', {}).get('subdomains', [])
             if subdomains:
                 log(f"Checking {len(subdomains)} subdomains for takeover...", "INFO")
                 tk_stream = takeover.stream_takeover_scan(logger=log, targets=subdomains)
@@ -621,9 +623,11 @@ def run_global_vuln_scans(orchestrator):
                              tool_source="takeover_scanner"
                          )
                 orch.save_results(orch.scan_id, results)
-        
-        orch.mark_module("takeover_scanner", 0, "executed", artifacts=len(subdomains))
-        orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
+            orch.mark_module("takeover_scanner", 0, "executed", artifacts=len(subdomains))
+            orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
+        else:
+            log("Subdomain takeover tool not found. Skipping.", "WARN")
+            orch.mark_module("takeover_scanner", 0, "skipped")
 
     except Exception as e:
         log(f"Takeover scan failed: {e}", "WARN")

@@ -20,11 +20,11 @@ results.phases.enum.api.discovered_endpoints %}
                             <div class="mb-2">
                                 <span class="badge bg-secondary mb-1">Port {{ port }}</span>
                                 <ul class="list-unstyled ms-2 x-small font-monospace text-muted">
-                                    {% for e in eps[:20] %}
+                                    {% for e in eps[:100] %}
                                     <li><i class="fas fa-angle-right me-1 text-cyber"></i>{{ e }}</li>
                                     {% endfor %}
-                                    {% if eps|length > 20 %}
-                                    <li class="text-info fst-italic">+ {{ eps|length - 20 }} more...</li>
+                                    {% if eps|length > 100 %}
+                                    <li class="text-info fst-italic">+ {{ eps|length - 100 }} more...</li>
                                     {% endif %}
                                 </ul>
                             </div>
@@ -47,11 +47,11 @@ results.phases.enum.api.discovered_endpoints %}
                             <div class="mb-2">
                                 <span class="badge bg-secondary mb-1">Port {{ port }}</span>
                                 <ul class="list-unstyled ms-2 x-small font-monospace text-warning">
-                                    {% for e in eps[:20] %}
+                                    {% for e in eps[:100] %}
                                     <li class="text-break"><i class="fas fa-bug me-1"></i>{{ e }}</li>
                                     {% endfor %}
-                                    {% if eps|length > 20 %}
-                                    <li class="text-info fst-italic">+ {{ eps|length - 20 }} more...</li>
+                                    {% if eps|length > 100 %}
+                                    <li class="text-info fst-italic">+ {{ eps|length - 100 }} more...</li>
                                     {% endif %}
                                 </ul>
                             </div>
@@ -69,14 +69,14 @@ results.phases.enum.api.discovered_endpoints %}
                         <h6 class="text-success fw-bold mb-3"><i class="fas fa-network-wired me-2"></i>API Endpoints
                         </h6>
                         {% if results.phases.enum.api.discovered_endpoints %}
-                        <div class="cyber-scroll" style="max-height: 300px; overflow-y: auto;">
+                        <div class="cyber-scroll" style="max-height: 400px; overflow-y: auto;">
                             <ul class="list-unstyled ms-2 x-small font-monospace text-success">
-                                {% for e in results.phases.enum.api.discovered_endpoints[:50] %}
+                                {% for e in results.phases.enum.api.discovered_endpoints[:500] %}
                                 <li class="text-break"><i class="fas fa-code-branch me-1"></i>{{ e }}</li>
                                 {% endfor %}
-                                {% if results.phases.enum.api.discovered_endpoints|length > 50 %}
+                                {% if results.phases.enum.api.discovered_endpoints|length > 500 %}
                                 <li class="text-info fst-italic">+ {{
-                                    results.phases.enum.api.discovered_endpoints|length - 50 }} more...</li>
+                                    results.phases.enum.api.discovered_endpoints|length - 500 }} more...</li>
                                 {% endif %}
                             </ul>
                         </div>

@@ -29,49 +29,35 @@ def extract_wp_data(stream, port, logger_func):
             if not line:
                 continue
 
-            logger_func(line, "INFO")
+            # logger_func(line, "INFO")
             full_logs.append(line)
 
             # === SECTION DETECTION ===
-            # WPScan outputs sections like:
-            #   [+] WordPress version 6.4.3 identified
-            #   [+] WordPress theme in use: flavor
-            #   [i] Plugin(s) Identified:
-            #   [+] contact-form-7
-            #   [+] revslider
-
-            # 1. WordPress Core Version
             if "WordPress version" in line and "identified" in line:
                 ver_match = re.search(r"version\s+([\d\.]+)", line)
-                if ver_match:
-                    data["version"] = ver_match.group(1)
+                if ver_match: data["version"] = ver_match.group(1)
                 current_section = "core"
                 current_component_name = f"WordPress Core {data['version']}"
                 current_plugin = None
 
-            # 2. Theme Detection
-            elif "WordPress theme in use:" in line or "Theme Name:" in line:
+            elif "theme in use:" in line.lower() or "Theme Name:" in line:
                 current_section = "theme"
-                if "theme in use:" in line:
-                    theme_name = line.split("theme in use:")[-1].strip()
-                elif "Theme Name:" in line:
-                    theme_name = line.split("Theme Name:")[-1].strip()
-                else:
-                    theme_name = "Unknown"
+                theme_name = line.split(":")[-1].strip() if ":" in line else "Unknown"
                 data["theme"] = theme_name
                 current_component_name = f"Theme: {theme_name}"
                 current_plugin = None
 
-            # 3. Plugin Section Header
             elif "Plugin(s) Identified" in line or "plugin(s) identified" in line.lower():
                 current_section = "plugin"
                 current_plugin = None
 
-            # 4. Individual Plugin Entry: [+] <slug>
-            # WPScan prints plugin names as "[+] slug" with no extra keywords
+            elif "User(s) Identified" in line or "Enumerating Identifiers" in line:
+                current_section = "users"
+                current_plugin = None
+
+            # 1. Individual Plugin Entry: [+] <slug>
             elif current_section == "plugin" and line.startswith("[+]"):
-                slug_part = line.replace("[+]", "").strip()
-                # Plugin slugs are lowercase, may contain dashes/underscores
+                slug_part = line.replace("[+]", "").strip().split()[0]
                 if slug_part and re.match(r'^[a-z0-9_-]+$', slug_part):
                     current_plugin = {
                         "slug": slug_part,
@@ -82,37 +68,27 @@ def extract_wp_data(stream, port, logger_func):
                     data["plugins"].append(current_plugin)
                     current_component_name = f"Plugin: {slug_part}"
 
-            # 5. User Enumeration
-            elif "[+]" in line and "found" in line and "user" in line.lower():
-                parts = line.split()
-                if len(parts) > 1:
-                    username = parts[1]
-                    if username not in [u['name'] for u in data["users"]]:
-                        data["users"].append({"name": username, "id": len(data["users"]) + 1})
+            # 2. Individual User Entry: [+] <name>
+            elif current_section == "users" and line.startswith("[+]"):
+                username = line.replace("[+]", "").strip().split()[0]
+                # Filter out WPScan summary/meta lines
+                wp_meta_keywords = ["Finished:", "Requests", "Cached", "Data", "Memory", "Elapsed"]
+                if username and username not in wp_meta_keywords and username not in [u['name'] for u in data["users"]]:
+                    data["users"].append({"name": username, "id": len(data["users"]) + 1})
+                    logger_func(f"WordPress User Found: {username}", "SUCCESS")
 
-            # === METADATA for current plugin/theme ===
-            if "Version:" in line and "version" not in line.lower().split("version:")[0][-10:].lower():
-                version_val = line.split("Version:")[-1].strip().split()[0] if line.split("Version:")[-1].strip() else "Unknown"
-                # Remove trailing punctuation
-                version_val = version_val.rstrip(",;.")
-                if current_plugin:
-                    current_plugin["version"] = version_val
-            if "Location:" in line:
-                loc_val = line.split("Location:")[-1].strip()
-                if current_plugin:
-                    current_plugin["location"] = loc_val
+            # === METADATA & VULNS ===
+            if "Version:" in line and current_plugin:
+                vmatch = re.search(r"Version:\s*([\d\.]+)", line)
+                if vmatch: current_plugin["version"] = vmatch.group(1)
+            
+            if "Location:" in line and current_plugin:
+                current_plugin["location"] = line.split("Location:")[-1].strip()
 
-            # === VULNERABILITY INDICATORS ===
-            # Lines with [!] are warnings/vulns
             if "[!]" in line:
                 vuln_title_raw = line.replace("[!]", "").strip().lstrip("| ").strip()
-
-                # Prepend the component name so the UI shows WHAT is affected
-                if current_component_name:
-                    vuln_title = f"[{current_component_name}] {vuln_title_raw}"
-                else:
-                    vuln_title = vuln_title_raw
-
+                vuln_title = f"[{current_component_name}] {vuln_title_raw}" if current_component_name else vuln_title_raw
+                
                 vuln_obj = {
                     "type": "Vulnerability",
                     "title": vuln_title,
@@ -120,17 +96,12 @@ def extract_wp_data(stream, port, logger_func):
                     "raw_title": vuln_title_raw,
                     "fixed_in": "Check WPScan"
                 }
-
-                # Try to extract "fixed in" version
                 fixed_match = re.search(r"fixed in (?:version )?([\d\.]+)", vuln_title_raw, re.IGNORECASE)
-                if fixed_match:
-                    vuln_obj["fixed_in"] = fixed_match.group(1)
+                if fixed_match: vuln_obj["fixed_in"] = fixed_match.group(1)
 
                 data["vulns"].append(vuln_obj)
-                if current_plugin:
-                    current_plugin["vulns"].append(vuln_obj)
+                if current_plugin: current_plugin["vulns"].append(vuln_obj)
 
-            # === Latest Version info (captures "latest version is X.Y.Z") ===
             latest_match = re.search(r"latest version is ([\d\.]+)", line, re.IGNORECASE)
             if latest_match and current_plugin:
                 current_plugin["latest_version"] = latest_match.group(1)

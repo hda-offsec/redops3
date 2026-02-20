@@ -24,74 +24,82 @@
             {% if results.phases.dns and results.phases.dns.security %}
             {% set sec = results.phases.dns.security %}
             <div class="border-top border-secondary border-opacity-25 pt-3 mt-2">
-                <h6 class="text-uppercase text-muted x-small mb-3"><i class="fas fa-shield-alt me-2"></i>Email
-                    Security & Infrastructure</h6>
-
-                <div class="row g-3">
-                    <!-- SPF -->
-                    <div class="col-md-4">
-                        <div
-                            class="p-2 border rounded {{ 'border-success bg-success bg-opacity-10' if sec.spf.rating == 'Secure' else ('border-danger bg-danger bg-opacity-10' if 'Risk' in sec.spf.rating else 'border-secondary bg-dark') }}">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <span class="fw-bold small">SPF Record</span>
-                                <span
-                                    class="badge {{ 'bg-success' if sec.spf.rating == 'Secure' else 'bg-danger' }} x-small">{{
-                                    sec.spf.rating }}</span>
-                            </div>
-                            <div class="font-monospace x-small text-muted">{{ sec.spf.policy }}</div>
-                        </div>
-                    </div>
-
-                    <!-- DMARC -->
-                    <div class="col-md-4">
-                        <div
-                            class="p-2 border rounded {{ 'border-success bg-success bg-opacity-10' if sec.dmarc.rating == 'Secure' else ('border-danger bg-danger bg-opacity-10' if 'Risk' in sec.dmarc.rating else 'border-secondary bg-dark') }}">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <span class="fw-bold small">DMARC Policy</span>
-                                <span
-                                    class="badge {{ 'bg-success' if sec.dmarc.rating == 'Secure' else 'bg-danger' }} x-small">{{
-                                    sec.dmarc.rating }}</span>
-                            </div>
-                            <div class="font-monospace x-small text-muted">{{ sec.dmarc.policy }}</div>
-                        </div>
-                    </div>
-
-                    <!-- MX INFO -->
-                    <div class="col-md-4">
-                        <div class="p-2 border border-secondary bg-dark rounded h-100">
-                            <div class="fw-bold small mb-1">Mail Providers</div>
-                            <div class="font-monospace x-small text-info">
-                                {% if sec.mx_providers %}
-                                {{ sec.mx_providers|join(', ') }}
-                                {% else %}
-                                Unknown / Self-hosted
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
+                <div class="d-flex justify-content-between align-items-center mb-3 cursor-pointer"
+                    data-bs-toggle="collapse" data-bs-target="#email-sec-details" aria-expanded="false">
+                    <h6 class="text-uppercase text-muted x-small mb-0"><i class="fas fa-shield-alt me-2"></i>Email
+                        Security & Infrastructure</h6>
+                    <i class="fas fa-chevron-down text-muted small"></i>
                 </div>
 
-                <!-- TAKEOVERS -->
-                {% if sec.takeovers %}
-                <div class="mt-3">
-                    <div class="alert alert-danger d-flex align-items-center p-2 mb-0">
-                        <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
-                        <div>
-                            <div class="fw-bold text-uppercase">Subdomain Takeover Detected</div>
-                            <ul class="mb-0 ps-3 small text-light">
-                                {% for t in sec.takeovers %}
-                                <li><strong>{{ t.alias }}</strong> points to unclaimed <em>{{ t.target }}</em></li>
-                                {% endfor %}
-                            </ul>
+                <div class="collapse" id="email-sec-details">
+                    <div class="row g-3">
+                        <!-- SPF -->
+                        <div class="col-md-4">
+                            <div
+                                class="p-2 border rounded {{ 'border-success bg-success bg-opacity-10' if sec.spf.rating == 'Secure' else ('border-danger bg-danger bg-opacity-10' if 'Risk' in sec.spf.rating else 'border-secondary bg-dark') }}">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold small">SPF Record</span>
+                                    <span
+                                        class="badge {{ 'bg-success' if sec.spf.rating == 'Secure' else 'bg-danger' }} x-small">{{
+                                        sec.spf.rating }}</span>
+                                </div>
+                                <div class="font-monospace x-small text-light opacity-50 text-break">{{ sec.spf.policy
+                                    }}</div>
+                            </div>
+                        </div>
+
+                        <!-- DMARC -->
+                        <div class="col-md-4">
+                            <div
+                                class="p-2 border rounded {{ 'border-success bg-success bg-opacity-10' if sec.dmarc.rating == 'Secure' else ('border-danger bg-danger bg-opacity-10' if 'Risk' in sec.dmarc.rating else 'border-secondary bg-dark') }}">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold small">DMARC Policy</span>
+                                    <span
+                                        class="badge {{ 'bg-success' if sec.dmarc.rating == 'Secure' else 'bg-danger' }} x-small">{{
+                                        sec.dmarc.rating }}</span>
+                                </div>
+                                <div class="font-monospace x-small text-light opacity-50 text-break">{{ sec.dmarc.policy
+                                    }}</div>
+                            </div>
+                        </div>
+
+                        <!-- MX INFO -->
+                        <div class="col-md-4">
+                            <div class="p-2 border border-secondary bg-dark rounded h-100">
+                                <div class="fw-bold small mb-1">Mail Providers</div>
+                                <div class="font-monospace x-small text-info">
+                                    {% if sec.mx_providers %}
+                                    {{ sec.mx_providers|join(', ') }}
+                                    {% else %}
+                                    Unknown / Self-hosted
+                                    {% endif %}
+                                </div>
+                            </div>
                         </div>
                     </div>
+
+                    <!-- TAKEOVERS -->
+                    {% if sec.takeovers %}
+                    <div class="mt-3">
+                        <div class="alert alert-danger d-flex align-items-center p-2 mb-0">
+                            <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
+                            <div>
+                                <div class="fw-bold text-uppercase">Subdomain Takeover Detected</div>
+                                <ul class="mb-0 ps-3 small text-light">
+                                    {% for t in sec.takeovers %}
+                                    <li><strong>{{ t.alias }}</strong> points to unclaimed <em>{{ t.target }}</em></li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
             {% endif %}
 
-            {% if not results.phases.dns.subdomains and not results.phases.dns.security %}
-            <div class="text-muted small fst-italic">No subdomains discovered.</div>
+            {% if not (results.phases.dns and (results.phases.dns.subdomains or results.phases.dns.security)) %}
+            <div class="text-muted small fst-italic">No DNS intelligence or subdomains discovered.</div>
             {% endif %}
         </div>
     </div>

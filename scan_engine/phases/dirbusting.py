@@ -8,6 +8,8 @@ def run_dirbusting(orchestrator):
     results = orch.results
     target = orch.target
     log = orch.log
+    profile = orch.options.get('profile', 'quick')
+    is_quick = profile.startswith('quick')
 
     emit_progress(orch, 90, "Directory Busting (Recursive)")
     log("Phase 5: Starting Recursive Directory Busting...", "INFO")
@@ -45,24 +47,29 @@ def run_dirbusting(orchestrator):
                 orch.mark_module("ffuf", port, "skipped")
                 continue
 
-            cmd = scanner.get_command(port, proto)
+            cmd = scanner.get_command(port, proto, quick=is_quick)
             orch.thread_safe_results_update(lambda: results['commands'].append({'tool': 'ffuf', 'cmd': shlex.join(cmd)}))
 
             try:
-                stream = scanner.stream_fuzz(port, proto)
+                stream = scanner.stream_fuzz(port, proto, quick=is_quick)
                 found_count = 0
 
                 for event in stream:
                     if event["type"] == "stdout":
                         line = event["line"].strip()
-                        if not line:
+                        if not line or not line.startswith('{'):
                             continue
 
-                        if "[Status: 200]" in line or "[Status: 301]" in line or "[Status: 403]" in line:
-                            log(f"DirBust Found: {line}", "SUCCESS")
+                        try:
+                            import json
+                            data = json.loads(line)
+                            url = data.get('url')
+                            if not url: continue
+                            
+                            status = data.get('status', 200)
+                            log(f"DirBust Found: {url} [Status: {status}]", "SUCCESS")
 
-                            path_part = line.split(" | ")[0].strip() if " | " in line else line
-                            item = {"url": line, "path": path_part, "status": 200}
+                            item = {"url": url, "path": data.get('input', {}).get('FUZZ', ''), "status": status}
 
                             def _append_endpoint():
                                 results['phases'].setdefault('dirbusting', {})
@@ -78,11 +85,13 @@ def run_dirbusting(orchestrator):
 
                             orch.add_finding(
                                 title=f"Directory Discovered ({port})",
-                                description=f"Ffuf: {line}",
+                                description=f"Ffuf: {url} [Status: {status}]",
                                 severity="info",
                                 tool_source="ffuf"
                             )
                             orch.save_results(orch.scan_id, results)
+                        except Exception:
+                            continue
 
                 orch.mark_module("ffuf", port, "executed", artifacts=found_count)
                 orch.add_finding(title="Module Executed: ffuf", description=f"Ffuf directory busting finished on port {port}", severity="info", tool_source="redops-core")

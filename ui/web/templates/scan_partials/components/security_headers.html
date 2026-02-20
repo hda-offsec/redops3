@@ -1,38 +1,51 @@
 <!-- SECURITY HEADERS -->
 <div class="col-12">
     <div class="card glass-panel">
-        <div class="card-header glass-header"><i class="fas fa-shield-virus me-2"></i>Security Headers Audit
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-shield-virus me-2"></i>Security Headers Audit</span>
+            <span class="badge bg-info x-small">Target Intelligence</span>
         </div>
-        <div class="card-body" id="header-results">
+        <div class="card-body p-0" id="header-results">
             {% if results and results.phases and results.phases.enum and results.phases.enum.headers %}
             <div class="table-responsive">
-                <table class="table table-dark table-sm mb-0 align-middle">
+                <table class="table table-dark table-hover table-sm mb-0 align-middle">
                     <thead>
-                        <tr class="text-muted x-small text-uppercase">
-                            <th>Header</th>
-                            <th>Status</th>
-                            <th class="w-50">Value / Recommendation</th>
+                        <tr class="text-white-50 x-small text-uppercase border-bottom border-secondary">
+                            <th class="ps-3 py-2">Header</th>
+                            <th class="py-2">Status</th>
+                            <th class="py-2 w-50 pe-3">Value / Recommendation</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for h, info in results.phases.enum.headers.items() %}
-                        <tr>
-                            <td class="font-monospace small">{{ h }}</td>
-                            <td>
+                        {% for h, info in results.phases.enum.headers.get(results.target_info.get('port', '80'),
+                        results.phases.enum.headers.values()|first if results.phases.enum.headers else {}).items() %}
+                        <tr class="border-bottom border-secondary-subtle">
+                            <td class="ps-3 py-2 font-monospace small text-primary">{{ h }}</td>
+                            <td class="py-2">
                                 {% if info.status == 'ok' %}
                                 <span class="badge bg-success x-small"><i class="fas fa-check me-1"></i>Present</span>
                                 {% elif info.status == 'missing' %}
                                 <span class="badge bg-danger x-small"><i class="fas fa-times me-1"></i>Missing</span>
-                                {% else %}
+                                {% elif info.status == 'weak' %}
                                 <span class="badge bg-warning text-dark x-small"><i
-                                        class="fas fa-exclamation me-1"></i>Weak</span>
+                                        class="fas fa-exclamation-triangle me-1"></i>Weak</span>
+                                {% else %}
+                                <span class="badge bg-secondary x-small">Info</span>
                                 {% endif %}
                             </td>
-                            <td class="x-small text-muted font-monospace text-break">
+                            <td class="py-2 x-small text-light font-monospace text-break pe-3">
                                 {% if info.value %}
-                                {{ info.value }}
+                                <div class="text-white opacity-75">{{ info.value }}</div>
+                                {% if info.status != 'ok' and info.recommendation %}
+                                <div class="mt-1 text-warning x-small">
+                                    <i class="fas fa-lightbulb me-1"></i>Rec: {{ info.recommendation }}
+                                </div>
+                                {% endif %}
+                                {% elif info.recommendation %}
+                                <span class="text-info opacity-75 fst-italic">Recommended: {{ info.recommendation
+                                    }}</span>
                                 {% else %}
-                                <span class="opacity-50">Recommended: {{ info.recommendation }}</span>
+                                <span class="text-white-50 opacity-50 fst-italic">No recommendation provided.</span>
                                 {% endif %}
                             </td>
                         </tr>
@@ -41,7 +54,7 @@
                 </table>
             </div>
             {% else %}
-            <div class="text-muted small fst-italic">Headers not yet analyzed.</div>
+            <div class="p-3 text-muted small fst-italic">Headers not yet analyzed.</div>
             {% endif %}
         </div>
     </div>

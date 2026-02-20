@@ -17,37 +17,76 @@ from scan_engine.helpers.context_attack_engine import ContextAttackEngine
 def analyze_security_headers(target, port, proto, logger_func):
     """
     Analyzes HTTP headers for security configurations.
-    Returns tuple(missing_headers, headers_dict)
+    Returns structured results with status and recommendations.
     """
+    security_defs = {
+        'Strict-Transport-Security': {
+            'name': 'HSTS',
+            'rec': 'max-age=31536000; includeSubDomains; preload',
+            'desc': 'Enforces HTTPS connections.'
+        },
+        'Content-Security-Policy': {
+            'name': 'CSP',
+            'rec': "default-src 'self'; script-src 'self'; object-src 'none';",
+            'desc': 'Prevents XSS and injection attacks.'
+        },
+        'X-Frame-Options': {
+            'name': 'Clickjacking Protection',
+            'rec': 'DENY or SAMEORIGIN',
+            'desc': 'Prevents the site from being framed.'
+        },
+        'X-Content-Type-Options': {
+            'name': 'MIME Sniffing Protection',
+            'rec': 'nosniff',
+            'desc': 'Prevents browsers from MIME-sniffing.'
+        },
+        'Referrer-Policy': {
+            'name': 'Referrer Policy',
+            'rec': 'strict-origin-when-cross-origin',
+            'desc': 'Controls how much referrer information is shared.'
+        },
+        'Permissions-Policy': {
+            'name': 'Permissions Policy',
+            'rec': 'geolocation=(), microphone=(), camera=()',
+            'desc': 'Restricts use of browser features.'
+        }
+    }
+
     try:
         url = f"{proto}://{target}:{port}"
-        # logger_func(f"Fetching headers from {url}...", "DEBUG") # Too verbose?
         try:
             resp = requests.head(url, timeout=5, verify=True, allow_redirects=True)
         except Exception:
             resp = requests.get(url, timeout=5, verify=True, allow_redirects=True)
              
-        headers = resp.headers
+        actual_headers = {k.lower(): v for k, v in resp.headers.items()}
+        analysis = {}
+
+        for header_key, defs in security_defs.items():
+            low_key = header_key.lower()
+            if low_key in actual_headers:
+                analysis[header_key] = {
+                    'status': 'ok',
+                    'value': actual_headers[low_key],
+                    'recommendation': defs['rec']
+                }
+            else:
+                analysis[header_key] = {
+                    'status': 'missing',
+                    'value': None,
+                    'recommendation': defs['rec']
+                }
         
-        # Analyze specific headers
-        missing_sec_headers = []
-        important_headers = {
-            'Strict-Transport-Security': 'HSTS',
-            'Content-Security-Policy': 'CSP',
-            'X-Frame-Options': 'Clickjacking Protection',
-            'X-Content-Type-Options': 'MIME Sniffing Protection',
-            'Referrer-Policy': 'Referrer Policy'
-        }
-        
-        for header, name in important_headers.items():
-            if header not in headers:
-                missing_sec_headers.append(name)
-        
-        return missing_sec_headers, dict(headers)
+        # Add non-security headers for general info
+        for h, v in resp.headers.items():
+            if h not in analysis:
+                analysis[h] = {'status': 'info', 'value': v, 'recommendation': None}
+
+        return analysis
 
     except Exception as e:
         logger_func(f"Header Analysis Error: {e}", "DEBUG")
-        return [], {}
+        return {}
 
 def sanitize_endpoints(raw_list):
     """Clean and filter raw endpoints: only http(s) strings, no dict leaks."""
@@ -92,6 +131,8 @@ def run_enum(orchestrator, port, proto):
     results = orch.results
     target = orch.target
     log = orch.log
+    profile = orch.options.get('profile', 'quick')
+    is_quick = profile.startswith('quick')
 
     def _ts(fn):
         return orch.thread_safe_results_update(fn)
@@ -152,8 +193,8 @@ def run_enum(orchestrator, port, proto):
 
     # 2. Security Headers
     try:
-        missing_sec_headers, headers = analyze_security_headers(target, port, proto, log)
-        _ts(lambda: results['phases']['enum'].setdefault('headers', {}).__setitem__(str(port), headers))
+        header_analysis = analyze_security_headers(target, port, proto, log)
+        _ts(lambda: results['phases']['enum'].setdefault('headers', {}).__setitem__(str(port), header_analysis))
         orch.mark_module("headers", port, "executed")
     except Exception as e:
         log(f"Security headers scan failed: {e}", "DEBUG")
@@ -164,8 +205,8 @@ def run_enum(orchestrator, port, proto):
          katana = KatanaScanner(target)
          if katana.check_tools():
              log(f"Crawling {proto}://{target}:{port} (Katana)...", "INFO")
-             _ts(lambda: results['commands'].append({'tool': 'katana', 'cmd': shlex.join(katana.get_command(port, proto))}))
-             kt_stream = katana.stream_scan(port, proto)
+             _ts(lambda: results['commands'].append({'tool': 'katana', 'cmd': shlex.join(katana.get_command(port, proto, quick=is_quick))}))
+             kt_stream = katana.stream_scan(port, proto, quick=is_quick)
              raw_endpoints = [ev["line"].strip() for ev in kt_stream if ev["type"] == "stdout" and ev["line"].strip()]
              
              # --- SCOPE ENFORCEMENT: Drop off-scope URLs ---
@@ -232,22 +273,26 @@ def run_enum(orchestrator, port, proto):
          api_scanner = APIScanner(target)
          if api_scanner.check_tools():
             log(f"API Discovery (Kiterunner)...", "INFO")
-            _ts(lambda: results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto))}))
-            api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log)
+            _ts(lambda: results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto, quick=is_quick))}))
+            api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log, quick=is_quick)
             api_endpoints = []
             for ev in api_stream:
-                if ev["type"] == "stdout" and ev["line"].strip():
-                    parts = ev["line"].split()
-                    if len(parts) >= 2 and parts[1].startswith(('2', '3')):
-                        url = parts[0]
-                        if not url.startswith("http"): url = f"{proto}://{target}:{port}/{url.lstrip('/')}"
-                        api_endpoints.append(url)
+                if ev["type"] == "stdout" and ev["line"].strip().startswith('{'):
+                    try:
+                        import json
+                        data = json.loads(ev["line"])
+                        url = data.get('url')
+                        if url:
+                            api_endpoints.append(url)
+                            # log(f"API Found: {url}", "SUCCESS")
+                    except Exception: continue
             
             if api_endpoints:
                  def _store_api():
                      results['phases']['enum']['api'].setdefault('discovered_endpoints', []).extend(api_endpoints)
-                     results['phases']['enum']['api'][str(port)] = api_endpoints[:100]
-                     results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200} for url in api_endpoints])
+                     # store all, but keep compatible with older UI parts that might use port keys
+                     results['phases']['enum']['api'][str(port)] = api_endpoints
+                     results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200, "source": "fuzzing"} for url in api_endpoints])
                  _ts(_store_api)
             orch.mark_module("api_scanner", port, "executed", artifacts=len(api_endpoints))
     except Exception as e:

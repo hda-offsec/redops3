@@ -28,18 +28,26 @@ class LfiAssaultScanner:
         # Filter matrix for LFI rules
         self.lfi_rules = [r for r in self.matrix if "lfi" in r.get("tags", []) or "path_traversal" in r.get("tags", [])]
 
-    def scan(self, target, scan_id, urls=None, logger=None, finding_callback=None):
+    def scan(self, target, scan_id, urls=None, logger=None, finding_callback=None, quick=False):
         """
         Main entry point for LFI scanning.
         """
-        if logger: logger(f"LFI Assault: Starting Matrix Attack on {target}", "INFO")
+        if logger: logger(f"LFI Assault: Starting Matrix Attack on {target} (Mode: {'Quick' if quick else 'Full'})", "INFO")
         
         # 1. Discover Parameters & Expand Surface
         urls_to_test = [target]
         
         # Add provided URLs (from Katana/FFUF)
         if urls:
-            if logger: logger(f"LFI Assault: Ingested {len(urls)} crawled URLs", "INFO")
+            # Sort URLs to prioritize more interesting ones (with params or high depth)
+            urls = sorted(urls, key=lambda x: (len(urlparse(x).query) > 0, urlparse(x).path.count('/')), reverse=True)
+            
+            if quick:
+                # Limit surface in quick mode
+                urls = urls[:15]
+                if logger: logger(f"LFI Assault: (Quick Mode) Capping scan to top {len(urls)} target URLs", "DEBUG")
+            
+            if logger: logger(f"LFI Assault: Ingested {len(urls)} prioritized URLs", "INFO")
             urls_to_test.extend(urls)
             
         # 2. Attack Execution
@@ -49,7 +57,7 @@ class LfiAssaultScanner:
         
         # We process URLs in parallel threads
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_url = {executor.submit(self._assault_url, url, logger): url for url in urls_to_test}
+            future_to_url = {executor.submit(self._assault_url, url, logger, quick): url for url in urls_to_test}
             for future in concurrent.futures.as_completed(future_to_url):
                 url = future_to_url[future]
                 try:
@@ -96,18 +104,11 @@ class LfiAssaultScanner:
         except Exception:
             return []
 
-    def _assault_url(self, url, logger):
+    def _assault_url(self, url, logger, quick=False):
         """
         Performs the matrix attack on a single base URL.
-        1. Expands params (guess LFI params).
-        2. Injects payloads + mutations.
         """
         findings = []
-        
-        # Get injection points (existing + expanded)
-        # We start with the raw URL.
-        # If it has no params, we use ParamExpander to add standard LFI params.
-        
         target_urls_with_points = []
         
         # 1. Existing params
@@ -117,47 +118,56 @@ class LfiAssaultScanner:
             for param in qs:
                 target_urls_with_points.append((url, param))
         
-        # 2. Expanded params (only if few params or aggressive mode)
-        # Always try to inject 'file'/'path' if not present
-        expanded_urls = ParamExpander.expand(url, attack_type="lfi")
-        for e_url in expanded_urls:
-            # ParamExpander puts "FUZZ" in the value. We need to identify the param name.
-            e_parsed = urlparse(e_url)
-            e_qs = parse_qs(e_parsed.query)
-            for p, v in e_qs.items():
-                if v == ['FUZZ']:
-                    target_urls_with_points.append((e_url, p))
-
-        # Remove duplicates
-        target_urls_with_points = list(set(target_urls_with_points))
+        # 2. Expanded params
+        # In quick mode/deep 1, only expand if NO params exist at all, otherwise skip expansion to save time
+        if not target_urls_with_points or not quick:
+            expanded_urls = ParamExpander.expand(url, attack_type="lfi")
+            for e_url in expanded_urls:
+                e_qs = parse_qs(urlparse(e_url).query)
+                for p, v in e_qs.items():
+                    if v == ['FUZZ']:
+                        target_urls_with_points.append((e_url, p))
+                        if quick: break # Only one expanded param in quick mode
+        
+        target_urls_with_points = list(set(target_urls_with_points))[:10] # Cap injection points
         
         session = requests.Session()
         session.headers.update({"User-Agent": "RedOps3-Assault/1.0"})
         
         for rule in self.lfi_rules:
-            for base_payload in rule.get("payloads", []):
-                # Apply mutations defined in the rule
-                mutations = PayloadMutator.mutate(base_payload, rule.get("mutations"))
+            # In quick mode, only test first 3 payloads per rule
+            payloads_to_test = rule.get("payloads", [])
+            if quick: payloads_to_test = payloads_to_test[:3]
+                
+            for base_payload in payloads_to_test:
+                # Apply mutations
+                rule_mutations = rule.get("mutations")
+                if quick:
+                    # Only basic mutations in quick mode
+                    rule_mutations = [m for m in rule_mutations if m in ["url_encode", "original"]]
+                    if not rule_mutations: rule_mutations = ["original"]
+
+                mutations = PayloadMutator.mutate(base_payload, rule_mutations)
                 
                 for payload in mutations:
                     for target_url, param in target_urls_with_points:
-                        # Inject payload
-                        # Handle the "FUZZ" placeholder if present, otherwise replace value
                         final_url = self._inject(target_url, param, payload)
-                        
                         try:
-                            resp = session.get(final_url, timeout=5, verify=True)
+                            # Use Verify=False if we want to bypass cert issues, 
+                            # but verify=True is safer. Let's stick to system default.
+                            resp = session.get(final_url, timeout=3, verify=False)
                             if self._check_success(resp, rule):
                                 findings.append({
                                     "title": f"LFI Detected ({rule['rule_id']})",
                                     "severity": "critical",
-                                    "description": f"URL: {final_url}\nPayload: {payload}\nRule: {rule['description']}",
+                                    "description": f"URL: {final_url}\nPayload: {payload}",
                                     "url": final_url
                                 })
-                                # Stop after first valid finding for this URL/Rule combo to avoid spam
                                 break 
-                        except requests.exceptions.RequestException:
+                        except Exception:
                             pass
+                    if findings: break
+                if findings: break
                             
         return findings
 

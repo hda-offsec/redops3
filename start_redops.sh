@@ -42,17 +42,26 @@ if [ -d "venv/lib/python3.13/site-packages/fpdf" ] && [ ! -d "venv/lib/python3.1
     ./venv/bin/python3 -m pip uninstall -y fpdf pypdf &> /dev/null || true
 fi
 
-# Verifier Playwright (necessaire après emergency_cleanup.sh)
-if [ ! -d "$HOME/.cache/ms-playwright" ]; then
-    echo "[!] Playwright browsers missing. Installing Chromium..."
+# Optimized Playwright Check (Avoid re-downloading if already present)
+PLAYWRIGHT_DIR="$HOME/.cache/ms-playwright"
+if find "$PLAYWRIGHT_DIR" -maxdepth 2 -name "chromium-*" -type d 2>/dev/null | grep -q .; then
+    # Already present, do nothing unless forced
+    :
+else
+    echo "[!] Playwright browsers missing. This might take a few minutes..."
     mkdir -p .tmp
     TMPDIR=$PWD/.tmp ./venv/bin/python3 -m playwright install chromium
     rm -rf .tmp
 fi
 
-# Install missing dependencies
+# Fast Dependency Check
 echo "Verifying dependencies..."
-./venv/bin/python3 -m pip install -r requirements.txt | grep -v "already satisfied" || true
+if [ ! -f "data/.deps_installed" ] || [ "requirements.txt" -nt "data/.deps_installed" ]; then
+    ./venv/bin/python3 -m pip install -r requirements.txt | grep -v "already satisfied" || true
+    touch data/.deps_installed
+else
+    echo "[+] Dependencies up to date (cached)."
+fi
 
 echo "[+] Starting Celery Worker (Pool: solo)..."
 export PYTHONPATH=$PYTHONPATH:.
