@@ -1,5 +1,6 @@
 import shlex
 import time
+import os
 from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
 from scan_engine.step03_vuln.wpscan_scanner import WPScanScanner
 from scan_engine.step03_vuln.dalfox_scanner import DalfoxScanner
@@ -65,6 +66,8 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     
     # Retrieve pre-computed mutation strategy from Enum phase
     mutation_strategy = results.get('phases', {}).get('enum', {}).get('mutation_strategy', {}).get(str(port), {})
+    execution_hints = results.get('phases', {}).get('enum', {}).get('derived', {}).get('execution_hints', {})
+    execution_hints = execution_hints if isinstance(execution_hints, dict) else {}
 
 
     # --- CMS SPECIFIC SCANS (WordPress) ---
@@ -331,6 +334,17 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
             # SEED MUTATION & DISPATCH
             raw_seeds = results['phases']['enum'].get('injection_points', {}).get(str(port), [])
+            hinted_seeds = execution_hints.get('dalfox', {}).get('seed_priority', []) if isinstance(execution_hints, dict) else []
+            if hinted_seeds:
+                hinted_for_port = [
+                    u for u in hinted_seeds
+                    if isinstance(u, str) and (
+                        f":{port}" in u or
+                        u.startswith(f"{proto}://{target}")
+                    )
+                ]
+                if hinted_for_port:
+                    raw_seeds = hinted_for_port
             mutated_seeds = []
             for rs in raw_seeds[:100]: # Top 100 seeds for mutation
                 variants = mutation_engine.generate_variants(rs, attack_type="xss", strategy=mutation_strategy)
@@ -343,8 +357,12 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             log(f"Mutation Engine: Generated {len(mutated_seeds)} XSS variants for Dalfox.", "DEBUG")
 
             # Batch scan: feed ALL mutated URLs to Dalfox via file mode
-            capped_seeds = mutated_seeds[:300]
+            capped_seeds = mutated_seeds[:200]
             xss_found = []
+            dalfox_max_seconds = int(os.getenv("REDOPS_DALFOX_MAX_SECONDS", "900"))
+            dalfox_max_findings = int(os.getenv("REDOPS_DALFOX_MAX_FINDINGS", "30"))
+            dalfox_start = time.time()
+            stop_reason = None
 
             if capped_seeds:
                 _ts(lambda: results['commands'].append({
@@ -354,6 +372,19 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
                 df_stream = dalfox.stream_scan_pipe(capped_seeds)
                 for event in df_stream:
+                    if (time.time() - dalfox_start) > dalfox_max_seconds:
+                        stop_reason = "time_budget_exceeded"
+                        try:
+                            if hasattr(df_stream, "terminate"):
+                                df_stream.terminate()
+                            elif hasattr(df_stream, "process") and df_stream.process:
+                                try:
+                                    df_stream.process.terminate()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                        break
                     if event["type"] == "stdout":
                         line = event["line"].strip()
                         if "[V]" in line or "PoC" in line:
@@ -373,6 +404,14 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                                  xss_obj["payload"] = poc_match.group(1).strip()
                              
                              xss_found.append(xss_obj)
+
+                             if len(xss_found) >= dalfox_max_findings:
+                                stop_reason = "findings_budget_exceeded"
+                                try:
+                                    df_stream.close()
+                                except Exception:
+                                    pass
+                                break
                              
                              # NORMALIZED FINDING
                              normalized_f = normalizer.normalize({"url": "", "param": "", "poison": "", "evidence": line}, "dalfox")
@@ -392,7 +431,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 _ts(_store_xss)
                 orch.save_results(orch.scan_id, results)
             
-            orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found))
+            orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found), reason=stop_reason)
             orch.add_finding(title=f"Module Executed: dalfox", description=f"Dalfox XSS scan finished on {port}", severity="info", tool_source="redops-core")
             
     except Exception as e:
@@ -600,6 +639,9 @@ def run_global_vuln_scans(orchestrator):
     target = orch.target
     log = orch.log
     normalizer = FindingNormalizer()
+
+    def _ts(fn):
+        return orch.thread_safe_results_update(fn)
     
     # --- PHASE 3: Subdomain Takeover ---
     emit_progress(orch, 50, "Subdomain Takeover Check")
@@ -679,16 +721,22 @@ def run_global_vuln_scans(orchestrator):
             # Existing logic fallback was:
             if not web_ports: web_ports = [80, 443]
 
+            execution_hints = results.get('phases', {}).get('enum', {}).get('derived', {}).get('execution_hints', {})
+            extra_tags = execution_hints.get('nuclei', {}).get('extra_tags', []) if isinstance(execution_hints, dict) else []
+            base_tags = ["cve", "lfi", "rfi", "ssti", "sqli", "injection", "misconfig"]
+            merged_tags = base_tags + [tag for tag in extra_tags if isinstance(tag, str) and tag not in base_tags]
+            tags_csv = ",".join(merged_tags[:len(base_tags) + 3])
+
             for port in web_ports:
                 proto = 'https' if port in [443, 8443] or 'ssl' in str(port) else 'http'
                 # Simple heuristc logic, might need refinement
                 
                 try:
-                    cmd_nuc = nuclei.get_command(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
+                    cmd_nuc = nuclei.get_command(port, proto, tags=tags_csv)
                     _ts(lambda: results['commands'].append({'tool': 'nuclei', 'cmd': shlex.join(cmd_nuc)}))
                     log(f"Executing Nuclei on {target}:{port}...", "DEBUG")
                     
-                    nuc_stream = nuclei.stream_vuln_scan(port, proto, tags="cve,lfi,rfi,ssti,sqli,injection,misconfig")
+                    nuc_stream = nuclei.stream_vuln_scan(port, proto, tags=tags_csv)
                     
                     _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('nuclei', {'findings': []})))
                     
@@ -744,4 +792,3 @@ def run_global_vuln_scans(orchestrator):
 
     except Exception as e:
         log(f"Nuclei scan failed: {e}", "ERROR")
-
