@@ -24,6 +24,7 @@ class DBScanner:
                     "description": f"The Redis server at {self.target}:{port} is accessible without authentication. This allows full control over the database and potentially remote code execution.\n\nServer Info Snippet:\n{response[:200]}...",
                     "severity": "critical",
                     "tool_source": "db_audit",
+                    "target": f"{self.target}:{port}",
                     "raw_loot": f"redis://{self.target}:{port} (Unauthenticated)",
                     "loot_type": "Database Credential"
                 })
@@ -56,6 +57,7 @@ class DBScanner:
                     "description": f"The MongoDB server at {self.target}:{port} allows listing databases without authentication. This is a severe data exposure risk.\n\nNmap Output:\n{result.stdout}",
                     "severity": "critical",
                     "tool_source": "db_audit",
+                    "target": f"{self.target}:{port}",
                     "raw_loot": f"mongodb://{self.target}:{port} (Unauthenticated)",
                     "loot_type": "Database Credential"
                 })
@@ -85,6 +87,7 @@ class DBScanner:
                     "description": f"A weak or missing password was detected on the {service_name} service at {self.target}:{port}.\n\nNmap Result:\n{result.stdout}",
                     "severity": "critical",
                     "tool_source": "db_audit",
+                    "target": f"{self.target}:{port}",
                     "raw_loot": f"Service: {service_name}, Access: Unauthenticated/Weak",
                     "loot_type": "Database Credential"
                 })
@@ -95,8 +98,33 @@ class DBScanner:
                     "title": f"DB Info Disclosure: {service_name.upper()}",
                     "description": f"Service information extracted for {service_name} at {self.target}:{port}.\n\nNmap Result:\n{result.stdout}",
                     "severity": "info",
-                    "tool_source": "db_audit"
+                    "tool_source": "db_audit",
+                    "target": f"{self.target}:{port}"
                 })
+        except Exception:
+            pass
+        return findings
+
+    def audit_elasticsearch(self, port=9200, logger=None):
+        """Checks for unauthenticated Elasticsearch access."""
+        findings = []
+        try:
+            if logger: logger(f"DB Audit: Testing Elasticsearch anonymous access on {self.target}:{port}", "INFO")
+            # Using requests for HTTP-based DB
+            import requests
+            url = f"http://{self.target}:{port}/_cat/indices?v"
+            r = requests.get(url, timeout=10, verify=False)
+            if r.status_code == 200 and ("index" in r.text and "health" in r.text):
+                 findings.append({
+                    "title": "Critical: Unauthenticated Elasticsearch Access",
+                    "description": f"The Elasticsearch cluster at {self.target}:{port} is accessible without authentication.\n\nIndices:\n{r.text[:500]}",
+                    "severity": "critical",
+                    "tool_source": "db_audit",
+                    "url": url,
+                    "raw_loot": f"http://{self.target}:{port}/_cat/indices",
+                    "loot_type": "Database Credential"
+                })
+                 if logger: logger(f"🔥 ELASTICSEARCH EXPLOITABLE: Unauthenticated access on {self.target}:{port}", "CRITICAL")
         except Exception:
             pass
         return findings
@@ -112,6 +140,8 @@ class DBScanner:
                 all_findings.extend(self.audit_redis(port, logger))
             elif port == 27017 or "mongodb" in service:
                 all_findings.extend(self.audit_mongodb(port, logger))
+            elif port == 9200 or "elasticsearch" in service:
+                all_findings.extend(self.audit_elasticsearch(port, logger))
             elif port == 3306 or "mysql" in service:
                 all_findings.extend(self.audit_mysql_postgres(port, "mysql", logger))
             elif port == 5432 or "postgresql" in service:

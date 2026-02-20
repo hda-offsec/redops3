@@ -186,7 +186,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 print(f"Suggestion Save Error: {e}")
 
         def results_update_cb(scan_id, data, **kwargs):
-            save_results(scan_id, data, **kwargs)
+            full_data = save_results(scan_id, data, **kwargs) or data
             try:
                 from core.extensions import socketio
                 
@@ -208,7 +208,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
 
                 socketio.emit('results_update', {
                     'scan_id': scan_id,
-                    'results': data
+                    'results': full_data
                 }, room=f"scan_{scan_id}")
             except Exception as e:
                 print(f"Results Emit Error: {e}")

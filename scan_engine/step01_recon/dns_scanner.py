@@ -4,6 +4,17 @@ from scan_engine.helpers.process_manager import ProcessManager
 class DNSScanner:
     def __init__(self, target):
         self.target = target
+        self.root_domain = self._get_root_domain(target)
+
+    def _get_root_domain(self, target):
+        import tldextract
+        try:
+            ext = tldextract.extract(target)
+            if ext.domain and ext.suffix:
+                return f"{ext.domain}.{ext.suffix}"
+        except Exception:
+            pass
+        return target
 
     def check_tools(self):
         return ProcessManager.find_binary_path("dnsrecon") is not None
@@ -12,7 +23,10 @@ class DNSScanner:
         """Parse DNSRecon JSON output file"""
         try:
             with open(output_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+                raw = f.read()
+                # FIX #3 — Sanitize léger JSON dnsrecon (escape bug PowerDNS)
+                raw = raw.replace('\\"', '"')
+                data = json.loads(raw)
                 if isinstance(data, list):
                     return data
         except (FileNotFoundError, json.JSONDecodeError):
@@ -22,7 +36,11 @@ class DNSScanner:
     def run_dnsrecon(self, output_file=None):
         """Run dnsrecon for standard enumeration"""
         if output_file is None:
-            output_file = f"data/results/dns_{self.target}.json"
+            from pathlib import Path
+            BASE_DIR = Path(__file__).resolve().parents[2]
+            DATA_DIR = BASE_DIR / "data" / "results"
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            output_file = str(DATA_DIR / f"dns_{self.target}.json")
         
         # --- STALE OUTPUT CLEANUP ---
         import os
@@ -32,14 +50,14 @@ class DNSScanner:
             except Exception:
                 pass
                 
-        command = ["dnsrecon", "-d", self.target, "-t", "std", "--json", output_file]
+        command = ["dnsrecon", "-d", self.root_domain, "-t", "std", "--json", output_file]
         return ProcessManager.run_command(command)
 
     def run_subfinder(self):
         """Run subfinder for subdomain discovery"""
         subfinder_path = ProcessManager.find_binary_path("subfinder") or "subfinder"
         
-        command = [subfinder_path, "-d", self.target, "-silent"]
+        command = [subfinder_path, "-d", self.root_domain, "-silent"]
         return ProcessManager.run_command(command)
 
     def analyze_security(self, records):
@@ -138,26 +156,7 @@ class DNSScanner:
         if success:
             found = [line.strip() for line in stdout.splitlines() if line.strip()]
             
-            # --- ROOT DOMAIN EXTRACTION (Hardened) ---
-            try:
-                import tldextract
-                ext = tldextract.extract(self.target)
-                root_domain = f"{ext.domain}.{ext.suffix}"
-            except ImportError:
-                # Fallback heuristic
-                target_domain = self.target
-                if "://" in target_domain:
-                     from urllib.parse import urlparse
-                     target_domain = urlparse(target_domain).hostname
-                
-                parts = target_domain.split('.')
-                if len(parts) >= 2:
-                    if len(parts) >= 3 and parts[-2] in ['com', 'org', 'net', 'edu', 'gov', 'co', 'ac']:
-                        root_domain = ".".join(parts[-3:])
-                    else:
-                        root_domain = ".".join(parts[-2:])
-                else:
-                    root_domain = target_domain
+            root_domain = self.root_domain
 
             # Filter subdomains against the root domain
             filtered = [sub for sub in found if sub.endswith(root_domain)]
@@ -165,19 +164,36 @@ class DNSScanner:
             
             if logger: logger(f"Subfinder finished. Found {len(filtered)} subdomains (root: {root_domain}).", "SUCCESS")
         else:
+            # FIX #4 — Vérification tool_exit_code
+            if code != 0:
+                if logger: logger("external_tool_non_zero_exit_code", "DEBUG")
             if logger: logger("Subfinder failed or returned nothing.", "WARN")
             results["subdomains"] = [] # Explicitly clear if failed
             
         # DNSRecon
-        output_file = f"data/results/dns_{self.target}.json"
+        from pathlib import Path
+        BASE_DIR = Path(__file__).resolve().parents[2]
+        DATA_DIR = BASE_DIR / "data" / "results"
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        output_file = DATA_DIR / f"dns_{self.root_domain}.json"
 
         if logger: logger("Enumerating DNS records via DNSRecon...", "INFO")
-        success, stdout, stderr, code = self.run_dnsrecon(output_file)
+        success, stdout, stderr, code = self.run_dnsrecon(str(output_file))
+
+        # FIX #4 — Vérification tool_exit_code
+        if code != 0:
+            if logger: logger("external_tool_non_zero_exit_code", "DEBUG")
+
+        # FIX #2 — Guardrail si le fichier de sortie n’existe pas
+        if not output_file.exists():
+            if logger: logger("tool_output_missing_absolute_path_guardrail", "WARN")
+            return results
+
         if success:
             if logger: logger("DNSRecon enumeration complete.", "SUCCESS")
 
             # Parse results
-            records = self.parse_results(output_file)
+            records = self.parse_results(str(output_file))
             if records:
                 results["records"] = records
                 if logger: logger(f"Parsed {len(records)} DNS records.", "SUCCESS")

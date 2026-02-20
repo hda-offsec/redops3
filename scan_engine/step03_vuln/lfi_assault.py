@@ -14,7 +14,13 @@ class LfiAssaultScanner:
     Replaces the basic lfi_scanner.py with a full mutation-based engine.
     """
     
-    def __init__(self, output_dir="data/results/lfi"):
+    def __init__(self, output_dir=None):
+        if output_dir is None:
+            from pathlib import Path
+            BASE_DIR = Path(__file__).resolve().parents[2]
+            DATA_DIR = BASE_DIR / "data" / "results" / "lfi"
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            output_dir = str(DATA_DIR)
         self.output_dir = output_dir
         self.waf_matrix_path = "data/kb/waf_matrix.json"
         

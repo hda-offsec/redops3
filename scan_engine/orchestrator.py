@@ -19,6 +19,7 @@ from scan_engine.helpers.execution_hints import derive_execution_hints
 from scan_engine.helpers.safety_checks import validate_results_schema
 from scan_engine.helpers.service_intelligence import derive_service_intel
 from scan_engine.helpers.surface_expander import derive_surface_expansion
+from scan_engine.helpers.js_mining_expert import JSDeepMiningExpert
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
@@ -161,7 +162,7 @@ class ScanOrchestrator:
             self.results["task_status"][task_id] = {"state": state, "reason": reason}
             self._update_progress()
             payload["task_status"] = dict(self.results.get("task_status", {}))
-            payload["progress"] = self.results.get("progress", 0.0)
+            payload["progress"] = self.results.get("progress", {"percent": 0.0, "current_phase": "Initializing"})
 
         self.thread_safe_results_update(_update)
         self.save_results(self.scan_id, payload)
@@ -171,7 +172,17 @@ class ScanOrchestrator:
         total = len(task_status)
         completed_states = {"executed", "skipped", "failed"}
         done = sum(1 for info in task_status.values() if info.get("state") in completed_states)
-        self.results["progress"] = float((done / total) * 100.0) if total else 0.0
+        percent = float((done / total) * 100.0) if total else 0.0
+        # Preserve current_phase if it already exists
+        current_progress = self.results.get("progress")
+        if isinstance(current_progress, dict):
+            current_progress["percent"] = percent
+            self.results["progress"] = current_progress
+        else:
+            self.results["progress"] = {
+                "percent": percent,
+                "current_phase": "Strategic Analysis" if percent < 100 else "Finalizing"
+            }
 
     def _on_scheduler_progress(self, scheduler):
         payload = {}
@@ -188,7 +199,7 @@ class ScanOrchestrator:
             )
             self._update_progress()
             payload["task_status"] = dict(self.results.get("task_status", {}))
-            payload["progress"] = self.results.get("progress", 0.0)
+            payload["progress"] = self.results.get("progress", {"percent": 0.0, "current_phase": "Initializing"})
             payload["metrics"] = dict(self.results.get("metrics", {}))
 
         self.thread_safe_results_update(_update)
@@ -317,10 +328,10 @@ class ScanOrchestrator:
                 web_ports = self._build_web_ports(open_ports)
                 self.log(f"Discovery: Found {len(open_ports)} total ports, {len(web_ports)} web ports.", "DEBUG")
                 
+                enum_tasks = []
                 for port, proto in web_ports:
-                    self.log(f"Dynamically adding tasks for {proto}://{self.target}:{port}", "DEBUG")
                     enum_task_id = f"enum_{port}"
-                    vuln_task_id = f"vuln_{port}"
+                    enum_tasks.append(enum_task_id)
                     scheduler.add_task(
                         enum_task_id,
                         "enum",
@@ -328,10 +339,112 @@ class ScanOrchestrator:
                         self._task_wrapper,
                         args=(enum_task_id, run_enum, self, port, proto),
                     )
+
+                # Strategic Intelligence Task (Phase 3)
+                # This depends on all discovery tasks and will run before vuln scans
+                def strategic_analysis_task():
+                    self.log("🧠 Cortex: Launching Tactical Correlation & Surface Expansion...", "INFO")
+                    
+                    def _set_enum_derived(key, value):
+                        def _inner():
+                            self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})[key] = value
+                        self.thread_safe_results_update(_inner)
+
+                    # 1. Profile Intelligence
+                    adaptive_hints = derive_adaptive_hints(self.results)
+                    _set_enum_derived("adaptive_hints", adaptive_hints)
+
+                    service_intel = derive_service_intel(self.results)
+                    _set_enum_derived("service_intelligence", service_intel)
+
+                    # 2. Run Cortex Reasoning
+                    cortex_recommendations = suggest_actions(self.results)
+                    _set_enum_derived("cortex_recommendations", cortex_recommendations)
+
+                    # 3. Expand Surface (Heuristics)
+                    surface_expansion = derive_surface_expansion(self.results)
+                    _set_enum_derived("surface_expansion", surface_expansion)
+
+                    # 4. Global Execution Hints
+                    execution_hints = derive_execution_hints(self.results)
+                    _set_enum_derived("execution_hints", execution_hints)
+                    
+                    # 5. Build Attack Plan (Ranking)
+                    attack_builder = AttackGraphBuilder()
+                    attack_builder.build(self.results)
+                    self.results["attack_plan"] = attack_builder.rank_actions()
+                    
+                    # --- FEEDBACK LOOP: Dynamic Task Injection & Expert Mining ---
+                    for rec in cortex_recommendations:
+                        # 1. Trigger Deep JS Mining for SPAs
+                        if rec.get('category') == 'enum' and 'js-mining' in rec.get('id', ''):
+                            target_port = rec.get('port')
+                            if not target_port: continue
+                            
+                            self.log(f"Cortex: SPA detected on port {target_port}. Launching Deep JS Mining Expert...", "SUCCESS")
+                            
+                            # Collect JS URLs from Katana
+                            katana_urls = self.results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(target_port), [])
+                            js_urls = [u for u in katana_urls if u.endswith('.js')]
+                            
+                            if js_urls:
+                                expert = JSDeepMiningExpert(self.target)
+                                mining_results = expert.mine_endpoints(js_urls, logger=self.log)
+                                
+                                # Store mining findings
+                                def _store_mining():
+                                    enum = self.results.setdefault('phases', {}).setdefault('enum', {})
+                                    derived = enum.setdefault('derived', {})
+                                    js_expert = derived.setdefault('js_expert_mining', {})
+                                    js_expert[str(target_port)] = mining_results
+                                    
+                                    # Merge discovered endpoints into surface expansion
+                                    expansion = derived.setdefault('surface_expansion', {})
+                                    port_exp = expansion.setdefault('per_port', {}).setdefault(str(target_port), {})
+                                    port_exp.setdefault('derived_endpoints', []).extend(mining_results['discovered_endpoints'])
+                                    port_exp.setdefault('reasons', []).append('js_ast_mining')
+                                    
+                                    # Populate the dedicated JS Secrets UI component
+                                    js_secrets_ui = enum.setdefault('js_secrets', {})
+                                    port_secrets = js_secrets_ui.setdefault(str(target_port), {})
+                                    
+                                    for f in mining_results['findings']:
+                                        url_secrets = []
+                                        for s in f['details']['secrets']:
+                                            # Add to general findings
+                                            self.add_finding(
+                                                title=f"JS Secret: {s['type']}",
+                                                description=f"Discovered in {f['source']}\nValue: {s['value']}\nContext: {s['context']}",
+                                                severity="high",
+                                                tool_source="js_mining_expert"
+                                            )
+                                            # Add to specialized UI list
+                                            url_secrets.append({
+                                                "type": s['type'],
+                                                "match": s['value'],
+                                                "line_context": s['context']
+                                            })
+                                        if url_secrets:
+                                            port_secrets[f['source']] = url_secrets
+                                
+                                self.thread_safe_results_update(_store_mining)
+                                self.log(f"JS Expert: Successfully mined {len(mining_results['discovered_endpoints'])} extra endpoints from Client-side code.", "SUCCESS")
+                            else:
+                                self.log(f"JS Expert: No JS files found for port {target_port} in crawler results.", "DEBUG")
+
+                    self.log(f"Strategic Analysis Complete: Identified {len(cortex_recommendations)} tactical vectors.", "SUCCESS")
+                    self.save_results(self.scan_id, self.results)
+                    return True
+
+                scheduler.add_task("strategic_analysis", "intel", enum_tasks or ["discover_web_ports"], self._task_wrapper, args=("strategic_analysis", strategic_analysis_task))
+
+                # Now add VULN tasks depending on strategic analysis
+                for port, proto in web_ports:
+                    vuln_task_id = f"vuln_{port}"
                     scheduler.add_task(
                         vuln_task_id,
                         "vuln",
-                        [enum_task_id],
+                        ["strategic_analysis"], # V6 Fix: Depend on strategic analysis, not just enum
                         self._task_wrapper,
                         args=(vuln_task_id, run_vuln_scans, self, port, proto),
                         kwargs={"fingerprint_data": ""},
@@ -352,7 +465,7 @@ class ScanOrchestrator:
                 return web_ports
 
             scheduler.add_task("discover_web_ports", "phase", ["recon"], self._task_wrapper, args=("discover_web_ports", discover_web_ports_task))
-            scheduler.add_task("global_vuln", "phase", ["discover_web_ports"], self._task_wrapper, args=("global_vuln", run_global_vuln_scans, self))
+            scheduler.add_task("global_vuln", "phase", ["discover_web_ports"], self._task_wrapper, args=("global_vuln", run_global_vuln_scans, self)) # Note: global_vuln might need strategic_analysis too if it uses its data
             scheduler.add_task("dirbusting", "phase", ["global_vuln"], self._task_wrapper, args=("dirbusting", run_dirbusting, self))
 
             def _prime_task_status():
@@ -366,32 +479,11 @@ class ScanOrchestrator:
 
             scheduler.run()
 
-            def _set_enum_derived(key, value):
-                def _inner():
-                    self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})[key] = value
-                self.thread_safe_results_update(_inner)
-
-            adaptive_hints = derive_adaptive_hints(self.results)
-            _set_enum_derived("adaptive_hints", adaptive_hints)
-
-            attack_builder = AttackGraphBuilder()
-            attack_builder.build(self.results)
-            self.results["attack_plan"] = attack_builder.rank_actions()
-
-            service_intel = derive_service_intel(self.results)
-            _set_enum_derived("service_intelligence", service_intel)
-
-            cortex_recommendations = suggest_actions(self.results)
-            _set_enum_derived("cortex_recommendations", cortex_recommendations)
-
-            surface_expansion = derive_surface_expansion(self.results)
-            _set_enum_derived("surface_expansion", surface_expansion)
-
-            execution_hints = derive_execution_hints(self.results)
-            _set_enum_derived("execution_hints", execution_hints)
-
+            # The post-run logic is mostly moved into the strategic_analysis_task or kept for final metrics
             safety_warnings = validate_results_schema(self.results)
-            _set_enum_derived("safety_warnings", safety_warnings[:50])
+            def _set_final_derived(key, value):
+                self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})[key] = value
+            self.thread_safe_results_update(lambda: _set_final_derived("safety_warnings", safety_warnings[:50]))
 
             # Recalculate findings count from all vuln modules
             total_findings = 0

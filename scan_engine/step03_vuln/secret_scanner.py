@@ -56,7 +56,7 @@ class SecretScanner:
                 matches = re.finditer(pattern, text, re.MULTILINE)
                 for match in matches:
                     # If the regex has groups, the last group is usually the secret value 
-                    if match.groups():
+                    if match.groups() and match.lastindex is not None:
                         secret = match.group(match.lastindex)
                         full_match = match.group(0)
                     else:
@@ -109,8 +109,14 @@ class SecretScanner:
                     end = min(len(text), match.end() + 50)
                     context_snippet = text[start:end].replace('\n', ' ').strip()
                     
-                    # Highlight the match in the context
-                    # context_snippet = context_snippet.replace(full_match, f"[[{obfuscated}]]")
+                    # Highlight the match in the context for better visibility
+                    # We use a simple but effective marker that the UI can emphasize
+                    if full_match in context_snippet:
+                        context_snippet = context_snippet.replace(full_match, f"==> {full_match} <== ")
+                    
+                    # Ensure context is NOT empty if match itself is the only thing
+                    if not context_snippet:
+                        context_snippet = f"Match: {full_match}"
 
                     findings.append({
                         "title": f"Secret Found: {name}",
@@ -123,7 +129,10 @@ class SecretScanner:
                         "severity": severity,
                         "tool_source": "secret_scanner",
                         "raw_secret": full_match,
-                        "secret_type": name
+                        "secret_type": name,
+                        "type": name, # Compatibility with template
+                        "match": obfuscated, # Compatibility with template (obfuscated for UI)
+                        "line_context": context_snippet # Compatibility with template
                     })
             except Exception: 
                 continue

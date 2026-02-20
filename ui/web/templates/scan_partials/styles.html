@@ -4,6 +4,7 @@
         --glass-border: rgba(255, 255, 255, 0.1);
         --cyber-red: #ff2a2a;
         --cyber-blue: #00f0ff;
+        --cyber-green: #00ff66;
         --cyber-yellow: #f39c12;
         --cyber-purple: #bc13fe;
     }
@@ -115,9 +116,9 @@
 
     .discovery-btn.discovered {
         color: #fff;
-        border-color: var(--cyber-red);
-        background: rgba(255, 42, 42, 0.1);
-        box-shadow: 0 0 15px rgba(255, 42, 42, 0.3);
+        border-color: var(--cyber-green);
+        background: rgba(0, 255, 102, 0.1);
+        box-shadow: 0 0 15px rgba(0, 255, 102, 0.3);
         font-weight: bold;
     }
 
@@ -137,5 +138,33 @@
         to {
             transform: rotate(360deg);
         }
+    }
+
+    .status-pill {
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 5px 12px;
+        font-weight: bold;
+    }
+
+    .status-running {
+        background: rgba(0, 240, 255, 0.1) !important;
+        color: var(--cyber-blue) !important;
+        border: 1px solid var(--cyber-blue) !important;
+        box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+    }
+
+    .status-completed,
+    .status-finished {
+        background: rgba(0, 255, 102, 0.1) !important;
+        color: var(--cyber-green) !important;
+        border: 1px solid var(--cyber-green) !important;
+        box-shadow: 0 0 10px rgba(0, 255, 102, 0.2);
+    }
+
+    .status-failed {
+        background: rgba(255, 42, 42, 0.1) !important;
+        color: var(--cyber-red) !important;
+        border: 1px solid var(--cyber-red) !important;
     }
 </style>

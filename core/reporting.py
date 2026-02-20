@@ -78,6 +78,9 @@ class RedOpsReport(FPDF):
             "✓": "[OK]", "—": "-", "’": "'", "“": "\"", "”": "\"",
             "…": "..."
         }
+        # Coerce non-string types (dict, list, int, etc.) to string
+        if not isinstance(text, str):
+            text = str(text)
         for k, v in replacements.items():
             text = text.replace(k, v)
         
@@ -217,10 +220,66 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.multi_cell(0, 5, pdf.safe_text(", ".join(osint['emails'])))
             pdf.ln(3)
 
-    # 4.5 Technology Intelligence
+    # 4.5 Strategic Intelligence (Cortex)
+    if results and 'phases' in results and 'enum' in results['phases'] and 'derived' in results['phases']['enum']:
+        derived = results['phases']['enum']['derived']
+        pdf.chapter_title("4. Strategic Intelligence (Cortex)")
+        
+        # Recommendations
+        recs = derived.get('cortex_recommendations', [])
+        if recs:
+            pdf.set_font("helvetica", "B", 11)
+            pdf.set_text_color(0, 100, 200)
+            pdf.cell(0, 7, "Strategic Recommendations:", ln=True)
+            pdf.set_font("helvetica", "", 9)
+            pdf.set_text_color(50, 50, 50)
+            for r in recs:
+                title = r.get('title', 'Recommendation')
+                reason = r.get('reason', '')
+                conf = r.get('confidence', 0)
+                pdf.set_font("helvetica", "B", 9)
+                pdf.cell(0, 5, pdf.safe_text(f"- {title} (Confidence: {conf}%)"), ln=True)
+                pdf.set_font("helvetica", "I", 8)
+                pdf.multi_cell(0, 4, pdf.safe_text(f"  Reasoning: {reason}"))
+                pdf.ln(2)
+        
+        # Surface Expansion
+        expansion = derived.get('surface_expansion', {})
+        if expansion:
+            pdf.ln(2)
+            pdf.set_font("helvetica", "B", 11)
+            pdf.set_text_color(200, 100, 0)
+            pdf.cell(0, 7, "Derived Surface Expansion (Heuristics):", ln=True)
+            pdf.set_font("helvetica", "", 9)
+            pdf.set_text_color(50, 50, 50)
+            
+            global_eps = expansion.get('global', {}).get('derived_endpoints', [])
+            if global_eps:
+                pdf.set_font("helvetica", "B", 9)
+                pdf.cell(0, 5, "Heuristic Search Nodes:", ln=True)
+                pdf.set_font("helvetica", "I", 8)
+                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(global_eps)))
+                pdf.ln(2)
+
+        # Service Intel
+        intel = derived.get('service_intelligence', [])
+        if intel:
+            pdf.ln(2)
+            pdf.set_font("helvetica", "B", 11)
+            pdf.set_text_color(50, 50, 50)
+            pdf.cell(0, 7, "Service Intelligence Tags:", ln=True)
+            pdf.set_font("helvetica", "", 9)
+            tags_found = []
+            for item in intel:
+                for t in item.get('tags', []):
+                    tags_found.append(f"{t} (Port {item.get('port')})")
+            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(tags_found)))
+            pdf.ln(5)
+
+    # 5. Technology Intelligence
     if results and 'phases' in results and 'enum' in results['phases'] and 'tech' in results['phases']['enum']:
         tech = results['phases']['enum']['tech']
-        pdf.chapter_title("4. Technology Stack Intelligence")
+        pdf.chapter_title("5. Technology Stack Intelligence")
         
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(50, 7, "Modernization Level:", border=1)
@@ -264,7 +323,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     if results and 'phases' in results and 'enum' in results['phases'] and 'headers' in results['phases']['enum']:
         headers_data = results['phases']['enum']['headers']
         if headers_data:
-            pdf.chapter_title("5. Security Headers Analysis")
+            pdf.chapter_title("6. Security Headers Analysis")
             
             for port, headers in headers_data.items():
                 pdf.set_font("helvetica", "B", 10)
@@ -280,7 +339,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
                         pdf.set_font("helvetica", "B", 8)
                         pdf.cell(50, 5, pdf.safe_text(k), border=1)
                         pdf.set_font("helvetica", "", 8)
-                        pdf.multi_cell(0, 5, pdf.safe_text(v), border=1)
+                        # Use a safer fixed width and leave a margin at the end
+                        pdf.multi_cell(130, 5, pdf.safe_text(v), border=1)
                     else:
                         # Optional: Skip common headers to save space, or list all
                         pass
@@ -291,7 +351,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         api = results['phases']['enum']['api']
         if api.get('endpoints'):
             pdf.add_page()
-            pdf.chapter_title("6. API & Web Entpoints Analysis")
+            pdf.chapter_title("7. API & Web Endpoints Analysis")
             
             pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 7, f"Discovered API Endpoints ({len(api['endpoints'])}):", ln=True)
@@ -321,7 +381,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
             
         if dirs:
             pdf.add_page()
-            pdf.chapter_title("7. Recursive Directory Analysis")
+            pdf.chapter_title("8. Recursive Directory Analysis")
             
             pdf.set_font("helvetica", "B", 10)
             pdf.cell(0, 7, f"Discovered Paths ({len(dirs)}):", ln=True)
@@ -338,8 +398,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.cell(0, 5, f"... and {len(dirs) - 100} more paths.", border=1, ln=True)
             pdf.ln(5)
 
-    # 7. FINDINGS
-    pdf.chapter_title("8. Detailed Vulnerabilities & Vectors")
+    # 9. FINDINGS
+    pdf.chapter_title("9. Detailed Vulnerabilities & Vectors")
     
     sev_map = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     sorted_findings = sorted(findings, key=lambda x: sev_map.get(x.severity.lower(), 4))
@@ -382,7 +442,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     loots = Loot.query.filter_by(scan_id=scan_id).all()
     if loots:
         pdf.add_page()
-        pdf.chapter_title("9. Loot Vault (Classified Assets)", color=(0, 150, 50))
+        pdf.chapter_title("10. Loot Vault (Classified Assets)", color=(0, 150, 50))
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(40, 8, "Type", border=1, fill=True)
         pdf.cell(100, 8, "Content (Masked)", border=1, fill=True)
@@ -398,7 +458,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     # 7. Notes
     if scan_obj.notes:
         pdf.add_page()
-        pdf.chapter_title("10. Operational Mission Notes", color=(100, 100, 100))
+        pdf.chapter_title("11. Operational Mission Notes", color=(100, 100, 100))
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(50, 50, 50)
         pdf.multi_cell(0, 6, pdf.safe_text(scan_obj.notes))

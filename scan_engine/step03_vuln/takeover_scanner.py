@@ -55,28 +55,29 @@ class TakeoverScanner:
                     needs_update = True
                     break
             
+            def gen(stream, cleanup=False):
+                try:
+                    for e in stream:
+                        yield e
+                finally:
+                    if cleanup and target_file and os.path.exists(target_file):
+                        try:
+                            os.remove(target_file)
+                        except Exception:
+                            pass
+
             if needs_update:
                 if logger: logger("Nuclei templates missing. Attempting automatic update (-ut)...", "WARN")
                 ProcessManager.run_command(["nuclei", "-ut"])
                 # Retry once
-                return ProcessManager.stream_command(command)
+                return gen(ProcessManager.stream_command(command), cleanup=True)
             
-            # If no error, just return the first run results as a generator
-            def gen():
-                for e in first_run:
-                    yield e
-                if target_file and os.path.exists(target_file):
-                    try:
-                        os.remove(target_file)
-                    except Exception:
-                        target_file = None
-
-            return gen()
+            return gen(first_run, cleanup=True)
         except Exception as e:
             if logger: logger(f"Takeover scan failed: {e}", "ERROR")
             if target_file and os.path.exists(target_file):
                 try:
                     os.remove(target_file)
                 except Exception:
-                    target_file = None
+                    pass
             return []

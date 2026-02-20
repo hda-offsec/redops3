@@ -70,6 +70,9 @@ def run_recon(orchestrator):
             output_buffer.append(line)
         elif event["type"] == "error":
             log(f"Nmap Error: {event['message']}", "ERROR")
+        elif event["type"] == "exit":
+            if event["code"] != 0:
+                log("external_tool_non_zero_exit_code", "DEBUG")
 
     def _store_recon_output():
         results.setdefault('phases', {}).setdefault('recon', {})

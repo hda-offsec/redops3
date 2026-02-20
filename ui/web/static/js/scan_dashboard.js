@@ -19,9 +19,11 @@ class ScanDashboard {
         // Log Triggers
         this.logTriggers = {
             'Phase 1': 'ports', 'Phase 2': 'ports', 'subdomains': 'dns',
-            'Katana': 'crawl', 'ffuf': 'fuzz', 'Dirbusting': 'fuzz',
-            'Vulnerability': 'vulns', 'Nuclei': 'vulns', 'Dalfox': 'vulns',
-            'Intel': 'intel', 'Loot': 'loot'
+            'Cloud Audit': 'cloud', 'WAF': 'waf', 'Arjun': 'params',
+            'Kiterunner': 'api', 'API Discovery': 'api', 'Secret': 'secrets',
+            'JS Secrets': 'secrets', 'Katana': 'crawl', 'ffuf': 'fuzz',
+            'Dirbusting': 'fuzz', 'Vulnerability': 'vulns', 'Nuclei': 'vulns',
+            'Dalfox': 'vulns', 'Intel': 'intel', 'Loot': 'loot'
         };
 
         this.init();
@@ -73,6 +75,79 @@ class ScanDashboard {
         this.socket.on("new_suggestion", (data) => this.handleNewSuggestion(data));
         this.socket.on("new_loot", (data) => this.handleNewLoot(data));
         this.socket.on("progress_update", (data) => this.handleProgressUpdate(data));
+        this.socket.on("module_status", (data) => this.handleModuleStatus(data));
+        this.socket.on("pipeline_event", (data) => this.handlePipelineEvent(data));
+    }
+
+    handleModuleStatus(data) {
+        const tableBody = document.querySelector("#modules-table tbody");
+        if (!tableBody) return;
+
+        const rowId = `mod-row-${data.module}-${data.port}`;
+        let row = document.getElementById(rowId);
+
+        const noModuleRow = document.getElementById("no-modules-row");
+        if (noModuleRow) noModuleRow.remove();
+
+        const getStatusBadge = (status) => {
+            const s = status.toLowerCase();
+            if (s === 'running') return '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>';
+            if (s === 'executed' || s === 'done') return '<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>';
+            if (s === 'skipped') return '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>';
+            if (s === 'failed' || s === 'error') return '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>';
+            return `<span class="badge bg-dark border border-secondary text-muted x-small">${status.toUpperCase()}</span>`;
+        };
+
+        const innerHTML = `
+            <td class="font-monospace text-info small">${data.module}</td>
+            <td class="font-monospace text-muted small">${data.port}</td>
+            <td>${getStatusBadge(data.status)}</td>
+            <td class="text-end font-monospace small">${data.artifacts || 0}</td>
+        `;
+
+        if (row) {
+            row.innerHTML = innerHTML;
+            row.classList.add('animate__animated', 'animate__flash');
+            setTimeout(() => row.classList.remove('animate__animated', 'animate__flash'), 1000);
+        } else {
+            row = document.createElement("tr");
+            row.id = rowId;
+            row.innerHTML = innerHTML;
+            tableBody.prepend(row);
+        }
+
+        // Update active count
+        const activeCount = document.querySelectorAll("#modules-table .text-primary").length;
+        const countBadge = document.getElementById("module-count");
+        if (countBadge) countBadge.innerText = `${activeCount} Active`;
+    }
+
+    handlePipelineEvent(data) {
+        const container = document.getElementById("timeline-container");
+        if (!container) return;
+
+        const noTimelineRow = document.getElementById("no-timeline-row");
+        if (noTimelineRow) noTimelineRow.remove();
+
+        const timeString = data.ts.includes('T') ? data.ts.split('T')[1].split('.')[0] : new Date().toLocaleTimeString();
+
+        const div = document.createElement("div");
+        div.className = "d-flex justify-content-between align-items-start border-bottom border-dark pb-1 animate__animated animate__fadeInDown";
+        div.innerHTML = `
+            <div>
+                <span class="text-muted x-small font-monospace">${timeString}</span>
+                <span class="badge bg-dark border border-secondary text-light x-small ms-1">${data.module}</span>
+                <span class="text-secondary small ms-1">${data.type}</span>
+            </div>
+            ${data.level === 'ERROR' ? '<span class="text-danger x-small fw-bold">ERROR</span>' : ''}
+        `;
+
+        container.prepend(div);
+
+        // Keep only last 50 events
+        if (container.children.length > 50) {
+            container.lastElementChild.remove();
+        }
     }
 
     handleNewLog(data) {
@@ -154,6 +229,50 @@ class ScanDashboard {
 
             this.updateRiskCounters(data.severity);
             this.updateIndicators(data);
+
+            // UPDATED: Also append to the Full Findings Table if it exists
+            const tableBody = document.getElementById("findings-table-body");
+            if (tableBody) {
+                const fid = data.id || `new-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                const rowId = `finding-detail-${fid}`;
+
+                // Prevent duplicate rows if ID already exists
+                if (document.getElementById(rowId)) return;
+
+                const tr = document.createElement("tr");
+                tr.className = "finding-row animate__animated animate__fadeIn";
+                tr.setAttribute("data-severity", data.severity.toLowerCase());
+                tr.setAttribute("data-content", `${data.title.toLowerCase()} ${data.tool.toLowerCase()} ${data.description.toLowerCase()}`);
+                tr.innerHTML = `
+                    <td><span class="badge severity-badge ${data.severity.toLowerCase()} text-uppercase w-100">${data.severity}</span></td>
+                    <td>
+                        <div class="fw-bold text-light">${data.title}</div>
+                        <div class="small text-muted text-truncate" style="max-width: 400px;">${(data.description || "").substring(0, 100)}...</div>
+                    </td>
+                    <td><span class="badge bg-dark border border-secondary text-muted">${data.tool}</span></td>
+                    <td>
+                        <button class="btn btn-xs btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#${rowId}">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </td>
+                `;
+
+                const detailTr = document.createElement("tr");
+                detailTr.className = "finding-detail-row collapse bg-black bg-opacity-25";
+                detailTr.id = rowId;
+                detailTr.innerHTML = `
+                    <td colspan="4" class="p-3">
+                        <div class="small font-monospace text-light whitespace-pre-wrap">${data.description}</div>
+                        ${data.screenshot_path ? `
+                        <div class="mt-2 text-center">
+                            <img src="/static/${data.screenshot_path}" class="img-fluid rounded border border-secondary" style="max-height: 400px; cursor: pointer;" onclick="window.open(this.src)">
+                        </div>` : ''}
+                    </td>
+                `;
+
+                tableBody.prepend(detailTr);
+                tableBody.prepend(tr);
+            }
         }
     }
 
@@ -276,30 +395,50 @@ class ScanDashboard {
     handleProgressUpdate(data) {
         if (data.scan_id != this.scanId) return;
 
+        // Defensive: normalize progress data to avoid undefined display
+        const percent = (data.percent != null && !isNaN(data.percent)) ? Math.round(data.percent) : 0;
+        const phase = data.current_phase || 'Processing...';
+
         const bar = document.getElementById('scan-progress-bar');
         const phaseText = document.getElementById('scan-phase-text');
         const statusText = document.getElementById('scan-status-text');
         const spinner = document.getElementById('scan-spinner');
 
         if (bar) {
-            bar.style.width = data.percent + '%';
-            bar.setAttribute('aria-valuenow', data.percent);
+            bar.style.width = percent + '%';
+            bar.setAttribute('aria-valuenow', percent);
         }
 
         // Toast updates
         const toastBar = document.getElementById('toast-progress-bar');
         const toastPhase = document.getElementById('toast-phase-text');
         const toastPercent = document.getElementById('toast-percent-text');
-        if (toastBar) toastBar.style.width = data.percent + '%';
-        if (toastPhase) toastPhase.innerText = data.current_phase;
-        if (toastPercent) toastPercent.innerText = data.percent + '%';
+        if (toastBar) toastBar.style.width = percent + '%';
+        if (toastPhase) toastPhase.innerText = phase;
+        if (toastPercent) toastPercent.innerText = percent + '%';
 
         if (phaseText) {
-            phaseText.innerText = data.current_phase;
-            this.highlightPTES(data.current_phase);
+            phaseText.innerText = phase;
+            this.highlightPTES(phase);
+
+            // Real-time Discovery Highlight
+            const phaseLower = phase.toLowerCase();
+            const phaseToDiscovery = {
+                'recon': 'ports', 'dns': 'dns', 'osint': 'cloud', 'cloud': 'cloud',
+                'waf': 'waf', 'crawl': 'crawl', 'katana': 'crawl', 'arjun': 'params',
+                'params': 'params', 'ffuf': 'fuzz', 'dirbusting': 'fuzz',
+                'api': 'api', 'secrets': 'secrets', 'vuln': 'vulns', 'nuclei': 'vulns',
+                'intel': 'intel'
+            };
+
+            for (const [key, id] of Object.entries(phaseToDiscovery)) {
+                if (phaseLower.includes(key)) {
+                    this.activateDiscovery(id, false); // false = 'active' state (pulsing)
+                }
+            }
         }
 
-        if (data.percent >= 100) {
+        if (percent >= 100) {
             if (statusText) statusText.innerText = 'completed';
             if (spinner) spinner.classList.add('d-none');
             if (bar) {
@@ -333,7 +472,7 @@ class ScanDashboard {
         if (discovered) {
             btn.classList.add('discovered');
             btn.classList.remove('active');
-        } else {
+        } else if (!btn.classList.contains('discovered')) {
             btn.classList.add('active');
         }
     }
@@ -444,6 +583,7 @@ class ScanDashboard {
         if (!results) return;
 
         // 0. Update Target Intelligence Dashboard
+        this.updateCortexUI(results);
         const statPorts = document.getElementById('stat-open-ports');
         const statFindings = document.getElementById('stat-findings');
         const portContainer = document.getElementById('port-badges-container');
@@ -476,6 +616,30 @@ class ScanDashboard {
 
         if (results.findings && statFindings) {
             statFindings.innerText = results.findings.length;
+
+            // Sync findings table if needed
+            const tableBody = document.getElementById("findings-table-body");
+            if (tableBody) {
+                const existingFindingIds = Array.from(tableBody.querySelectorAll('[id^="finding-detail-"], [id^="finding-new-"]'))
+                    .map(el => el.id.replace('finding-detail-', '').replace('finding-new-', ''));
+
+                results.findings.forEach(f => {
+                    const fid = f.id ? f.id.toString() : null;
+                    if (fid && !existingFindingIds.includes(fid)) {
+                        // Re-use logic from handleNewFinding but for existing data
+                        // This ensures the table is fully synced with DB state on updateUI
+                        this.handleNewFinding({
+                            scan_id: this.scanId,
+                            id: f.id,
+                            severity: f.severity,
+                            title: f.title,
+                            description: f.description,
+                            tool: f.tool_source,
+                            screenshot_path: f.screenshot_path
+                        });
+                    }
+                });
+            }
         }
 
         // Sync Progress UI
@@ -491,9 +655,14 @@ class ScanDashboard {
         const discoveryMap = {
             'dns': results.phases?.dns?.subdomains?.length > 0,
             'ports': results.phases?.recon?.open_ports?.length > 0,
+            'cloud': results.phases?.osint?.cloud?.length > 0,
+            'waf': results.phases?.enum?.waf && Object.keys(results.phases.enum.waf).length > 0,
             'crawl': results.phases?.enum?.katana && Object.keys(results.phases.enum.katana).length > 0,
+            'params': results.phases?.enum?.arjun && Object.keys(results.phases.enum.arjun).length > 0,
             'fuzz': results.phases?.dirbusting?.ffuf?.endpoints?.length > 0,
-            'vulns': (results.findings?.length > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0),
+            'api': results.phases?.enum?.api && Object.keys(results.phases.enum.api).length > 0,
+            'secrets': results.phases?.enum?.js_secrets && Object.keys(results.phases.enum.js_secrets).length > 0,
+            'vulns': (results.findings?.length > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0) || (results.phases?.vuln?.xss?.length > 0),
             'intel': results.phases?.intel && Object.keys(results.phases.intel).length > 0,
             'loot': results.loot_count > 0
         };
@@ -931,3 +1100,99 @@ class ScanDashboard {
         }
 
         container.innerHTML = html;
+    }
+
+    updateCortexUI(results) {
+        if (!results || !results.phases || !results.phases.enum || !results.phases.enum.derived) return;
+        const derived = results.phases.enum.derived;
+
+        // NEW: JS Expert Badge logic
+        const headerBadges = document.querySelector('#cortex-intel-card .card-header .d-flex.gap-2');
+        if (headerBadges && derived.js_expert_mining && !headerBadges.querySelector('.fa-microscope')) {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 animate-pulse';
+            badge.innerHTML = '<i class="fas fa-microscope me-1"></i>JS EXPERT ACTIVE';
+            headerBadges.prepend(badge);
+        }
+
+        // 1. Recommendations
+        const recsContainer = document.getElementById('cortex-recs-container');
+        if (recsContainer && derived.cortex_recommendations) {
+            let html = '';
+            derived.cortex_recommendations.forEach(rec => {
+                const catClass = rec.category === 'intel' ? 'info' : (rec.category === 'enum' ? 'warning' : 'danger');
+                html += `
+                <div class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow animate__animated animate__fadeIn">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="d-flex align-items-center">
+                            <div class="category-indicator me-2 bg-${catClass}" style="width: 4px; height: 16px;"></div>
+                            <span class="fw-bold text-light small">${rec.title}</span>
+                        </div>
+                        <span class="badge bg-dark text-${rec.confidence > 80 ? 'info' : 'muted'} border border-secondary x-small font-monospace">CONF: ${rec.confidence}%</span>
+                    </div>
+                    <div class="text-muted x-small mb-2 ps-3">${rec.reason}</div>
+                    <div class="d-flex gap-2 ps-3">
+                        ${rec.port ? `<span class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-25 x-small">PORT: ${rec.port}</span>` : ''}
+                        <span class="badge bg-dark text-uppercase x-small text-muted">${rec.category}</span>
+                    </div>
+                </div>`;
+            });
+            if (html) recsContainer.innerHTML = html;
+        }
+
+        // 2. Surface Expansion
+        const expansionContainer = document.getElementById('surface-expansion-container');
+        if (expansionContainer && derived.surface_expansion) {
+            const exp = derived.surface_expansion;
+            let html = '';
+
+            if (exp.global && exp.global.derived_endpoints && exp.global.derived_endpoints.length) {
+                html += `
+                <div class="mb-4 animate__animated animate__fadeIn">
+                    <div class="text-info x-small fw-bold mb-2 text-uppercase">Heuristic Search Surfaces</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        ${exp.global.derived_endpoints.map(ep => `<span class="badge bg-black border border-secondary text-muted font-monospace x-small" title="Heuristic Match">${ep}</span>`).join('')}
+                    </div>
+                </div>`;
+            }
+
+            if (exp.per_port && Object.keys(exp.per_port).length) {
+                html += `<div class="mb-2"><div class="text-warning x-small fw-bold mb-2 text-uppercase">Signals Detected</div>`;
+                Object.entries(exp.per_port).forEach(([port, data]) => {
+                    html += `
+                    <div class="mb-2 p-2 bg-black bg-opacity-20 rounded animate__animated animate__fadeIn">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge bg-info bg-opacity-25 text-info x-small">PORT ${port}</span>
+                            <div class="d-flex gap-1">
+                                ${data.reasons.map(r => `<span class="x-small text-muted border-bottom border-warning">${r.replace(/_/g, ' ')}</span>`).join('')}
+                            </div>
+                        </div>
+                        ${data.derived_params && data.derived_params.length ? `
+                        <div class="ps-2 mt-1 border-start border-secondary">
+                            <div class="x-small text-muted">Mining Params: <span class="text-warning font-monospace">${data.derived_params.join(', ')}</span></div>
+                        </div>` : ''}
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+            if (html) expansionContainer.innerHTML = html;
+        }
+
+        // 3. Service Intel
+        const intelContainer = document.getElementById('service-intel-container');
+        if (intelContainer && derived.service_intelligence) {
+            let tagsHtml = '<div class="d-flex flex-wrap gap-2">';
+            derived.service_intelligence.forEach(item => {
+                item.tags.forEach(tag => {
+                    const tagColor = (tag.includes('api') || tag.includes('web')) ? 'info' : 'warning';
+                    tagsHtml += `
+                    <span class="badge bg-dark border border-${tagColor} text-light x-small animate__animated animate__zoomIn" title="Port: ${item.port}">
+                        <i class="fas fa-tag me-1 text-muted"></i>${tag.toUpperCase()}
+                    </span>`;
+                });
+            });
+            tagsHtml += '</div>';
+            if (derived.service_intelligence.length) intelContainer.innerHTML = tagsHtml;
+        }
+    }
+}

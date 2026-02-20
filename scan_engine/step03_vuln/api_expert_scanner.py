@@ -83,7 +83,8 @@ class APIExpertScanner:
                         "title": "CRITICAL: SQL Injection Detected",
                         "description": f"Endpoint `{url}` is vulnerable to SQL injection.\nPayload: `{payload}`\nResponse indicates database error.",
                         "severity": "critical",
-                        "tool_source": "API-Assault (SQLi)"
+                        "tool_source": "API-Assault (SQLi)",
+                        "url": url
                     })
             except Exception:
                 continue
@@ -98,7 +99,8 @@ class APIExpertScanner:
                         "title": "HIGH: Reflected XSS",
                         "description": f"Endpoint `{url}` reflects user input without sanitization.\nPayload: `{payload}`",
                         "severity": "high",
-                        "tool_source": "API-Assault (XSS)"
+                        "tool_source": "API-Assault (XSS)",
+                        "url": url
                     })
             except Exception:
                 continue
@@ -113,7 +115,8 @@ class APIExpertScanner:
                         "title": "CRITICAL: Server-Side Template Injection",
                         "description": f"Endpoint `{url}` executed a template expression.\nPayload: `{payload}`\nResult: 49",
                         "severity": "critical",
-                        "tool_source": "API-Assault (SSTI)"
+                        "tool_source": "API-Assault (SSTI)",
+                        "url": url
                     })
             except Exception:
                 continue
@@ -143,7 +146,8 @@ class APIExpertScanner:
                         "title": "CRITICAL: Authentication Bypass / Logic Flaw",
                         "description": f"Successfully bypassed authentication or manipulated logic at `{url}`.\nPayload: `{json.dumps(p)}`",
                         "severity": "critical",
-                        "tool_source": "API-Assault (Auth)"
+                        "tool_source": "API-Assault (Auth)",
+                        "url": url
                     })
             except Exception:
                 continue
@@ -171,7 +175,8 @@ class APIExpertScanner:
                         "title": "CRITICAL: Exposed API Specification",
                         "description": f"API Blueprint exposed at {url}",
                         "severity": "critical",
-                        "tool_source": "API-Expert"
+                        "tool_source": "API-Expert",
+                        "url": url
                 })
 
             # 2. Sensitive Actuator
@@ -180,7 +185,8 @@ class APIExpertScanner:
                         "title": "CRITICAL: Sensitive Endpoint Exposed",
                         "description": f"Endpoint {url} exposes internal configuration.",
                         "severity": "critical",
-                        "tool_source": "API-Expert"
+                        "tool_source": "API-Expert",
+                        "url": url
                 })
 
             # --- ACTIVE ASSAULT (New RedOps2 Logic) ---

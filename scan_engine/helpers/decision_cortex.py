@@ -104,14 +104,24 @@ def suggest_actions(results: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         profile = profile_map.get(port, {})
         profile_text = " ".join(str(v).lower() for v in profile.values()) if isinstance(profile, dict) else str(profile).lower()
-        if any(token in profile_text for token in ("spa", "react", "angular")):
+        if any(token in profile_text for token in ("spa", "react", "angular", "vue", "svelte", "webpack")):
             suggestions.append({
                 "id": f"cortex-enum-js-mining-{port}",
-                "title": f"Increase JS endpoint mining focus on port {port}",
-                "reason": "SPA-style frontend profile suggests client-side routes/endpoints beyond static crawl coverage.",
-                "confidence": 74,
+                "title": f"Deep Client-Side Mining on port {port}",
+                "reason": "Modern SPA/Bundle detected. Injected Deep JS Mining Expert to recover hidden routes and internal endpoints.",
+                "confidence": 90,
                 "port": port,
                 "category": "enum",
+            })
+
+        if "graphql" in profile_text or "apollo" in profile_text:
+            suggestions.append({
+                "id": f"cortex-vuln-graphql-{port}",
+                "title": f"Intense GraphQL Probing on port {port}",
+                "reason": "GraphQL interface detected. Requires introspection audit and object injection testing.",
+                "confidence": 85,
+                "port": port,
+                "category": "vuln",
             })
 
         if _has_wp_signal(results, port):

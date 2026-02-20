@@ -4,10 +4,12 @@ class TechExposureScanner:
     def __init__(self, target):
         self.target = target
         self.sensitive_files = [
-            '.env', '.env.local', '.env.bak', '.env.old', '.env.save',
+            '.env', '.env.local', '.env.bak', '.env.old', '.env.save', '.env.example', '.env.prod', '.env.dev',
             'docker-compose.yml', 'Dockerfile', 'web.config', 'phpinfo.php',
             'info.php', 'config.php.bak', 'settings.py.bak', 'wp-config.php.bak',
-            '.bash_history', '.ssh/id_rsa', '.ssh/id_dsa', '.aws/credentials'
+            '.bash_history', '.ssh/id_rsa', '.ssh/id_dsa', '.aws/credentials',
+            '.gitconfig', '.npmrc', '.docker/config.json', 'gc-keys.json', 
+            'key.pem', 'cert.pem', 'bundle.tar.gz', 'backup.sql', 'db.sql'
         ]
 
     def audit(self, port, protocol='http', logger=None):
@@ -20,7 +22,7 @@ class TechExposureScanner:
             url = base_url + file
             try:
                 # We use a custom User-Agent to avoid some basic filter and allow_redirects=False
-                r = requests.get(url, timeout=5, verify=True, allow_redirects=False, headers={"User-Agent": "Mozilla/5.0"})
+                r = requests.get(url, timeout=5, verify=False, allow_redirects=False, headers={"User-Agent": "Mozilla/5.0"})
                 
                 # Check if it looks like a real file (200 OK + not a generic login page)
                 if r.status_code == 200:
@@ -39,7 +41,8 @@ class TechExposureScanner:
                                 "title": f"Technical File Exposure: {file} ({port})",
                                 "description": f"A sensitive technical file was found publicly accessible: {url}\nSize: {content_len} bytes.",
                                 "severity": "critical" if any(x in file for x in ['.env', '.ssh', 'aws', 'docker']) else "high",
-                                "tool_source": "tech_audit"
+                                "tool_source": "tech_audit",
+                                "url": url
                             })
             except Exception:
                 continue

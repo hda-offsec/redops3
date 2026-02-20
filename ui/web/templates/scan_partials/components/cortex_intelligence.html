@@ -1,0 +1,170 @@
+<!-- CORTEX COMMAND & INTELLIGENCE CENTER (V6) -->
+<div class="col-12 animate__animated animate__fadeIn">
+    <div id="cortex-intel-card" class="card glass-panel border-info border-opacity-25 shadow-lg">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span class="text-info fw-bold"><i class="fas fa-microchip me-2 animate-pulse"></i>Cortex Reasoning
+                Engine</span>
+            <div class="d-flex gap-2">
+                {% if results.phases.enum and results.phases.enum.derived and
+                results.phases.enum.derived.js_expert_mining %}
+                <span
+                    class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 animate-pulse"><i
+                        class="fas fa-microscope me-1"></i>JS EXPERT ACTIVE</span>
+                {% endif %}
+                <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">ACTIVE
+                    ANALYSIS</span>
+                <span class="badge bg-dark text-muted border border-secondary">v0.4-BETA</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-4">
+                <!-- Recommendations Section -->
+                <div class="col-lg-7">
+                    <h6 class="text-uppercase text-muted x-small mb-3"><i class="fas fa-terminal me-2"></i>Strategic
+                        Recommendations</h6>
+                    <div id="cortex-recs-container" class="cyber-scroll" style="max-height: 400px; overflow-y: auto;">
+                        {% if results.phases.enum and results.phases.enum.derived and
+                        results.phases.enum.derived.cortex_recommendations %}
+                        {% for rec in results.phases.enum.derived.cortex_recommendations %}
+                        <div
+                            class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div class="d-flex align-items-center">
+                                    <div class="category-indicator me-2 bg-{{ 'info' if rec.category == 'intel' else ('warning' if rec.category == 'enum' else 'danger') }}"
+                                        style="width: 4px; height: 16px;"></div>
+                                    <span class="fw-bold text-light small">{{ rec.title }}</span>
+                                </div>
+                                <span
+                                    class="badge bg-dark text-{{ 'info' if rec.confidence > 80 else 'muted' }} border border-secondary x-small font-monospace">CONF:
+                                    {{ rec.confidence }}%</span>
+                            </div>
+                            <div class="text-muted x-small mb-2 ps-3">{{ rec.reason }}</div>
+                            <div class="d-flex gap-2 ps-3">
+                                {% if rec.port %}
+                                <span
+                                    class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-25 x-small">PORT:
+                                    {{ rec.port }}</span>
+                                {% endif %}
+                                <span class="badge bg-dark text-uppercase x-small text-muted">{{ rec.category }}</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-center py-5 opacity-50">
+                            <i class="fas fa-brain fa-3x mb-3 text-muted opacity-25"></i>
+                            <div class="text-muted small italic">Cortex is profiling the target architecture...</div>
+                            <div class="x-small text-muted mt-2">Waiting for first intelligence seeds</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Surface Expansion / Derived Intel -->
+                <div class="col-lg-5 border-start border-secondary border-opacity-25">
+                    <h6 class="text-uppercase text-muted x-small mb-3"><i
+                            class="fas fa-expand-arrows-alt me-2"></i>Derived Surface Expansion</h6>
+                    <div id="surface-expansion-container" class="cyber-scroll"
+                        style="max-height: 400px; overflow-y: auto;">
+                        {% if results.phases.enum and results.phases.enum.derived and
+                        results.phases.enum.derived.surface_expansion %}
+                        {% set expansion = results.phases.enum.derived.surface_expansion %}
+
+                        <!-- Global Derived Endpoints -->
+                        <div class="mb-4">
+                            <div class="text-info x-small fw-bold mb-2 text-uppercase">Heuristic Search Surfaces</div>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for ep in expansion.global.derived_endpoints %}
+                                <span class="badge bg-black border border-secondary text-muted font-monospace x-small"
+                                    title="Heuristic Match">{{ ep }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <!-- Per Port Reasons -->
+                        <div class="mb-2">
+                            <div class="text-warning x-small fw-bold mb-2 text-uppercase">Signals Detected</div>
+                            {% for port, data in expansion.per_port.items() %}
+                            <div class="mb-2 p-2 bg-black bg-opacity-20 rounded">
+                                <div class="d-flex align-items-center gap-2 mb-1">
+                                    <span class="badge bg-info bg-opacity-25 text-info x-small">PORT {{ port }}</span>
+                                    <div class="d-flex gap-1">
+                                        {% for reason in data.reasons %}
+                                        <span class="x-small text-muted border-bottom border-warning">{{
+                                            reason|replace('_', ' ') }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% if data.derived_params %}
+                                <div class="ps-2 mt-1 border-start border-secondary">
+                                    <div class="x-small text-muted">Mining Params: <span
+                                            class="text-warning font-monospace">{{ data.derived_params|join(', ')
+                                            }}</span></div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-center py-5 opacity-50">
+                            <i class="fas fa-project-diagram fa-2x mb-2 text-muted opacity-25"></i>
+                            <div class="text-muted small italic">Waiting for environment expansion...</div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Service Intel Tags -->
+                    <div class="mt-4 pt-3 border-top border-secondary border-opacity-25">
+                        <h6 class="text-uppercase text-muted x-small mb-3"><i
+                                class="fas fa-fingerprint me-2"></i>Service Intelligence Tags</h6>
+                        <div id="service-intel-container">
+                            {% if results.phases.enum and results.phases.enum.derived and
+                            results.phases.enum.derived.service_intelligence %}
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for item in results.phases.enum.derived.service_intelligence %}
+                                {% for tag in item.tags %}
+                                <span
+                                    class="badge bg-dark border border-{{ 'info' if 'api' in tag or 'web' in tag else 'warning' }} text-light x-small"
+                                    title="Port: {{ item.port }}">
+                                    <i class="fas fa-tag me-1 text-muted"></i>{{ tag|upper }}
+                                </span>
+                                {% endfor %}
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="text-muted x-small italic">No telemetry tags derived yet.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    #cortex-recs-container::-webkit-scrollbar,
+    #surface-expansion-container::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    #cortex-recs-container::-webkit-scrollbar-thumb,
+    #surface-expansion-container::-webkit-scrollbar-thumb {
+        background: rgba(0, 240, 255, 0.2);
+        border-radius: 10px;
+    }
+
+    .hover-glow:hover {
+        border-color: rgba(0, 240, 255, 0.4) !important;
+        background: rgba(0, 240, 255, 0.05) !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+        cursor: crosshair;
+    }
+
+    .category-indicator {
+        transition: transform 0.2s ease;
+    }
+
+    .hover-glow:hover .category-indicator {
+        transform: scaleY(1.5);
+    }
+</style>

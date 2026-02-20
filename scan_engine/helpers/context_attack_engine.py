@@ -33,6 +33,8 @@ class ContextAttackEngine:
             stack.append("python_web")
         if any(x in full_text for x in ['asp.net', 'iis', '.net', 'aspx']):
             stack.append("dotnet")
+        if any(x in full_text for x in ['react', 'vue', 'angular', 'svelte', 'webpack', 'vite']):
+            stack.append("spa")
 
         # Fallback to generic if nothing detected
         if not stack:

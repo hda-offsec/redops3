@@ -1,0 +1,97 @@
+<!-- Backend Surface Exposure Section -->
+<div class="col-12">
+    <div class="card glass-panel mb-4 shadow-lg border-0">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-project-diagram me-2 text-cyber"></i>Backend Surface Exposure Mapping</span>
+            <span class="badge bg-black border border-cyber text-cyber font-monospace">Architecture Driven
+                Discovery</span>
+        </div>
+        <div class="card-body">
+            {% if results.phases.vuln and results.phases.vuln.surface_mapping %}
+            <div class="row g-3">
+                {% for port, data in results.phases.vuln.surface_mapping.items() %}
+                <div class="col-md-12">
+                    <div class="p-3 bg-black bg-opacity-50 rounded border border-secondary border-opacity-25">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0 text-light"><i class="fas fa-network-wired me-2 text-info"></i>Port: {{ port
+                                }}</h5>
+                            <div class="d-flex gap-2">
+                                <span class="badge bg-dark border border-info text-info">{{ data.summary.total_endpoints
+                                    }} Endpoints</span>
+                                <span class="badge bg-dark border border-danger text-danger">{{
+                                    data.summary.mutation_points }} Mutation Points</span>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm table-hover align-middle mb-0">
+                                <thead>
+                                    <tr class="text-muted extra-small text-uppercase">
+                                        <th style="width: 50%;">Backend Endpoint</th>
+                                        <th>Methods</th>
+                                        <th>Risk Classification</th>
+                                        <th class="text-end">Attack Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for root, items in data.tree.items() %}
+                                    {% for item in items %}
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <i class="fas fa-link me-2 text-muted x-small"></i>
+                                                <code class="text-cyber small">{{ item.path }}</code>
+                                                {% if 'backend_lookup_confirmed' in item.risks %}
+                                                <span
+                                                    class="badge bg-success bg-opacity-25 text-success ms-2 extra-small"
+                                                    title="Backend reached via passive validation"><i
+                                                        class="fas fa-check-circle me-1"></i>VERIFIED</span>
+                                                {% endif %}
+                                            </div>
+                                            <div class="extra-small text-muted font-monospace mt-1">Source: {{
+                                                item.source }}</div>
+                                        </td>
+                                        <td>
+                                            {% for m in item.methods %}
+                                            <span
+                                                class="badge bg-{{ 'danger' if m in ['POST', 'DELETE', 'PATCH'] else 'info' }} bg-opacity-10 text-{{ 'danger' if m in ['POST', 'DELETE', 'PATCH'] else 'info' }} extra-small">{{
+                                                m }}</span>
+                                            {% endfor %}
+                                        </td>
+                                        <td>
+                                            {% for risk in item.risks %}
+                                            {% if risk != 'backend_lookup_confirmed' %}
+                                            <span
+                                                class="badge bg-{{ 'warning' if risk == 'mutation_surface' else 'secondary' }} bg-opacity-25 text-{{ 'warning' if risk == 'mutation_surface' else 'light' }} extra-small mb-1">#{{
+                                                risk }}</span>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </td>
+                                        <td class="text-end">
+                                            <div class="progress bg-dark"
+                                                style="height: 6px; width: 60px; display: inline-flex;">
+                                                <div class="progress-bar bg-{{ 'danger' if item.score > 70 else ('warning' if item.score > 40 else 'info') }}"
+                                                    style="width: {{ item.score }}%"></div>
+                                            </div>
+                                            <span class="small font-monospace ms-2">{{ item.score }}</span>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-microchip fa-3x text-muted opacity-25 mb-3"></i>
+                <p class="text-muted">No backend architectural leaks detected yet. Surface mapping requires active
+                    JS/JSON discovery.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

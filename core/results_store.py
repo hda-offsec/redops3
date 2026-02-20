@@ -58,6 +58,7 @@ def save_results(scan_id, data, overwrite=False):
             
             # Atomic rename (overwrites existing file)
             os.replace(temp_filename, filename)
+            return updated_data
             # print(f"[DEBUG] Results saved for Scan #{scan_id} ({'overwritten' if overwrite else 'merged'})")
         except Exception as e:
             print(f"[ERROR] Failed to save results for Scan #{scan_id}: {e}")

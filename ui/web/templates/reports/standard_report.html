@@ -183,6 +183,49 @@
     <p>No open ports identified or raw scan data unavailable.</p>
     {% endif %}
 
+    <!-- 4. Strategic Intelligence (Cortex) -->
+    <h2>2. Strategic Intelligence (Cortex)</h2>
+    {% if results.phases.enum and results.phases.enum.derived %}
+    {% set derived = results.phases.enum.derived %}
+    <div class="summary-box">
+        {% if derived.cortex_recommendations %}
+        <h4>Strategic Recommendations</h4>
+        <ul>
+            {% for rec in derived.cortex_recommendations %}
+            <li>
+                <strong>{{ rec.title }}</strong> (Confidence: {{ rec.confidence }}%)<br>
+                <small>{{ rec.reason }}</small>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if derived.surface_expansion %}
+        <hr>
+        <h4>Derived Surface Expansion (Heuristics)</h4>
+        <p>
+            {% for ep in derived.surface_expansion.global.derived_endpoints %}
+            <span class="badge bg-info" style="font-family: monospace;">{{ ep }}</span>
+            {% endfor %}
+        </p>
+        {% endif %}
+
+        {% if derived.service_intelligence %}
+        <hr>
+        <h4>Service Telemetry Tags</h4>
+        <p>
+            {% for item in derived.service_intelligence %}
+            {% for tag in item.tags %}
+            <span class="badge bg-info" title="Port {{ item.port }}">#{{ tag|upper }}</span>
+            {% endfor %}
+            {% endfor %}
+        </p>
+        {% endif %}
+    </div>
+    {% else %}
+    <p>No machine-driven intelligence derived for this target.</p>
+    {% endif %}
+
     <!-- 3. Infrastructure Intelligence (OSINT) -->
     <h2>3. Infrastructure Intelligence (OSINT)</h2>
     {% if results and results.phases.osint %}
@@ -260,7 +303,7 @@
             </tr>
         </thead>
         <tbody>
-            {% for ep in api_list[:100] %}
+            {% for ep in api_list[:5000] %}
             <tr>
                 <td>GET</td>
                 <td>{{ ep.status if ep is mapping else '200' }}</td>
@@ -270,8 +313,8 @@
             {% endfor %}
         </tbody>
     </table>
-    {% if api_list|length > 100 %}
-    <p><em>... and {{ api_list|length - 100 }} more endpoints not shown.</em></p>
+    {% if api_list|length > 5000 %}
+    <p><em>... and {{ api_list|length - 5000 }} more endpoints not shown.</em></p>
     {% endif %}
     {% else %}
     <p>No accessible API endpoints discovered.</p>

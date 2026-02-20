@@ -26,6 +26,13 @@ from scan_engine.step03_vuln.websocket_scanner import WebSocketScanner
 from scan_engine.step03_vuln.prototype_pollution_scanner import PrototypePollutionScanner
 from scan_engine.step03_vuln.data_miner import SensitiveDataMiner
 from scan_engine.step03_vuln.secret_scanner import SecretScanner
+from scan_engine.step03_vuln.tech_exposure_scanner import TechExposureScanner
+from scan_engine.step03_vuln.api_expert_scanner import APIExpertScanner
+from scan_engine.step03_vuln.db_scanner import DBScanner
+from scan_engine.step03_vuln.logic_assault import LogicAssaultScanner
+from scan_engine.step03_vuln.waf_bypass_scanner import WafBypassScanner
+from scan_engine.step03_vuln.cloud_perm_scanner import CloudPermScanner
+from scan_engine.step03_vuln.surface_mapper import SurfaceMapperScanner
 from scan_engine.phases.utils import extract_wp_data, emit_progress
 from scan_engine.helpers.mutation_engine import MutationEngine
 from scan_engine.helpers.budget_manager import BudgetManager
@@ -64,10 +71,29 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             fingerprint_data = whatweb_summary
             log(f"Recovered fingerprint data from WhatWeb results ({len(fingerprint_data)} bytes).", "DEBUG")
     
-    # Retrieve pre-computed mutation strategy from Enum phase
+    # Retrieve pre-computed intelligence from Strategic Analysis (Phase 2.5)
     mutation_strategy = results.get('phases', {}).get('enum', {}).get('mutation_strategy', {}).get(str(port), {})
     execution_hints = results.get('phases', {}).get('enum', {}).get('derived', {}).get('execution_hints', {})
     execution_hints = execution_hints if isinstance(execution_hints, dict) else {}
+    
+    # --- V6 ADVANCED: SURFACE EXPANSION INTEGRATION ---
+    surface_expansion = results.get('phases', {}).get('enum', {}).get('derived', {}).get('surface_expansion', {})
+    port_expansion = surface_expansion.get('per_port', {}).get(str(port), {})
+    derived_endpoints = port_expansion.get('derived_endpoints', [])
+    
+    # Normalize derived endpoints to full URLs
+    expansion_urls = []
+    base_url = f"{proto}://{target}:{port}"
+    for ep in derived_endpoints:
+        if ep.startswith('/'):
+            expansion_urls.append(f"{base_url}{ep}")
+        elif ep.startswith('http'):
+            expansion_urls.append(ep)
+        else:
+            expansion_urls.append(f"{base_url}/{ep}")
+    
+    if expansion_urls:
+        log(f"Surface Expander: Injecting {len(expansion_urls)} heuristic endpoints into vulnerability phase.", "SUCCESS")
 
 
     # --- CMS SPECIFIC SCANS (WordPress) ---
@@ -345,6 +371,11 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 ]
                 if hinted_for_port:
                     raw_seeds = hinted_for_port
+            
+            # V6 Fix: Merge with surface expansion URLs
+            if expansion_urls:
+                raw_seeds = list(set(raw_seeds + expansion_urls))
+
             mutated_seeds = []
             for rs in raw_seeds[:100]: # Top 100 seeds for mutation
                 variants = mutation_engine.generate_variants(rs, attack_type="xss", strategy=mutation_strategy)
@@ -460,6 +491,10 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
              if 'enum' in results['phases'] and 'api' in results['phases']['enum']:
                  endpoints.extend(results['phases']['enum']['api'].get('discovered_endpoints', []))
 
+        # V6 Fix: Force include surface expansion for redirect audit
+        if expansion_urls:
+            endpoints = list(set(endpoints + expansion_urls))
+
         if endpoints:
             or_scanner = OpenRedirectScanner(target)
             or_findings = or_scanner.scan_endpoints(endpoints, logger=log)
@@ -565,6 +600,88 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"Prototype Pollution Error: {e}", "DEBUG")
 
+    # --- 360 DEGREE SURFACE HARDENING (PHASE 4.5) ---
+    log(f"Phase 4.5: Executing 360-Degree Attack Surface Audit on port {port}...", "INFO")
+
+    # 1. Shadow API & Documentation (APIExpertScanner)
+    try:
+        api_expert = APIExpertScanner(f"{proto}://{target}:{port}")
+        # Use existing API endpoints or discover new ones
+        api_endpoints = results.get('phases', {}).get('enum', {}).get('api', {}).get('endpoints', [])
+        if not api_endpoints:
+             api_endpoints = api_expert.advanced_discovery(logger=log)
+        
+        api_findings = api_expert.audit_endpoints(api_endpoints, logger=log)
+        if api_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('api_expert', api_findings)))
+            for f in api_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"API Expert Error: {e}", "DEBUG")
+
+    # 2. Environment & Config Exposure (TechExposureScanner)
+    try:
+        tes = TechExposureScanner(target)
+        tes_findings = tes.audit(port, proto, logger=log)
+        if tes_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('tech_exposure', tes_findings)))
+            for f in tes_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Tech Exposure Error: {e}", "DEBUG")
+
+    # 3. Unprotected Database & Broker Audit (DBScanner)
+    try:
+        dbs = DBScanner(target)
+        # Port info needed for DBScanner
+        port_info_list = results.get('phases', {}).get('recon', {}).get('open_ports', [])
+        current_port_info = [p for p in port_info_list if str(p.get('port')) == str(port)]
+        if current_port_info:
+            db_findings = dbs.run_all(current_port_info, logger=log)
+            if db_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('db_audit', db_findings)))
+                for f in db_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                    if orch.add_loot and f.get('raw_loot'):
+                        orch.add_loot(loot_type=f.get('loot_type', 'DB Creds'), content=f['raw_loot'], context=f"DB exposure on {target}:{port}")
+                orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"DB Scanner Error: {e}", "DEBUG")
+
+    # 4. Business Logic & IDOR Heuristics (LogicAssaultScanner)
+    try:
+        la = LogicAssaultScanner()
+        la_findings = la.scan(target, orch.scan_id, logger=log)
+        if la_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('logic_assault', la_findings)))
+            for f in la_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Logic Assault Error: {e}", "DEBUG")
+
+    # 5. WAF Bypass & Origin Leak (WafBypassScanner)
+    try:
+        waf_bypass = WafBypassScanner(target)
+        wb_findings = waf_bypass.scan(port, proto, logger=log)
+        if wb_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('waf_bypass', wb_findings)))
+            for f in wb_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"WAF Bypass Error: {e}", "DEBUG")
+
+    # 6. Cloud Identity Leak (CloudPermScanner)
+    try:
+        cloud_perm = CloudPermScanner()
+        # Find already discovered cloud assets
+        cloud_assets = results.get('phases', {}).get('osint', {}).get('cloud', [])
+        cp_findings = cloud_perm.scan_all(cloud_assets, logger=log)
+        if cp_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('cloud_permissions', cp_findings)))
+            for f in cp_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Cloud Permission Error: {e}", "DEBUG")
+
     # 8. Access Control (ACL)
     try:
         acl = AccessControlScanner(target)
@@ -627,6 +744,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"WebSocket Scanner Error: {e}", "DEBUG")
 
+    # 12. Backend Surface Exposure mapping (Architecture Driven)
+    try:
+        mapper = SurfaceMapperScanner(target)
+        surface_findings = mapper.audit(port, proto, logger=log, scan_results=results)
+        if surface_findings:
+            # Separate UI data from findings for specialized viewing
+            ui_data = surface_findings[0].get("surface_data")
+            _ts(lambda: (results['phases'].setdefault('vuln', {}).setdefault('surface_mapping', {}).__setitem__(str(port), ui_data)))
+            
+            # The mapper returns a summary finding which we add to the log
+            orch.add_finding(**normalizer.normalize(surface_findings[0]))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Surface Mapper Error: {e}", "DEBUG")
+
 
 def run_global_vuln_scans(orchestrator):
     """
@@ -664,6 +795,9 @@ def run_global_vuln_scans(orchestrator):
                              severity="critical",
                              tool_source="takeover_scanner"
                          )
+                    elif event['type'] == 'exit':
+                        if event['code'] != 0:
+                            log("external_tool_non_zero_exit_code", "DEBUG")
                 orch.save_results(orch.scan_id, results)
             orch.mark_module("takeover_scanner", 0, "executed", artifacts=len(subdomains))
             orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
@@ -770,9 +904,10 @@ def run_global_vuln_scans(orchestrator):
                                 log(f"Nuclei: {line}", 'WARN' if sev in ['critical', 'high'] else 'INFO')
                                 
                                 _ts(lambda: results['phases']['vuln']['nuclei']['findings'].append({
+                                    'title': line.split('] ')[-1].strip(),
                                     'severity': sev,
-                                    'title': line,
-                                    'port': port
+                                    'url': f"{proto}://{target}:{port}",
+                                    'tool': 'nuclei'
                                 }))
                                 found_any = True
                                 
@@ -783,6 +918,9 @@ def run_global_vuln_scans(orchestrator):
                                     tool_source="nuclei"
                                 )
                                 orch.save_results(orch.scan_id, results)
+                        elif event['type'] == 'exit':
+                            if event['code'] != 0:
+                                log("external_tool_non_zero_exit_code", "DEBUG")
                                 
                     if not found_any:
                         log(f"No Nuclei findings on port {port}.", "SUCCESS")

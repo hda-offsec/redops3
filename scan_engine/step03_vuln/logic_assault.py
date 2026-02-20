@@ -131,7 +131,7 @@ class LogicAssaultScanner:
         
         idor_candidates = []
         for url in urls:
-            if re.search(r'/\d+($|/|\?)', url) or re.search(r'[?&](id|user|account|order)=\d+', url):
+            if re.search(r'/\d+($|/|\?)', url) or re.search(r'[?&](id|user|account|order|uid|uuid|profile|invoice|doc|file|msg|message)=\d+', url):
                 idor_candidates.append(url)
         
         # Dedup

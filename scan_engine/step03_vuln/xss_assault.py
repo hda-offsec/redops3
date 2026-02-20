@@ -90,6 +90,10 @@ class XssAssaultScanner:
             
             success, stdout, stderr, code = ProcessManager.run_command(command, timeout=600)
             
+            # FIX #4 — Vérification tool_exit_code
+            if code != 0:
+                if logger: logger("external_tool_non_zero_exit_code", "DEBUG")
+            
             if os.path.exists(output_file):
                  with open(output_file, 'r') as f:
                     for line in f:

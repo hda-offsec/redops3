@@ -76,6 +76,33 @@ class AttackGraphBuilder:
             for endpoint_id in endpoint_ids_by_port.get(port, []):
                 self._add_edge(endpoint_id, fid, "vulnerable_to")
 
+        # --- PHASE 4.5: BACKEND SURFACE EXPOSURE (ARCHITECTURE DRIVEN) ---
+        surface_mapping = vuln.get("surface_mapping", {})
+        for port, data in surface_mapping.items():
+            for root, items in data.get("tree", {}).items():
+                for item in items:
+                    node_id = f"surface:{port}:{item['path']}"
+                    # Add Route Node
+                    self.nodes.append({
+                        "type": "backend_endpoint",
+                        "id": node_id,
+                        "data": item
+                    })
+                    self._add_edge(f"service:{port}", node_id, "exposes_surface")
+                    
+                    # Link to Risks
+                    for risk in item.get("risks", []):
+                        if risk in ["mutation_surface", "object_lookup", "admin_surface"]:
+                            risk_node_id = f"risk:{port}:{risk}"
+                            # Add Risk Node if not exists
+                            if not any(n["id"] == risk_node_id for n in self.nodes):
+                                self.nodes.append({
+                                    "type": "risk_surface",
+                                    "id": risk_node_id,
+                                    "data": {"category": risk}
+                                })
+                            self._add_edge(node_id, risk_node_id, "contributes_to_risk")
+
         self._actions = self._derive_actions(results)
         return {"nodes": self.nodes, "edges": self.edges}
 
