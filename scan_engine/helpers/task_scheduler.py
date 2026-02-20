@@ -21,7 +21,7 @@ class Task:
 class TaskScheduler:
     def __init__(self):
         self.tasks: dict[str, Task] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._orchestrator = None
         self._progress_callback = None
 
@@ -72,7 +72,7 @@ class TaskScheduler:
                 task = self.tasks[task_id]
                 if task.state == "pending":
                     task.state = "skipped"
-                    task.reason = "stop_requested"
+                    task.reason = "scan_stop_requested"
                     notify_progress = True
             if notify_progress:
                 self._notify_progress()
@@ -90,6 +90,7 @@ class TaskScheduler:
                 notify_progress = True
             else:
                 task.state = "running"
+                task.reason = None
 
         if notify_progress:
             self._notify_progress()
@@ -103,8 +104,14 @@ class TaskScheduler:
             return result
         except Exception as exc:
             with self._lock:
-                task.state = "failed"
-                task.reason = str(exc)
+                reason = str(exc) or f"task_failed:{task_id}"
+                if reason.startswith("task_skipped:"):
+                    task.state = "skipped"
+                elif reason == "scan_stop_requested":
+                    task.state = "skipped"
+                else:
+                    task.state = "failed"
+                task.reason = reason
                 task.result = None
             return None
         finally:
@@ -174,20 +181,31 @@ class TaskScheduler:
                     for future in as_completed(futures):
                         _ = future.result()
 
-        final_reason = "stop_requested" if self._stop_requested() else "unresolvable_dependencies"
         skipped_count = 0
         for task_id, task in list(self.tasks.items()):
             notify_progress = False
             with self._lock:
                 if task.state == "pending":
+                    if self._stop_requested():
+                        reason = "scan_stop_requested"
+                    else:
+                        unmet = [dep for dep in task.deps if self.tasks.get(dep) and self.tasks[dep].state not in {"executed", "skipped"}]
+                        reason = f"dependencies_not_ready:{','.join(unmet)}" if unmet else "dependencies_not_ready:unresolvable_dependencies"
                     task.state = "skipped"
-                    task.reason = final_reason
+                    task.reason = reason
                     notify_progress = True
                     skipped_count += 1
             if notify_progress:
                 self._notify_progress()
         
         if skipped_count > 0 and self._orchestrator:
-            self._orchestrator.log(f"Scheduler finished. {skipped_count} tasks were skipped due to {final_reason}.", "DEBUG")
+            self._orchestrator.log(f"Scheduler finished. {skipped_count} tasks were skipped.", "DEBUG")
 
         return {task_id: task.result for task_id, task in self.tasks.items()}
+
+    def snapshot_states(self):
+        with self._lock:
+            return {
+                task_id: {"state": task.state, "reason": task.reason, "result": task.result}
+                for task_id, task in self.tasks.items()
+            }

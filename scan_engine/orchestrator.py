@@ -48,7 +48,7 @@ class ScanOrchestrator:
         self.options = options or {}
         self.config = self.options.get('config', {})
         self.results = {}
-        self._results_lock = threading.Lock()
+        self._results_lock = threading.RLock()
         self._control_lock = threading.Lock()
         self._pause_event = threading.Event()
         self._pause_event.set()
@@ -65,6 +65,15 @@ class ScanOrchestrator:
     def thread_safe_results_update(self, fn):
         with self._results_lock:
             return fn()
+
+    def _save_results_thread_safe(self, payload=None, overwrite=False):
+        if payload is None:
+            with self._results_lock:
+                payload = json.loads(json.dumps(self.results))
+        if overwrite:
+            self.save_results(self.scan_id, payload, overwrite=True)
+        else:
+            self.save_results(self.scan_id, payload)
 
     def emit_event(self, event_type, module, port=None, level="INFO", data=None):
         evt = {
@@ -85,7 +94,7 @@ class ScanOrchestrator:
 
         self.thread_safe_results_update(_update)
         self.socketio.emit("pipeline_event", evt, room=f"scan_{self.scan_id}")
-        self.save_results(self.scan_id, payload)
+        self._save_results_thread_safe(payload)
         return evt
 
     def mark_module(self, module, port, status, artifacts=0, reason=None):
@@ -125,7 +134,7 @@ class ScanOrchestrator:
 
         level = "ERROR" if status in ["failed", "error"] else "INFO"
         self.emit_event(evt_type, module, port, level=level, data={"artifacts": artifacts, "reason": normalized_reason})
-        self.save_results(self.scan_id, payload)
+        self._save_results_thread_safe(payload)
 
     def pause(self):
         with self._control_lock:
@@ -165,7 +174,7 @@ class ScanOrchestrator:
             payload["progress"] = self.results.get("progress", {"percent": 0.0, "current_phase": "Initializing"})
 
         self.thread_safe_results_update(_update)
-        self.save_results(self.scan_id, payload)
+        self._save_results_thread_safe(payload)
 
     def _update_progress(self):
         task_status = self.results.get("task_status", {})
@@ -189,8 +198,9 @@ class ScanOrchestrator:
 
         def _update():
             self.results.setdefault("task_status", {})
-            for task_id, task in scheduler.tasks.items():
-                self.results["task_status"][task_id] = {"state": task.state, "reason": task.reason}
+            task_snapshot = scheduler.snapshot_states()
+            for task_id, task_data in task_snapshot.items():
+                self.results["task_status"][task_id] = {"state": task_data["state"], "reason": task_data["reason"]}
             self.results.setdefault("metrics", {})
             self.results["metrics"]["tasks_total"] = len(self.results["task_status"])
             completed_states = {"executed", "skipped", "failed"}
@@ -203,10 +213,10 @@ class ScanOrchestrator:
             payload["metrics"] = dict(self.results.get("metrics", {}))
 
         self.thread_safe_results_update(_update)
-        self.save_results(self.scan_id, payload)
+        self._save_results_thread_safe(payload)
 
     def _task_wrapper(self, task_id, func, *args, **kwargs):
-        from flask import has_app_context, current_app
+        from flask import has_app_context
         
         ctx = None
         if not has_app_context():
@@ -222,34 +232,15 @@ class ScanOrchestrator:
 
         try:
             self._check_control(task_id)
-            self._set_task_state(task_id, "running", None)
-            
-            ret = func(*args, **kwargs)
-
-            def _update_success():
-                self.results.setdefault("metrics", {})
-                self.results["metrics"]["tasks_done"] = int(self.results["metrics"].get("tasks_done", 0)) + 1
-
-            self.thread_safe_results_update(_update_success)
-            self._set_task_state(task_id, "executed", None)
-            return ret
+            return func(*args, **kwargs)
         except Exception as exc:
             reason = str(exc)
-
-            def _update_error():
-                self.results.setdefault("metrics", {})
-                self.results["metrics"]["tasks_done"] = int(self.results["metrics"].get("tasks_done", 0)) + 1
-
-            self.thread_safe_results_update(_update_error)
-
-            if reason.startswith("task_skipped:"):
-                self._set_task_state(task_id, "skipped", reason)
-                return None
-
-            self._set_task_state(task_id, "failed", reason)
-            self.log(f"Task {task_id} failed: {reason}", "ERROR")
-            self.log(traceback.format_exc(), "DEBUG")
-            return None
+            if not reason:
+                reason = f"task_failed:{task_id}"
+            if not reason.startswith("task_skipped:") and reason != "scan_stop_requested":
+                self.log(f"Task {task_id} failed: {reason}", "ERROR")
+                self.log(traceback.format_exc(), "DEBUG")
+            raise RuntimeError(reason) from exc
         finally:
             if ctx:
                 ctx.pop()
@@ -309,7 +300,7 @@ class ScanOrchestrator:
         self.options['profile'] = profile
         try:
             self.results = self._init_results(self._start_time)
-            self.save_results(self.scan_id, self.results, overwrite=True)
+            self._save_results_thread_safe(overwrite=True)
 
             scheduler = TaskScheduler()
             scheduler.set_orchestrator(self)
@@ -372,7 +363,7 @@ class ScanOrchestrator:
                     # 5. Build Attack Plan (Ranking)
                     attack_builder = AttackGraphBuilder()
                     attack_builder.build(self.results)
-                    self.results["attack_plan"] = attack_builder.rank_actions()
+                    self.thread_safe_results_update(lambda: self.results.__setitem__("attack_plan", attack_builder.rank_actions()))
                     
                     # --- FEEDBACK LOOP: Dynamic Task Injection & Expert Mining ---
                     for rec in cortex_recommendations:
@@ -433,7 +424,7 @@ class ScanOrchestrator:
                                 self.log(f"JS Expert: No JS files found for port {target_port} in crawler results.", "DEBUG")
 
                     self.log(f"Strategic Analysis Complete: Identified {len(cortex_recommendations)} tactical vectors.", "SUCCESS")
-                    self.save_results(self.scan_id, self.results)
+                    self._save_results_thread_safe()
                     return True
 
                 scheduler.add_task("strategic_analysis", "intel", enum_tasks or ["discover_web_ports"], self._task_wrapper, args=("strategic_analysis", strategic_analysis_task))
@@ -441,13 +432,19 @@ class ScanOrchestrator:
                 # Now add VULN tasks depending on strategic analysis
                 for port, proto in web_ports:
                     vuln_task_id = f"vuln_{port}"
+                    enum_task_id = f"enum_{port}"
+
+                    def vuln_task(port=port, proto=proto, enum_task_id=enum_task_id):
+                        snapshot = scheduler.snapshot_states()
+                        fingerprint_data = (snapshot.get(enum_task_id) or {}).get("result") or ""
+                        return run_vuln_scans(self, port, proto, fingerprint_data=fingerprint_data)
+
                     scheduler.add_task(
                         vuln_task_id,
                         "vuln",
                         ["strategic_analysis"], # V6 Fix: Depend on strategic analysis, not just enum
                         self._task_wrapper,
-                        args=(vuln_task_id, run_vuln_scans, self, port, proto),
-                        kwargs={"fingerprint_data": ""},
+                        args=(vuln_task_id, vuln_task),
                     )
                     if "global_vuln" in scheduler.tasks and vuln_task_id not in scheduler.tasks["global_vuln"].deps:
                         scheduler.tasks["global_vuln"].deps.append(vuln_task_id)
@@ -461,7 +458,7 @@ class ScanOrchestrator:
                     self._update_progress()
 
                 self.thread_safe_results_update(_recalc_total)
-                self.save_results(self.scan_id, {"metrics": self.results.get("metrics", {}), "task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
+                self._save_results_thread_safe({"metrics": self.results.get("metrics", {}), "task_status": self.results.get("task_status", {}), "progress": self.results.get("progress", 0.0)})
                 return web_ports
 
             scheduler.add_task("discover_web_ports", "phase", ["recon"], self._task_wrapper, args=("discover_web_ports", discover_web_ports_task))
@@ -475,7 +472,7 @@ class ScanOrchestrator:
                 self._update_progress()
 
             self.thread_safe_results_update(_prime_task_status)
-            self.save_results(self.scan_id, {"metrics": self.results["metrics"], "task_status": self.results["task_status"], "progress": self.results["progress"]})
+            self._save_results_thread_safe({"metrics": self.results["metrics"], "task_status": self.results["task_status"], "progress": self.results["progress"]})
 
             scheduler.run()
 
@@ -517,6 +514,6 @@ class ScanOrchestrator:
         self.results['status'] = "completed" if success else "failed"
         self.results["metrics"]["duration_seconds"] = (end_time - self._start_time).total_seconds()
         self._update_progress()
-        self.save_results(self.scan_id, self.results)
+        self._save_results_thread_safe()
         self.log(f"Scan completed in {end_time - self._start_time}. Status: {self.results['status']}", "SUCCESS")
         return success

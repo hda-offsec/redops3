@@ -12,10 +12,14 @@ class AttackGraphBuilder:
         self._edge_keys.add(key)
         self.edges.append({"from": from_id, "to": to_id, "type": edge_type})
 
-    def build(self, results):
+    def _reset(self):
         self.nodes = []
         self.edges = []
         self._edge_keys = set()
+        self._actions = []
+
+    def build(self, results):
+        self._reset()
         phases = results.get("phases", {})
         recon_ports = phases.get("recon", {}).get("open_ports", [])
         enum = phases.get("enum", {})

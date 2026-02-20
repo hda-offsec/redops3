@@ -103,6 +103,7 @@ class ScanDashboard {
             <td class="font-monospace text-muted small">${data.port}</td>
             <td>${getStatusBadge(data.status)}</td>
             <td class="text-end font-monospace small">${data.artifacts || 0}</td>
+            <td class="text-muted x-small">${data.reason || '-'}</td>
         `;
 
         if (row) {
@@ -579,6 +580,36 @@ class ScanDashboard {
         }
     }
 
+
+    renderTaskStatus(taskStatus) {
+        const tableBody = document.querySelector("#tasks-table tbody");
+        if (!tableBody || !taskStatus) return;
+        tableBody.innerHTML = "";
+
+        const getTaskBadge = (state) => {
+            const s = (state || 'pending').toLowerCase();
+            if (s === 'running') return '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>';
+            if (s === 'executed') return '<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>';
+            if (s === 'skipped') return '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>';
+            if (s === 'failed') return '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>';
+            return `<span class="badge bg-dark border border-secondary text-muted x-small">${s.toUpperCase()}</span>`;
+        };
+
+        Object.entries(taskStatus).forEach(([taskId, data]) => {
+            const row = document.createElement('tr');
+            row.id = `task-row-${taskId}`;
+            row.innerHTML = `
+                <td class="font-monospace text-info x-small">${taskId}</td>
+                <td class="x-small">${getTaskBadge(data.state)}</td>
+                <td class="x-small text-muted">${data.reason || '-'}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+
+        if (!Object.keys(taskStatus).length) {
+            tableBody.innerHTML = '<tr id="no-tasks-row"><td colspan="3" class="text-center text-muted small fst-italic py-3">No task state yet.</td></tr>';
+        }
+    }
     updateUI(results) {
         if (!results) return;
 
@@ -650,6 +681,8 @@ class ScanDashboard {
                 current_phase: results.progress.current_phase
             });
         }
+
+        this.renderTaskStatus(results.task_status || {});
 
         // --- RESTORE DISCOVERY BUTTON STATES ---
         const discoveryMap = {
