@@ -11,17 +11,17 @@ class FfufScanner:
         if user_wlist and os.path.exists(user_wlist):
             return user_wlist
         
-        # Kali Common Locations
+        # Kali Common Locations (Prioritizing SecLists)
         potential_paths = [
-            '/usr/share/dirb/wordlists/common.txt',
             '/usr/share/seclists/Discovery/Web-Content/common.txt',
+            '/usr/share/dirb/wordlists/common.txt',
             '/usr/share/wordlists/dirb/common.txt',
             '/usr/share/wordlists/common.txt'
         ]
         for p in potential_paths:
             if os.path.exists(p):
                 return p
-        return '/usr/share/dirb/wordlists/common.txt' # Fallback
+        return '/usr/share/seclists/Discovery/Web-Content/common.txt' # Fallback
 
     def check_tools(self):
         return shutil.which('ffuf') is not None

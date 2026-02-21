@@ -1,47 +1,78 @@
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode
 
 class SSTIScanner:
+    """
+    V6 EXPERT: Advanced SSTI Polyglot & Engine Identifier.
+    Detects and identifies template engines (Jinja2, Twig, Mako, Smarty, Freemarker, etc.)
+    """
     def __init__(self, target):
         self.target = target
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Mozilla/5.0 (RedOps3-SSTI-Expert)"})
 
-    def scan_ssti(self, port, protocol='http', logger=None):
-        findings = []
-        base_url = f"{protocol}://{self.target}:{port}"
-        # Polyglot-ish payload for {{7*7}} in different engines
-        # Polyglot-ish payload for {{1337*1337}} in different engines
-        payloads = [
-            ("{{1337*1337}}", "1787569"),
-            ("${1337*1337}", "1787569"),
-            ("<%= 1337*1337 %>", "1787569")
+    def get_payloads(self):
+        """Returns a list of payloads designed to identify the specific engine."""
+        return [
+            # Generic detection
+            {"payload": "${7*7}", "expected": "49", "engines": ["Freemarker", "Velocity", "EL"]},
+            {"payload": "{{7*7}}", "expected": "49", "engines": ["Jinja2", "Twig", "Mako", "Handlebars"]},
+            {"payload": "<%= 7*7 %>", "expected": "49", "engines": ["ERB", "ASP.NET"]},
+            
+            # Engine Specific Identification
+            {"payload": "{{7*'7'}}", "expected": "7777777", "engines": ["Jinja2", "Twig"]},
+            {"payload": "${7+'7'}", "expected": "14", "engines": ["Freemarker"]}, # Often fails in strict Java
+            {"payload": "*{7*7}", "expected": "49", "engines": ["Thymeleaf"]},
+            {"payload": "[[7*7]]", "expected": "49", "engines": ["VueJS", "Angular"]}
         ]
+
+    def scan_endpoint(self, url, params, logger=None):
+        findings = []
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         
-        # Fuzz common params
-        params = ["q", "s", "search", "id", "name", "view"]
+        if logger: logger(f"SSTI Expert: Auditing {url} with polyglot probes...", "INFO")
 
-        if logger: logger(f"💉 SSTi Expert: Fuzzing {len(params)} params on {base_url}...", "INFO")
-
-        for param in params:
-            for payload, expected in payloads:
+        for param_name in params:
+            for probe in self.get_payloads():
                 try:
-                    target_url = f"{base_url}/?{param}={payload}"
-                    r = requests.get(target_url, timeout=3)
+                    # Construct URL with payload
+                    qs = parse_qs(parsed.query)
+                    qs[param_name] = [probe["payload"]]
+                    test_url = f"{base}?{urlencode(qs, doseq=True)}"
                     
-                    if expected in r.text and payload not in r.text:
-                        # If result is there but payload isn't (rendered) -> Vulnerable
-                        findings.append({
-                            "title": f"CRITICAL: SSTi Detected on param `{param}`",
-                            "description": f"Server Rendered `{payload}` as `{expected}`. Confirmed Server-Side Template Injection.",
+                    r = self.session.get(test_url, timeout=5, verify=False)
+                    
+                    # Detection logic: expected result must be present, but NOT the payload itself
+                    if probe["expected"] in r.text and probe["payload"] not in r.text:
+                        engine_guess = ", ".join(probe["engines"])
+                        finding = {
+                            "title": f"🔥 CRITICAL: SSTI Detected ({engine_guess})",
+                            "description": (
+                                f"Server-Side Template Injection confirmed on parameter `{param_name}`.\n"
+                                f"The server rendered the payload `{probe['payload']}` as `{probe['expected']}`.\n\n"
+                                f"**Likely Engines**: {engine_guess}"
+                            ),
                             "severity": "critical",
-                            "tool_source": "ssti_scanner",
-                            "raw_loot": target_url,
-                            "method": "GET",
-                            "payload": payload,
-                            "status_code": r.status_code,
-                            "response_snippet": r.text[:200] if len(r.text) > 200 else r.text
-                        })
-                        if logger: logger(f"💀 SSTV RCE CONFIRMED: {target_url}", "CRITICAL")
-                        return findings # Return early on confirm
-                except Exception:
-                    pass
+                            "tool_source": "ssti_expert",
+                            "url": test_url,
+                            "payload": probe["payload"],
+                            "repro_command": f"curl -G '{base}' --data-urlencode '{param_name}={probe['payload']}'"
+                        }
+                        findings.append(finding)
+                        if logger: logger(f"💀 SSTI VULNERABILITY CONFIRMED: {engine_guess} on {param_name}", "CRITICAL")
+                        break # Move to next parameter once confirmed
+                except Exception as e:
+                    if logger: logger(f"SSTI Probe Error on {param_name}: {e}", "DEBUG")
+                    
         return findings
+
+    def audit_all(self, endpoints_map, logger=None):
+        """
+        Expects a map of {url: [params]}
+        """
+        all_findings = []
+        for url, params in endpoints_map.items():
+            if not params: continue
+            all_findings.extend(self.scan_endpoint(url, params, logger))
+        return all_findings

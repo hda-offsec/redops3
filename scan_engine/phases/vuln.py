@@ -33,6 +33,18 @@ from scan_engine.step03_vuln.logic_assault import LogicAssaultScanner
 from scan_engine.step03_vuln.waf_bypass_scanner import WafBypassScanner
 from scan_engine.step03_vuln.cloud_perm_scanner import CloudPermScanner
 from scan_engine.step03_vuln.surface_mapper import SurfaceMapperScanner
+from scan_engine.step03_vuln.smuggling_scanner import SmugglingScanner
+from scan_engine.step03_vuln.dependency_scanner import DependencyScanner
+from scan_engine.step03_vuln.vhost_scanner import VhostScanner
+from scan_engine.step03_vuln.enterprise_scanner import EnterpriseScanner
+from scan_engine.step03_vuln.jwt_scanner import JWTScanner
+from scan_engine.step03_vuln.oauth_scanner import OAuthScanner
+from scan_engine.step03_vuln.nosql_scanner import NoSQLScanner
+from scan_engine.step03_vuln.cache_scanner import CacheExpertScanner
+from scan_engine.step03_vuln.upload_scanner import UploadExpertScanner
+from scan_engine.step03_vuln.business_logic_scanner import BusinessLogicScanner
+from scan_engine.step03_vuln.ssrf_deep_scanner import SSRFDeepScanner
+from scan_engine.step03_vuln.infra_exposure_scanner import InfraExposureScanner
 from scan_engine.phases.utils import extract_wp_data, emit_progress
 from scan_engine.helpers.mutation_engine import MutationEngine
 from scan_engine.helpers.budget_manager import BudgetManager
@@ -108,7 +120,15 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             is_wordpress = True
             log(f"WordPress detected via HTTP Headers on port {port}.", "SUCCESS")
 
+    # Cortex Status Update Utility
+    def _set_cortex_status(status):
+        def _inner():
+            results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})["status"] = status
+        orch.thread_safe_results_update(_inner)
+        orch._save_results_thread_safe()
+
     if is_wordpress:
+        _set_cortex_status(f"Auditing WordPress (Port {port})...")
         emit_progress(orch, 75, f"Application Audit (WordPress) on {port}")
         log(f"WordPress signature detected on port {port}. Inspecting defense mechanisms...", "INFO")
         try:
@@ -245,6 +265,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     # --- EXPERT: GraphQL Audit ---
     try:
+        _set_cortex_status(f"GraphQL Schema Audit (Port {port})...")
         gs = GraphQLScanner(target)
         gs_findings = gs.audit_graphql(port, proto, logger=log)
         if gs_findings:
@@ -270,6 +291,227 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e:
         log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
         orch.mark_module("graphql_scanner", port, "failed")
+
+    # --- EXPERT: JWT Security Audit (Point 1) ---
+    try:
+        _set_cortex_status(f"JWT Security Audit (Port {port})...")
+        jwt_expert = JWTScanner()
+        # Probe main URL
+        jwt_findings = jwt_expert.probe_endpoint(f"{proto}://{target}:{port}", logger=log)
+        
+        # Also check collected JS files from Katana for JWT leaks
+        katana_urls = results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(port), [])
+        js_urls = [u for u in katana_urls if u.endswith('.js')]
+        
+        for js_url in js_urls[:10]: # Limit for performance
+            try:
+                r_js = requests.get(js_url, timeout=3, verify=False)
+                if r_js.status_code == 200:
+                    leaked = jwt_expert.scan_text(r_js.text, js_url)
+                    if leaked: jwt_findings.extend(leaked)
+            except Exception: pass
+
+        if jwt_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('jwt', []).extend(jwt_findings)))
+            for f in jwt_findings:
+                orch.add_finding(
+                    title=f.get('type', 'JWT Security Issue'),
+                    description=f.get('desc', ''),
+                    severity=f.get('severity', 'medium'),
+                    tool_source="jwt_expert"
+                )
+            orch.save_results(orch.scan_id, results)
+        
+        orch.mark_module("jwt_expert", port, "executed", artifacts=len(jwt_findings))
+    except Exception as e:
+        log(f"JWT Expert Error: {e}", "DEBUG")
+
+    # --- EXPERT: HTTP Request Smuggling (Point 7) ---
+    try:
+        _set_cortex_status(f"Smuggling Desync Audit (Port {port})...")
+        smug_scanner = SmugglingScanner(target)
+        smug_findings = smug_scanner.scan(port, proto, logger=log)
+        if smug_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('smuggling', []).extend(smug_findings)))
+            for f in smug_findings:
+                orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+        orch.mark_module("smuggling_expert", port, "executed", artifacts=len(smug_findings))
+    except Exception as e:
+        log(f"Smuggling Expert Error: {e}", "DEBUG")
+
+    # --- EXPERT: Vhost Brute-forcing (Point 9) ---
+    try:
+        if not is_quick:
+            _set_cortex_status(f"Vhost Discovery (Port {port})...")
+            vhost_scanner = VhostScanner(target)
+            vhost_findings = vhost_scanner.scan(port, proto, logger=log)
+            if vhost_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('vhosts', []).extend(vhost_findings)))
+                for f in vhost_findings:
+                    orch.add_finding(**f)
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("vhost_expert", port, "executed", artifacts=len(vhost_findings))
+    except Exception as e:
+        log(f"Vhost Expert Error: {e}", "DEBUG")
+
+    # --- EXPERT: Enterprise Tech Audit (Point 10) ---
+    try:
+        _set_cortex_status(f"Enterprise Stack Audit (Port {port})...")
+        ent_scanner = EnterpriseScanner(target)
+        ent_findings = ent_scanner.scan(port, proto, logger=log)
+        if ent_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('enterprise', []).extend(ent_findings)))
+            for f in ent_findings:
+                orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+        orch.mark_module("enterprise_expert", port, "executed", artifacts=len(ent_findings))
+    except Exception as e:
+        log(f"Enterprise Expert Error: {e}", "DEBUG")
+
+    # --- EXPERT: Cloud Asset Audit (Point 2) ---
+    try:
+        cloud_assets = results.get('phases', {}).get('osint', {}).get('cloud', [])
+        if cloud_assets:
+            cloud_expert = CloudPermScanner()
+            cloud_findings = cloud_expert.scan_assets(cloud_assets, logger=log)
+            if cloud_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('cloud_perms', []).extend(cloud_findings)))
+                for f in cloud_findings:
+                    orch.add_finding(**f)
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("cloud_expert", port, "executed", artifacts=len(cloud_findings))
+    except Exception as e:
+        log(f"Cloud Expert Error: {e}", "DEBUG")
+
+    # --- EXPERT: Dependency Confusion (Point 8) ---
+    try:
+        _set_cortex_status(f"Supply Chain Audit (Port {port})...")
+        dep_scanner = DependencyScanner(target)
+        # Check root and common paths
+        dep_findings = dep_scanner.scan_path(f"{proto}://{target}:{port}", logger=log)
+        if dep_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('dependency', []).extend(dep_findings)))
+            for f in dep_findings:
+                orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+        orch.mark_module("dependency_expert", port, "executed", artifacts=len(dep_findings))
+    except Exception as e:
+        log(f"Dependency Expert Error: {e}", "DEBUG")
+
+    # --- V6 WAVE 2: ADVANCED LOGIC & INFRA EXPERTS ---
+
+    # 1. OAuth / OpenID Auditor
+    try:
+        _set_cortex_status(f"OAuth/OpenID Security Audit (Port {port})...")
+        oauth_expert = OAuthScanner()
+        # Collect relevant URLs from Katana
+        web_urls = results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(port), [])
+        oauth_findings = oauth_expert.scan_endpoints(web_urls, logger=log)
+        if oauth_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('oauth', []).extend(oauth_findings)))
+            for f in oauth_findings:
+                orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"OAuth Expert Error: {e}", "DEBUG")
+
+    # 2. NoSQL Injection Expert
+    try:
+        _set_cortex_status(f"NoSQL Injection Expert (Port {port})...")
+        nosql_expert = NoSQLScanner()
+        # Audit login pages and common endpoints
+        login_urls = [u for u in web_urls if "login" in u.lower() or "auth" in u.lower()]
+        for u in login_urls[:5]:
+            nosql_results = nosql_expert.scan_login(u, logger=log)
+            if nosql_results:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('nosql', []).extend(nosql_results)))
+                for f in nosql_results:
+                    orch.add_finding(**f)
+        orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"NoSQL Expert Error: {e}", "DEBUG")
+
+    # 3. Web Cache Poisoning & Deception
+    try:
+        _set_cortex_status(f"Web Cache Integrity Audit (Port {port})...")
+        cache_expert = CacheExpertScanner(target)
+        cache_poison = cache_expert.scan_cache_poisoning(f"{proto}://{target}:{port}", logger=log)
+        cache_decep = cache_expert.scan_cache_deception(f"{proto}://{target}:{port}", logger=log)
+        all_cache = (cache_poison or []) + (cache_decep or [])
+        if all_cache:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('cache_audit', []).extend(all_cache)))
+            for f in all_cache:
+                orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Cache Expert Error: {e}", "DEBUG")
+
+    # 4. Upload Expert (Magic Bytes)
+    try:
+        upload_urls = [u for u in web_urls if any(k in u.lower() for k in ["upload", "import", "media", "profile"])]
+        if upload_urls:
+            _set_cortex_status(f"File Upload Bypass Expert (Port {port})...")
+            upload_expert = UploadExpertScanner(target)
+            for u in upload_urls[:3]:
+                up_findings = upload_expert.scan_upload_form(u, logger=log)
+                if up_findings:
+                    _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('upload_bypass', []).extend(up_findings)))
+                    for f in up_findings:
+                        orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Upload Expert Error: {e}", "DEBUG")
+
+    # 5. Logic Expert (Mass Assignment/HPP)
+    try:
+        _set_cortex_status(f"Business Logic Audit (Port {port})...")
+        logic_expert = BusinessLogicScanner()
+        # Test HPP on all endpoints with query params
+        query_urls = [u for u in web_urls if "?" in u]
+        for u in query_urls[:10]:
+            hpp_res = logic_expert.scan_hpp(u, logger=log)
+            if hpp_res:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('logic_flaws', []).extend(hpp_res)))
+                for f in hpp_res:
+                    orch.add_finding(**f)
+        
+        # Mass Assignment test on API endpoints
+        api_urls = [u for u in web_urls if "api" in u.lower()]
+        for u in api_urls[:5]:
+            mass_res = logic_expert.scan_mass_assignment(u, json_baseline={"id": 1}, logger=log)
+            if mass_res:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('logic_flaws', []).extend(mass_res)))
+                for f in mass_res:
+                    orch.add_finding(**f)
+        orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Logic Expert Error: {e}", "DEBUG")
+
+    # 6. Deep SSRF (Cloud Metadata Probing)
+    try:
+        _set_cortex_status(f"Deep Cloud SSRF Audit (Port {port})...")
+        ssrf_deep = SSRFDeepScanner()
+        # Use common SSRF parameters
+        ssrf_params = ["url", "dest", "target", "link", "goto", "path", "proxy", "image"]
+        for u in web_urls[:10]:
+            if any(p + "=" in u for p in ssrf_params):
+                for p in ssrf_params:
+                    if p + "=" in u:
+                        ssrf_res = ssrf_deep.scan_param(u, p, logger=log)
+                        if ssrf_res:
+                            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('deep_ssrf', []).extend(ssrf_res)))
+                            for f in ssrf_res:
+                                orch.add_finding(**f)
+        orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Deep SSRF Expert Error: {e}", "DEBUG")
+
+    # 7. Infra Exposure Expert
+    try:
+        _set_cortex_status(f"Infra Exposure Audit (Host-wide)...")
+        infra_expert = InfraExposureScanner(target)
+        infra_findings = infra_expert.scan_common_ports(logger=log)
+        if infra_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('infra_exposure', []).extend(infra_findings)))
+            for f in infra_findings:
+                orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Infra Expert Error: {e}", "DEBUG")
 
     # --- EXPERT: SSRF Probing (Cloud Metadata) ---
     try:
@@ -530,12 +772,15 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # --- EXPERT: ADVANCED VULNERABILITY AUDIT (PHASE 4) ---
     log(f"Phase 4: Executing Advanced Vuln Audit (Expert Scanners) on port {port}...", "INFO")
     
-    # 1. SSTI
+    # 1. SSTI Polyglot (Point 4)
     try:
+        _set_cortex_status(f"SSTI Polyglot Audit (Port {port})...")
         ssti = SSTIScanner(target)
-        ssti_findings = ssti.scan_ssti(port, proto, logger=log)
+        # Use simple heuristics for params for now, or use identified injection points
+        test_params = ["q", "id", "s", "search", "name", "view", "page"]
+        ssti_findings = ssti.scan_endpoint(f"{proto}://{target}:{port}", test_params, logger=log)
         if ssti_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('ssti', ssti_findings)))
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('ssti', []).extend(ssti_findings)))
             for f in ssti_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
@@ -600,6 +845,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     # 7. Prototype Pollution
     try:
+        _set_cortex_status(f"Prototype Logic Audit (Port {port})...")
         proto_scanner = PrototypePollutionScanner(target)
         proto_findings = proto_scanner.scan_prototype(port, proto, logger=log)
         if proto_findings:
@@ -678,14 +924,15 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"WAF Bypass Error: {e}", "DEBUG")
 
-    # 6. Cloud Identity Leak (CloudPermScanner)
+    # 6. Cloud Identity Leak (Point 2 - Active Audit)
     try:
+        _set_cortex_status(f"Cloud Storage Audit (Port {port})...")
         cloud_perm = CloudPermScanner()
         # Find already discovered cloud assets
         cloud_assets = results.get('phases', {}).get('osint', {}).get('cloud', [])
-        cp_findings = cloud_perm.scan_all(cloud_assets, logger=log)
+        cp_findings = cloud_perm.scan_assets(cloud_assets, logger=log)
         if cp_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('cloud_permissions', cp_findings)))
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('cloud_permissions', []).extend(cp_findings)))
             for f in cp_findings:
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)

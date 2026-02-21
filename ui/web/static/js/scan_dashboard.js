@@ -1135,8 +1135,15 @@ class ScanDashboard {
             this.renderJSONSection(results.phases.vuln, 'acl_bypass', 'ACL Bypass');
             this.renderJSONSection(results.phases.vuln, 'email_security', 'Email Infrastructure');
             this.renderJSONSection(results.phases.vuln, 'container_exposure', 'Container/Docker');
+            this.renderJSONSection(results.phases.vuln, 'infra_exposure', 'Infrastructure Exposure');
             this.renderJSONSection(results.phases.vuln, 'websocket', 'WebSocket Security');
             this.renderJSONSection(results.phases.vuln, 'data_leaks', 'Sensitive Data Mining');
+            this.renderJSONSection(results.phases.vuln, 'oauth', 'OAuth & OIDC Flows');
+            this.renderJSONSection(results.phases.vuln, 'nosql', 'NoSQL Injection');
+            this.renderJSONSection(results.phases.vuln, 'cache_audit', 'Web Cache Audit');
+            this.renderJSONSection(results.phases.vuln, 'upload_bypass', 'File Upload Expert');
+            this.renderJSONSection(results.phases.vuln, 'logic_flaws', 'Business Logic Auditor');
+            this.renderJSONSection(results.phases.vuln, 'deep_ssrf', 'Cloud SSRF Deep Probe');
 
             // --- NATIVE WORDPRESS ADAPTIVE UPDATES ---
             if (results.phases.vuln.wordpress) {
@@ -1356,6 +1363,17 @@ class ScanDashboard {
             });
             tagsHtml += '</div>';
             if (derived.service_intelligence.length) intelContainer.innerHTML = tagsHtml;
+        }
+
+        // 4. Thought Stream Status
+        const statusBadge = document.getElementById('cortex-dynamic-status');
+        if (statusBadge) {
+            if (derived.status && derived.status !== 'idle') {
+                statusBadge.innerHTML = `<i class="fas fa-brain me-1"></i>${derived.status.toUpperCase()}`;
+                statusBadge.classList.remove('d-none');
+            } else {
+                statusBadge.classList.add('d-none');
+            }
         }
     }
 }
