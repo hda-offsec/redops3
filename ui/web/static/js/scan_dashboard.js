@@ -1137,6 +1137,42 @@ class ScanDashboard {
             this.renderJSONSection(results.phases.vuln, 'container_exposure', 'Container/Docker');
             this.renderJSONSection(results.phases.vuln, 'websocket', 'WebSocket Security');
             this.renderJSONSection(results.phases.vuln, 'data_leaks', 'Sensitive Data Mining');
+
+            // --- NATIVE WORDPRESS ADAPTIVE UPDATES ---
+            if (results.phases.vuln.wordpress) {
+                for (const [port, wp] of Object.entries(results.phases.vuln.wordpress)) {
+                    const panel = document.getElementById(`wp-waf-panel-${port}`);
+                    const icon = document.getElementById(`wp-waf-icon-${port}`);
+                    const text = document.getElementById(`wp-waf-text-${port}`);
+                    const evasion = document.getElementById(`wp-evasion-status-${port}`);
+
+                    if (panel && wp.wordfence_detected) {
+                        panel.classList.remove('border-secondary');
+                        panel.classList.add('border-warning');
+                        if (icon) {
+                            icon.classList.remove('text-muted');
+                            icon.classList.add('text-warning', 'animate-pulse');
+                        }
+                        if (text) {
+                            text.innerHTML = '<span class="text-warning fw-bold"><i class="fas fa-exclamation-triangle me-1"></i>Detected Wordfence WAF</span>';
+                        }
+                    }
+
+                    if (evasion) {
+                        if (wp.evasion_active) {
+                            evasion.innerHTML = `
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3">
+                                    <i class="fas fa-bolt me-1"></i> MUTATION & THROTTLE ACTIVE
+                                </span>`;
+                        } else {
+                            evasion.innerHTML = `
+                                <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-25 px-3">
+                                    STANDARD MODE
+                                </span>`;
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -110,20 +110,32 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     if is_wordpress:
         emit_progress(orch, 75, f"Application Audit (WordPress) on {port}")
-        log(f"WordPress signature detected on port {port}. Initiating WPScan...", "WARN")
+        log(f"WordPress signature detected on port {port}. Inspecting defense mechanisms...", "INFO")
         try:
             wpscan = WPScanScanner(target)
+            
+            # ADAPTIVE EVASION: Wordfence Detection
+            wf_detected = wpscan.detect_wordfence(port, proto)
+            stealth_mode = False
+            if wf_detected:
+                log(f"🛡️ Wordfence WAF detected on port {port}. Engaging Adaptive Evasion Engine...", "WARN")
+                stealth_mode = True
+            
             if not wpscan.check_tools():
                 log("Skipping WPScan: tool not installed.", "WARN")
                 orch.mark_module("wpscan", port, "skipped")
             else:
                 enumerate_all = False if profile.startswith('quick') else True
-                wp_stream = wpscan.stream_scan(port, proto, enumerate_all=enumerate_all)
+                wp_stream = wpscan.stream_scan(port, proto, enumerate_all=enumerate_all, stealth=stealth_mode)
                 
                 # Use shared utility for parsing
                 wp_data, wp_raw_log = extract_wp_data(wp_stream, port, log)
                 
                 if wp_data:
+                    # Inject Evasion Metadata for UI
+                    wp_data['wordfence_detected'] = wf_detected
+                    wp_data['evasion_active'] = stealth_mode
+                    
                     def _store_wp():
                         if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
                         if 'wordpress' not in results['phases']['vuln']: results['phases']['vuln']['wordpress'] = {}
@@ -131,10 +143,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
                         if 'wpscan' not in results['phases']['vuln']: results['phases']['vuln']['wpscan'] = {}
                         results['phases']['vuln']['wpscan'][str(port)] = wp_raw_log
-
-                        # Backward compatibility
-                        results['phases']['vuln']['wordpress'] = results['phases']['vuln'].get('wordpress', {})
-                        results['phases']['vuln']['wordpress'][str(port)] = wp_data
                     _ts(_store_wp)
                     
                     orch.save_results(orch.scan_id, results)

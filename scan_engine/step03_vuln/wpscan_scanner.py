@@ -21,17 +21,39 @@ class WPScanScanner:
         except Exception:
             pass
 
-    def stream_scan(self, port, protocol='http', enumerate_all=False):
+    def detect_wordfence(self, port, protocol='http'):
+        """Detect if Wordfence is present on the target."""
+        import requests
+        url = f"{protocol}://{self.target}:{port}"
+        try:
+            # Wordfence often leaves traces in headers or specific paths
+            resp = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+            headers_str = str(resp.headers).lower()
+            cookies_str = str(resp.cookies).lower()
+            
+            # 1. Header checks
+            if 'x-wf-id' in headers_str or 'wordfence' in headers_str:
+                return True
+            
+            # 2. Cookie checks
+            if 'wf_log_human' in cookies_str or 'wordfence' in cookies_str:
+                return True
+            
+            # 3. Static path check (lightweight)
+            wf_path = f"{url}/wp-content/plugins/wordfence/readme.txt"
+            wf_resp = requests.head(wf_path, timeout=3, verify=False)
+            if wf_resp.status_code == 200:
+                return True
+                
+        except Exception:
+            pass
+        return False
+
+    def stream_scan(self, port, protocol='http', enumerate_all=False, stealth=False):
         """Scanner un site Wordpress en streaming"""
         # Purge stale cache to prevent disk-full crashes
         self._purge_cache()
         url = f"{protocol}://{self.target}:{port}"
-        
-        # Commande wpscan de base
-        # --random-user-agent : Eviter le blocage basique
-        # --format json : On recevra du JSON pour un parsing plus facile, ou cli pour streaming
-        # Pour le streaming live on va rester sur le format par defaut (cli) qui est plus parlant
-        # on peut ajouter --no-banner pour cleaner
         
         enum_flags = "vp,vt,u1-20" if enumerate_all else "p,t,u"
         
@@ -40,8 +62,18 @@ class WPScanScanner:
             "--url", url,
             "--no-banner",
             "--random-user-agent",
-            "--disable-tls-checks", # Souvent utile
-            "--enumerate", enum_flags, # Plugins, themes, users (plus complet si enumerate_all)
+            "--disable-tls-checks",
+            "--enumerate", enum_flags,
         ]
+
+        if stealth:
+            # Wordfence Evasion: Throttling & Jittering
+            # --throttle : Msec to wait between requests
+            # --request-timeout : Seconds to wait for a request to complete
+            scan_args.extend([
+                "--throttle", "500",      # 0.5s delay between requests
+                "--connect-timeout", "10",
+                "--request-timeout", "20"
+            ])
         
         return ProcessManager.stream_command(scan_args)
