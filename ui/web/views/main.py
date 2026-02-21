@@ -56,6 +56,36 @@ def check_dependencies():
     return jsonify(_get_tool_status())
 
 
+@main_bp.route("/api/scans/<int:scan_id>/findings")
+def get_scan_findings(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    limit = min(request.args.get("limit", 200, type=int), 500)
+    offset = request.args.get("offset", 0, type=int)
+    
+    findings_q = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc())
+    total = findings_q.count()
+    items = findings_q.limit(limit).offset(offset).all()
+    
+    return jsonify({
+        "scan_id": scan_id,
+        "total": total,
+        "items": [{
+            "id": f.id,
+            "id_stable": f.id_stable,
+            "severity": f.severity,
+            "confidence": f.confidence,
+            "title": f.title,
+            "description": f.description,
+            "tool": f.tool_source,
+            "screenshot_path": f.screenshot_path,
+            "request": f.request,
+            "response": f.response,
+            "repro_command": f.repro_command,
+            "created_at": f.created_at.isoformat() if f.created_at else None
+        } for f in items]
+    })
+
+
 @main_bp.route("/")
 def index():
     recent_scans = Scan.query.options(joinedload(Scan.target)).order_by(Scan.start_time.desc()).limit(10).all()
@@ -198,6 +228,7 @@ def scan_detail(scan_id):
     # Serialize findings for JS visualization
     results['findings'] = [{
         'id': f.id,
+        'id_stable': f.id_stable,
         'title': f.title,
         'severity': f.severity,
         'description': f.description,
@@ -286,7 +317,7 @@ def _log_and_emit(scan_id, msg, level="INFO"):
 
 
 
-def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None, confidence='medium', request=None, response=None, repro_command=None):
+def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None, confidence='medium', request=None, response=None, repro_command=None, id_stable=None):
     from core.utils import sanitize_evidence, cap_text
     
     if command and not repro_command:
@@ -301,6 +332,7 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
         scan_id=scan_id,
         severity=severity,
         confidence=confidence,
+        id_stable=id_stable,
         title=title,
         description=description,
         tool_source=tool,
@@ -318,6 +350,8 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
     if socketio:
         socketio.emit("new_finding", {
             "scan_id": scan_id,
+            "id": finding.id,
+            "id_stable": finding.id_stable,
             "title": title,
             "severity": severity,
             "confidence": confidence,
@@ -409,7 +443,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                     title=kwargs.get('title', 'Untitled Finding'),
                     description=kwargs.get('description'),
                     screenshot_path=kwargs.get('screenshot_path'),
-                    command=kwargs.get('command')
+                    command=kwargs.get('command'),
+                    id_stable=kwargs.get('id_stable')
                 )
             except Exception as e:
                 print(f"[ERROR] Failed to save finding: {e}")

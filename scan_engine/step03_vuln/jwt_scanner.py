@@ -120,16 +120,60 @@ class JWTScanner:
                     if logger: logger(f"JWT Expert: Found JWT in cookie '{cookie.name}' at {url}", "SUCCESS")
                     audit = self.audit_token(cookie.value, url)
                     if audit: findings.extend(audit)
+                    
+                    # Wave 3: Automated Bruter for HS256
+                    if "HS256" in str(audit):
+                        brute = self.brute_force_secret(cookie.value, logger)
+                        if brute: findings.append(brute)
             
-            # Check Auth Header (if reflected or in subsequent requests - though we only see once here)
+            # Check Auth Header
             auth = r.headers.get("Authorization", "")
             if "Bearer " in auth:
                 token = auth.replace("Bearer ", "").strip()
                 if self.jwt_pattern.match(token):
                     audit = self.audit_token(token, url)
                     if audit: findings.extend(audit)
+                    
+                    if "HS256" in str(audit):
+                        brute = self.brute_force_secret(token, logger)
+                        if brute: findings.append(brute)
 
         except Exception as e:
             if logger: logger(f"JWT Probe Error: {e}", "DEBUG")
             
         return findings
+
+    def brute_force_secret(self, token, logger=None):
+        """Offline HS256 brute force with common secrets"""
+        import hmac
+        import hashlib
+        
+        parts = token.split('.')
+        if len(parts) != 3: return None
+        
+        signing_input = f"{parts[0]}.{parts[1]}".encode()
+        header = json.loads(base64.urlsafe_b64decode(parts[0] + "==").decode())
+        if header.get("alg") != "HS256": return None
+        
+        target_sig = base64.urlsafe_b64decode(parts[2] + "==")
+        
+        # High probability secrets
+        common_secrets = [
+            "secret", "secret123", "password", "123456", "admin", "jwt", 
+            "jwt-secret", "dev", "test", "key", "root", "changeit"
+        ]
+        
+        if logger: logger("JWT Expert: Initiating automated secret brute-force...", "INFO")
+        
+        for secret in common_secrets:
+            sig = hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
+            if sig == target_sig:
+                if logger: logger(f"CRITICAL: JWT Secret CRACKED -> {secret}", "CRITICAL")
+                return {
+                    "type": "JWT Weak Secret Cracked (CRITICAL)",
+                    "severity": "critical",
+                    "desc": f"The symmetric secret for HS256 was successfully brute-forced: `{secret}`. This allow full account takeover by forging arbitrary tokens.",
+                    "token_preview": token[:40] + "...",
+                    "raw_loot": f"Cracked Secret: {secret}"
+                }
+        return None

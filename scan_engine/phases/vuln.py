@@ -45,6 +45,13 @@ from scan_engine.step03_vuln.upload_scanner import UploadExpertScanner
 from scan_engine.step03_vuln.business_logic_scanner import BusinessLogicScanner
 from scan_engine.step03_vuln.ssrf_deep_scanner import SSRFDeepScanner
 from scan_engine.step03_vuln.infra_exposure_scanner import InfraExposureScanner
+from scan_engine.step03_vuln.deserialization_expert import DeserializationExpert
+from scan_engine.step03_vuln.api_shadow_hunter import APIShadowHunter
+from scan_engine.step03_vuln.csti_scanner import CSTIScanner
+from scan_engine.step03_vuln.metadata_scanner import MetadataScanner
+from scan_engine.step03_vuln.waf_expert import WAFExpertScanner
+from scan_engine.step03_vuln.java_rce_scanner import JavaRCEScanner
+from scan_engine.step03_vuln.h2c_smuggler import H2CSmuggler
 from scan_engine.phases.utils import extract_wp_data, emit_progress
 from scan_engine.helpers.mutation_engine import MutationEngine
 from scan_engine.helpers.budget_manager import BudgetManager
@@ -512,6 +519,100 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 orch.add_finding(**f)
             orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"Infra Expert Error: {e}", "DEBUG")
+
+    # --- V6 WAVE 3: ELITE EXFIL & RCE EXPERTS ---
+
+    # 1. Deserialization Expert
+    try:
+        _set_cortex_status(f"Insecure Deserialization Audit (Port {port})...")
+        deser_expert = DeserializationExpert()
+        deser_findings = deser_expert.scan_endpoint(f"{proto}://{target}:{port}", logger=log)
+        if deser_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('deserialization', []).extend(deser_findings)))
+            for f in deser_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Deserialization Expert Error: {e}", "DEBUG")
+
+    # 2. API Shadow Hunter
+    try:
+        _set_cortex_status(f"API Shadow Hunter (Port {port})...")
+        shadow_hunter = APIShadowHunter()
+        shadow_findings = shadow_hunter.scan_endpoints(f"{proto}://{target}:{port}", logger=log)
+        if shadow_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('api_shadow', []).extend(shadow_findings)))
+            for f in shadow_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Shadow Hunter Error: {e}", "DEBUG")
+
+    # 3. CSTI Expert
+    try:
+        _set_cortex_status(f"CSTI framework Audit (Port {port})...")
+        csti_expert = CSTIScanner()
+        csti_params = ["q", "name", "id", "search", "msg"]
+        csti_findings = csti_expert.scan_endpoint(f"{proto}://{target}:{port}", csti_params, logger=log)
+        if csti_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('csti', []).extend(csti_findings)))
+            for f in csti_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"CSTI Expert Error: {e}", "DEBUG")
+
+    # 4. Metadata Exfiltrator
+    try:
+        _set_cortex_status(f"Digital Forensics: Doc Metadata (Port {port})...")
+        meta_expert = MetadataScanner()
+        # Find document URLs from Katana
+        web_urls = results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(port), [])
+        meta_findings = meta_expert.scan_found_files(web_urls, logger=log)
+        if meta_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('metadata_leaks', []).extend(meta_findings)))
+            for f in meta_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Metadata Expert Error: {e}", "DEBUG")
+
+    # 5. WAF Expert Fingerprinter
+    try:
+        _set_cortex_status(f"WAF Fingerprinting (Port {port})...")
+        waf_expert = WAFExpertScanner()
+        waf_findings = waf_expert.fingerprint(f"{proto}://{target}:{port}", logger=log)
+        if waf_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('waf_audit', []).extend(waf_findings)))
+            for f in waf_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"WAF Expert Error: {e}", "DEBUG")
+
+    # 6. Java RCE & Spring4Shell
+    try:
+        _set_cortex_status(f"Java RCE & Spring Audit (Port {port})...")
+        java_expert = JavaRCEScanner()
+        java_findings = java_expert.scan_spring4shell(f"{proto}://{target}:{port}", logger=log)
+        if java_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('java_rce', []).extend(java_findings)))
+            for f in java_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"Java Expert Error: {e}", "DEBUG")
+
+    # 7. Prototype Pollution RCE Escalation
+    try:
+        if results.get('phases', {}).get('vuln', {}).get('prototype'):
+            _set_cortex_status(f"Escalating Prototype Pollution to RCE...")
+            pp_expert = PrototypePollutionScanner(target)
+            rce_escalation = pp_expert.escalate_rce(f"{proto}://{target}:{port}", logger=log)
+            if rce_escalation:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('prototype', []).extend(rce_escalation)))
+                for f in rce_escalation: orch.add_finding(**f)
+                orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"PP Escalation Error: {e}", "DEBUG")
+
+    # 8. H2C Smuggling
+    try:
+        _set_cortex_status(f"H2C Tunnel Smuggling Audit (Port {port})...")
+        h2c_expert = H2CSmuggler(target)
+        h2c_findings = h2c_expert.scan_h2c_upgrade(port, proto, logger=log)
+        if h2c_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('h2c_smuggling', []).extend(h2c_findings)))
+            for f in h2c_findings: orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"H2C Expert Error: {e}", "DEBUG")
 
     # --- EXPERT: SSRF Probing (Cloud Metadata) ---
     try:

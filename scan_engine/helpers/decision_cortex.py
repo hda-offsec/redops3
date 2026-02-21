@@ -279,6 +279,66 @@ def suggest_actions(results: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "category": "vuln",
             })
 
+        # --- WAVE 3: ELITE EXFIL & RCE RECOMMENDATIONS ---
+        if any(tok in profile_text for tok in ("java", "spring", "struts", "hibernate", "rmi")):
+            suggestions.append({
+                "id": f"cortex-vuln-java-{port}",
+                "title": f"Java Deserialization & RCE Audit",
+                "reason": "Java-based tech stack detected. Probing for insecure deserialization gadget chains and Spring4Shell.",
+                "confidence": 95,
+                "port": port,
+                "category": "vuln",
+            })
+
+        if any(tok in profile_text for tok in ("angular", "vue", "react", "handlebars", "moustache")):
+             suggestions.append({
+                "id": f"cortex-vuln-csti-{port}",
+                "title": f"CSTI framework Audit",
+                "reason": "Modern JS framework detected. Auditing for Client-Side Template Injection via math evaluation.",
+                "confidence": 82,
+                "port": port,
+                "category": "vuln",
+            })
+
+        if any(tok in profile_text for tok in ("api", "v1", "v2", "json")):
+             suggestions.append({
+                "id": f"cortex-vuln-shadow-{port}",
+                "title": f"API Shadow Hunter Audit",
+                "reason": "API surface detected. Searching for undocumented swagger/openapi definitions and shadow endpoints.",
+                "confidence": 88,
+                "port": port,
+                "category": "vuln",
+            })
+        
+        if any(tok in profile_text for tok in (".pdf", ".docx", ".xlsx", "media", "doc")):
+             suggestions.append({
+                "id": f"cortex-forensics-meta-{port}",
+                "title": f"Digital Forensics: Doc Metadata Exfil",
+                "reason": "Document assets detected. Extracting internal environment data and PII from metadata.",
+                "confidence": 75,
+                "port": port,
+                "category": "vuln",
+            })
+
+        suggestions.append({
+            "id": f"cortex-vuln-waf-fingerprint-{port}",
+            "title": "WAF & IPS Behavioral Fingerprinting",
+            "reason": "Establishing active security layer signatures to adapt offensive payloads.",
+            "confidence": 90,
+            "port": port,
+            "category": "vuln",
+        })
+
+        if port == 80 or proto == 'http':
+            suggestions.append({
+                "id": f"cortex-vuln-h2c-{port}",
+                "title": "H2C Smuggling & Tunneling Audit",
+                "reason": "Cleartext HTTP service detected. Auditing for HTTP/2 upgrade tunnel misconfigurations.",
+                "confidence": 78,
+                "port": port,
+                "category": "vuln",
+            })
+
     # Historic Surface Priority
     if results.get("phases", {}).get("osint", {}).get("historic_urls"):
         suggestions.append({

@@ -16,7 +16,6 @@ class ScanDashboard {
             'Phase 7': 'privesc', 'Phase 8': 'lateral', 'Phase 9': 'postex'
         };
 
-        // Log Triggers
         this.logTriggers = {
             'Phase 1': 'ports', 'Phase 2': 'ports', 'subdomains': 'dns',
             'Cloud Audit': 'cloud', 'WAF': 'waf', 'Arjun': 'params',
@@ -28,7 +27,42 @@ class ScanDashboard {
             'Spring': 'apps', 'Firebase': 'apps', 'Actuator': 'apps', 'Docker': 'apps'
         };
 
+        this.renderedFindingIds = new Set();
         this.init();
+    }
+
+    async loadFindingsFromApi(options = {}) {
+        const { reset = false, limit = 200, offset = 0 } = options;
+        if (reset) {
+            const tableBody = document.getElementById("findings-table-body");
+            if (tableBody) tableBody.innerHTML = "";
+            const container = document.getElementById("findings-container");
+            if (container) {
+                const list = container.querySelector(".result-list");
+                if (list) list.innerHTML = "";
+            }
+            this.renderedFindingIds.clear();
+        }
+
+        try {
+            const response = await fetch(`/api/scans/${this.scanId}/findings?limit=${limit}&offset=${offset}`);
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+            const data = await response.json();
+
+            // Render in reverse order (oldest first if prepending, or just as they come)
+            // The API returns newest first (desc), so we reverse to maintain "newest on top" behavior when prepending
+            const items = [...data.items].reverse();
+            items.forEach(item => {
+                this.handleNewFinding({
+                    scan_id: this.scanId,
+                    ...item
+                });
+            });
+
+            console.log(`Loaded ${data.items.length}/${data.total} findings from DB.`);
+        } catch (err) {
+            console.error("Failed to load findings from API:", err);
+        }
     }
 
     init() {
@@ -37,6 +71,9 @@ class ScanDashboard {
         this.checkInitialStatus();
         this.setupNotesPreview();
 
+        // Load persisted findings from DB
+        this.loadFindingsFromApi({ reset: true });
+
         // Expose updateUI globally for initial load
         window.updateUI = (results) => this.updateUI(results);
         window.verifyFinding = (cmd) => this.verifyFinding(cmd);
@@ -44,17 +81,28 @@ class ScanDashboard {
     }
 
     setupEventListeners() {
+        document.getElementById('findingSearch')?.addEventListener('input', () => this.filterFindings());
+
+        // Delegate search and filter events
+        document.addEventListener('change', (e) => {
+            if (e.target.matches('.form-check-input')) {
+                this.filterFindings();
+            }
+        });
+
+        // Delegate copy buttons
         document.addEventListener('click', (e) => {
-            // Clipboard copy
-            const copyBtn = e.target.closest('.copy-btn');
-            if (copyBtn) {
-                const pre = copyBtn.closest('.tab-pane, .d-flex').querySelector('pre');
+            const btn = e.target.closest('.copy-btn');
+            if (btn) {
+                const pre = btn.closest('.tab-pane, .d-flex').querySelector('pre');
                 if (pre) {
-                    navigator.clipboard.writeText(pre.innerText).then(() => {
-                        const originalHtml = copyBtn.innerHTML;
-                        copyBtn.innerHTML = '<i class="fas fa-check"></i>';
-                        setTimeout(() => copyBtn.innerHTML = originalHtml, 1000);
-                    });
+                    navigator.clipboard.writeText(pre.innerText);
+                    const icon = btn.querySelector('i');
+                    if (icon) {
+                        icon.className = 'fas fa-check';
+                        setTimeout(() => { icon.className = 'fas fa-copy'; }, 2000);
+                    }
+                    this.showToast('Tactical Terminal', 'Command copied to clipboard', 'info');
                 }
                 return;
             }
@@ -233,6 +281,12 @@ class ScanDashboard {
 
     handleNewFinding(data) {
         if (data.scan_id != this.scanId) return;
+
+        // Deduplication Logic: Prioritize id_stable, then database id, then heuristic
+        const fid = data.id_stable || data.id || `temp-${data.title}-${data.severity}-${data.tool}`;
+        if (this.renderedFindingIds.has(fid)) return;
+        this.renderedFindingIds.add(fid);
+
         this.activateDiscovery('vulns', true);
 
         const container = document.getElementById("findings-container");
@@ -284,7 +338,6 @@ class ScanDashboard {
 
             const tableBody = document.getElementById("findings-table-body");
             if (tableBody) {
-                const fid = data.id || `new-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
                 const rowId = `finding-detail-${fid}`;
                 if (document.getElementById(rowId)) return;
 
@@ -292,54 +345,64 @@ class ScanDashboard {
                 tr.className = "finding-row animate__animated animate__fadeIn";
                 tr.setAttribute("data-severity", data.severity.toLowerCase());
                 tr.setAttribute("data-content", `${escapedTitle.toLowerCase()} ${escapedTool.toLowerCase()} ${escapedDesc.toLowerCase()}`);
+
+                // Human Readable Summary logic
+                const summary = data.impact || (escapedDesc || "").substring(0, 120) + "...";
+
                 tr.innerHTML = `
-                    <td><span class="badge severity-badge ${data.severity.toLowerCase()} text-uppercase w-100">${data.severity}</span></td>
+                    <td class="align-top"><span class="badge severity-badge ${data.severity.toLowerCase()} text-uppercase w-100">${data.severity}</span></td>
                     <td>
                         <div class="fw-bold text-light">${escapedTitle}</div>
-                        <div class="small text-muted text-truncate" style="max-width: 400px;">${(escapedDesc || "").substring(0, 100)}...</div>
+                        <div class="small text-muted mb-1">${summary}</div>
                     </td>
-                    <td><span class="badge bg-dark border border-secondary text-muted">${escapedTool}</span></td>
-                    <td>
-                        <button class="btn btn-xs btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#${rowId}">
+                    <td class="align-top"><span class="badge bg-dark border border-secondary text-muted">${escapedTool}</span></td>
+                    <td class="align-top text-end">
+                        <button class="btn btn-xs btn-outline-cyber" type="button" data-bs-toggle="collapse" data-bs-target="#${rowId}">
                             <i class="fas fa-chevron-down"></i>
                         </button>
                     </td>
                 `;
 
                 const detailTr = document.createElement("tr");
-                detailTr.className = "finding-detail-row collapse bg-black bg-opacity-25";
+                detailTr.className = "finding-detail-row collapse bg-black bg-opacity-40";
                 detailTr.id = rowId;
 
                 let evidenceHtml = "";
                 if (data.request || data.response || data.repro_command) {
-                    const escapedReq = this.escapeHtml(data.request);
-                    const escapedRes = this.escapeHtml(data.response);
-                    const escapedRepro = this.escapeHtml(data.repro_command);
-
+                    const fid_safe = fid.replace(/[^a-zA-Z0-9]/g, '');
                     evidenceHtml = `
-                        <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded">
-                            <ul class="nav nav-tabs border-bottom-0 mb-3" role="tablist">
-                                ${data.request ? `<li class="nav-item"><a class="nav-link active py-1 px-3 x-small" data-bs-toggle="tab" href="#req-${fid}">Request</a></li>` : ''}
-                                ${data.response ? `<li class="nav-item"><a class="nav-link ${!data.request ? 'active' : ''} py-1 px-3 x-small" data-bs-toggle="tab" href="#res-${fid}">Response</a></li>` : ''}
-                                ${data.repro_command ? `<li class="nav-item"><a class="nav-link ${(!data.request && !data.response) ? 'active' : ''} py-1 px-3 x-small" data-bs-toggle="tab" href="#repro-${fid}">Reproduction</a></li>` : ''}
+                        <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded shadow-sm">
+                            <ul class="nav nav-pills gap-2 mb-3 x-small" role="tablist">
+                                ${data.request ? `<li class="nav-item"><button class="nav-link py-1 px-3 active border border-secondary border-opacity-25" data-bs-toggle="pill" data-bs-target="#req-${fid_safe}">Request</button></li>` : ''}
+                                ${data.response ? `<li class="nav-item"><button class="nav-link py-1 px-3 ${!data.request ? 'active' : ''} border border-secondary border-opacity-25" data-bs-toggle="pill" data-bs-target="#res-${fid_safe}">Response</button></li>` : ''}
+                                ${data.repro_command ? `<li class="nav-item"><button class="nav-link py-1 px-3 ${(!data.request && !data.response) ? 'active' : ''} border border-secondary border-opacity-25" data-bs-toggle="pill" data-bs-target="#repro-${fid_safe}">Proof</button></li>` : ''}
                             </ul>
                             <div class="tab-content">
-                                ${data.request ? `<div class="tab-pane fade show active" id="req-${fid}"><pre class="x-small font-monospace text-info bg-black p-2 rounded border border-secondary border-opacity-10">${escapedReq}</pre></div>` : ''}
-                                ${data.response ? `<div class="tab-pane fade ${!data.request ? 'show active' : ''}" id="res-${fid}"><pre class="x-small font-monospace text-success bg-black p-2 rounded border border-secondary border-opacity-10">${escapedRes}</pre></div>` : ''}
+                                ${data.request ? `<div class="tab-pane fade show active" id="req-${fid_safe}"><pre class="x-small font-monospace text-info bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 300px;">${this.escapeHtml(data.request)}</pre></div>` : ''}
+                                ${data.response ? `<div class="tab-pane fade ${!data.request ? 'show active' : ''}" id="res-${fid_safe}"><pre class="x-small font-monospace text-success bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 300px;">${this.escapeHtml(data.response)}</pre></div>` : ''}
                                 ${data.repro_command ? `
-                                    <div class="tab-pane fade ${(!data.request && !data.response) ? 'show active' : ''}" id="repro-${fid}">
+                                    <div class="tab-pane fade ${(!data.request && !data.response) ? 'show active' : ''}" id="repro-${fid_safe}">
                                         <div class="d-flex gap-2">
                                             <div class="flex-grow-1">
-                                                <pre class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">${escapedRepro}</pre>
+                                                <pre class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">${this.escapeHtml(data.repro_command)}</pre>
                                             </div>
-                                            <button class="btn btn-xs btn-outline-warning copy-btn"><i class="fas fa-copy"></i></button>
+                                            <button class="btn btn-xs btn-outline-warning copy-btn" title="Copy for Validation"><i class="fas fa-copy"></i></button>
                                         </div>
                                     </div>` : ''}
                             </div>
                         </div>
                     `;
                 }
-                detailTr.innerHTML = `<td colspan="4"><div class="p-3">${escapedDesc}${evidenceHtml}</div></td>`;
+
+                detailTr.innerHTML = `
+                    <td colspan="4" class="p-0">
+                        <div class="p-4 border-start border-cyber border-4">
+                            <h6 class="text-uppercase x-small text-muted mb-2 font-monospace"><i class="fas fa-info-circle me-1"></i>Vulnerability Intel</h6>
+                            <div class="text-light small lh-lg" style="white-space: pre-wrap;">${escapedDesc}</div>
+                            ${evidenceHtml}
+                        </div>
+                    </td>`;
+
                 tableBody.prepend(detailTr);
                 tableBody.prepend(tr);
             }
@@ -532,7 +595,7 @@ class ScanDashboard {
         for (const [phaseKey, ptesIdSuffix] of Object.entries(this.ptesMap)) {
             if (text.includes(phaseKey)) {
                 document.querySelectorAll('.nav-link[id^="sidebar-ptes-"]').forEach(el => el.classList.remove('active'));
-                const target = document.getElementById(`sidebar - ptes - ${ptesIdSuffix} `);
+                const target = document.getElementById(`sidebar-ptes-${ptesIdSuffix}`);
                 if (target) {
                     target.classList.add('active');
                 }
@@ -542,7 +605,7 @@ class ScanDashboard {
     }
 
     activateDiscovery(id, discovered = false) {
-        const btn = document.getElementById(`discovery - ${id} `);
+        const btn = document.getElementById(`discovery-${id}`);
         if (!btn) return;
         if (discovered) {
             btn.classList.add('discovered');
@@ -553,16 +616,36 @@ class ScanDashboard {
     }
 
     toggleScanToast(show) {
-        const toast = document.getElementById('scan-progress-toast');
-        if (!toast) return;
-        if (show) {
-            toast.classList.remove('d-none', 'animate__fadeOutDown');
-            toast.classList.add('animate__fadeInUp');
-        } else {
-            toast.classList.remove('animate__fadeInUp');
-            toast.classList.add('animate__fadeOutDown');
-            setTimeout(() => { if (toast.classList.contains('animate__fadeOutDown')) toast.classList.add('d-none'); }, 1000);
+        const toast = document.getElementById("scan-toast");
+        if (toast) {
+            if (show) toast.classList.add("visible");
+            else toast.classList.remove("visible");
         }
+    }
+
+    showToast(title, message, type = 'info') {
+        const id = 'toast-' + Math.random().toString(36).substr(2, 9);
+        const html = `
+            <div id="${id}" class="toast show bg-black border border-secondary text-light animate__animated animate__fadeInRight" role="alert" style="position: fixed; bottom: 1rem; right: 1rem; z-index: 10000; min-width: 250px;">
+                <div class="toast-header bg-dark border-bottom border-secondary text-light">
+                    <i class="fas fa-satellite-dish me-2 text-${type}"></i>
+                    <strong class="me-auto font-monospace x-small text-uppercase">${title}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body small">
+                    ${message}
+                </div>
+            </div>`;
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        document.body.appendChild(div.firstElementChild);
+        setTimeout(() => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.replace('animate__fadeInRight', 'animate__fadeOutRight');
+                setTimeout(() => el.remove(), 500);
+            }
+        }, 5000);
     }
 
     checkInitialStatus() {
@@ -570,7 +653,7 @@ class ScanDashboard {
         const currentStatus = statusPill ? statusPill.innerText.toLowerCase() : '';
         this.toggleScanToast(currentStatus === 'running');
 
-        document.querySelectorAll('.log-console> div').forEach(logDiv => {
+        document.querySelectorAll('.log-console > div').forEach(logDiv => {
             this.highlightPTES(logDiv.innerText);
         });
     }
@@ -594,25 +677,16 @@ class ScanDashboard {
     }
 
     verifyFinding(command) {
-        if (!confirm(`Exécuter la vérification: ${command}?`)) return;
-        fetch('/scan/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ scan_id: this.scanId, command: command })
-        }).then(r => r.json())
-            .then(d => {
-                if (d.status === 'success') {
-                    alert("Tâche de vérification lancée. Surveillez les logs.");
-                }
-            });
+        navigator.clipboard.writeText(command);
+        this.showToast('Verification Protocol', 'Validation command synchronized to clipboard.', 'warning');
     }
 
     updateRiskCounters(severity) {
         const sev = severity.toLowerCase();
         if (sev === 'critical' || sev === 'high') {
-            const el = document.querySelector(`.tactical - summary - bar.h4.text - ${sev === 'critical' ? 'danger' : 'warning'} `);
+            const el = document.querySelector(`.tactical-summary-bar .h4.text-${sev === 'critical' ? 'danger' : 'warning'}`);
             if (el) {
-                let count = parseInt(el.innerText) + 1;
+                let count = (parseInt(el.innerText) || 0) + 1;
                 el.innerText = count;
                 el.classList.remove('text-muted');
                 if (sev === 'critical') el.classList.add('pulse-danger');
@@ -671,9 +745,9 @@ class ScanDashboard {
 
         Object.entries(taskStatus).forEach(([taskId, data]) => {
             const row = document.createElement('tr');
-            row.id = `task - row - ${taskId} `;
+            row.id = `task-row-${taskId}`;
             row.innerHTML = `
-    <td class="font-monospace text-info x-small"> ${taskId}</td>
+                <td class="font-monospace text-info x-small">${taskId}</td>
                 <td class="x-small">${getTaskBadge(data.state)}</td>
                 <td class="x-small text-muted">${data.reason || '-'}</td>
 `;
@@ -722,29 +796,19 @@ class ScanDashboard {
         if (results.findings && statFindings) {
             statFindings.innerText = results.findings.length;
 
-            // Sync findings table if needed
-            const tableBody = document.getElementById("findings-table-body");
-            if (tableBody) {
-                const existingFindingIds = Array.from(tableBody.querySelectorAll('[id^="finding-detail-"], [id^="finding-new-"]'))
-                    .map(el => el.id.replace('finding-detail-', '').replace('finding-new-', ''));
-
-                results.findings.forEach(f => {
-                    const fid = f.id ? f.id.toString() : null;
-                    if (fid && !existingFindingIds.includes(fid)) {
-                        // Re-use logic from handleNewFinding but for existing data
-                        // This ensures the table is fully synced with DB state on updateUI
-                        this.handleNewFinding({
-                            scan_id: this.scanId,
-                            id: f.id,
-                            severity: f.severity,
-                            title: f.title,
-                            description: f.description,
-                            tool: f.tool_source,
-                            screenshot_path: f.screenshot_path
-                        });
-                    }
+            // Sync findings from results JSON (secondary source)
+            results.findings.forEach(f => {
+                this.handleNewFinding({
+                    scan_id: this.scanId,
+                    id: f.id,
+                    id_stable: f.id_stable,
+                    severity: f.severity,
+                    title: f.title,
+                    description: f.description,
+                    tool: f.tool_source || f.tool,
+                    screenshot_path: f.screenshot_path
                 });
-            }
+            });
         }
 
         // Sync Progress UI
@@ -1144,6 +1208,13 @@ class ScanDashboard {
             this.renderJSONSection(results.phases.vuln, 'upload_bypass', 'File Upload Expert');
             this.renderJSONSection(results.phases.vuln, 'logic_flaws', 'Business Logic Auditor');
             this.renderJSONSection(results.phases.vuln, 'deep_ssrf', 'Cloud SSRF Deep Probe');
+            this.renderJSONSection(results.phases.vuln, 'deserialization', 'Deserialization Expert');
+            this.renderJSONSection(results.phases.vuln, 'api_shadow', 'API Shadow Hunter');
+            this.renderJSONSection(results.phases.vuln, 'csti', 'CSTI framework Auditor');
+            this.renderJSONSection(results.phases.vuln, 'metadata_leaks', 'Metadata Forensics');
+            this.renderJSONSection(results.phases.vuln, 'waf_audit', 'WAF Fingerprinting');
+            this.renderJSONSection(results.phases.vuln, 'java_rce', 'Java RCE Expert');
+            this.renderJSONSection(results.phases.vuln, 'h2c_smuggling', 'H2C Smuggling');
 
             // --- NATIVE WORDPRESS ADAPTIVE UPDATES ---
             if (results.phases.vuln.wordpress) {
@@ -1183,93 +1254,221 @@ class ScanDashboard {
         }
     }
 
-    // Helper to render JSON sections into a unified "Deep Analysis" panel if specific divs don't exist
+    // --- HUMAN READABLE RENDERING ENGINE (V6) ---
     renderJSONSection(parent, key, title) {
         if (!parent || !parent[key]) return;
 
         const data = parent[key];
-        // Check if data is empty (empty object or empty list)
         if (Array.isArray(data) && data.length === 0) return;
         if (typeof data === 'object' && Object.keys(data).length === 0) return;
 
-        // Try to find a specific container first
         let container = document.getElementById(`${key}-results`);
 
-        // If no specific container, create/append to a generic "Deep Scan Details" container
         if (!container) {
             let deepContainer = document.getElementById('deep-scan-details');
-            if (!deepContainer) {
-                // Create it if it doesn't exist (append to a suitable location, e.g., after tabs)
-                // For now, let's assume we can append to the main results area or log it.
-                // To be safe and UI-non-destructive, I will try to find a generic 'scan-details-grid' or create one.
-                const parentContainer = document.querySelector('.scan-grid-layout') || document.querySelector('.container-fluid');
-                if (parentContainer) {
-                    // Create a row if needed
-                    // This is risky without seeing HTML.
-                    // I will try to reuse existing list containers or 'expert-results' div if available.
-                    return;
-                }
-                return;
-            }
-            // Create a wrapper for this section
+            if (!deepContainer) return;
+
             const wrapper = document.createElement('div');
             wrapper.id = `${key}-results`;
-            wrapper.className = 'mb-4';
-            wrapper.innerHTML = `<h5 class="text-cyber mb-3 border-bottom border-secondary pb-2">${title}</h5 > <div class="result-content"></div>`;
+            wrapper.className = 'col-lg-6 mb-4 animate__animated animate__fadeIn';
+            wrapper.innerHTML = `
+                <div class="card h-100 glass-panel border-secondary border-opacity-25">
+                    <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                        <span class="text-cyber small fw-bold text-uppercase"><i class="fas fa-microscope me-2 text-primary"></i>${title}</span>
+                        <span class="badge bg-dark border border-secondary text-muted x-small">${key.toUpperCase()}</span>
+                    </div>
+                    <div class="card-body result-content p-3" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>`;
             deepContainer.appendChild(wrapper);
             container = wrapper.querySelector('.result-content');
         }
 
-        // Render Logic based on type
-        let html = '';
-
-        if (Array.isArray(data)) {
-            // List of findings or strings
-            html = `<div class="list-group list-group-flush bg-transparent">`;
-            data.forEach(item => {
-                if (typeof item === 'string') {
-                    html += `<div class="list-group-item bg-transparent border-secondary border-opacity-25 px-0 py-1 text-muted small font-monospace">${item}</div>`;
-                } else if (typeof item === 'object') {
-                    // Custom finding object
-                    const t = item.title || item.url || 'Unknown';
-                    const d = item.description || item.match || '';
-                    const s = item.severity || 'info';
-                    html += `
-                        <div class="list-group-item bg-transparent border-secondary border-opacity-25 px-0 py-2">
-                             <div class="d-flex justify-content-between">
-                                <span class="text-light small fw-bold">${t}</span>
-                                <span class="badge severity-badge ${s}">${s.toUpperCase()}</span>
-                             </div>
-                             ${d ? `<div class="small text-muted mt-1 text-break">${d}</div>` : ''}
-                        </div>`;
-                }
-            });
-            html += `</div>`;
-        } else if (typeof data === 'object') {
-            // Map of Port -> Data or similar
-            html = `<div class="accordion" id="acc-${key}">`;
-            Object.entries(data).forEach(([subKey, subVal], idx) => {
-                if (subKey === 'discovered_endpoints') return; // Skip raw list if handled elsewhere
-
-                html += `
-                    <div class="accordion-item bg-black border-secondary">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${key}-${idx}">
-                                <span class="badge bg-secondary me-2">Port ${subKey}</span>
-                                <span class="small font-monospace text-muted">${Array.isArray(subVal) ? subVal.length + ' Items' : 'Details'}</span>
-                            </button>
-                        </h2 > 
-                        <div id="collapse-${key}-${idx}" class="accordion-collapse collapse" data-bs-parent="#acc-${key}">
-                            <div class="accordion-body p-2 bg-dark-subtle">
-                                <pre class="text-muted x-small mb-0 text-break" style="white-space: pre-wrap;">${typeof subVal === 'string' ? subVal : JSON.stringify(subVal, null, 2)}</pre>
-                            </div>
-                        </div>
-                    </div>`;
-            });
-            html += `</div>`;
+        // Try Human-Readable First
+        const humanHtml = this.renderSectionHuman(key, data);
+        if (humanHtml) {
+            container.innerHTML = humanHtml;
+            return;
         }
 
+        // Fallback: Structured Key/Value
+        let html = '<div class="list-group list-group-flush bg-transparent">';
+        if (Array.isArray(data)) {
+            data.slice(0, 100).forEach(item => {
+                const content = typeof item === 'object' ? JSON.stringify(item) : item;
+                html += `<div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1 font-monospace x-small text-muted text-break">${this.escapeHtml(content)}</div>`;
+            });
+            if (data.length > 100) html += `<div class="p-2 x-small text-center text-muted">+ ${data.length - 100} more...</div>`;
+        } else {
+            Object.entries(data).forEach(([k, v]) => {
+                html += `
+                    <div class="mb-2">
+                        <div class="x-small text-cyber font-monospace text-uppercase fw-bold">${k}</div>
+                        <pre class="bg-black p-2 rounded border border-secondary border-opacity-10 x-small text-muted mb-0 overflow-auto" style="max-height: 150px;">${this.escapeHtml(typeof v === 'object' ? JSON.stringify(v, null, 2) : v)}</pre>
+                    </div>`;
+            });
+        }
+        html += '</div>';
         container.innerHTML = html;
+    }
+
+    renderSectionHuman(key, data) {
+        try {
+            switch (key) {
+                case 'tls':
+                    return this.renderTLSHuman(data);
+                case 'waf':
+                    return this.renderWAFHuman(data);
+                case 'headers':
+                    return this.renderHeadersHuman(data);
+                case 'whatweb':
+                    return this.renderTechHuman(data);
+                case 'arjun':
+                case 'params':
+                    return this.renderParamsHuman(data);
+                case 'katana':
+                    return this.renderCrawlerHuman(data);
+                case 'js_secrets':
+                case 'secrets':
+                    return this.renderSecretsHuman(data);
+                default:
+                    return null;
+            }
+        } catch (e) {
+            console.error(`Human renderer failed for ${key}:`, e);
+            return null;
+        }
+    }
+
+    renderTLSHuman(data) {
+        let html = '';
+        Object.entries(data).forEach(([port, info]) => {
+            html += `<div class="mb-3 p-2 bg-black bg-opacity-20 rounded border border-secondary border-opacity-10">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="badge bg-info text-dark">PORT ${port}</span>
+                    <span class="small font-monospace ${info.expired ? 'text-danger' : 'text-success'}">${info.expired ? 'EXPIRED' : 'VALID'}</span>
+                </div>
+                <div class="small fw-bold text-light mb-1">${info.subject || 'Unknown Subject'}</div>
+                <div class="x-small text-muted font-monospace mb-1">Issuer: ${info.issuer || '-'}</div>
+                <div class="x-small text-muted font-monospace">Expires: ${info.expiry || '-'}</div>
+                ${info.cipher ? `<div class="mt-2 text-cyber x-small font-monospace border-top border-secondary border-opacity-10 pt-1">${info.cipher}</div>` : ''}
+            </div>`;
+        });
+        return html;
+    }
+
+    renderWAFHuman(data) {
+        let html = '';
+        Object.entries(data).forEach(([port, name]) => {
+            html += `
+            <div class="d-flex align-items-center justify-content-between p-2 bg-warning bg-opacity-10 border border-warning border-opacity-20 rounded mb-2">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-shield-halved text-warning me-2"></i>
+                    <div>
+                        <div class="small fw-bold text-light">${name}</div>
+                        <div class="x-small text-muted font-monospace">Protection active on port ${port}</div>
+                    </div>
+                </div>
+                <span class="badge bg-warning text-dark x-small">DETECTED</span>
+            </div>`;
+        });
+        return html;
+    }
+
+    renderHeadersHuman(data) {
+        let html = '<div class="row g-2">';
+        const securityHeaders = ['Content-Security-Policy', 'Strict-Transport-Security', 'X-Frame-Options', 'X-Content-Type-Options', 'Referrer-Policy'];
+
+        Object.entries(data).forEach(([port, headers]) => {
+            html += `<div class="col-12 mb-2"><div class="badge bg-secondary x-small w-100">PORT ${port}</div></div>`;
+            securityHeaders.forEach(sh => {
+                const found = headers[sh] || headers[sh.toLowerCase()];
+                html += `
+                <div class="col-6 mb-2">
+                    <div class="p-2 bg-black bg-opacity-30 border border-secondary border-opacity-10 rounded h-100">
+                        <div class="x-small text-muted text-uppercase mb-1">${sh.replace('X-', '')}</div>
+                        <div class="d-flex align-items-center">
+                            <i class="fas ${found ? 'fa-check-circle text-success' : 'fa-times-circle text-danger'} me-1 x-small"></i>
+                            <span class="x-small font-monospace text-truncate">${found ? 'Enabled' : 'Missing'}</span>
+                        </div>
+                    </div>
+                </div>`;
+            });
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderTechHuman(data) {
+        let html = '';
+        if (data.summary) {
+            html += '<div class="d-flex flex-wrap gap-1 mb-3">';
+            Object.entries(data.summary).forEach(([tech, count]) => {
+                html += `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">${tech}</span>`;
+            });
+            html += '</div>';
+        }
+        Object.entries(data).forEach(([port, output]) => {
+            if (port === 'summary') return;
+            html += `
+            <div class="mb-2 pb-2 border-bottom border-secondary border-opacity-10">
+                <div class="badge bg-secondary x-small mb-1">Port ${port}</div>
+                <div class="x-small text-muted font-monospace text-break">${this.escapeHtml(output)}</div>
+            </div>`;
+        });
+        return html;
+    }
+
+    renderParamsHuman(data) {
+        let html = '<div class="row g-2">';
+        Object.entries(data).forEach(([port, params]) => {
+            const list = Array.isArray(params) ? params : (params.params || []);
+            html += `<div class="col-12 mb-1"><div class="badge bg-dark border border-secondary x-small">PORT ${port}: ${list.length} VARS</div></div>`;
+            list.slice(0, 20).forEach(p => {
+                html += `<div class="col-4"><div class="p-1 bg-black border border-secondary border-opacity-10 rounded x-small text-center text-cyber font-monospace text-truncate">${p}</div></div>`;
+            });
+            if (list.length > 20) html += `<div class="col-12 text-center x-small text-muted">+ ${list.length - 20} more</div>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderCrawlerHuman(data) {
+        let html = '';
+        Object.entries(data).forEach(([port, list]) => {
+            html += `
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="badge bg-secondary x-small">PORT ${port}</span>
+                    <span class="x-small text-muted font-monospace">${list.length} Endpoints</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    ${list.slice(0, 10).map(ep => `<div class="list-group-item bg-transparent border-secondary border-opacity-10 p-1 x-small text-muted font-monospace text-truncate"><i class="fas fa-link me-1 opacity-50"></i>${this.escapeHtml(ep)}</div>`).join('')}
+                    ${list.length > 10 ? `<div class="p-1 text-center x-small text-muted">... viewing 10 of ${list.length}</div>` : ''}
+                </div>
+            </div>`;
+        });
+        return html;
+    }
+
+    renderSecretsHuman(data) {
+        let html = '<div class="list-group list-group-flush">';
+        Object.entries(data).forEach(([port, secrets]) => {
+            const list = Array.isArray(secrets) ? secrets : [];
+            list.forEach(s => {
+                const type = s.type || 'Secret';
+                html += `
+                <div class="list-group-item bg-transparent border-danger border-opacity-10 p-2 mb-2 rounded bg-danger bg-opacity-10">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="x-small fw-bold text-danger text-uppercase">${type}</span>
+                        <span class="badge bg-dark border border-danger text-danger x-small">PORT ${port}</span>
+                    </div>
+                    <div class="x-small font-monospace text-light text-break">${this.escapeHtml(s.match || s.data || s)}</div>
+                    <div class="x-small text-muted mt-1 text-truncate">${this.escapeHtml(s.file || '')}</div>
+                </div>`;
+            });
+        });
+        html += '</div>';
+        return html;
     }
 
     updateCortexUI(results) {

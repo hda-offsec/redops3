@@ -1,5 +1,5 @@
-/* Fonts */
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@400;600;700&display=swap');
+/* Typography & Colors standardized via :root */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 :root {
   --bg-dark: #050505;
@@ -12,37 +12,42 @@
   /* Cyber Cyan */
   --warning: #ffbd00;
   --success: #00ff9d;
+  --info: #00f3ff;
 
   --text-main: #e0e0e0;
   --text-muted: #888;
 
-  --border-color: #333;
+  --border-color: rgba(255, 255, 255, 0.08);
   --glow-spread: 0px 0px 10px;
+
+  --font-ui: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 body {
   background-color: var(--bg-dark);
   color: var(--text-main);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: var(--font-ui);
   overflow-x: hidden;
+  line-height: 1.6;
 }
 
-/* Typography */
 h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
+  font-family: var(--font-ui);
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: -0.02em;
   text-transform: uppercase;
 }
 
 code,
 pre,
 .font-monospace {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono) !important;
 }
 
 /* Sidebar */
@@ -80,25 +85,27 @@ pre,
   text-shadow: 0 0 8px rgba(255, 42, 42, 0.5);
 }
 
-/* Cards & Panels */
 .card {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: 4px;
   margin-bottom: 1.5rem;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
 }
 
 .card-header {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid var(--border-color);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.9rem;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 0.85rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.05em;
   color: var(--accent);
   display: flex;
   align-items: center;
+  padding: 0.75rem 1.25rem;
 }
 
 .card-header i {
@@ -106,30 +113,30 @@ pre,
   color: var(--primary);
 }
 
-/* Controls */
 .form-control,
 .form-select {
   background-color: #000 !important;
   border: 1px solid var(--border-color);
-  color: var(--accent) !important;
-  font-family: 'JetBrains Mono', monospace;
-  border-radius: 0;
+  color: var(--text-main) !important;
+  font-family: var(--font-mono);
+  border-radius: 4px;
+  font-size: 0.9rem;
 }
 
 .form-control:focus,
 .form-select:focus {
-  box-shadow: 0 0 0 2px rgba(0, 243, 255, 0.2);
+  box-shadow: 0 0 0 2px rgba(0, 243, 255, 0.15);
   border-color: var(--accent);
 }
 
 .btn {
-  border-radius: 0;
-  /* Brutalist/Tech feel */
-  font-family: 'JetBrains Mono', monospace;
+  border-radius: 4px;
+  font-family: var(--font-ui);
   text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
-  transition: all 0.2s;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 0.8rem;
 }
 
 .btn-danger {
@@ -144,30 +151,27 @@ pre,
   box-shadow: 0 0 15px var(--primary);
 }
 
-/* Tables */
 .table {
   color: var(--text-main);
-}
-
-.table-hover tbody tr:hover {
-  color: var(--accent);
-  background-color: rgba(0, 243, 255, 0.05);
+  font-family: var(--font-ui);
 }
 
 .table thead th {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(0, 0, 0, 0.4);
   border-bottom: 2px solid var(--border-color);
   color: var(--text-muted);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-ui);
+  font-weight: 600;
   text-transform: uppercase;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
 }
 
-/* Status Badges */
 .badge {
-  border-radius: 2px;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: normal;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .bg-success {

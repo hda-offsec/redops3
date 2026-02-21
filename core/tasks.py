@@ -117,6 +117,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     scan_id=scan_id,
                     severity=severity,
                     confidence=kwargs.get('confidence', 'medium'),
+                    id_stable=kwargs.get('id_stable'),
                     title=title,
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),
@@ -131,6 +132,8 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 # Emit to specific scan room for UI updates (Flattened format for JS)
                 socketio.emit('new_finding', {
                     'scan_id': scan_id,
+                    'id': finding.id,
+                    'id_stable': finding.id_stable,
                     'severity': severity,
                     'confidence': kwargs.get('confidence', 'medium'),
                     'title': title,

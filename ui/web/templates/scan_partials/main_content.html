@@ -1,121 +1,93 @@
-<div class="row g-4">
-    <!-- TACTICAL BREACH ASSESSMENT (BREACH REPORT) -->
-    {% include 'scan_partials/components/breach_report.html' %}
+<div class="col-12">
+    <!-- NAV TABS -->
+    <ul class="nav nav-pills nav-justified mb-4 p-1 bg-black bg-opacity-40 rounded-pill border border-secondary border-opacity-10"
+        id="scanTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active rounded-pill px-4" id="intel-tab" data-bs-toggle="tab"
+                data-bs-target="#intel-pane" type="button" role="tab">
+                <i class="fas fa-brain me-2"></i>Intelligence Hub
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link rounded-pill px-4" id="enum-tab" data-bs-toggle="tab" data-bs-target="#enum-pane"
+                type="button" role="tab">
+                <i class="fas fa-search me-2"></i>Recon & Surface
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link rounded-pill px-4" id="vuln-tab" data-bs-toggle="tab" data-bs-target="#vuln-pane"
+                type="button" role="tab">
+                <i class="fas fa-biohazard me-2"></i>Vulnerabilities
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link rounded-pill px-4" id="ops-tab" data-bs-toggle="tab" data-bs-target="#ops-pane"
+                type="button" role="tab">
+                <i class="fas fa-terminal me-2"></i>Operational Log
+            </button>
+        </li>
+    </ul>
 
-    <!-- OBSERVABILITY PANEL (V4 PATCH) -->
-    {% include 'scan_partials/components/observability.html' %}
+    <div class="tab-content" id="scanTabsContent">
+        <!-- TAB 1: INTELLIGENCE HUB -->
+        <div class="tab-pane fade show active" id="intel-pane" role="tabpanel">
+            <div class="row g-4">
+                {% include 'scan_partials/components/breach_report.html' %}
+                {% include 'scan_partials/components/observability.html' %}
+                {% include 'scan_partials/components/advanced_recon.html' %}
+                {% include 'scan_partials/components/cortex_intelligence.html' %}
+                {% include 'scan_partials/components/target_dashboard.html' %}
+                {% include 'scan_partials/components/intel_analysis.html' %}
+                {% include 'scan_partials/components/recon_matrix.html' %}
+                {% include 'scan_partials/components/threat_matrix.html' %}
+            </div>
+        </div>
 
-    <!-- ADVANCED RECONNAISSANCE PANEL -->
-    {% include 'scan_partials/components/advanced_recon.html' %}
+        <!-- TAB 2: RECON & SURFACE -->
+        <div class="tab-pane fade" id="enum-pane" role="tabpanel">
+            <div class="row g-4">
+                {% include 'scan_partials/components/dns_intel.html' %}
+                {% include 'scan_partials/components/visual_recon.html' %}
+                {% include 'scan_partials/components/cloud_assets.html' %}
+                {% include 'scan_partials/components/email_discovery.html' %}
+                {% include 'scan_partials/components/data_leaks.html' %}
+                {% include 'scan_partials/components/favicon_intel.html' %}
+                {% include 'scan_partials/components/github_leaks.html' %}
+                {% include 'scan_partials/components/waf_intel.html' %}
+                {% include 'scan_partials/components/arjun_results.html' %}
+                {% include 'scan_partials/components/api_discovery.html' %}
+                {% include 'scan_partials/components/katana.html' %}
+                {% include 'scan_partials/components/whatweb.html' %}
+                {% include 'scan_partials/components/ffuf_results.html' %}
+            </div>
+        </div>
 
-    <!-- CORTEX COMMAND & INTELLIGENCE CENTER (V6) -->
-    {% include 'scan_partials/components/cortex_intelligence.html' %}
+        <!-- TAB 3: VULNERABILITIES -->
+        <div class="tab-pane fade" id="vuln-pane" role="tabpanel">
+            <div class="row g-4">
+                {% include 'scan_partials/components/vuln_classes.html' %}
+                {% include 'scan_partials/components/nuclei_results.html' %}
+                {% include 'scan_partials/components/xss_results.html' %}
+                {% include 'scan_partials/components/js_vulns.html' %}
+                {% include 'scan_partials/components/js_secrets.html' %}
+                {% include 'scan_partials/components/open_redirects.html' %}
+                {% include 'scan_partials/components/wpscan_results.html' %}
+                {% include 'scan_partials/wordpress_intel.html' %}
+                {% include 'scan_partials/components/security_headers.html' %}
+                {% include 'scan_partials/components/critical_infra.html' %}
+                {% include 'scan_partials/components/advanced_vulns.html' %}
+                {% include 'scan_partials/components/tls_intel.html' %}
+                {% include 'scan_partials/components/deep_scan.html' %}
+            </div>
+        </div>
 
-    <!-- TARGET INTELLIGENCE DASHBOARD -->
-    {% include 'scan_partials/components/target_dashboard.html' %}
-
-    <!-- V4 TARGET INTELLIGENCE (NEW) -->
-    {% include 'scan_partials/components/target_intel.html' %}
-
-    <!-- VISUAL RECONNAISSANCE -->
-    {% include 'scan_partials/components/visual_recon.html' %}
-
-    <!-- CLOUD ASSETS AUDIT -->
-    {% include 'scan_partials/components/cloud_assets.html' %}
-
-    <!-- DNS INTELLIGENCE -->
-    {% include 'scan_partials/components/dns_intel.html' %}
-
-    <!-- FAVICON INTEL -->
-    {% include 'scan_partials/components/favicon_intel.html' %}
-
-    <!-- GITHUB CODE LEAKS -->
-    {% include 'scan_partials/components/github_leaks.html' %}
-
-    <!-- EMAIL DISCOVERY -->
-    {% include 'scan_partials/components/email_discovery.html' %}
-
-    <!-- SENSITIVE DATA LEAKS (PHASE 6) -->
-    {% include 'scan_partials/components/data_leaks.html' %}
-
-    <!-- VULNERABILITY CLASSES DASHBOARD -->
-    {% include 'scan_partials/components/vuln_classes.html' %}
-
-    <!-- THREAT MATRIX -->
-    {% include 'scan_partials/components/threat_matrix.html' %}
-
-    <!-- RECON MATRIX -->
-    {% include 'scan_partials/components/recon_matrix.html' %}
-
-    <!-- ATTACK VECTOR ANALYSIS -->
-    {% include 'scan_partials/components/intel_analysis.html' %}
-
-    <!-- ENUM RESULTS (WhatWeb) -->
-    {% include 'scan_partials/components/whatweb.html' %}
-
-    <!-- DEEP CRAWLING (Katana) -->
-    {% include 'scan_partials/components/katana.html' %}
-
-    <!-- WAF INTELLIGENCE -->
-    {% include 'scan_partials/components/waf_intel.html' %}
-
-    <!-- PARAMETER DISCOVERY -->
-    {% include 'scan_partials/components/arjun_results.html' %}
-
-    <!-- API DISCOVERY RESULTS -->
-    {% include 'scan_partials/components/api_discovery.html' %}
-
-    <!-- BACKEND SURFACE EXPOSURE (Architecture Driven) -->
-    {% include 'scan_partials/components/backend_surface.html' %}
-
-    <!-- SUBDOMAIN TAKEOVER -->
-    {% include 'scan_partials/components/subdomain_takeover.html' %}
-
-    <!-- JS INTELLIGENCE (SECRETS) -->
-    {% include 'scan_partials/components/js_secrets.html' %}
-
-    <!-- WPSCAN RESULTS -->
-    {% include 'scan_partials/components/wpscan_results.html' %}
-
-    <!-- OPEN REDIRECT AUDIT -->
-    {% include 'scan_partials/components/open_redirects.html' %}
-
-    <!-- XSS HUB (DALFOX) -->
-    {% include 'scan_partials/components/xss_results.html' %}
-
-    <!-- JS VULNERABILITY AUDIT -->
-    {% include 'scan_partials/components/js_vulns.html' %}
-
-    <!-- SECURITY HEADERS -->
-    {% include 'scan_partials/components/security_headers.html' %}
-
-    <!-- CRITICAL INFRASTRUCTURE & DATA EXPOSURE -->
-    {% include 'scan_partials/components/critical_infra.html' %}
-
-    <!-- WORDPRESS INTELLIGENCE -->
-    {% include 'scan_partials/wordpress_intel.html' %}
-
-    <!-- ADVANCED VULNERABILITY FINDINGS (NEW MODULES) -->
-    {% include 'scan_partials/components/advanced_vulns.html' %}
-
-    <!-- NUCLEI RESULTS -->
-    {% include 'scan_partials/components/nuclei_results.html' %}
-
-    <!-- FFUF RESULTS -->
-    {% include 'scan_partials/components/ffuf_results.html' %}
-
-    <!-- COMMAND HISTORY (PRO AUDIT) -->
-    {% include 'scan_partials/components/command_history.html' %}
-
-    <!-- TLS INTELLIGENCE -->
-    {% include 'scan_partials/components/tls_intel.html' %}
-
-    <!-- DEEP SCAN DETAILS (DYNAMIC) -->
-    {% include 'scan_partials/components/deep_scan.html' %}
-
-    <!-- FULL FINDINGS LOG (NEW SECTION) -->
-    {% include 'scan_partials/components/full_findings_log.html' %}
-
-    <!-- EXECUTION LOG -->
-    {% include 'scan_partials/components/execution_log.html' %}
+        <!-- TAB 4: OPERATIONAL LOG -->
+        <div class="tab-pane fade" id="ops-pane" role="tabpanel">
+            <div class="row g-4">
+                {% include 'scan_partials/components/full_findings_log.html' %}
+                {% include 'scan_partials/components/execution_log.html' %}
+                {% include 'scan_partials/components/command_history.html' %}
+            </div>
+        </div>
+    </div>
 </div>

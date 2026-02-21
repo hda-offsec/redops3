@@ -40,10 +40,10 @@ class ScanOrchestrator:
         self.scan_id = scan_id
         self.target = target
         self.log = logger_func
-        self.add_finding = finding_func
+        self._finding_callback = finding_func
         self.add_suggestion = suggestion_func
         self.save_results = results_func
-        self.add_loot = loot_func
+        self._loot_callback = loot_func
         self.recursion_func = recursion_func
         self.options = options or {}
         self.config = self.options.get('config', {})
@@ -135,6 +135,27 @@ class ScanOrchestrator:
         level = "ERROR" if status in ["failed", "error"] else "INFO"
         self.emit_event(evt_type, module, port, level=level, data={"artifacts": artifacts, "reason": normalized_reason})
         self._save_results_thread_safe(payload)
+
+    def add_finding(self, **kwargs):
+        """Wrapper to track findings count in metrics"""
+        if self._finding_callback:
+            self._finding_callback(**kwargs)
+            def _inc():
+                m = self.results.setdefault("metrics", {})
+                m["findings_count"] = m.get("findings_count", 0) + 1
+            self.thread_safe_results_update(_inc)
+
+    def add_loot(self, loot_type, content, context=None):
+        """Wrapper to track loot count in metrics"""
+        if self._loot_callback:
+            loot = self._loot_callback(loot_type, content, context)
+            if loot:
+                def _inc():
+                    m = self.results.setdefault("metrics", {})
+                    m["loot_count"] = m.get("loot_count", 0) + 1
+                self.thread_safe_results_update(_inc)
+            return loot
+        return None
 
     def pause(self):
         with self._control_lock:
@@ -289,6 +310,7 @@ class ScanOrchestrator:
                 "tasks_total": 0,
                 "tasks_done": 0,
                 "findings_count": 0,
+                "loot_count": 0,
                 "artifacts_count": 0,
                 "duration_seconds": 0.0,
             }
@@ -334,36 +356,52 @@ class ScanOrchestrator:
                 # Strategic Intelligence Task (Phase 3)
                 # This depends on all discovery tasks and will run before vuln scans
                 def strategic_analysis_task():
-                    self.log("🧠 Cortex: Launching Tactical Correlation & Surface Expansion...", "INFO")
+                    self.log("🧠 Cortex: Initializing Neural Profiling & Logic Engine...", "INFO")
                     
-                    def _set_enum_derived(key, value):
+                    def _set_enum_derived(key, value, save=True):
                         def _inner():
                             self.results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})[key] = value
                         self.thread_safe_results_update(_inner)
+                        if save:
+                            self._save_results_thread_safe()
+
+                    _set_enum_derived("status", "Analyzing telemetry...")
 
                     # 1. Profile Intelligence
+                    self.log("Cortex: Analyzing service telemetry for advanced signatures...", "DEBUG")
                     adaptive_hints = derive_adaptive_hints(self.results)
-                    _set_enum_derived("adaptive_hints", adaptive_hints)
+                    _set_enum_derived("adaptive_hints", adaptive_hints, save=False)
 
                     service_intel = derive_service_intel(self.results)
                     _set_enum_derived("service_intelligence", service_intel)
+                    self.log(f"Cortex: Derived {len(service_intel)} intelligence tags from telemetry.", "INFO")
+
+                    _set_enum_derived("status", "Evaluating attack vectors...")
 
                     # 2. Run Cortex Reasoning
+                    self.log("Cortex: Evaluating attack surface for strategic vectors...", "DEBUG")
                     cortex_recommendations = suggest_actions(self.results)
                     _set_enum_derived("cortex_recommendations", cortex_recommendations)
+                    self.log(f"Cortex: Deducted {len(cortex_recommendations)} strategic recommendations.", "SUCCESS")
+
+                    _set_enum_derived("status", "Expanding environment...")
 
                     # 3. Expand Surface (Heuristics)
+                    self.log("Cortex: Running heuristic surface expansion...", "DEBUG")
                     surface_expansion = derive_surface_expansion(self.results)
                     _set_enum_derived("surface_expansion", surface_expansion)
-
+                    
                     # 4. Global Execution Hints
                     execution_hints = derive_execution_hints(self.results)
                     _set_enum_derived("execution_hints", execution_hints)
                     
                     # 5. Build Attack Plan (Ranking)
+                    self.log("Cortex: Finalizing prioritized attack plan...", "DEBUG")
+                    _set_enum_derived("status", "Finalizing attack plan...")
                     attack_builder = AttackGraphBuilder()
                     attack_builder.build(self.results)
                     self.thread_safe_results_update(lambda: self.results.__setitem__("attack_plan", attack_builder.rank_actions()))
+                    self._save_results_thread_safe()
                     
                     # --- FEEDBACK LOOP: Dynamic Task Injection & Expert Mining ---
                     for rec in cortex_recommendations:
@@ -372,7 +410,8 @@ class ScanOrchestrator:
                             target_port = rec.get('port')
                             if not target_port: continue
                             
-                            self.log(f"Cortex: SPA detected on port {target_port}. Launching Deep JS Mining Expert...", "SUCCESS")
+                            _set_enum_derived("status", f"Mining JS Expert (Port {target_port})...")
+                            self.log(f"🧠 Cortex Decision: SPA detected on port {target_port}. Initiating Deep JS Expert...", "INFO")
                             
                             # Collect JS URLs from Katana
                             katana_urls = self.results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(target_port), [])
@@ -380,6 +419,7 @@ class ScanOrchestrator:
                             
                             if js_urls:
                                 expert = JSDeepMiningExpert(self.target)
+                                # We can mining in chunks to allow progressive UI updates
                                 mining_results = expert.mine_endpoints(js_urls, logger=self.log)
                                 
                                 # Store mining findings
@@ -392,8 +432,14 @@ class ScanOrchestrator:
                                     # Merge discovered endpoints into surface expansion
                                     expansion = derived.setdefault('surface_expansion', {})
                                     port_exp = expansion.setdefault('per_port', {}).setdefault(str(target_port), {})
-                                    port_exp.setdefault('derived_endpoints', []).extend(mining_results['discovered_endpoints'])
-                                    port_exp.setdefault('reasons', []).append('js_ast_mining')
+                                    # Use a set to avoid duplicates during multiple saves if mining was chunked (though here it's full)
+                                    existing_eps = set(port_exp.get('derived_endpoints', []))
+                                    for new_ep in mining_results['discovered_endpoints']:
+                                        existing_eps.add(new_ep)
+                                    port_exp['derived_endpoints'] = list(existing_eps)
+                                    
+                                    if 'js_ast_mining' not in port_exp.get('reasons', []):
+                                        port_exp.setdefault('reasons', []).append('js_ast_mining')
                                     
                                     # Populate the dedicated JS Secrets UI component
                                     js_secrets_ui = enum.setdefault('js_secrets', {})
@@ -419,11 +465,14 @@ class ScanOrchestrator:
                                             port_secrets[f['source']] = url_secrets
                                 
                                 self.thread_safe_results_update(_store_mining)
-                                self.log(f"JS Expert: Successfully mined {len(mining_results['discovered_endpoints'])} extra endpoints from Client-side code.", "SUCCESS")
+                                self._save_results_thread_safe() # CRITICAL: Update UI after expert results
+                                self.log(f"JS Expert: Mission success. Discovered {len(mining_results['discovered_endpoints'])} hidden endpoints.", "SUCCESS")
                             else:
-                                self.log(f"JS Expert: No JS files found for port {target_port} in crawler results.", "DEBUG")
+                                self.log(f"JS Expert: Negative signal on port {target_port} (no JS found).", "DEBUG")
 
+                    _set_enum_derived("status", "Audit Loop Concluded.")
                     self.log(f"Strategic Analysis Complete: Identified {len(cortex_recommendations)} tactical vectors.", "SUCCESS")
+                    _set_enum_derived("status", "idle")
                     self._save_results_thread_safe()
                     return True
 

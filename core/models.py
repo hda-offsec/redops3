@@ -76,6 +76,7 @@ class Finding(db.Model):
     scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
     severity = db.Column(db.String(20), default="info")
     confidence = db.Column(db.String(20), default="medium") # low, medium, high, certain
+    id_stable = db.Column(db.String(128), index=True, nullable=True) # V6 Stable ID
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     tool_source = db.Column(db.String(50))

@@ -43,10 +43,10 @@ class TaskScheduler:
             )
 
     def _deps_ready(self, task: Task):
-        return all(self.tasks[dep].state in {"executed", "skipped"} for dep in task.deps)
+        return all(self.tasks[dep].state == "executed" for dep in task.deps)
 
     def _deps_ready_snapshot(self, task: Task, task_snapshot: dict[str, Task]):
-        return all(task_snapshot[dep].state in {"executed", "skipped"} for dep in task.deps)
+        return all(task_snapshot[dep].state == "executed" for dep in task.deps)
 
     def _wait_if_paused(self):
         while self._orchestrator and self._orchestrator.control_flags.get("pause", False):
@@ -84,9 +84,17 @@ class TaskScheduler:
             if task.state in {"executed", "failed", "skipped"}:
                 return task.result
             if not self._deps_ready(task):
-                unmet = [dep for dep in task.deps if self.tasks[dep].state not in {"executed", "skipped"}]
+                unmet = [dep for dep in task.deps if self.tasks[dep].state != "executed"]
+                unmet_states = [self.tasks[dep].state for dep in unmet]
+                
+                if "failed" in unmet_states:
+                    task.reason = f"dependencies_failed:{','.join(unmet)}"
+                elif "skipped" in unmet_states:
+                    task.reason = f"dependencies_skipped:{','.join(unmet)}"
+                else:
+                    task.reason = f"dependencies_not_ready:{','.join(unmet)}"
+                
                 task.state = "skipped"
-                task.reason = f"dependencies_not_ready:{','.join(unmet)}"
                 notify_progress = True
             else:
                 task.state = "running"
@@ -148,7 +156,7 @@ class TaskScheduler:
                         msg = f"Scheduler breaking with {len(pending_ids)} pending tasks but none ready. Unmet dependencies: "
                         for tid in pending_ids[:5]:
                             task = task_snapshot[tid]
-                            unmet = [d for d in task.deps if task_snapshot.get(d) and task_snapshot[d].state not in {"executed", "skipped"}]
+                            unmet = [d for d in task.deps if task_snapshot.get(d) and task_snapshot[d].state != "executed"]
                             msg += f"[{tid} needs {unmet}] "
                         if self._orchestrator: self._orchestrator.log(msg, "DEBUG")
                     break
@@ -189,8 +197,17 @@ class TaskScheduler:
                     if self._stop_requested():
                         reason = "scan_stop_requested"
                     else:
-                        unmet = [dep for dep in task.deps if self.tasks.get(dep) and self.tasks[dep].state not in {"executed", "skipped"}]
-                        reason = f"dependencies_not_ready:{','.join(unmet)}" if unmet else "dependencies_not_ready:unresolvable_dependencies"
+                        unmet = [dep for dep in task.deps if self.tasks.get(dep) and self.tasks[dep].state != "executed"]
+                        if unmet:
+                            unmet_states = [self.tasks[dep].state for dep in unmet]
+                            if "failed" in unmet_states:
+                                reason = f"dependencies_failed:{','.join(unmet)}"
+                            elif "skipped" in unmet_states:
+                                reason = f"dependencies_skipped:{','.join(unmet)}"
+                            else:
+                                reason = f"dependencies_not_ready:{','.join(unmet)}"
+                        else:
+                            reason = "dependencies_not_ready:unresolvable_dependencies"
                     task.state = "skipped"
                     task.reason = reason
                     notify_progress = True

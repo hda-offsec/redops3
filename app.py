@@ -150,6 +150,12 @@ if __name__ == "__main__":
                         conn.execute(db.text("ALTER TABLE findings ADD COLUMN response TEXT;"))
                         conn.execute(db.text("ALTER TABLE findings ADD COLUMN repro_command TEXT;"))
                         print("Migration successful.")
+                    
+                    if "id_stable" not in columns:
+                        print("Migrating database: Adding id_stable to findings table...")
+                        conn.execute(db.text("ALTER TABLE findings ADD COLUMN id_stable TEXT;"))
+                        conn.execute(db.text("CREATE INDEX idx_findings_id_stable ON findings(id_stable);"))
+                        print("Migration successful.")
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

@@ -41,8 +41,27 @@ def test_scheduler_failed_task_and_dependency_skip_projection():
     assert snapshot["enum_80"]["state"] == "failed"
     assert snapshot["enum_80"]["reason"] == "boom"
     assert snapshot["vuln_80"]["state"] == "skipped"
-    assert snapshot["vuln_80"]["reason"] == "dependencies_not_ready:enum_80"
+    assert snapshot["vuln_80"]["reason"] == "dependencies_failed:enum_80"
     assert statuses, "progress callback should reflect scheduler state transitions"
+
+
+def test_scheduler_skipped_task_dependency_propagation():
+    scheduler = TaskScheduler()
+    
+    # Simulate a manually skipped task
+    def skip_me():
+        raise Exception("task_skipped:manual_skip")
+
+    scheduler.add_task("enum_80", "enum", [], skip_me)
+    scheduler.add_task("vuln_80", "vuln", ["enum_80"], lambda: "should_not_run")
+
+    scheduler.run()
+    snapshot = scheduler.snapshot_states()
+
+    assert snapshot["enum_80"]["state"] == "skipped"
+    assert snapshot["enum_80"]["reason"] == "task_skipped:manual_skip"
+    assert snapshot["vuln_80"]["state"] == "skipped"
+    assert snapshot["vuln_80"]["reason"] == "dependencies_skipped:enum_80"
 
 
 def test_scheduler_parallel_execution_thread_safe():
