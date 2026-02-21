@@ -109,6 +109,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             log(f"WordPress detected via HTTP Headers on port {port}.", "SUCCESS")
 
     if is_wordpress:
+        emit_progress(orch, 75, f"Application Audit (WordPress) on {port}")
         log(f"WordPress signature detected on port {port}. Initiating WPScan...", "WARN")
         try:
             wpscan = WPScanScanner(target)
@@ -889,35 +890,54 @@ def run_global_vuln_scans(orchestrator):
                             
                         if event['type'] == 'stdout':
                             line = event['line'].strip()
-                            # Strip ANSI if needed, usually stream handles it or we do it here
-                            # Assuming line is clean or we accept ANSI for now
-                            
-                            if "[FTL]" in line or "error" in line.lower(): continue
-
-                            sev = 'info'
-                            if '[critical]' in line.lower(): sev = 'critical'
-                            elif '[high]' in line.lower(): sev = 'high'
-                            elif '[medium]' in line.lower(): sev = 'medium'
-                            elif '[low]' in line.lower(): sev = 'low'
-                            
-                            if sev in ['critical', 'high', 'medium', 'low']:
-                                log(f"Nuclei: {line}", 'WARN' if sev in ['critical', 'high'] else 'INFO')
-                                
-                                _ts(lambda: results['phases']['vuln']['nuclei']['findings'].append({
-                                    'title': line.split('] ')[-1].strip(),
-                                    'severity': sev,
-                                    'url': f"{proto}://{target}:{port}",
-                                    'tool': 'nuclei'
-                                }))
-                                found_any = True
-                                
-                                orch.add_finding(
-                                    title=f"Vulnerability Found ({sev.upper()})",
-                                    description=f"Nuclei Output:\n{line}",
-                                    severity=sev,
-                                    tool_source="nuclei"
-                                )
-                                orch.save_results(orch.scan_id, results)
+                            if not line: continue
+                            if line.startswith('{'):
+                                try:
+                                    data = json.loads(line)
+                                    sev = data.get('info', {}).get('severity', 'info').lower()
+                                    title = data.get('info', {}).get('name', 'Nuclei Finding')
+                                    template_id = data.get('template-id')
+                                    matched_at = data.get('matched-at', '')
+                                    
+                                    # Evidence
+                                    req = data.get('request', '')
+                                    res = data.get('response', '')
+                                    curl_cmd = data.get('curl-command', '')
+                                    matcher = data.get('matcher-name', '')
+                                    
+                                    desc = f"**Nuclei Template**: {template_id}\n"
+                                    if matcher: desc += f"**Matcher**: {matcher}\n"
+                                    desc += f"**URL**: {matched_at}\n\n"
+                                    if data.get('info', {}).get('description'):
+                                        desc += f"**Description**: {data['info']['description']}\n"
+                                    
+                                    log(f"Nuclei Finding: {title} ({sev.upper()}) at {matched_at}", 'WARN' if sev in ['critical', 'high'] else 'INFO')
+                                    
+                                    _ts(lambda: results['phases']['vuln']['nuclei']['findings'].append({
+                                        'title': title,
+                                        'severity': sev,
+                                        'url': matched_at,
+                                        'tool': 'nuclei',
+                                        'template_id': template_id,
+                                        'matcher': matcher
+                                    }))
+                                    found_any = True
+                                    
+                                    orch.add_finding(
+                                        title=title,
+                                        description=desc,
+                                        severity=sev,
+                                        confidence="high" if res else "medium",
+                                        tool_source="nuclei",
+                                        request=req,
+                                        response=res,
+                                        repro_command=curl_cmd
+                                    )
+                                    orch.save_results(orch.scan_id, results)
+                                except Exception as ej:
+                                    log(f"Nuclei JSON Parse Error: {ej}", "DEBUG")
+                            elif "[INF]" in line or "[WRN]" in line:
+                                log(f"Nuclei Status: {line}", "DEBUG")
                         elif event['type'] == 'exit':
                             if event['code'] != 0:
                                 log("external_tool_non_zero_exit_code", "DEBUG")

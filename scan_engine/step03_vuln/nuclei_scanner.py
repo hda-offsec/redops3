@@ -22,8 +22,10 @@ class NucleiScanner:
             "-severity", "critical,high,medium", 
             "-rl", "20",
             "-no-color",
-            "-silent",
-            "-timeout", "5"
+            "-json",
+            "-timeout", "5",
+            "-stats",
+            "-stats-interval", "30"
         ]
         
         if tags:

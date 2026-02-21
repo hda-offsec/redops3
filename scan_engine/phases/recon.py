@@ -8,6 +8,7 @@ from scan_engine.step00_osint.github_scanner import GitHubScanner
 from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step00_osint.dork_scanner import DorkScanner
 from scan_engine.step00_osint.origin_revealer import OriginRevealer
+from scan_engine.step00_osint.historic_scanner import HistoricScanner
 from scan_engine.phases.utils import emit_progress
 
 
@@ -235,3 +236,22 @@ def run_dns_osint(orchestrator):
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Origin IP scan failed: {e}", "DEBUG")
+
+    emit_progress(orch, 35, "Wayback Historic Discovery")
+    try:
+        historic = HistoricScanner(target, logger=log)
+        raw_urls = historic.fetch_historic_urls()
+        if raw_urls:
+            candidates = historic.process_discovered_urls(raw_urls)
+            def _store_historic():
+                results['phases']['osint']['historic_urls'] = candidates
+                # Also seed them into potential enum targets (grouped correctly for UI)
+                results['phases'].setdefault('enum', {}).setdefault('targets', {})
+                results['phases']['enum']['targets'].setdefault('Historic', [])
+                for u in candidates[:100]: # Cap seeding to 100 to avoid bloat
+                    if u not in results['phases']['enum']['targets']['Historic']:
+                        results['phases']['enum']['targets']['Historic'].append(u)
+            orch.thread_safe_results_update(_store_historic)
+            orch.save_results(orch.scan_id, results)
+    except Exception as e:
+        log(f"Historic URL scan failed: {e}", "DEBUG")

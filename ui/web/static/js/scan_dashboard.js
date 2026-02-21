@@ -23,7 +23,9 @@ class ScanDashboard {
             'Kiterunner': 'api', 'API Discovery': 'api', 'Secret': 'secrets',
             'JS Secrets': 'secrets', 'Katana': 'crawl', 'ffuf': 'fuzz',
             'Dirbusting': 'fuzz', 'Vulnerability': 'vulns', 'Nuclei': 'vulns',
-            'Dalfox': 'vulns', 'Intel': 'intel', 'Loot': 'loot'
+            'Dalfox': 'vulns', 'Intel': 'intel', 'Loot': 'loot',
+            'Wayback': 'historic', 'Historic': 'historic', 'Archive': 'historic',
+            'Spring': 'apps', 'Firebase': 'apps', 'Actuator': 'apps', 'Docker': 'apps'
         };
 
         this.init();
@@ -38,6 +40,16 @@ class ScanDashboard {
         window.updateUI = (results) => this.updateUI(results);
         window.verifyFinding = (cmd) => this.verifyFinding(cmd);
         window.filterFindings = () => this.filterFindings(); // For search input
+    }
+
+    escapeHtml(unsafe) {
+        if (!unsafe) return "";
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     setupSocketListeners() {
@@ -261,11 +273,34 @@ class ScanDashboard {
                 const detailTr = document.createElement("tr");
                 detailTr.className = "finding-detail-row collapse bg-black bg-opacity-25";
                 detailTr.id = rowId;
+
+                let evidenceHtml = "";
+                if (data.request || data.response || data.repro_command) {
+                    evidenceHtml = `
+                        <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded">
+                            <ul class="nav nav-pills nav-justified mb-2 x-small" role="tablist">
+                                ${data.request ? `<li class="nav-item"><button class="nav-link py-1 active" data-bs-toggle="pill" data-bs-target="#req-${fid}">Request</button></li>` : ''}
+                                ${data.response ? `<li class="nav-item"><button class="nav-link py-1 ${!data.request ? 'active' : ''}" data-bs-toggle="pill" data-bs-target="#res-${fid}">Response</button></li>` : ''}
+                                ${data.repro_command ? `<li class="nav-item"><button class="nav-link py-1 ${(!data.request && !data.response) ? 'active' : ''}" data-bs-toggle="pill" data-bs-target="#repro-${fid}">Reproduction</button></li>` : ''}
+                            </ul>
+                            <div class="tab-content mt-2">
+                                ${data.request ? `<div class="tab-pane fade show active" id="req-${fid}"><pre class="x-small font-monospace text-cyber bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 250px;">${this.escapeHtml(data.request)}</pre></div>` : ''}
+                                ${data.response ? `<div class="tab-pane fade ${!data.request ? 'show active' : ''}" id="res-${fid}"><pre class="x-small font-monospace text-success bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 250px;">${this.escapeHtml(data.response)}</pre></div>` : ''}
+                                ${data.repro_command ? `<div class="tab-pane fade ${(!data.request && !data.response) ? 'show active' : ''}" id="repro-${fid}"><div class="d-flex gap-2"><div class="flex-grow-1"><pre class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">${this.escapeHtml(data.repro_command)}</pre></div><button class="btn btn-xs btn-outline-warning" onclick="navigator.clipboard.writeText('${data.repro_command.replace(/'/g, "\\'")}');this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',1000)"><i class="fas fa-copy"></i></button></div></div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+
                 detailTr.innerHTML = `
                     <td colspan="4" class="p-3">
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="badge bg-dark border border-secondary text-light x-small me-2"><i class="fas fa-bullseye"></i> Confidence: ${(data.confidence || 'medium').toUpperCase()}</span>
+                        </div>
                         <div class="small font-monospace text-light whitespace-pre-wrap">${data.description}</div>
+                        ${evidenceHtml}
                         ${data.screenshot_path ? `
-                        <div class="mt-2 text-center">
+                        <div class="mt-3 text-center">
                             <img src="/static/${data.screenshot_path}" class="img-fluid rounded border border-secondary" style="max-height: 400px; cursor: pointer;" onclick="window.open(this.src)">
                         </div>` : ''}
                     </td>
@@ -429,7 +464,8 @@ class ScanDashboard {
                 'waf': 'waf', 'crawl': 'crawl', 'katana': 'crawl', 'arjun': 'params',
                 'params': 'params', 'ffuf': 'fuzz', 'dirbusting': 'fuzz',
                 'api': 'api', 'secrets': 'secrets', 'vuln': 'vulns', 'nuclei': 'vulns',
-                'intel': 'intel'
+                'intel': 'intel', 'historic': 'historic', 'wayback': 'historic',
+                'spring': 'apps', 'firebase': 'apps', 'actuator': 'apps', 'apps': 'apps'
             };
 
             for (const [key, id] of Object.entries(phaseToDiscovery)) {
@@ -447,6 +483,9 @@ class ScanDashboard {
                 bar.classList.add('bg-success');
             }
             this.toggleScanToast(false);
+
+            // --- CLEANUP: Stop all stuck animations when completed ---
+            document.querySelectorAll('.discovery-btn').forEach(btn => btn.classList.remove('active'));
         } else {
             if (statusText) statusText.innerText = 'running';
             if (spinner) spinner.classList.remove('d-none');
@@ -691,13 +730,15 @@ class ScanDashboard {
             'cloud': results.phases?.osint?.cloud?.length > 0,
             'waf': results.phases?.enum?.waf && Object.keys(results.phases.enum.waf).length > 0,
             'crawl': results.phases?.enum?.katana && Object.keys(results.phases.enum.katana).length > 0,
-            'params': results.phases?.enum?.arjun && Object.keys(results.phases.enum.arjun).length > 0,
-            'fuzz': results.phases?.dirbusting?.ffuf?.endpoints?.length > 0,
+            'params': (results.phases?.enum?.arjun && Object.keys(results.phases.enum.arjun).length > 0) || (results.phases?.enum?.params && Object.keys(results.phases.enum.params).length > 0),
+            'fuzz': (results.phases?.dirbusting?.ffuf?.endpoints?.length > 0) || (results.phases?.dirbusting?.ffuf?.length > 0),
             'api': results.phases?.enum?.api && Object.keys(results.phases.enum.api).length > 0,
             'secrets': results.phases?.enum?.js_secrets && Object.keys(results.phases.enum.js_secrets).length > 0,
-            'vulns': (results.findings?.length > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0) || (results.phases?.vuln?.xss?.length > 0),
+            'vulns': (results.findings?.length > 0) || (results.metrics?.findings_count > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0) || (results.phases?.vuln?.xss?.length > 0),
             'intel': results.phases?.intel && Object.keys(results.phases.intel).length > 0,
-            'loot': results.loot_count > 0
+            'historic': results.phases?.osint?.historic_urls?.length > 0,
+            'apps': (results.phases?.vuln?.wordpress && Object.keys(results.phases.vuln.wordpress).length > 0) || (results.phases?.vuln?.tech && Object.keys(results.phases.vuln.tech).length > 0),
+            'loot': (results.loot_count > 0) || (results.metrics?.loot_count > 0)
         };
 
         for (const [id, discovered] of Object.entries(discoveryMap)) {

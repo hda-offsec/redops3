@@ -75,10 +75,17 @@ class Finding(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
     severity = db.Column(db.String(20), default="info")
+    confidence = db.Column(db.String(20), default="medium") # low, medium, high, certain
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     tool_source = db.Column(db.String(50))
     screenshot_path = db.Column(db.String(255), nullable=True)
+    
+    # Evidence for Validation
+    request = db.Column(db.Text, nullable=True)
+    response = db.Column(db.Text, nullable=True)
+    repro_command = db.Column(db.Text, nullable=True)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

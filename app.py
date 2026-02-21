@@ -139,6 +139,17 @@ if __name__ == "__main__":
                         print("Migrating database: Adding task_id to scans table...")
                         conn.execute(db.text("ALTER TABLE scans ADD COLUMN task_id TEXT;"))
                         print("Migration successful.")
+                    
+                    # Check Finding table
+                    result = conn.execute(db.text("PRAGMA table_info(findings);")).fetchall()
+                    columns = [row[1] for row in result]
+                    if "confidence" not in columns:
+                        print("Migrating database: Adding confidence, request, response, repro_command to findings table...")
+                        conn.execute(db.text("ALTER TABLE findings ADD COLUMN confidence TEXT DEFAULT 'medium';"))
+                        conn.execute(db.text("ALTER TABLE findings ADD COLUMN request TEXT;"))
+                        conn.execute(db.text("ALTER TABLE findings ADD COLUMN response TEXT;"))
+                        conn.execute(db.text("ALTER TABLE findings ADD COLUMN repro_command TEXT;"))
+                        print("Migration successful.")
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

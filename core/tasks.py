@@ -105,10 +105,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 finding = Finding(
                     scan_id=scan_id,
                     severity=severity,
+                    confidence=kwargs.get('confidence', 'medium'),
                     title=title,
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),
-                    screenshot_path=kwargs.get('screenshot_path')
+                    screenshot_path=kwargs.get('screenshot_path'),
+                    request=kwargs.get('request'),
+                    response=kwargs.get('response'),
+                    repro_command=kwargs.get('repro_command')
                 )
                 db.session.add(finding)
                 db.session.commit()
@@ -117,10 +121,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 socketio.emit('new_finding', {
                     'scan_id': scan_id,
                     'severity': severity,
+                    'confidence': kwargs.get('confidence', 'medium'),
                     'title': title,
                     'description': kwargs.get('description'),
                     'tool': kwargs.get('tool_source', 'orchestrator'),
-                    'screenshot_path': kwargs.get('screenshot_path')
+                    'screenshot_path': kwargs.get('screenshot_path'),
+                    'request': kwargs.get('request'),
+                    'response': kwargs.get('response'),
+                    'repro_command': kwargs.get('repro_command')
                 }, room=f"scan_{scan_id}")
 
                 # Global Alert for Critical Issues from the worker

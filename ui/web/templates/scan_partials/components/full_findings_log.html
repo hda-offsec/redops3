@@ -77,12 +77,68 @@
                         </tr>
                         <tr class="finding-detail-row collapse bg-black bg-opacity-25" id="finding-detail-{{ f.id }}">
                             <td colspan="4" class="p-3">
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="badge bg-dark border border-secondary text-light x-small me-2">
+                                        <i class="fas fa-bullseye"></i> Confidence: {{ (f.confidence or 'medium')|upper
+                                        }}
+                                    </span>
+                                </div>
                                 <div class="small font-monospace text-light whitespace-pre-wrap">{{ f.description }}
                                 </div>
+
+                                {% if f.request or f.response or f.repro_command %}
+                                <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded"
+                                    style="max-width: 100%;">
+                                    <ul class="nav nav-pills nav-justified mb-2 x-small" role="tablist">
+                                        {% if f.request %}<li class="nav-item"><button class="nav-link py-1 active"
+                                                data-bs-toggle="pill" data-bs-target="#req-{{ f.id }}">Request</button>
+                                        </li>{% endif %}
+                                        {% if f.response %}<li class="nav-item"><button
+                                                class="nav-link py-1 {% if not f.request %}active{% endif %}"
+                                                data-bs-toggle="pill" data-bs-target="#res-{{ f.id }}">Response</button>
+                                        </li>{% endif %}
+                                        {% if f.repro_command %}<li class="nav-item"><button
+                                                class="nav-link py-1 {% if not f.request and not f.response %}active{% endif %}"
+                                                data-bs-toggle="pill"
+                                                data-bs-target="#repro-{{ f.id }}">Reproduction</button></li>{% endif %}
+                                    </ul>
+                                    <div class="tab-content mt-2">
+                                        {% if f.request %}
+                                        <div class="tab-pane fade show active" id="req-{{ f.id }}">
+                                            <pre class="x-small font-monospace text-cyber bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto"
+                                                style="max-height: 250px;">{{ f.request }}</pre>
+                                        </div>
+                                        {% endif %}
+                                        {% if f.response %}
+                                        <div class="tab-pane fade {% if not f.request %}show active{% endif %}"
+                                            id="res-{{ f.id }}">
+                                            <pre class="x-small font-monospace text-success bg-cyber bg-opacity-10 bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto"
+                                                style="max-height: 250px;">{{ f.response }}</pre>
+                                        </div>
+                                        {% endif %}
+                                        {% if f.repro_command %}
+                                        <div class="tab-pane fade {% if not f.request and not f.response %}show active{% endif %}"
+                                            id="repro-{{ f.id }}">
+                                            <div class="d-flex gap-2">
+                                                <div class="flex-grow-1">
+                                                    <pre
+                                                        class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">{{ f.repro_command }}</pre>
+                                                </div>
+                                                <button class="btn btn-xs btn-outline-warning"
+                                                    onclick="navigator.clipboard.writeText(this.parentElement.querySelector('pre').innerText);this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',1000)"><i
+                                                        class="fas fa-copy"></i></button>
+                                            </div>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+
                                 {% if f.screenshot_path %}
-                                <div class="mt-2">
+                                <div class="mt-3 text-center">
                                     <img src="{{ url_for('static', filename=f.screenshot_path) }}"
-                                        class="img-fluid rounded border border-secondary" style="max-height: 200px;">
+                                        class="img-fluid rounded border border-secondary"
+                                        style="max-height: 400px; cursor: pointer;" onclick="window.open(this.src)">
                                 </div>
                                 {% endif %}
                             </td>

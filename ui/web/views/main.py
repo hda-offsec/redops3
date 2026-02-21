@@ -286,18 +286,21 @@ def _log_and_emit(scan_id, msg, level="INFO"):
 
 
 
-def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None):
-    if command:
-        cmd_str = f"\n\n--- COMMAND ---\n{command}"
-        description = (description or "") + cmd_str
+def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None, confidence='medium', request=None, response=None, repro_command=None):
+    if command and not repro_command:
+        repro_command = command
 
     finding = Finding(
         scan_id=scan_id,
         severity=severity,
+        confidence=confidence,
         title=title,
         description=description,
         tool_source=tool,
-        screenshot_path=screenshot_path
+        screenshot_path=screenshot_path,
+        request=request,
+        response=response,
+        repro_command=repro_command
     )
     db.session.add(finding)
     db.session.commit()
@@ -310,9 +313,13 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
             "scan_id": scan_id,
             "title": title,
             "severity": severity,
+            "confidence": confidence,
             "tool": tool,
             "description": description,
-            "screenshot_path": screenshot_path
+            "screenshot_path": screenshot_path,
+            "request": request,
+            "response": response,
+            "repro_command": repro_command
         }, room=f"scan_{scan_id}")
 
         # Global Alert for Critical Issues
