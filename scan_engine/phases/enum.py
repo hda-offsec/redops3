@@ -1,5 +1,6 @@
 import shlex
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 from scan_engine.step02_enum.web_scanner import WebReconScanner
 from scan_engine.step02_enum.waf_scanner import WafScanner
 from scan_engine.step02_enum.api_scanner import APIScanner
@@ -55,9 +56,9 @@ def analyze_security_headers(target, port, proto, logger_func):
     try:
         url = f"{proto}://{target}:{port}"
         try:
-            resp = requests.head(url, timeout=5, verify=True, allow_redirects=True)
+            resp = http_client.head(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
         except Exception:
-            resp = requests.get(url, timeout=5, verify=True, allow_redirects=True)
+            resp = http_client.get(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
              
         actual_headers = {k.lower(): v for k, v in resp.headers.items()}
         analysis = {}

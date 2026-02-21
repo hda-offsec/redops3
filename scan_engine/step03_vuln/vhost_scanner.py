@@ -1,4 +1,5 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 from urllib.parse import urlparse
 
 class VhostScanner:
@@ -6,7 +7,8 @@ class VhostScanner:
     V6 EXPERT: Virtual Host (Vhost) Brute-forcer.
     Discovers hidden subdomains or sites co-located on the same IP by fuzzing the 'Host' header.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.common_vhosts = [
             "dev", "test", "stage", "staging", "api", "v1", "v2", "beta",
@@ -20,7 +22,7 @@ class VhostScanner:
         
         # 1. Get Baseline
         try:
-            r_base = requests.get(base_url, timeout=5, verify=False, allow_redirects=False)
+            r_base = http_client.get(base_url, options=getattr(self, "options", None), timeout=5, allow_redirects=False)
             base_len = len(r_base.content)
             base_status = r_base.status_code
         except Exception:
@@ -42,7 +44,7 @@ class VhostScanner:
             
             try:
                 headers = {"Host": vhost}
-                r = requests.get(base_url, headers=headers, timeout=3, verify=False, allow_redirects=False)
+                r = http_client.get(base_url, options=getattr(self, "options", None), headers=headers, timeout=3, allow_redirects=False)
                 
                 # Compare with baseline
                 # Check for different status code or significantly different length

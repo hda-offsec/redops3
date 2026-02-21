@@ -7,7 +7,7 @@ __pycache__/
 *.egg-info/
 .venv/
 
-# Env
+# Env & Secrets
 .env
 .env.*
 
@@ -15,29 +15,42 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.bak
-*_original.html
-fix_*.py
-test_*.py
-reorder_v*.py
-reorganize_pipeline.py
-analyze_deps.py
-gemini.md
-walkthrough_*.md
-/home/doomer/Bureau/redops3/walkthrough_enrichment.md
-/home/doomer/Bureau/redops3/walkthrough_fixes.md
+.idea/
+.vscode/
 
-# Runtime / data
+# Runtime / data (OFFENSIVE SCAN DATA)
 *.db
 *.db-*
+*.sqlite*
 instance/
-data/
+data/results/
+data/reports/
+data/loot/
+data/snapshots/
+data/kb/
+data/wordlists/
+!data/wordlists/.gitkeep
 
-# Logs
+# Logs & Temporary Outputs
 *.log
 nohup.out
 *.out
 *.tmp
+dump_*.json
+export_*.csv
 
-# Walkthroughs
+# UI Artifacts (Screenshots from scans)
+ui/web/static/screenshots/*
+!ui/web/static/screenshots/.gitkeep
+
+# Walkthroughs & Docs
 walkthrough_*.md
 /home/doomer/Bureau/redops3/walkthrough_*.md
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/

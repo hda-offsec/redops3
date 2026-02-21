@@ -7,7 +7,8 @@ class DorkScanner:
     or automated queries if API is available.
     """
 
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def generate_dorks(self):

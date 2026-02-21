@@ -1,5 +1,6 @@
 import re
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import json
 import traceback
 from urllib.parse import urlparse, urljoin
@@ -9,7 +10,8 @@ class JSDeepMiningExpert:
     V6 EXPERT: Performs deep extraction of secrets and endpoints from JS files.
     Specifically designed for SPAs (React, Vue, Angular).
     """
-    def __init__(self, target_domain):
+    def __init__(self, target_domain, options=None):
+        self.options = options
         self.target_domain = target_domain
         self.patterns = {
             "Secret/Key": r'(?i)(?:key|token|auth|secret|access|pwd|password|passwd|credential)["\']\s*[:=]\s*["\']([a-zA-Z0-9_\-\.]{12,})["\']',
@@ -62,7 +64,7 @@ class JSDeepMiningExpert:
             
             try:
                 if logger: logger(f"JS Expert: Mining {url}...", "DEBUG")
-                resp = requests.get(url, timeout=10, verify=False)
+                resp = http_client.get(url, options=getattr(self, "options", None), timeout=10)
                 if resp.status_code == 200:
                     data = self.extract_from_content(resp.text, url)
                     if data["secrets"] or data["endpoints"] or data["routes"]:

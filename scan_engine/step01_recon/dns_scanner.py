@@ -2,7 +2,8 @@ import json
 from scan_engine.helpers.process_manager import ProcessManager
 
 class DNSScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.root_domain = self._get_root_domain(target)
 

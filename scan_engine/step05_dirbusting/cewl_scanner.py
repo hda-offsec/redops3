@@ -1,4 +1,5 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import re
 import os
 from bs4 import BeautifulSoup
@@ -10,7 +11,8 @@ class CustomWordlistScanner:
     Spiders the target website to create a custom wordlist for fuzzing.
     """
 
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.output_dir = "data/wordlists/custom"
         os.makedirs(self.output_dir, exist_ok=True)
@@ -39,7 +41,7 @@ class CustomWordlistScanner:
                 visited.add(url)
                 
                 try:
-                    r = requests.get(url, timeout=5, verify=True)
+                    r = http_client.get(url, options=getattr(self, "options", None), timeout=5)
                     soup = BeautifulSoup(r.text, 'html.parser')
                     
                     # 1. Extract Words

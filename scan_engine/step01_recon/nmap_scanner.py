@@ -70,7 +70,8 @@ class NmapScanner:
         },
     }
 
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def check_tools(self):

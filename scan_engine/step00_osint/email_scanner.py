@@ -1,8 +1,10 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import re
 
 class EmailScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.email_regex = r'[a-zA-Z0-9._%+-]+@' + re.escape(self.target)
 
@@ -11,7 +13,7 @@ class EmailScanner:
         emails = set()
         try:
             url = f"https://crt.sh/?q={self.target}&output=json"
-            response = requests.get(url, timeout=20)
+            response = http_client.get(url, options=getattr(self, "options", None), timeout=20)
             if response.status_code == 200:
                 data = response.json()
                 for entry in data:
@@ -30,7 +32,7 @@ class EmailScanner:
         if logger: logger(f"Email Discover: Scraping {len(urls)} pages for contact info...", "INFO")
         for url in urls[:50]: # limit to first 50 pages
             try:
-                response = requests.get(url, timeout=5, verify=True)
+                response = http_client.get(url, options=getattr(self, "options", None), timeout=5)
                 if response.status_code == 200:
                     matches = re.findall(r'[a-zA-Z0-9._%+-]+@' + re.escape(self.target), response.text)
                     for email in matches:

@@ -1,7 +1,8 @@
 import dns.resolver
 
 class EmailSecurityScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_email_security(self, logger=None):

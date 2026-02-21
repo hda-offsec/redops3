@@ -5,7 +5,8 @@ logger = logging.getLogger(__name__)
 
 
 class WhatWebScanner:
-    def __init__(self, target_url):
+    def __init__(self, target_url, options=None):
+        self.options = options
         self.target_url = target_url
 
     def stream_scan(self):

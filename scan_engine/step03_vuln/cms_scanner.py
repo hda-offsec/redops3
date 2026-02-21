@@ -2,7 +2,8 @@ from scan_engine.helpers.process_manager import ProcessManager
 import shlex
 
 class CMSScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         # Map CMS names to Nuclei tags/templates
         self.cms_map = {

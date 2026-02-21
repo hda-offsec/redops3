@@ -1,11 +1,12 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 
 class SpringBootScanner:
     """
     Expert Scanner for Spring Boot Actuators & Sensitive Endpoints.
     Checks for exposed actuator endpoints that leak environment variables, heap dumps, or allow RCE.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.endpoints = [
             "/actuator",
@@ -36,7 +37,7 @@ class SpringBootScanner:
             logger(f"Spring Boot Expert: Probing for {len(self.endpoints)} actuator endpoints on port {port}...", "INFO")
 
         # Session for speed & reuse
-        session = requests.Session()
+        session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         session.verify = True
         # Set a generic User-Agent
         session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RedOps3/SpringBootAudit)"})

@@ -2,7 +2,8 @@ import socket
 import dns.resolver
 
 class SubdomainExpertScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         # EXPERT DICTIONARY: Complete cloud provider fingerprints (CNAME Mapping)
         self.fingerprints = {

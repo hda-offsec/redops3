@@ -1,12 +1,14 @@
 import re
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class DependencyScanner:
     """
     V6 EXPERT: Dependency Confusion & Supply Chain Auditor.
     Scans for exposed dependency files and identifies potentially hijackable internal package names.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.registry_checks = {
             "npm": "https://registry.npmjs.org/",
@@ -16,7 +18,7 @@ class DependencyScanner:
     def _is_package_public(self, name, registry_url):
         """Checks if a package exists on a public registry."""
         try:
-            r = requests.get(f"{registry_url}{name}", timeout=3)
+            r = http_client.get(f"{registry_url}{name}", options=getattr(self, "options", None), timeout=3)
             return r.status_code == 200
         except Exception:
             return True # Assume public on error to be safe
@@ -77,7 +79,7 @@ class DependencyScanner:
         for filename, ftype in files:
             url = f"{base_url.rstrip('/')}/{filename}"
             try:
-                r = requests.get(url, timeout=3, verify=False)
+                r = http_client.get(url, options=getattr(self, "options", None), timeout=3)
                 if r.status_code == 200:
                     findings.extend(self.audit_dependencies(r.text, ftype, logger))
             except Exception: pass

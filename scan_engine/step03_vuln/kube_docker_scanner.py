@@ -1,8 +1,10 @@
 import socket
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class KubeDockerScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_containers(self, logger=None):
@@ -33,7 +35,7 @@ class KubeDockerScanner:
                         url = f"http://{self.target}:{port}/pods" if port in [10250, 10255] else f"http://{self.target}:{port}/version"
                         if port == 6443: url = f"https://{self.target}:{port}/version"
                         
-                        r = requests.get(url, timeout=3, verify=True)
+                        r = http_client.get(url, options=getattr(self, "options", None), timeout=3)
                         if r.status_code == 200:
                             findings.append({
                                 "title": f"CRITICAL: Exposed {service}",

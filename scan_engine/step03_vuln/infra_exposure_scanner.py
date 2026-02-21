@@ -6,7 +6,8 @@ class InfraExposureScanner:
     Expert Auditor for Infrastructure service exposure.
     Tests for unauthenticated access to Redis, Memcached, Etcd, and Docker.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.ports = {
             "redis": 6379,

@@ -3,7 +3,8 @@ import os
 from scan_engine.helpers.process_manager import ProcessManager
 
 class FfufScanner:
-    def __init__(self, target, wordlist=None):
+    def __init__(self, target, wordlist=None, options=None):
+        self.options = options
         self.target = target
         self.wordlist = self._find_wordlist(wordlist)
 

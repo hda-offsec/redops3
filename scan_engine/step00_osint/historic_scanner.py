@@ -1,4 +1,5 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import time
 from scan_engine.helpers.process_manager import ProcessManager
 
@@ -6,7 +7,8 @@ class HistoricScanner:
     """
     Expert Module: Fetches historic URLs from Wayback Machine API to expand attack surface.
     """
-    def __init__(self, target, logger=None):
+    def __init__(self, target, logger=None, options=None):
+        self.options = options
         self.target = target
         self.logger = logger
 
@@ -18,7 +20,7 @@ class HistoricScanner:
         
         try:
             # We use a timeout to avoid hanging the scan if Archive.org is slow
-            response = requests.get(api_url, timeout=30)
+            response = http_client.get(api_url, options=getattr(self, "options", None), timeout=30)
             if response.status_code == 200:
                 for line in response.text.splitlines():
                     u = line.strip()

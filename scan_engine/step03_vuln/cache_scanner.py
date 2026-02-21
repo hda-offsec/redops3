@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import time
 import random
 
@@ -8,9 +8,10 @@ class CacheExpertScanner:
     1. Web Cache Poisoning (Unkeyed header injection)
     2. Web Cache Deception (Static extension path confusion)
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
-        self.session = requests.Session()
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.unkeyed_headers = [
             "X-Forwarded-Host", "X-Forwarded-Scheme", "X-Original-URL", 
             "X-Rewrite-URL", "X-Host", "X-Forwarded-Proto"

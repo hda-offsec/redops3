@@ -104,13 +104,14 @@ def probe_web_ports(orchestrator):
     fallback_ports = [80, 443]
     open_ports = []
 
-    import requests
+    import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
     for fp in fallback_ports:
         proto = "https" if fp == 443 else "http"
         url = f"{proto}://{target}:{fp}"
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
-            resp = requests.get(url, timeout=5, verify=True, allow_redirects=True, headers=headers)
+            resp = http_client.get(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True, headers=headers)
             log(f"  [+] Fallback: Target is ALIVE on {url} (Status: {resp.status_code})", "SUCCESS")
             open_ports.append({
                 "port": fp,

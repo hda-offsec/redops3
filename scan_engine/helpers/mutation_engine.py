@@ -11,7 +11,8 @@ class MutationEngine:
         payload, payload_hash, param_shape, variant_id
     """
 
-    def __init__(self, budget_manager=None, logger=None):
+    def __init__(self, budget_manager=None, logger=None, options=None):
+        self.options = options
         self.budget = budget_manager
         self.log = logger
         self.stats = {"generated": 0, "accepted": 0, "dropped": 0}

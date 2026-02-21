@@ -1,7 +1,9 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class TechExposureScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.sensitive_files = [
             '.env', '.env.local', '.env.bak', '.env.old', '.env.save', '.env.example', '.env.prod', '.env.dev',
@@ -22,7 +24,7 @@ class TechExposureScanner:
             url = base_url + file
             try:
                 # We use a custom User-Agent to avoid some basic filter and allow_redirects=False
-                r = requests.get(url, timeout=5, verify=False, allow_redirects=False, headers={"User-Agent": "Mozilla/5.0"})
+                r = http_client.get(url, options=getattr(self, "options", None), timeout=5, allow_redirects=False, headers={"User-Agent": "Mozilla/5.0"})
                 
                 # Check if it looks like a real file (200 OK + not a generic login page)
                 if r.status_code == 200:

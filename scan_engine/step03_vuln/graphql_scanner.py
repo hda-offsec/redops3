@@ -1,4 +1,5 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import json
 
 class GraphQLScanner:
@@ -6,7 +7,8 @@ class GraphQLScanner:
     Expert GraphQL Scanner.
     Detects GraphQL endpoints and attempts introspection to dump the schema.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.endpoints = [
             "/graphql", "/graphiql", "/v1/graphql", "/v2/graphql", 
@@ -162,13 +164,13 @@ class GraphQLScanner:
             url = f"{base_url}{ep}"
             try:
                 # 1. Check if endpoint exists
-                r = requests.options(url, timeout=3, verify=False)
+                r = http_client.options(url, options=getattr(self, "options", None), timeout=3)
                 if r.status_code not in [200, 405, 400]:
                     continue
                 
                 # 2. Attempt Introspection
                 headers = {'Content-Type': 'application/json'}
-                r_int = requests.post(url, json=self.introspection_query, headers=headers, timeout=5, verify=False)
+                r_int = http_client.post(url, options=getattr(self, "options", None), json=self.introspection_query, headers=headers, timeout=5)
                 
                 if r_int.status_code == 200 and "__schema" in r_int.text:
                     try:
@@ -204,7 +206,7 @@ class GraphQLScanner:
                         if logger: logger(f"GraphQL Parse Error: {e}", "DEBUG")
                     
                 # 3. Check for GraphiQL (IDE)
-                r_ide = requests.get(url, timeout=3, verify=False)
+                r_ide = http_client.get(url, options=getattr(self, "options", None), timeout=3)
                 if "GraphiQL" in r_ide.text or "graphql-playground" in r_ide.text.lower():
                     findings.append({
                         "title": "GraphQL IDE (GraphiQL/Playground) Exposed",

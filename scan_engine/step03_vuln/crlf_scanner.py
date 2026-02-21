@@ -1,7 +1,9 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class CRLFScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_crlf(self, port, protocol='http', logger=None):
@@ -16,7 +18,7 @@ class CRLFScanner:
         if logger: logger(f"🕸️ CRLF Audit: Probing {base_url}...", "INFO")
 
         try:
-            r = requests.get(target_url, timeout=3, allow_redirects=False)
+            r = http_client.get(target_url, options=getattr(self, "options", None), timeout=3, allow_redirects=False)
             
             # Check headers for our injected cookie
             for h, v in r.headers.items():

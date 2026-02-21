@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import json
 import time
 
@@ -7,8 +7,9 @@ class NoSQLScanner:
     Expert Auditor for NoSQL Injection (MongoDB, etc.).
     Focuses on JSON body and query parameter manipulation.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "RedOps3-NoSQLExpert/1.0", "Content-Type": "application/json"})
         
         # Payloads for MongoDB/JSON based injections

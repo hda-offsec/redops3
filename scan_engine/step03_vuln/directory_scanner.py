@@ -3,7 +3,8 @@ import os
 import re
 
 class DirectoryScanner:
-    def __init__(self, target, scan_id):
+    def __init__(self, target, scan_id, options=None):
+        self.options = options
         self.target = target
         self.scan_id = scan_id
         self.screenshot_dir = f"ui/web/static/screenshots/scan_{scan_id}"
@@ -44,7 +45,8 @@ class DirectoryScanner:
         Takes a list of endpoints (from Katana or Dirbusting) and checks for directory listing.
         """
         findings = []
-        import requests
+        import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
         
         if logger: logger(f"Directory Audit: Checking {len(endpoints)} endpoints for index exposure...", "INFO")
         
@@ -54,7 +56,7 @@ class DirectoryScanner:
             if checked > 50: break # Guardrail
             
             try:
-                r = requests.get(ep, timeout=5, verify=True)
+                r = http_client.get(ep, options=getattr(self, "options", None), timeout=5)
                 if self.is_directory_listing(r.text):
                     if logger: logger(f"🔥 DIRECTORY LISTING: Found at {ep}", "WARN")
                     

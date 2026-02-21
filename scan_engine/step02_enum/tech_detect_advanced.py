@@ -14,7 +14,8 @@ from urllib.parse import urlparse
 import hashlib
 
 class AdvancedTechDetector:
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.logger = logging.getLogger(__name__)
 
         # Base de données complète des technologies

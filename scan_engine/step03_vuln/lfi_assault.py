@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import json
 import os
 import concurrent.futures
@@ -14,7 +14,8 @@ class LfiAssaultScanner:
     Replaces the basic lfi_scanner.py with a full mutation-based engine.
     """
     
-    def __init__(self, output_dir=None):
+    def __init__(self, output_dir=None, options=None):
+        self.options = options
         if output_dir is None:
             from pathlib import Path
             BASE_DIR = Path(__file__).resolve().parents[2]
@@ -137,7 +138,7 @@ class LfiAssaultScanner:
         
         target_urls_with_points = list(set(target_urls_with_points))[:10] # Cap injection points
         
-        session = requests.Session()
+        session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         session.headers.update({"User-Agent": "RedOps3-Assault/1.0"})
         
         for rule in self.lfi_rules:

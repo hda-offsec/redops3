@@ -5,7 +5,8 @@ class ContextAttackEngine:
     V6 Evolution: Analyzes enumeration intelligence to adapt the offensive strategy.
     Transforms raw tech detection into actionable attack profiles.
     """
-    def __init__(self, results, logger=None):
+    def __init__(self, results, logger=None, options=None):
+        self.options = options
         self.results = results
         self.log = logger
         

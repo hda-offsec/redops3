@@ -1,5 +1,6 @@
 import re
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 from scan_engine.helpers.process_manager import ProcessManager
 
 class CloudMetadataScanner:
@@ -7,7 +8,8 @@ class CloudMetadataScanner:
     Scans for Cloud Metadata Exposure via Reverse Proxy Misconfigurations.
     Checks for: AWS, Azure, GCP, DigitalOcean, Alibaba, Oracle.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.metadata_paths = {
             "aws": ["/latest/meta-data/", "/latest/user-data/"],
@@ -36,7 +38,7 @@ class CloudMetadataScanner:
                 url = f"{base_url}{path}"
                 try:
                     # Short timeout because if it's not a proxy, it will likely 404 fast or timeout
-                    r = requests.get(url, headers=self.headers, timeout=3, verify=True, allow_redirects=False)
+                    r = http_client.get(url, options=getattr(self, "options", None), headers=self.headers, timeout=3, allow_redirects=False)
                     
                     if r.status_code == 200:
                         # Validation logic to reduce false positives

@@ -11,7 +11,8 @@ class SurfaceMapperScanner:
     Integrated as a scanner module.
     """
     
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.detector = ArchitectureDetector()
         self.classifier = RiskClassifier()
@@ -46,8 +47,9 @@ class SurfaceMapperScanner:
             try:
                 # We need to fetch the content if it's not already cached.
                 # In a real integration, we might use a shared cache, but for now we fetch.
-                import requests
-                resp = requests.get(source_url, timeout=10, verify=False, headers={"User-Agent": "RedOps3-SurfaceMapper/1.0"})
+                import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
+                resp = http_client.get(source_url, options=getattr(self, "options", None), timeout=10, headers={"User-Agent": "RedOps3-SurfaceMapper/1.0"})
                 if resp.status_code == 200:
                     content = resp.text
                     ctype = resp.headers.get("Content-Type", "")

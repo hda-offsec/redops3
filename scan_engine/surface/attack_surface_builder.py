@@ -6,7 +6,8 @@ class AttackSurfaceBuilder:
     Transforms discovered routes into RedOps3 Attack Graph nodes and edges.
     """
     
-    def __init__(self, port: int):
+    def __init__(self, port: int, options=None):
+        self.options = options
         self.port = port
         self.service_id = f"service:{port}"
         

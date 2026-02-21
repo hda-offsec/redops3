@@ -1,7 +1,9 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class LFIScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_lfi(self, port, protocol='http', logger=None):
@@ -24,7 +26,7 @@ class LFIScanner:
             for payload in payloads:
                 try:
                     target_url = f"{base_url}/?{param}={payload}"
-                    r = requests.get(target_url, timeout=3)
+                    r = http_client.get(target_url, options=getattr(self, "options", None), timeout=3)
                     
                     param_checks = [
                         "root:x:0:0",                   # Linux /etc/passwd

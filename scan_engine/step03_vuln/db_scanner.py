@@ -3,7 +3,8 @@ import subprocess
 from scan_engine.helpers.process_manager import ProcessManager
 
 class DBScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def audit_redis(self, port=6379, logger=None):
@@ -111,9 +112,10 @@ class DBScanner:
         try:
             if logger: logger(f"DB Audit: Testing Elasticsearch anonymous access on {self.target}:{port}", "INFO")
             # Using requests for HTTP-based DB
-            import requests
+            import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
             url = f"http://{self.target}:{port}/_cat/indices?v"
-            r = requests.get(url, timeout=10, verify=False)
+            r = http_client.get(url, options=getattr(self, "options", None), timeout=10)
             if r.status_code == 200 and ("index" in r.text and "health" in r.text):
                  findings.append({
                     "title": "Critical: Unauthenticated Elasticsearch Access",

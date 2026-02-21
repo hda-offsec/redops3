@@ -19,7 +19,8 @@ class Task:
 
 
 class TaskScheduler:
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.tasks: dict[str, Task] = {}
         self._lock = threading.RLock()
         self._orchestrator = None

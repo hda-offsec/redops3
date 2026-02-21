@@ -1,4 +1,5 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import socket
 import ssl
 import hashlib
@@ -15,7 +16,8 @@ class OriginRevealer:
     3. Favicon Hashing (Shodan logic)
     """
 
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.domain = target
         if "://" in target:
@@ -72,7 +74,7 @@ class OriginRevealer:
         try:
             import mmh3
             import codecs
-            response = requests.get(f"{url}/favicon.ico", timeout=5, verify=True)
+            response = http_client.get(f"{url}/favicon.ico", options=getattr(self, "options", None), timeout=5)
             if response.status_code == 200:
                 favicon = codecs.encode(response.content, "base64")
                 hash_val = mmh3.hash(favicon)

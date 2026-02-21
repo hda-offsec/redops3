@@ -1,8 +1,9 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 from urllib.parse import urlparse
 
 class BypassExpertScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         # Expanded Header List (inspired by dontgo403)
         self.headers_payloads = {
@@ -56,7 +57,7 @@ class BypassExpertScanner:
             
             try:
                 # 1. Baseline Check
-                s = requests.Session()
+                s = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
                 r_base = s.get(target_url, verify=True, allow_redirects=False, timeout=5)
                 
                 # Only bypass if we hit a 403 or 401

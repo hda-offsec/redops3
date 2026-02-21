@@ -1,10 +1,12 @@
 import re
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import json
 from scan_engine.helpers.process_manager import ProcessManager
 
 class JSSecretScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         # Common patterns for secrets
         self.patterns = {
@@ -32,7 +34,7 @@ class JSSecretScanner:
         """Fetches a JS file and scans it for secrets and endpoints"""
         results = {"secrets": [], "endpoints": [], "raw": ""}
         try:
-            response = requests.get(url, timeout=10, verify=True)
+            response = http_client.get(url, options=getattr(self, "options", None), timeout=10)
             if response.status_code == 200:
                 content = response.text
                 results["raw"] = content

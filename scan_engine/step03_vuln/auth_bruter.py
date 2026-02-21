@@ -3,7 +3,8 @@ import os
 import tempfile
 
 class AuthBruteScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         # Expert Strategy: Base naming for target-specific brute forcing
         self.base_name = target.split('.')[0]

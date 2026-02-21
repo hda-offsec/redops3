@@ -5,7 +5,8 @@ from scan_engine.helpers.process_manager import ProcessManager
 class WPScanScanner:
     WPSCAN_CACHE_DIR = "/tmp/wpscan/cache"
 
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def check_tools(self):
@@ -23,11 +24,12 @@ class WPScanScanner:
 
     def detect_wordfence(self, port, protocol='http'):
         """Detect if Wordfence is present on the target."""
-        import requests
+        import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
         url = f"{protocol}://{self.target}:{port}"
         try:
             # Wordfence often leaves traces in headers or specific paths
-            resp = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+            resp = http_client.get(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
             headers_str = str(resp.headers).lower()
             cookies_str = str(resp.cookies).lower()
             
@@ -41,7 +43,7 @@ class WPScanScanner:
             
             # 3. Static path check (lightweight)
             wf_path = f"{url}/wp-content/plugins/wordfence/readme.txt"
-            wf_resp = requests.head(wf_path, timeout=3, verify=False)
+            wf_resp = http_client.head(wf_path, options=getattr(self, "options", None), timeout=3)
             if wf_resp.status_code == 200:
                 return True
                 

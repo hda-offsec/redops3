@@ -1,3 +1,4 @@
+import scan_engine.helpers.http_client as http_client
 import shlex
 import time
 import os
@@ -312,7 +313,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         
         for js_url in js_urls[:10]: # Limit for performance
             try:
-                r_js = requests.get(js_url, timeout=3, verify=False)
+                r_js = http_client.get(js_url, options=getattr(self, "options", None), timeout=3)
                 if r_js.status_code == 200:
                     leaked = jwt_expert.scan_text(r_js.text, js_url)
                     if leaked: jwt_findings.extend(leaked)

@@ -1,13 +1,14 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 
 class EnterpriseScanner:
     """
     V6 EXPERT: Enterprise Technology Auditor.
     Specialized probes for ColdFusion, AEM (Adobe Experience Manager), and Telerik.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
-        self.session = requests.Session()
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (RedOps3-Enterprise-Expert)"})
 
     def check_coldfusion(self, base_url, logger=None):

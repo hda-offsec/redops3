@@ -1,9 +1,11 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import json
 import time
 
 class GitHubScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.base_url = "https://api.github.com/search/code"
         self.headers = {
@@ -29,7 +31,7 @@ class GitHubScanner:
                 'order': 'desc'
             }
             
-            response = requests.get(self.base_url, params=params, headers=self.headers, timeout=15)
+            response = http_client.get(self.base_url, options=getattr(self, "options", None), params=params, headers=self.headers, timeout=15)
             
             if response.status_code == 200:
                 data = response.json()

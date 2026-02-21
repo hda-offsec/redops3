@@ -1,8 +1,10 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import os
 
 class OSINTTool:
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.shodan_key = os.getenv("SHODAN_API_KEY")
 
     def passive_recon(self, target):
@@ -21,7 +23,7 @@ class OSINTTool:
         if self.shodan_key:
             try:
                 # Real Shodan API Call
-                res = requests.get(f"https://api.shodan.io/shodan/host/{target}?key={self.shodan_key}")
+                res = http_client.get(f"https://api.shodan.io/shodan/host/{target}?key={self.shodan_key}")
                 if res.status_code == 200:
                     data = res.json()
                     intelligence["shodan"]["data"] = {

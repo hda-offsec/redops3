@@ -9,7 +9,8 @@ class RouterParser:
     Stack-agnostic: Handles generic patterns found in JS bundles and JSON manifests.
     """
     
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         # Generic patterns for routes and variables
         # Matches: /api/v1/user/{id}, /users/:id, /order/<int:id>
         self.path_var_pattern = re.compile(r'\{([a-zA-Z0-9_-]+)\}|:([a-zA-Z0-9_-]+)|<([a-zA-Z0-9_-]+)>')

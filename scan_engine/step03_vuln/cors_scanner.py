@@ -1,7 +1,9 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class CORSScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_cors(self, port, protocol='http', logger=None):
@@ -14,7 +16,7 @@ class CORSScanner:
         if logger: logger(f"🌐 CORS Audit: Testing policies on {base_url}...", "INFO")
 
         try:
-            r = requests.get(base_url, headers=headers, timeout=3, allow_redirects=True)
+            r = http_client.get(base_url, options=getattr(self, "options", None), headers=headers, timeout=3, allow_redirects=True)
             
             acao = r.headers.get("Access-Control-Allow-Origin")
             acac = r.headers.get("Access-Control-Allow-Credentials")

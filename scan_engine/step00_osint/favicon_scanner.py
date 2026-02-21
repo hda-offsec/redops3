@@ -1,15 +1,17 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import mmh3
 import codecs
 import base64
 
 class FaviconScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def calculate_hash(self, url):
         try:
-            response = requests.get(url, timeout=10, verify=True)
+            response = http_client.get(url, options=getattr(self, "options", None), timeout=10)
             if response.status_code == 200:
                 favicon = codecs.encode(response.content, 'base64')
                 hash_val = mmh3.hash(favicon)

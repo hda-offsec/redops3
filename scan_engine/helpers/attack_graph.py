@@ -1,5 +1,6 @@
 class AttackGraphBuilder:
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.nodes = []
         self.edges = []
         self._edge_keys = set()

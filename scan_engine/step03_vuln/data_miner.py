@@ -26,7 +26,8 @@ class SensitiveDataMiner:
         "jwt_tokens": ['eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'] # Common example JWT header
     }
 
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.logger = logging.getLogger(__name__)
 
     def scan(self, content, url):

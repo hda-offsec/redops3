@@ -1,4 +1,5 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import re
 from urllib.parse import urlparse, urljoin
 
@@ -7,7 +8,8 @@ class SSRFScanner:
     Expert SSRF Scanner targeting Cloud Metadata Services (IMDS).
     Checks for AWS, Azure, and GCP sensitive metadata leakage.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.metadata_payloads = {
             "aws": "http://169.254.169.254/latest/meta-data/",
@@ -28,7 +30,7 @@ class SSRFScanner:
             # We don't want to use requests here for the final check because we want to see 
             # if the target acts as a proxy.
             test_url = f"{base_url}{'&' if '?' in base_url else '?'}{param}={payload}"
-            r = requests.get(test_url, timeout=5, verify=True, allow_redirects=True)
+            r = http_client.get(test_url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
             
             # Guard: only match on 200 with text content (avoids WAF/redirect false positives)
             if r.status_code != 200:

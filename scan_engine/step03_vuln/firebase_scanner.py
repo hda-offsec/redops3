@@ -1,7 +1,9 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 
 class FirebaseScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_firebase(self, logger=None):
@@ -16,7 +18,7 @@ class FirebaseScanner:
         for project in project_names:
             url = f"https://{project}.firebaseio.com/.json"
             try:
-                r = requests.get(url, timeout=3)
+                r = http_client.get(url, options=getattr(self, "options", None), timeout=3)
                 if r.status_code == 200:
                     findings.append({
                         "title": f"CRITICAL: Open Firebase Database ({project})",

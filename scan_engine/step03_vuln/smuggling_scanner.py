@@ -8,7 +8,8 @@ class SmugglingScanner:
     V6 EXPERT: HTTP Request Smuggling (CL.TE / TE.CL) Detector.
     Uses timing-based differential analysis to detect de-synchronization vulnerabilities.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def _send_socket_request(self, host, port, protocol, raw_payload):

@@ -21,7 +21,8 @@ def normalize_endpoint(url: str) -> str:
         return url.strip()
 
 class EnumSeedFactory:
-    def __init__(self, target, port, protocol, config=None):
+    def __init__(self, target, port, protocol, config=None, options=None):
+        self.options = options
         self.target = target
         self.port = str(port)
         self.protocol = protocol

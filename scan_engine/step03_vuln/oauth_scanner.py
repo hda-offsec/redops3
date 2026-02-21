@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import re
 from urllib.parse import urlparse, parse_qs, urlencode, urljoin
 
@@ -11,8 +11,9 @@ class OAuthScanner:
     3. Token Leakage in Referer
     4. Implicit Flow Usage (Security Risk)
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "RedOps3-OAuthExpert/1.0"})
         self.sensitive_params = ["code", "access_token", "id_token", "refresh_token"]
 

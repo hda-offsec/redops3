@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import os
 
 class UploadExpertScanner:
@@ -6,9 +6,10 @@ class UploadExpertScanner:
     Expert Auditor for File Upload Bypass.
     Tests extension blacklists, content-type spoofing, and Magic Byte injection.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
-        self.session = requests.Session()
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         
         # Magic bytes for common types to bypass signature checks
         self.magic_bytes = {

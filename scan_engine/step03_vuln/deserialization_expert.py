@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import re
 import base64
 import json
@@ -9,8 +9,9 @@ class DeserializationExpert:
     Expert Auditor for Insecure Deserialization.
     Covers: Java (Serialized, RMI), Node.js, PHP, .NET, and YAML.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "RedOps3-DeserializationExpert/1.0"})
         
         # Signatures for serialised formats

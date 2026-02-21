@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 from urllib.parse import urlparse
 
 class BackupScanner:
@@ -6,7 +6,8 @@ class BackupScanner:
     Expert Backup & Archive Finder.
     Tests for misconfigured sensitive files like .bak, .zip, .old, etc.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         self.common_files = [
             # Configs
@@ -40,7 +41,7 @@ class BackupScanner:
         if logger: logger(f"Backup Expert: Probing for {len(fuzz_list)} sensitive backup/archive patterns on port {port}...", "INFO")
 
         # Session for speed
-        session = requests.Session()
+        session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         session.verify = True 
         
         found_count = 0

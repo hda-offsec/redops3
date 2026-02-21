@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 from typing import List, Dict
 from scan_engine.surface.route_model import RouteModel
 
@@ -8,9 +8,10 @@ class PassiveBackendValidator:
     No active exploitation, no state modification.
     """
     
-    def __init__(self, target_host: str):
+    def __init__(self, target_host: str, options=None):
+        self.options = options
         self.target_host = target_host
-        self.session = requests.Session()
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "RedOps3-SurfaceValidator/1.0"})
 
     def validate_route(self, route: RouteModel, port: int, protocol="http") -> bool:

@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import socket
 
 class H2CSmuggler:
@@ -7,7 +7,8 @@ class H2CSmuggler:
     Identifies misconfigured proxies that allow upgrading to H2C to bypass
     access controls.
     """
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_h2c_upgrade(self, port, protocol='http', logger=None):

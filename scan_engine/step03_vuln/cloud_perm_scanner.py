@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import xml.etree.ElementTree as ET
 import random
 import string
@@ -9,8 +9,9 @@ class CloudPermScanner:
     Checks for public Listing, Reading, and Writing on S3 and Azure buckets.
     """
     
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (RedOps3-CloudExpert-V6)"})
 
     def _generate_test_filename(self):

@@ -1,8 +1,10 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import re
 
 class DeserializationScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_deserialization(self, port, protocol='http', logger=None):
@@ -12,7 +14,7 @@ class DeserializationScanner:
         if logger: logger(f"🧊 Deserialization Check: Analyzing objects on {base_url}...", "INFO")
 
         try:
-            r = requests.get(base_url, timeout=5)
+            r = http_client.get(base_url, options=getattr(self, "options", None), timeout=5)
             
             # Detect serialized Java objects (HEX pattern AC ED 00 05)
             # Or Base64 encoded Java objects (starts with rO0)

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Operation #{{ scan.id }}{% endblock %}
+
+{% block content %}
+<style>
+{% include 'scan_partials/styles.html' %}
+</style>
+
+<div class="row g-4">
+    <div class="col-12">
+        {% include 'scan_partials/header.html' %}
+    </div>
+
+    <div class="col-lg-8">
+        {% include 'scan_partials/main_content.html' %}
+    </div>
+
+    <div class="col-lg-4">
+        {% include 'scan_partials/sidebar.html' %}
+    </div>
+</div>
+
+{% include 'scan_partials/modals.html' %}
+
+{% include 'scan_partials/scripts.html' %}
+
+{% endblock %}

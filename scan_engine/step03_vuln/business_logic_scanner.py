@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import json
 from urllib.parse import urlparse, parse_qs, urlencode
 
@@ -8,8 +8,9 @@ class BusinessLogicScanner:
     1. Mass Assignment (Auto-binding abuse)
     2. HTTP Parameter Pollution (HPP)
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "RedOps3-LogicExpert/1.0"})
         # Dangerous fields often vulnerable to mass assignment
         self.priv_fields = ["is_admin", "is_staff", "role", "permissions", "privilege", "superuser", "org_id", "plan_id"]

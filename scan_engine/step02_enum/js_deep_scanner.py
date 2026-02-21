@@ -1,10 +1,12 @@
 import re
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class JSDeepScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         
         # 1. Secret Patterns (Based on TruffleHog / GitLeaks / RedOps legacy)
@@ -47,7 +49,7 @@ class JSDeepScanner:
     def scan_url(self, url, logger=None):
         results = {"secrets": [], "endpoints": [], "raw_size": 0}
         try:
-            r = requests.get(url, timeout=10, verify=True)
+            r = http_client.get(url, options=getattr(self, "options", None), timeout=10)
             if r.status_code != 200:
                 return results
                 

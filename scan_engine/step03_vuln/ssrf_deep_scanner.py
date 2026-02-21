@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import re
 from urllib.parse import quote
 
@@ -7,8 +7,9 @@ class SSRFDeepScanner:
     Expert Auditor for Deep SSRF.
     Focuses on Cloud Metadata exfiltration and Internal Port Scanning.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
         self.session.headers.update({"User-Agent": "RedOps3-SSRFDeep/1.0"})
         # Standard Cloud Metadata Endpoints
         self.metadata_vector = "http://169.254.169.254"

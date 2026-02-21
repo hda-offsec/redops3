@@ -1,8 +1,10 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 from urllib.parse import urlparse
 
 class WebSocketScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
 
     def scan_websocket(self, port, protocol='http', logger=None):
@@ -33,7 +35,7 @@ class WebSocketScanner:
             }
             
             # We try root or /ws
-            r = requests.get(base_url, headers=headers, timeout=3, allow_redirects=False)
+            r = http_client.get(base_url, options=getattr(self, "options", None), headers=headers, timeout=3, allow_redirects=False)
             
             if r.status_code == 101:
                 # server accepted upgrade from evil origin!

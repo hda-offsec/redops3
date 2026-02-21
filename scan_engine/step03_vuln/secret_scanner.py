@@ -1,7 +1,8 @@
 import re
 
 class SecretScanner:
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         # EXPERT DICTIONARY: Extremely comprehensive patterns for RedOps Pro
         self.patterns = {
             # --- High Fidelity Credentials (CRITICAL) ---

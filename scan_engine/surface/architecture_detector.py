@@ -9,7 +9,8 @@ class ArchitectureDetector:
     Identifies patterns suggesting backend structure exposure.
     """
     
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.parser = RouterParser()
         
         # Signatures of architectural leaks

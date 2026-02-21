@@ -15,7 +15,8 @@ class XssAssaultScanner:
     Phase 4 consumes raw enum seeds / injection_points only.
     """
     
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
         self.mutator = PayloadMutator()
     
     def scan(self, target, scan_id, urls=None, logger=None, finding_callback=None):

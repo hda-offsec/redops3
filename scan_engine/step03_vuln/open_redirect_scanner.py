@@ -1,10 +1,12 @@
-import requests
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import re
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from scan_engine.helpers.process_manager import ProcessManager
 
 class OpenRedirectScanner:
-    def __init__(self, target):
+    def __init__(self, target, options=None):
+        self.options = options
         self.target = target
         # Parameters often associated with redirects
         self.redirect_params = [
@@ -57,7 +59,7 @@ class OpenRedirectScanner:
                         ))
 
                         try:
-                            r = requests.get(test_url, timeout=5, verify=True, allow_redirects=False)
+                            r = http_client.get(test_url, options=getattr(self, "options", None), timeout=5, allow_redirects=False)
                             loc = r.headers.get('Location', '')
                             if loc.startswith('//google.com') or 'google.com' in loc:
                                 if logger: logger(f"🔥 Open Redirect Found: {test_url} -> {loc}", "CRITICAL")
