@@ -268,9 +268,9 @@ def suggest_actions(results: Dict[str, Any]) -> List[Dict[str, Any]]:
             })
 
         # Check for open infra ports from recon data
-        open_ports = [p.get('port') for p in enum.get('recon', {}).get('open_ports', [])]
+        open_infra_ports = [p.get('port') for p in recon_ports]
         infra_ports = [6379, 11211, 2375, 27017, 9200]
-        if any(p in open_ports for p in infra_ports):
+        if any(p in open_infra_ports for p in infra_ports):
             suggestions.append({
                 "id": "cortex-vuln-infra-exposure",
                 "title": "Infrastructure Exposure Audit",
@@ -329,7 +329,7 @@ def suggest_actions(results: Dict[str, Any]) -> List[Dict[str, Any]]:
             "category": "vuln",
         })
 
-        if port == 80 or proto == 'http':
+        if port == "80" or service.lower() == "http":
             suggestions.append({
                 "id": f"cortex-vuln-h2c-{port}",
                 "title": "H2C Smuggling & Tunneling Audit",
