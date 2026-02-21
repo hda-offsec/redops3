@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 from urllib.parse import quote
 
 class CSTIScanner:
@@ -6,8 +6,9 @@ class CSTIScanner:
     Expert Auditor for Client-Side Template Injection (CSTI).
     Targets: AngularJS, Vue.js, Moustache, Handlebars.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "RedOps3-CSTIExpert/1.0"})
         # Simple mathematical payloads for evaluation detection
         self.payloads = {
@@ -26,7 +27,7 @@ class CSTIScanner:
                 try:
                     # Inject payload
                     attack_url = f"{url}?{param}={quote(payload)}" if "?" not in url else f"{url}&{param}={quote(payload)}"
-                    resp = self.session.get(attack_url, timeout=5, verify=False)
+                    resp = self.session.get(attack_url, timeout=5)
                     
                     # Look for evaluated output "49" in the response body
                     # BUT it must NOT be the literal payload "{{7*7}}"

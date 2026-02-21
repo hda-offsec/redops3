@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 import re
 from urllib.parse import urljoin
 
@@ -7,8 +7,9 @@ class MetadataScanner:
     Expert Auditor for Digital Forensics & Metadata Exfiltration.
     Targets PDF, Office (DOCX/XLSX), and Images.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "RedOps3-MetadataExpert/1.0"})
         self.target_extensions = [".pdf", ".docx", ".xlsx", ".pptx", ".jpg", ".png"]
 

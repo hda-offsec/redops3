@@ -1,12 +1,13 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 
 class WAFExpertScanner:
     """
     Expert Auditor for WAF/IPS Fingerprinting.
     Identifies active protection solutions via behavioral analysis and triggers.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "RedOps3-WAFExpert/1.0"})
         # Fingerprints based on headers and response signatures
         self.waf_signatures = {
@@ -24,7 +25,7 @@ class WAFExpertScanner:
 
         try:
             # 1. Baseline Request
-            r = self.session.get(url, timeout=5, verify=False)
+            r = self.session.get(url, timeout=5)
             
             detected_waf = None
             for name, sig in self.waf_signatures.items():
@@ -46,7 +47,7 @@ class WAFExpertScanner:
                 # 2. Trigger Request (Illegal payload to force a WAF block)
                 try:
                     trigger_url = f"{url}?waf_probe=<script>alert(1)</script> OR 1=1"
-                    r_trigger = self.session.get(trigger_url, timeout=5, verify=False)
+                    r_trigger = self.session.get(trigger_url, timeout=5)
                     
                     if r_trigger.status_code in [403, 406, 501, 999]:
                          # Blocked! Check if we can identify from block page

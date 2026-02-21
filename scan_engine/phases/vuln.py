@@ -302,7 +302,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # --- EXPERT: JWT Security Audit (Point 1) ---
     try:
         _set_cortex_status(f"JWT Security Audit (Port {port})...")
-        jwt_expert = JWTScanner()
+        jwt_expert = JWTScanner(options=orch.options)
         # Probe main URL
         jwt_findings = jwt_expert.probe_endpoint(f"{proto}://{target}:{port}", logger=log)
         
@@ -536,7 +536,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # 2. API Shadow Hunter
     try:
         _set_cortex_status(f"API Shadow Hunter (Port {port})...")
-        shadow_hunter = APIShadowHunter()
+        shadow_hunter = APIShadowHunter(options=orch.options)
         shadow_findings = shadow_hunter.scan_endpoints(f"{proto}://{target}:{port}", logger=log)
         if shadow_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('api_shadow', []).extend(shadow_findings)))
@@ -547,7 +547,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # 3. CSTI Expert
     try:
         _set_cortex_status(f"CSTI framework Audit (Port {port})...")
-        csti_expert = CSTIScanner()
+        csti_expert = CSTIScanner(options=orch.options)
         csti_params = ["q", "name", "id", "search", "msg"]
         csti_findings = csti_expert.scan_endpoint(f"{proto}://{target}:{port}", csti_params, logger=log)
         if csti_findings:
@@ -559,7 +559,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # 4. Metadata Exfiltrator
     try:
         _set_cortex_status(f"Digital Forensics: Doc Metadata (Port {port})...")
-        meta_expert = MetadataScanner()
+        meta_expert = MetadataScanner(options=orch.options)
         # Find document URLs from Katana
         web_urls = results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(port), [])
         meta_findings = meta_expert.scan_found_files(web_urls, logger=log)
@@ -572,7 +572,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # 5. WAF Expert Fingerprinter
     try:
         _set_cortex_status(f"WAF Fingerprinting (Port {port})...")
-        waf_expert = WAFExpertScanner()
+        waf_expert = WAFExpertScanner(options=orch.options)
         waf_findings = waf_expert.fingerprint(f"{proto}://{target}:{port}", logger=log)
         if waf_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('waf_audit', []).extend(waf_findings)))
@@ -583,7 +583,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # 6. Java RCE & Spring4Shell
     try:
         _set_cortex_status(f"Java RCE & Spring Audit (Port {port})...")
-        java_expert = JavaRCEScanner()
+        java_expert = JavaRCEScanner(options=orch.options)
         java_findings = java_expert.scan_spring4shell(f"{proto}://{target}:{port}", logger=log)
         if java_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('java_rce', []).extend(java_findings)))
@@ -1016,7 +1016,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
 
     # 5. WAF Bypass & Origin Leak (WafBypassScanner)
     try:
-        waf_bypass = WafBypassScanner(target)
+        waf_bypass = WafBypassScanner(target, options=orch.options)
         wb_findings = waf_bypass.scan(port, proto, logger=log)
         if wb_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('waf_bypass', wb_findings)))

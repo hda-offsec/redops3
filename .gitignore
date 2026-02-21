@@ -34,3 +34,10 @@ data/
 
 # Logs
 *.log
+nohup.out
+*.out
+*.tmp
+
+# Walkthroughs
+walkthrough_*.md
+/home/doomer/Bureau/redops3/walkthrough_*.md

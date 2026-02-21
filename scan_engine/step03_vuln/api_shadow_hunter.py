@@ -1,4 +1,4 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 from urllib.parse import urljoin
 
 class APIShadowHunter:
@@ -7,8 +7,9 @@ class APIShadowHunter:
     Searches for exposed documentation files (Swagger/OpenAPI) and 
     compares them with active endpoints.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "RedOps3-ShadowHunter/1.0"})
         # Common locations for API documentation
         self.doc_paths = [
@@ -25,7 +26,7 @@ class APIShadowHunter:
         for path in self.doc_paths:
             try:
                 url = urljoin(base_url, path)
-                resp = self.session.get(url, timeout=5, verify=False)
+                resp = self.session.get(url, timeout=5)
                 
                 if resp.status_code == 200:
                     # Validate content

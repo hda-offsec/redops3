@@ -1,14 +1,17 @@
+from scan_engine.helpers.http_client import get_session
 import base64
 import json
 import re
-import requests
 
 class JWTScanner:
     """
     V6 EXPERT: Advanced JWT Security Auditor.
     Checks for none-algorithm, weak secrets, key confusion, and header injections.
     """
-    def __init__(self):
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options)
+        self.session.headers.update({"User-Agent": "RedOps3-JWTExpert/1.0"})
         # Regex for JWT: header.payload.signature
         self.jwt_pattern = re.compile(r'ey[a-zA-Z0-9_-]+\.ey[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]*')
         self.sensitive_keys = ['email', 'password', 'role', 'admin', 'id', 'user_id', 'internal', 'secret', 'key', 'priv']
@@ -112,7 +115,7 @@ class JWTScanner:
         """Probes a specific endpoint for JWTs in headers/cookies"""
         findings = []
         try:
-            r = requests.get(url, timeout=5, verify=False, allow_redirects=True)
+            r = self.session.get(url, timeout=5, allow_redirects=True)
             
             # Check Cookies
             for cookie in r.cookies:

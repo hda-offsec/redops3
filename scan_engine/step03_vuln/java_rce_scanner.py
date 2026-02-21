@@ -1,12 +1,13 @@
-import requests
+from scan_engine.helpers.http_client import get_session
 
 class JavaRCEScanner:
     """
     Expert Auditor for Java-specific RCEs (Spring4Shell, Log4Shell, etc.).
     Uses high-fidelity behavioral probes.
     """
-    def __init__(self):
-        self.session = requests.Session()
+    def __init__(self, options=None):
+        self.options = options
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "RedOps3-JavaExpert/1.0"})
 
     def scan_spring4shell(self, url, logger=None):
@@ -23,8 +24,8 @@ class JavaRCEScanner:
             # If it's vulnerable, it will return a 400 because we provided an illegal property value
             # but it indicates the PROPERTY WAS ACCESSED. 
             # 200/404 on normal URL vs 400 on this payload is a strong indicator.
-            orig = self.session.get(url, timeout=5, verify=False)
-            resp = self.session.get(attack_url, timeout=5, verify=False)
+            orig = self.session.get(url, timeout=5)
+            resp = self.session.get(attack_url, timeout=5)
             
             # If server returns 400 Bad Request specifically for this class manipulation
             if resp.status_code == 400 and orig.status_code != 400:

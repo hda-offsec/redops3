@@ -1,6 +1,4 @@
-import requests
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from scan_engine.helpers.http_client import get_session
 
 class WafBypassScanner:
     """
@@ -25,8 +23,10 @@ class WafBypassScanner:
     
     BYPASS_VALUES = ["127.0.0.1", "localhost", "192.168.1.1", "10.0.0.1", "::1"]
 
-    def __init__(self, target):
+    def __init__(self, target, options=None):
         self.target = target
+        self.options = options
+        self.session = get_session(options)
 
     def scan(self, port, protocol='http', logger=None):
         findings = []
@@ -42,7 +42,7 @@ class WafBypassScanner:
         for path in test_paths:
             url = base_url + path
             try:
-                r = requests.get(url, timeout=5, verify=False, allow_redirects=False)
+                r = self.session.get(url, timeout=5, allow_redirects=False)
                 if r.status_code in [401, 403]:
                     protected_paths.append((path, r.status_code, len(r.content)))
             except Exception:
@@ -59,7 +59,7 @@ class WafBypassScanner:
                 for val in self.BYPASS_VALUES:
                     try:
                         headers = {header: val}
-                        r = requests.get(url, headers=headers, timeout=5, verify=False, allow_redirects=False)
+                        r = self.session.get(url, headers=headers, timeout=5, allow_redirects=False)
                         
                         # Detection Logic: Status code change or significantly different content length
                         if (orig_status in [401, 403] and r.status_code == 200) or \
