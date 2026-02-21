@@ -1,0 +1,49 @@
+<!-- TLS/SSL INTELLIGENCE -->
+<div class="col-12" id="section-tls-intel">
+    <div class="card glass-panel border-info">
+        <div class="card-header glass-header text-info d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-certificate me-2"></i>TLS/SSL Intelligence</span>
+            <span class="badge bg-info x-small">ENCRYPTION AUDIT</span>
+        </div>
+        <div class="card-body" id="tls-results">
+            {% if results and results.phases and results.phases.vuln and results.phases.vuln.tls and
+            results.phases.vuln.tls|length > 0 %}
+            <div class="row g-3">
+                {% for port, data in results.phases.vuln.tls.items() %}
+                <div class="col-md-6">
+                    <div class="p-3 bg-black border border-info border-opacity-25 rounded h-100">
+                        <div class="text-info x-small fw-bold mb-2 text-uppercase">Port {{ port }}</div>
+                        {% if data.issuer %}
+                        <div class="mb-1 small"><span class="text-muted">Issuer:</span> <span class="text-light">{{
+                                data.issuer }}</span></div>
+                        {% endif %}
+                        {% if data.expiry %}
+                        <div class="mb-1 small"><span class="text-muted">Expiry:</span> <span class="text-light">{{
+                                data.expiry }}</span></div>
+                        {% endif %}
+                        {% if data.cipher %}
+                        <div class="mb-1 small"><span class="text-muted">Cipher:</span> <span class="text-warning">{{
+                                data.cipher }}</span></div>
+                        {% endif %}
+                        {% if data.vulns %}
+                        <div class="mt-2">
+                            {% for v in data.vulns %}
+                            <div
+                                class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-25 me-1 mb-1 x-small">
+                                {{ v }}</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small fst-italic p-3 text-center" id="tls-placeholder">
+                <i class="fas fa-shield-blank opacity-25 mb-2 display-6"></i><br>
+                Waiting for TLS/SSL audit results...
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

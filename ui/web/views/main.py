@@ -287,8 +287,15 @@ def _log_and_emit(scan_id, msg, level="INFO"):
 
 
 def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None, confidence='medium', request=None, response=None, repro_command=None):
+    from core.utils import sanitize_evidence, cap_text
+    
     if command and not repro_command:
         repro_command = command
+
+    # P0 Hardening: Sanitize and Cap Evidence
+    cleaned_request = cap_text(sanitize_evidence(request))
+    cleaned_response = cap_text(sanitize_evidence(response))
+    cleaned_repro = cap_text(sanitize_evidence(repro_command))
 
     finding = Finding(
         scan_id=scan_id,
@@ -298,9 +305,9 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
         description=description,
         tool_source=tool,
         screenshot_path=screenshot_path,
-        request=request,
-        response=response,
-        repro_command=repro_command
+        request=cleaned_request,
+        response=cleaned_response,
+        repro_command=cleaned_repro
     )
     db.session.add(finding)
     db.session.commit()
@@ -317,9 +324,9 @@ def _add_finding(scan_id, tool, severity, title, description=None, screenshot_pa
             "tool": tool,
             "description": description,
             "screenshot_path": screenshot_path,
-            "request": request,
-            "response": response,
-            "repro_command": repro_command
+            "request": cleaned_request,
+            "response": cleaned_response,
+            "repro_command": cleaned_repro
         }, room=f"scan_{scan_id}")
 
         # Global Alert for Critical Issues

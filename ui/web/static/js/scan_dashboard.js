@@ -33,6 +33,7 @@ class ScanDashboard {
 
     init() {
         this.setupSocketListeners();
+        this.setupEventListeners();
         this.checkInitialStatus();
         this.setupNotesPreview();
 
@@ -40,6 +41,39 @@ class ScanDashboard {
         window.updateUI = (results) => this.updateUI(results);
         window.verifyFinding = (cmd) => this.verifyFinding(cmd);
         window.filterFindings = () => this.filterFindings(); // For search input
+    }
+
+    setupEventListeners() {
+        document.addEventListener('click', (e) => {
+            // Clipboard copy
+            const copyBtn = e.target.closest('.copy-btn');
+            if (copyBtn) {
+                const pre = copyBtn.closest('.tab-pane, .d-flex').querySelector('pre');
+                if (pre) {
+                    navigator.clipboard.writeText(pre.innerText).then(() => {
+                        const originalHtml = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+                        setTimeout(() => copyBtn.innerHTML = originalHtml, 1000);
+                    });
+                }
+                return;
+            }
+
+            // Screenshot viewing
+            const trigger = e.target.closest('.screenshot-trigger');
+            if (trigger) {
+                window.open(trigger.src);
+                return;
+            }
+
+            // Manual verification
+            const verifyBtn = e.target.closest('.verify-btn');
+            if (verifyBtn) {
+                const cmd = verifyBtn.getAttribute('data-command');
+                this.verifyFinding(cmd);
+                return;
+            }
+        });
     }
 
     escapeHtml(unsafe) {
@@ -216,22 +250,27 @@ class ScanDashboard {
             const div = document.createElement("div");
             div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
 
+            const escapedTitle = this.escapeHtml(data.title);
+            const escapedTool = this.escapeHtml(data.tool);
+            const escapedDesc = this.escapeHtml(data.description);
+
             let innerHTML = `
                 <div class="d-flex w-100 justify-content-between mb-2">
                     <span class="badge severity-badge ${data.severity.toLowerCase()}">${data.severity.toUpperCase()}</span>
-                    <span class="result-text fw-bold text-break">${data.title}</span>
+                    <span class="result-text fw-bold text-break">${escapedTitle}</span>
                 </div>
-                <div class="mt-1 small text-muted text-break">Source: ${data.tool}</div>
+                <div class="mt-1 small text-muted text-break">Source: ${escapedTool}</div>
             `;
 
             if (data.description) {
-                innerHTML += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${data.description}</div>`;
+                innerHTML += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${escapedDesc}</div>`;
             }
 
             if (data.screenshot_path) {
+                const escapedPath = this.escapeHtml(data.screenshot_path);
                 innerHTML += `
                     <div class="mt-2 w-100">
-                        <img src="/static/${data.screenshot_path}" class="img-fluid rounded border border-secondary shadow-sm" style="max-height: 150px; cursor: pointer;" onclick="window.open(this.src)">
+                        <img src="/static/${escapedPath}" class="img-fluid rounded border border-secondary shadow-sm screenshot-trigger" style="max-height: 150px; cursor: pointer;" title="Port ${escapedTitle}">
                     </div>
                 `;
                 this.addToGallery(data);
@@ -243,26 +282,23 @@ class ScanDashboard {
             this.updateRiskCounters(data.severity);
             this.updateIndicators(data);
 
-            // UPDATED: Also append to the Full Findings Table if it exists
             const tableBody = document.getElementById("findings-table-body");
             if (tableBody) {
                 const fid = data.id || `new-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
                 const rowId = `finding-detail-${fid}`;
-
-                // Prevent duplicate rows if ID already exists
                 if (document.getElementById(rowId)) return;
 
                 const tr = document.createElement("tr");
                 tr.className = "finding-row animate__animated animate__fadeIn";
                 tr.setAttribute("data-severity", data.severity.toLowerCase());
-                tr.setAttribute("data-content", `${data.title.toLowerCase()} ${data.tool.toLowerCase()} ${data.description.toLowerCase()}`);
+                tr.setAttribute("data-content", `${escapedTitle.toLowerCase()} ${escapedTool.toLowerCase()} ${escapedDesc.toLowerCase()}`);
                 tr.innerHTML = `
                     <td><span class="badge severity-badge ${data.severity.toLowerCase()} text-uppercase w-100">${data.severity}</span></td>
                     <td>
-                        <div class="fw-bold text-light">${data.title}</div>
-                        <div class="small text-muted text-truncate" style="max-width: 400px;">${(data.description || "").substring(0, 100)}...</div>
+                        <div class="fw-bold text-light">${escapedTitle}</div>
+                        <div class="small text-muted text-truncate" style="max-width: 400px;">${(escapedDesc || "").substring(0, 100)}...</div>
                     </td>
-                    <td><span class="badge bg-dark border border-secondary text-muted">${data.tool}</span></td>
+                    <td><span class="badge bg-dark border border-secondary text-muted">${escapedTool}</span></td>
                     <td>
                         <button class="btn btn-xs btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#${rowId}">
                             <i class="fas fa-chevron-down"></i>
@@ -276,36 +312,34 @@ class ScanDashboard {
 
                 let evidenceHtml = "";
                 if (data.request || data.response || data.repro_command) {
+                    const escapedReq = this.escapeHtml(data.request);
+                    const escapedRes = this.escapeHtml(data.response);
+                    const escapedRepro = this.escapeHtml(data.repro_command);
+
                     evidenceHtml = `
                         <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded">
-                            <ul class="nav nav-pills nav-justified mb-2 x-small" role="tablist">
-                                ${data.request ? `<li class="nav-item"><button class="nav-link py-1 active" data-bs-toggle="pill" data-bs-target="#req-${fid}">Request</button></li>` : ''}
-                                ${data.response ? `<li class="nav-item"><button class="nav-link py-1 ${!data.request ? 'active' : ''}" data-bs-toggle="pill" data-bs-target="#res-${fid}">Response</button></li>` : ''}
-                                ${data.repro_command ? `<li class="nav-item"><button class="nav-link py-1 ${(!data.request && !data.response) ? 'active' : ''}" data-bs-toggle="pill" data-bs-target="#repro-${fid}">Reproduction</button></li>` : ''}
+                            <ul class="nav nav-tabs border-bottom-0 mb-3" role="tablist">
+                                ${data.request ? `<li class="nav-item"><a class="nav-link active py-1 px-3 x-small" data-bs-toggle="tab" href="#req-${fid}">Request</a></li>` : ''}
+                                ${data.response ? `<li class="nav-item"><a class="nav-link ${!data.request ? 'active' : ''} py-1 px-3 x-small" data-bs-toggle="tab" href="#res-${fid}">Response</a></li>` : ''}
+                                ${data.repro_command ? `<li class="nav-item"><a class="nav-link ${(!data.request && !data.response) ? 'active' : ''} py-1 px-3 x-small" data-bs-toggle="tab" href="#repro-${fid}">Reproduction</a></li>` : ''}
                             </ul>
-                            <div class="tab-content mt-2">
-                                ${data.request ? `<div class="tab-pane fade show active" id="req-${fid}"><pre class="x-small font-monospace text-cyber bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 250px;">${this.escapeHtml(data.request)}</pre></div>` : ''}
-                                ${data.response ? `<div class="tab-pane fade ${!data.request ? 'show active' : ''}" id="res-${fid}"><pre class="x-small font-monospace text-success bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 250px;">${this.escapeHtml(data.response)}</pre></div>` : ''}
-                                ${data.repro_command ? `<div class="tab-pane fade ${(!data.request && !data.response) ? 'show active' : ''}" id="repro-${fid}"><div class="d-flex gap-2"><div class="flex-grow-1"><pre class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">${this.escapeHtml(data.repro_command)}</pre></div><button class="btn btn-xs btn-outline-warning" onclick="navigator.clipboard.writeText('${data.repro_command.replace(/'/g, "\\'")}');this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',1000)"><i class="fas fa-copy"></i></button></div></div>` : ''}
+                            <div class="tab-content">
+                                ${data.request ? `<div class="tab-pane fade show active" id="req-${fid}"><pre class="x-small font-monospace text-info bg-black p-2 rounded border border-secondary border-opacity-10">${escapedReq}</pre></div>` : ''}
+                                ${data.response ? `<div class="tab-pane fade ${!data.request ? 'show active' : ''}" id="res-${fid}"><pre class="x-small font-monospace text-success bg-black p-2 rounded border border-secondary border-opacity-10">${escapedRes}</pre></div>` : ''}
+                                ${data.repro_command ? `
+                                    <div class="tab-pane fade ${(!data.request && !data.response) ? 'show active' : ''}" id="repro-${fid}">
+                                        <div class="d-flex gap-2">
+                                            <div class="flex-grow-1">
+                                                <pre class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">${escapedRepro}</pre>
+                                            </div>
+                                            <button class="btn btn-xs btn-outline-warning copy-btn"><i class="fas fa-copy"></i></button>
+                                        </div>
+                                    </div>` : ''}
                             </div>
                         </div>
                     `;
                 }
-
-                detailTr.innerHTML = `
-                    <td colspan="4" class="p-3">
-                        <div class="d-flex align-items-center mb-2">
-                            <span class="badge bg-dark border border-secondary text-light x-small me-2"><i class="fas fa-bullseye"></i> Confidence: ${(data.confidence || 'medium').toUpperCase()}</span>
-                        </div>
-                        <div class="small font-monospace text-light whitespace-pre-wrap">${data.description}</div>
-                        ${evidenceHtml}
-                        ${data.screenshot_path ? `
-                        <div class="mt-3 text-center">
-                            <img src="/static/${data.screenshot_path}" class="img-fluid rounded border border-secondary" style="max-height: 400px; cursor: pointer;" onclick="window.open(this.src)">
-                        </div>` : ''}
-                    </td>
-                `;
-
+                detailTr.innerHTML = `<td colspan="4"><div class="p-3">${escapedDesc}${evidenceHtml}</div></td>`;
                 tableBody.prepend(detailTr);
                 tableBody.prepend(tr);
             }
@@ -322,7 +356,7 @@ class ScanDashboard {
             col.className = "col-md-4 col-lg-3 animate__animated animate__zoomIn";
             col.innerHTML = `
                 <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
-                    <img src="/static/${data.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${data.title}">
+                    <img src="/static/${this.escapeHtml(data.screenshot_path)}" class="img-fluid w-100 screenshot-trigger" style="height: 120px; object-fit: cover; cursor: pointer;" title="${this.escapeHtml(data.title)}">
                     <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
                         <span class="text-danger">NEW EXPOSURE</span>
                     </div>
@@ -382,12 +416,13 @@ class ScanDashboard {
 
             const div = document.createElement("div");
             div.className = "result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded animate__animated animate__fadeInUp";
+            const escapedCmd = this.escapeHtml(data.command_suggestion);
             div.innerHTML = `
                 <div>
-                    <span class="badge bg-secondary me-2">${data.tool_name}</span>
-                    <span class="result-text font-monospace small">${data.command_suggestion}</span>
+                    <span class="badge bg-secondary me-2">${this.escapeHtml(data.tool_name)}</span>
+                    <span class="result-text font-monospace small">${escapedCmd}</span>
                 </div>
-                <button class="btn btn-xs btn-outline-warning" onclick='verifyFinding("${data.command_suggestion}")'>
+                <button class="btn btn-xs btn-outline-warning verify-btn" data-command="${escapedCmd}">
                     <i class="fas fa-play"></i>
                 </button>
             `;
@@ -418,11 +453,11 @@ class ScanDashboard {
             div.className = "list-group-item bg-transparent border-secondary border-opacity-25 py-2 px-3 animate__animated animate__fadeInDown";
             div.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
-                    <span class="badge bg-black border border-success text-success x-small text-uppercase">${data.type}</span>
+                    <span class="badge bg-black border border-success text-success x-small text-uppercase">${this.escapeHtml(data.type)}</span>
                     <span class="x-small text-muted font-monospace">${time}</span>
                 </div>
-                <div class="mt-1 small font-monospace text-light text-break">${data.content}</div>
-                ${data.context ? `<div class="x-small text-muted mt-1 italic"><i class="fas fa-info-circle me-1"></i>${data.context}</div>` : ''}
+                <div class="mt-1 small font-monospace text-light text-break">${this.escapeHtml(data.content)}</div>
+                ${data.context ? `<div class="x-small text-muted mt-1 italic"><i class="fas fa-info-circle me-1"></i>${this.escapeHtml(data.context)}</div>` : ''}
             `;
             vault.prepend(div);
         }
@@ -497,7 +532,7 @@ class ScanDashboard {
         for (const [phaseKey, ptesIdSuffix] of Object.entries(this.ptesMap)) {
             if (text.includes(phaseKey)) {
                 document.querySelectorAll('.nav-link[id^="sidebar-ptes-"]').forEach(el => el.classList.remove('active'));
-                const target = document.getElementById(`sidebar-ptes-${ptesIdSuffix}`);
+                const target = document.getElementById(`sidebar - ptes - ${ptesIdSuffix} `);
                 if (target) {
                     target.classList.add('active');
                 }
@@ -507,7 +542,7 @@ class ScanDashboard {
     }
 
     activateDiscovery(id, discovered = false) {
-        const btn = document.getElementById(`discovery-${id}`);
+        const btn = document.getElementById(`discovery - ${id} `);
         if (!btn) return;
         if (discovered) {
             btn.classList.add('discovered');
@@ -535,7 +570,7 @@ class ScanDashboard {
         const currentStatus = statusPill ? statusPill.innerText.toLowerCase() : '';
         this.toggleScanToast(currentStatus === 'running');
 
-        document.querySelectorAll('.log-console > div').forEach(logDiv => {
+        document.querySelectorAll('.log-console> div').forEach(logDiv => {
             this.highlightPTES(logDiv.innerText);
         });
     }
@@ -575,7 +610,7 @@ class ScanDashboard {
     updateRiskCounters(severity) {
         const sev = severity.toLowerCase();
         if (sev === 'critical' || sev === 'high') {
-            const el = document.querySelector(`.tactical-summary-bar .h4.text-${sev === 'critical' ? 'danger' : 'warning'}`);
+            const el = document.querySelector(`.tactical - summary - bar.h4.text - ${sev === 'critical' ? 'danger' : 'warning'} `);
             if (el) {
                 let count = parseInt(el.innerText) + 1;
                 el.innerText = count;
@@ -631,17 +666,17 @@ class ScanDashboard {
             if (s === 'executed') return '<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>';
             if (s === 'skipped') return '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>';
             if (s === 'failed') return '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>';
-            return `<span class="badge bg-dark border border-secondary text-muted x-small">${s.toUpperCase()}</span>`;
+            return `<span class="badge bg-dark border border-secondary text-muted x-small"> ${s.toUpperCase()}</span> `;
         };
 
         Object.entries(taskStatus).forEach(([taskId, data]) => {
             const row = document.createElement('tr');
-            row.id = `task-row-${taskId}`;
+            row.id = `task - row - ${taskId} `;
             row.innerHTML = `
-                <td class="font-monospace text-info x-small">${taskId}</td>
+    <td class="font-monospace text-info x-small"> ${taskId}</td>
                 <td class="x-small">${getTaskBadge(data.state)}</td>
                 <td class="x-small text-muted">${data.reason || '-'}</td>
-            `;
+`;
             tableBody.appendChild(row);
         });
 
@@ -671,14 +706,14 @@ class ScanDashboard {
                     const version = (port.version && port.version !== "Unknown") ? port.version.substring(0, 15) : '';
 
                     portsHtml += `
-                        <div class="port-badge-item">
-                            <span class="badge p-2 ${isWeb ? 'bg-info bg-opacity-10 border-info text-info' : 'bg-secondary bg-opacity-10 border-secondary text-light'} border d-flex align-items-center gap-2" 
-                                    title="${service}">
-                                <span class="font-monospace fs-6 fw-bold">${port.port}</span>
-                                <span class="text-uppercase opacity-75 small border-start border-secondary ps-2">${port.service_name}</span>
-                                ${version ? `<span class="badge bg-black text-muted x-small border border-secondary ms-1 d-none d-lg-inline-block">${version}</span>` : ''}
-                            </span>
-                        </div>`;
+    <div class="port-badge-item">
+        <span class="badge p-2 ${isWeb ? 'bg-info bg-opacity-10 border-info text-info' : 'bg-secondary bg-opacity-10 border-secondary text-light'} border d-flex align-items-center gap-2"
+            title="${service}">
+            <span class="font-monospace fs-6 fw-bold">${port.port}</span>
+            <span class="text-uppercase opacity-75 small border-start border-secondary ps-2">${port.service_name}</span>
+            ${version ? `<span class="badge bg-black text-muted x-small border border-secondary ms-1 d-none d-lg-inline-block">${version}</span>` : ''}
+        </span>
+                        </div> `;
                 });
                 portContainer.innerHTML = portsHtml;
             }
@@ -728,16 +763,19 @@ class ScanDashboard {
             'dns': results.phases?.dns?.subdomains?.length > 0,
             'ports': results.phases?.recon?.open_ports?.length > 0,
             'cloud': results.phases?.osint?.cloud?.length > 0,
-            'waf': results.phases?.enum?.waf && Object.keys(results.phases.enum.waf).length > 0,
-            'crawl': results.phases?.enum?.katana && Object.keys(results.phases.enum.katana).length > 0,
+            'waf': (results.phases?.enum?.waf && Object.keys(results.phases.enum.waf).length > 0) || (results.phases?.enum?.derived?.waf_info),
+            'crawl': (results.phases?.enum?.katana && Object.keys(results.phases.enum.katana).length > 0) || (results.phases?.enum?.httpx),
             'params': (results.phases?.enum?.arjun && Object.keys(results.phases.enum.arjun).length > 0) || (results.phases?.enum?.params && Object.keys(results.phases.enum.params).length > 0),
             'fuzz': (results.phases?.dirbusting?.ffuf?.endpoints?.length > 0) || (results.phases?.dirbusting?.ffuf?.length > 0),
-            'api': results.phases?.enum?.api && Object.keys(results.phases.enum.api).length > 0,
-            'secrets': results.phases?.enum?.js_secrets && Object.keys(results.phases.enum.js_secrets).length > 0,
+            'api': (results.phases?.enum?.api && Object.keys(results.phases.enum.api).length > 0) || (results.phases?.enum?.openapi),
+            'secrets': (results.phases?.enum?.js_secrets && Object.keys(results.phases.enum.js_secrets).length > 0) || (results.phases?.vuln?.secrets && results.phases.vuln.secrets.length > 0),
             'vulns': (results.findings?.length > 0) || (results.metrics?.findings_count > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0) || (results.phases?.vuln?.xss?.length > 0),
             'intel': results.phases?.intel && Object.keys(results.phases.intel).length > 0,
-            'historic': results.phases?.osint?.historic_urls?.length > 0,
-            'apps': (results.phases?.vuln?.wordpress && Object.keys(results.phases.vuln.wordpress).length > 0) || (results.phases?.vuln?.tech && Object.keys(results.phases.vuln.tech).length > 0),
+            'historic': (results.phases?.osint?.historic_urls?.length > 0) || (results.phases?.osint?.gau_urls),
+            'apps': (results.phases?.vuln?.wordpress && Object.keys(results.phases.vuln.wordpress).length > 0) || (results.phases?.vuln?.tech && Object.keys(results.phases.vuln.tech).length > 0) || (results.phases?.vuln?.actuator) || (results.phases?.vuln?.graphql),
+            'tls': results.phases?.vuln?.tls && Object.keys(results.phases.vuln.tls).length > 0,
+            'expert': (results.phases?.vuln?.ssrf?.length > 0) || (results.phases?.vuln?.graphql?.length > 0) || (results.phases?.vuln?.git?.length > 0) || (results.phases?.vuln?.backups?.length > 0) || (results.phases?.vuln?.lfi?.length > 0),
+            'miner': (results.phases?.vuln?.data_leaks?.length > 0) || (results.phases?.osint?.historic_urls?.length > 0),
             'loot': (results.loot_count > 0) || (results.metrics?.loot_count > 0)
         };
 
@@ -756,11 +794,11 @@ class ScanDashboard {
                 let dnsHtml = '<div class="d-flex flex-wrap gap-2">';
 
                 subdomains.slice(0, displayLimit).forEach(sub => {
-                    dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">${sub}</div>`;
+                    dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber"> ${sub}</div> `;
                 });
 
                 if (subdomains.length > displayLimit) {
-                    dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted">+ ${subdomains.length - displayLimit} more...</div>`;
+                    dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted"> + ${subdomains.length - displayLimit} more...</div> `;
                 }
 
                 dnsHtml += '</div>';
@@ -789,16 +827,16 @@ class ScanDashboard {
                     techHtml = '<div class="d-flex flex-wrap gap-1">';
                     if (ww.includes('Title[')) {
                         const title = ww.split('Title[')[1].split(']')[0];
-                        techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small">${title.substring(0, 15)}...</span>`;
+                        techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small"> ${title.substring(0, 15)}...</span> `;
                     }
                     if (ww.includes('HTTPServer[')) {
                         const server = ww.split('HTTPServer[')[1].split(']')[0];
-                        techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small">${server}</span>`;
+                        techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small"> ${server}</span> `;
                     }
                     techHtml += '</div>';
                 }
 
-                html += `<tr style="border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
+                html += `<tr style = "border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
                     <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase">${port.service_name}</span></td>
                     <td class="p-3">
                         <div class="d-flex align-items-center">
@@ -814,7 +852,7 @@ class ScanDashboard {
                     <td class="p-3 text-end">
                         ${isWeb ? `<a href="${proto}://${this.targetIdentifier}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
                     </td>
-                </tr>`;
+                </tr> `;
             });
             matrixBody.innerHTML = html;
         }
@@ -830,23 +868,23 @@ class ScanDashboard {
                     let cardContent = "";
                     if (port.screenshot_path === 'pending') {
                         cardContent = `
-                            <div class="d-flex flex-column align-items-center justify-content-center" style="height: 120px; background: rgba(0,240,255,0.05);">
+    <div class="d-flex flex-column align-items-center justify-content-center" style = "height: 120px; background: rgba(0,240,255,0.05);">
                                 <div class="spinner-border text-info spinner-border-sm mb-2" role="status"></div>
                                 <div class="x-small text-info font-monospace text-uppercase flicker">Capturing...</div>
-                            </div>`;
+                            </div> `;
                     } else {
-                        cardContent = `<img src="/static/${port.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="Port ${port.port}">`;
+                        cardContent = `<img src = "/static/${port.screenshot_path}" class="img-fluid w-100" style = "height: 120px; object-fit: cover; cursor: pointer;" onclick = "window.open(this.src)" title = "Port ${port.port}"> `;
                     }
 
                     galleryHtml += `
-                        <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
-                            <div class="screenshot-card bg-black border ${port.screenshot_path === 'pending' ? 'border-info animate-pulse' : 'border-secondary'} rounded overflow-hidden">
-                                ${cardContent}
-                                <div class="p-1 text-center bg-dark small font-monospace">
-                                    <span class="text-info">PORT ${port.port}</span>
-                                </div>
-                            </div>
-                        </div>`;
+    <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
+        <div class="screenshot-card bg-black border ${port.screenshot_path === 'pending' ? 'border-info animate-pulse' : 'border-secondary'} rounded overflow-hidden">
+            ${cardContent}
+            <div class="p-1 text-center bg-dark small font-monospace">
+                <span class="text-info">PORT ${port.port}</span>
+            </div>
+        </div>
+                        </div> `;
                 }
             });
 
@@ -855,14 +893,14 @@ class ScanDashboard {
                     if (f.screenshot_path) {
                         hasShots = true;
                         galleryHtml += `
-                            <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
-                                <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
-                                    <img src="/static/${f.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${f.title}">
-                                    <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
-                                        <span class="text-danger">EXPOSURE</span>
-                                    </div>
-                                </div>
-                            </div>`;
+    <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
+        <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+            <img src="/static/${f.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${f.title}">
+                <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
+                    <span class="text-danger">EXPOSURE</span>
+                </div>
+        </div>
+                            </div> `;
                     }
                 });
             }
@@ -871,12 +909,12 @@ class ScanDashboard {
                 gallery.innerHTML = galleryHtml;
             } else {
                 gallery.innerHTML = `
-                    <div class="col-12 text-center py-5">
-                        <div class="text-muted small opacity-50">
-                            <i class="fas fa-image fa-3x mb-3 d-block"></i>
-                            No visual assets captured yet.
-                        </div>
-                    </div>`;
+    <div class="col-12 text-center py-5">
+        <div class="text-muted small opacity-50">
+            <i class="fas fa-image fa-3x mb-3 d-block"></i>
+            No visual assets captured yet.
+        </div>
+                    </div> `;
             }
         }
 
@@ -887,13 +925,13 @@ class ScanDashboard {
                 let intelHtml = '<div class="accordion" id="accordionIntel">';
                 for (const [port, vectors] of Object.entries(results.phases.intel)) {
                     intelHtml += `
-                        <div class="accordion-item bg-black border-secondary">
+    <div class="accordion-item bg-black border-secondary">
                             <h2 class="accordion-header">
                                 <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-intel-${port}">
                                     <span class="badge bg-warning me-2">Port ${port}</span>
                                     <span class="font-monospace small text-muted">${vectors.length} Vectors</span>
                                 </button>
-                            </h2>
+                            </h2 > 
                             <div id="collapse-intel-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionIntel">
                                 <div class="accordion-body p-2">
                                     ${vectors.map(v => `
@@ -908,7 +946,7 @@ class ScanDashboard {
                                     `).join('')}
                                 </div>
                             </div>
-                        </div>`;
+                        </div> `;
                 }
                 intelHtml += '</div>';
                 intelDiv.innerHTML = Object.keys(results.phases.intel).length ? intelHtml : '<div class="text-muted small fst-italic">Analyzing vectors...</div>';
@@ -924,13 +962,13 @@ class ScanDashboard {
                 if (wwData.summary) {
                     wwHtml += '<div class="tag-grid d-flex flex-wrap gap-2 mb-3">';
                     for (const [k, v] of Object.entries(wwData.summary)) {
-                        wwHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${k}:</span><span class="tag-value text-cyber">${v}</span></div>`;
+                        wwHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${k}:</span><span class="tag-value text-cyber">${v}</span></div> `;
                     }
                     wwHtml += '</div>';
                 }
                 for (const [port, output] of Object.entries(wwData)) {
                     if (port !== 'summary') {
-                        wwHtml += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break"><span class="badge bg-secondary me-2">Port ${port}</span> ${output}</div>`;
+                        wwHtml += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break"> <span class="badge bg-secondary me-2">Port ${port}</span> ${output}</div> `;
                     }
                 }
                 wwDiv.innerHTML = wwHtml || '<div class="text-muted small fst-italic">Waiting for fingerprinter...</div>';
@@ -944,19 +982,19 @@ class ScanDashboard {
                 let katHtml = '<div class="accordion" id="accordionKatana">';
                 for (const [port, endpoints] of Object.entries(results.phases.enum.katana)) {
                     katHtml += `
-                        <div class="accordion-item bg-black border-secondary">
+    <div class="accordion-item bg-black border-secondary">
                             <h2 class="accordion-header">
                                 <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-${port}">
                                     <span class="badge bg-info me-2">Port ${port}</span>
                                     <span class="font-monospace small text-muted">${endpoints.length} Endpoints</span>
                                 </button>
-                            </h2>
+                            </h2 > 
                             <div id="collapse-katana-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionKatana">
                                 <div class="accordion-body p-2" style="max-height: 200px; overflow-y: auto;">
                                     ${endpoints.map(ep => `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break"><a href="${ep}" target="_blank" class="text-decoration-none text-cyber">${ep}</a></div>`).join('')}
                                 </div>
                             </div>
-                        </div>`;
+                        </div> `;
                 }
                 katHtml += '</div>';
                 katDiv.innerHTML = Object.keys(results.phases.enum.katana).length ? katHtml : '<div class="text-muted small fst-italic">No crawling results yet.</div>';
@@ -971,10 +1009,10 @@ class ScanDashboard {
                 let nucHtml = '<div class="result-list">';
                 findings.forEach(f => {
                     nucHtml += `
-                    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between animate__animated animate__fadeIn">
+    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between animate__animated animate__fadeIn">
                         <span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span>
                         <span class="result-text flex-grow-1 small">${f.title}</span>
-                    </div>`;
+                    </div> `;
                 });
                 nucHtml += '</div>';
                 nucDiv.innerHTML = findings.length ? nucHtml : '<div class="text-muted small fst-italic">No vulnerabilities reported.</div>';
@@ -989,10 +1027,10 @@ class ScanDashboard {
                 let ffufHtml = '<div class="result-list">';
                 endpoints.forEach(ep => {
                     ffufHtml += `
-                        <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between animate__animated animate__fadeIn">
+    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between animate__animated animate__fadeIn">
                             <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">/${ep.path}</span>
                             <span class="result-text small text-muted">Status ${ep.status} · Size ${ep.size}</span>
-                        </div>`;
+                        </div> `;
                 });
                 ffufHtml += '</div>';
                 ffufDiv.innerHTML = endpoints.length ? ffufHtml : '<div class="text-muted small fst-italic">No endpoints discovered.</div>';
@@ -1005,9 +1043,9 @@ class ScanDashboard {
 
             // WAF
             if (results.phases.enum.waf && Object.keys(results.phases.enum.waf).length > 0) {
-                let wafContent = '<div class="mb-3"><h6 class="text-secondary small">WAF Detection</h6>';
+                let wafContent = '<div class="mb-3"><h6 class="text-secondary small">WAF Detection</h6 > ';
                 for (const [port, waf] of Object.entries(results.phases.enum.waf)) {
-                    wafContent += `<div class="d-flex justify-content-between border-bottom border-dark pb-1 mb-1 small font-monospace"><span class="text-muted">Port ${port}</span><span class="text-warning">${waf}</span></div>`;
+                    wafContent += `<div class="d-flex justify-content-between border-bottom border-dark pb-1 mb-1 small font-monospace"><span class="text-muted">Port ${port}</span><span class="text-warning">${waf}</span></div> `;
                 }
                 wafContent += '</div>';
                 enumHtml.push(wafContent);
@@ -1076,7 +1114,9 @@ class ScanDashboard {
             this.renderJSONSection(results.phases.enum, 'api', 'API Endpoints');
             this.renderJSONSection(results.phases.enum, 'js_secrets', 'JS Secrets');
             this.renderJSONSection(results.phases.enum, 'headers', 'Security Headers');
+            this.renderJSONSection(results.phases.enum, 'whatweb', 'Technology Footprint');
 
+            this.renderJSONSection(results.phases.vuln, 'tls', 'TLS/SSL Audit');
             this.renderJSONSection(results.phases.vuln, 'git', 'Git Exposure');
             this.renderJSONSection(results.phases.vuln, 'backups', 'Backup Files');
             this.renderJSONSection(results.phases.vuln, 'tech', 'Technology Leaks');
@@ -1084,6 +1124,19 @@ class ScanDashboard {
             this.renderJSONSection(results.phases.vuln, 'ssrf', 'SSRF Candidates');
             this.renderJSONSection(results.phases.vuln, 'redirects', 'Open Redirects');
             this.renderJSONSection(results.phases.vuln, 'xss', 'XSS Reflections');
+            this.renderJSONSection(results.phases.vuln, 'prototype', 'Prototype Pollution');
+            this.renderJSONSection(results.phases.vuln, 'ssti', 'SSTI Finds');
+            this.renderJSONSection(results.phases.vuln, 'lfi', 'LFI Assaults');
+            this.renderJSONSection(results.phases.vuln, 'cors_audit', 'CORS Audit');
+            this.renderJSONSection(results.phases.vuln, 'crlf', 'CRLF Injection');
+            this.renderJSONSection(results.phases.vuln, 'firebase', 'Firebase Exposure');
+            this.renderJSONSection(results.phases.vuln, 'xxe', 'XXE Analysis');
+            this.renderJSONSection(results.phases.vuln, 'deserialization', 'Deserialization');
+            this.renderJSONSection(results.phases.vuln, 'acl_bypass', 'ACL Bypass');
+            this.renderJSONSection(results.phases.vuln, 'email_security', 'Email Infrastructure');
+            this.renderJSONSection(results.phases.vuln, 'container_exposure', 'Container/Docker');
+            this.renderJSONSection(results.phases.vuln, 'websocket', 'WebSocket Security');
+            this.renderJSONSection(results.phases.vuln, 'data_leaks', 'Sensitive Data Mining');
         }
     }
 
@@ -1119,7 +1172,7 @@ class ScanDashboard {
             const wrapper = document.createElement('div');
             wrapper.id = `${key}-results`;
             wrapper.className = 'mb-4';
-            wrapper.innerHTML = `<h5 class="text-cyber mb-3 border-bottom border-secondary pb-2">${title}</h5><div class="result-content"></div>`;
+            wrapper.innerHTML = `<h5 class="text-cyber mb-3 border-bottom border-secondary pb-2">${title}</h5 > <div class="result-content"></div>`;
             deepContainer.appendChild(wrapper);
             container = wrapper.querySelector('.result-content');
         }
@@ -1162,7 +1215,7 @@ class ScanDashboard {
                                 <span class="badge bg-secondary me-2">Port ${subKey}</span>
                                 <span class="small font-monospace text-muted">${Array.isArray(subVal) ? subVal.length + ' Items' : 'Details'}</span>
                             </button>
-                        </h2>
+                        </h2 > 
                         <div id="collapse-${key}-${idx}" class="accordion-collapse collapse" data-bs-parent="#acc-${key}">
                             <div class="accordion-body p-2 bg-dark-subtle">
                                 <pre class="text-muted x-small mb-0 text-break" style="white-space: pre-wrap;">${typeof subVal === 'string' ? subVal : JSON.stringify(subVal, null, 2)}</pre>

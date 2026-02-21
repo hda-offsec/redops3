@@ -99,9 +99,20 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
         def add_finding_cb(**kwargs):
             try:
                 from core.extensions import socketio
+                from core.utils import sanitize_evidence, cap_text
+                
                 severity = kwargs.get('severity', 'info')
                 title = kwargs.get('title', 'Untitled Finding')
                 
+                # P0 Hardening: Sanitize and Cap Evidence
+                raw_request = kwargs.get('request')
+                raw_response = kwargs.get('response')
+                raw_repro = kwargs.get('repro_command')
+
+                cleaned_request = cap_text(sanitize_evidence(raw_request))
+                cleaned_response = cap_text(sanitize_evidence(raw_response))
+                cleaned_repro = cap_text(sanitize_evidence(raw_repro))
+
                 finding = Finding(
                     scan_id=scan_id,
                     severity=severity,
@@ -110,9 +121,9 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),
                     screenshot_path=kwargs.get('screenshot_path'),
-                    request=kwargs.get('request'),
-                    response=kwargs.get('response'),
-                    repro_command=kwargs.get('repro_command')
+                    request=cleaned_request,
+                    response=cleaned_response,
+                    repro_command=cleaned_repro
                 )
                 db.session.add(finding)
                 db.session.commit()
@@ -126,9 +137,9 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     'description': kwargs.get('description'),
                     'tool': kwargs.get('tool_source', 'orchestrator'),
                     'screenshot_path': kwargs.get('screenshot_path'),
-                    'request': kwargs.get('request'),
-                    'response': kwargs.get('response'),
-                    'repro_command': kwargs.get('repro_command')
+                    'request': cleaned_request,
+                    'response': cleaned_response,
+                    'repro_command': cleaned_repro
                 }, room=f"scan_{scan_id}")
 
                 # Global Alert for Critical Issues from the worker
