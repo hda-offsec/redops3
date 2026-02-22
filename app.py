@@ -159,6 +159,18 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Migration check failed: {e}")
 
+        # --- DB HYGIENE: Reset stale scans ---
+        try:
+            from core.models import Scan
+            stale_scans = Scan.query.filter(Scan.status.in_(['running', 'pending'])).all()
+            if stale_scans:
+                print(f"Cleaning up {len(stale_scans)} stale scans from previous session...")
+                for s in stale_scans:
+                    s.status = 'aborted'
+                db.session.commit()
+        except Exception as e:
+            print(f"DB Hygiene check failed: {e}")
+
     # Use environment variable for debug mode (defaulting to False for security)
     debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
     allow_unsafe = os.getenv("ALLOW_UNSAFE_WERKZEUG", "False").lower() in ("true", "1", "t")

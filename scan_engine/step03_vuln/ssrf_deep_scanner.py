@@ -9,7 +9,7 @@ class SSRFDeepScanner:
     """
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-SSRFDeep/1.0"})
         # Standard Cloud Metadata Endpoints
         self.metadata_vector = "http://169.254.169.254"

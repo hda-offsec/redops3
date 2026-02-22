@@ -9,7 +9,7 @@ class APIShadowHunter:
     """
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-ShadowHunter/1.0"})
         # Common locations for API documentation
         self.doc_paths = [

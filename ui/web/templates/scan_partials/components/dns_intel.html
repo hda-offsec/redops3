@@ -98,7 +98,43 @@
             </div>
             {% endif %}
 
-            {% if not (results.phases.dns and (results.phases.dns.subdomains or results.phases.dns.security)) %}
+            <!-- DNS RECORDS TABLE -->
+            <div id="records-results">
+                {% if results.phases.dns and results.phases.dns.records %}
+                <div class="border-top border-secondary border-opacity-25 pt-3 mt-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-uppercase text-info x-small mb-0"><i class="fas fa-list-alt me-2"></i>Raw DNS
+                            Records</h6>
+                    </div>
+                    <div class="table-responsive border border-secondary border-opacity-10 rounded">
+                        <table class="table table-dark table-hover mb-0 x-small font-monospace">
+                            <thead class="bg-black bg-opacity-50">
+                                <tr>
+                                    <th class="text-muted">Type</th>
+                                    <th class="text-muted">Name</th>
+                                    <th class="text-muted">Address/Data</th>
+                                    <th class="text-muted text-end">TTL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for rec in results.phases.dns.records %}
+                                <tr>
+                                    <td><span class="badge bg-secondary x-small">{{ rec.type }}</span></td>
+                                    <td class="text-cyber opacity-75">{{ rec.name }}</td>
+                                    <td class="text-light opacity-75">{{ rec.address if rec.address else rec.data }}
+                                    </td>
+                                    <td class="text-muted text-end">{{ rec.ttl if rec.ttl else '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if not (results.phases.dns and (results.phases.dns.subdomains or results.phases.dns.security or
+            results.phases.dns.records)) %}
             <div class="text-muted small fst-italic">No DNS intelligence or subdomains discovered.</div>
             {% endif %}
         </div>

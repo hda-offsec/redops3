@@ -286,15 +286,17 @@ def run_enum(orchestrator, port, proto):
             api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log, quick=is_quick)
             api_endpoints = []
             for ev in api_stream:
-                if ev["type"] == "stdout" and ev["line"].strip().startswith('{'):
-                    try:
-                        import json
-                        data = json.loads(ev["line"])
-                        url = data.get('url')
-                        if url:
-                            api_endpoints.append(url)
-                            # log(f"API Found: {url}", "SUCCESS")
-                    except Exception: continue
+                if ev["type"] == "stdout":
+                    line = ev["line"].strip()
+                    if line.startswith('{'):
+                        try:
+                            import json
+                            data = json.loads(line)
+                            url = data.get('url')
+                            if url:
+                                api_endpoints.append(url)
+                                # log(f"API Found: {url}", "SUCCESS")
+                        except Exception: continue
             
             if api_endpoints:
                  def _store_api():

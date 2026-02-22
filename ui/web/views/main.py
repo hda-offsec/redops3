@@ -822,13 +822,15 @@ def clear_logs():
 
         # Clear database records
 
-        # Clear database records
-        num_scans = db.session.query(Scan).delete()
-        num_findings = db.session.query(Finding).delete()
-        num_suggestions = db.session.query(Suggestion).delete()
-        num_logs = db.session.query(ScanLog).delete()
-        num_loots = db.session.query(Loot).delete()
-        num_targets = db.session.query(Target).delete()
+        # Clear database records in correct order
+        from core.models import Mission
+        db.session.query(Finding).delete()
+        db.session.query(Suggestion).delete()
+        db.session.query(ScanLog).delete()
+        db.session.query(Loot).delete()
+        db.session.query(Scan).delete()
+        db.session.query(Target).delete()
+        db.session.query(Mission).delete()
         
         db.session.commit()
         
@@ -858,5 +860,30 @@ def clear_logs():
     except Exception as e:
         db.session.rollback()
         flash(f"Failed to clear logs: {str(e)}", "error")
+        
+    return redirect(url_for("main.index"))
+    
+@main_bp.route("/scan/<int:scan_id>/delete", methods=["POST"])
+@login_required
+def delete_scan(scan_id):
+    try:
+        scan = Scan.query.get_or_404(scan_id)
+        
+        # 1. Stop the task if running
+        if scan.status == 'running' and scan.task_id:
+            from core.celery_app import celery
+            celery.control.revoke(scan.task_id, terminate=True)
+            
+        # 2. Delete the result file
+        delete_results(scan_id)
+        
+        # 3. Delete from DB (Cascade handles findings/logs/suggestions)
+        db.session.delete(scan)
+        db.session.commit()
+        
+        flash(f"Scan #{scan_id} deleted successfully.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Failed to delete scan: {str(e)}", "error")
         
     return redirect(url_for("main.index"))

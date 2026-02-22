@@ -1,14 +1,29 @@
 #!/bin/bash
 set -e
 
+# Function to kill offensive sub-processes (zombie scans)
+clean_zombies() {
+    echo "[*] Cleaning up offensive sub-processes..."
+    OFFENSIVE_TOOLS=("nmap" "katana" "nuclei" "subfinder" "ffuf" "whatweb" "dnsrecon" "arjun" "sqlmap" "dirb" "subzy")
+    for tool in "${OFFENSIVE_TOOLS[@]}"; do
+        pkill -9 -f "$tool" || true
+    done
+    pkill -9 -f "chrome" || true
+    
+    # Nuclear cleanup for Celery & Python project processes
+    echo "[*] Nuclear cleanup for project processes..."
+    pkill -9 -f "celery -A core.tasks.celery" || true
+    pkill -9 -f "python3 app.py" || true
+    pkill -9 -f "tail -F data/celery.log" || true
+}
+
 # Function to kill processes on exit
 cleanup() {
     echo ""
     echo "🛑 Shutting down RedOps processes..."
-    pkill -f "celery" || true
-    pkill -f "python3 app.py" || true
-    # Optionally stop redis if we started it as a daemon
-    # sudo redis-cli shutdown || true
+    
+    clean_zombies
+    
     echo "Done. Bye!"
     exit
 }
@@ -18,8 +33,9 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Kill existing processes at start
 echo "Cleaning up old processes..."
-pkill -f "celery" || true
-pkill -f "python3 app.py" || true
+clean_zombies
+# Explicitly flush redis to avoid orphan tasks
+redis-cli flushall &> /dev/null || true
 
 # Clean old data safely
 mkdir -p data/results

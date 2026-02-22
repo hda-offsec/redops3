@@ -11,7 +11,7 @@ class CacheExpertScanner:
     def __init__(self, target, options=None):
         self.options = options
         self.target = target
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.unkeyed_headers = [
             "X-Forwarded-Host", "X-Forwarded-Scheme", "X-Original-URL", 
             "X-Rewrite-URL", "X-Host", "X-Forwarded-Proto"

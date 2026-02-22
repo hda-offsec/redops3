@@ -12,26 +12,28 @@
                     <div class="h-100 p-3 bg-black bg-opacity-40 border border-secondary rounded">
                         <h6 class="text-info text-uppercase small mb-3"><i class="fas fa-mask me-2"></i>Origin IP
                             Unmasking</h6>
-                        {% if results.phases.osint and results.phases.osint.origin_ips %}
-                        <div class="list-group list-group-flush bg-transparent">
-                            {% for origin in results.phases.osint.origin_ips %}
-                            <div class="list-group-item bg-transparent text-light border-secondary p-2">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <span class="font-monospace fw-bold text-danger">{{ origin.ip }}</span>
-                                    <span
-                                        class="badge bg-{{ 'danger' if origin.confidence == 'high' else 'warning' }}">{{
-                                        origin.confidence|upper }}</span>
+                        <div id="origin-results">
+                            {% if results.phases.osint and results.phases.osint.origin_ips %}
+                            <div class="list-group list-group-flush bg-transparent">
+                                {% for origin in results.phases.osint.origin_ips %}
+                                <div class="list-group-item bg-transparent text-light border-secondary p-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="font-monospace fw-bold text-danger">{{ origin.ip }}</span>
+                                        <span
+                                            class="badge bg-{{ 'danger' if origin.confidence == 'high' else 'warning' }}">{{
+                                            origin.confidence|upper }}</span>
+                                    </div>
+                                    <div class="text-muted x-small mt-1">{{ origin.reason }}</div>
                                 </div>
-                                <div class="text-muted x-small mt-1">{{ origin.reason }}</div>
+                                {% endfor %}
                             </div>
-                            {% endfor %}
+                            {% else %}
+                            <div class="text-center py-4 text-muted opacity-50">
+                                <i class="fas fa-eye-slash fa-2x mb-2"></i>
+                                <p class="small mb-0">No backend IPs detected.</p>
+                            </div>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <div class="text-center py-4 text-muted opacity-50">
-                            <i class="fas fa-eye-slash fa-2x mb-2"></i>
-                            <p class="small mb-0">No backend IPs detected behind WAF.</p>
-                        </div>
-                        {% endif %}
                     </div>
                 </div>
 
@@ -40,26 +42,28 @@
                     <div class="h-100 p-3 bg-black bg-opacity-40 border border-secondary rounded">
                         <h6 class="text-warning text-uppercase small mb-3"><i class="fab fa-google me-2"></i>Google
                             Hacking</h6>
-                        {% if results.phases.osint and results.phases.osint.dorks %}
-                        <div class="d-flex flex-wrap gap-2" style="max-height: 200px; overflow-y: auto;">
-                            {% for dork in results.phases.osint.dorks %}
-                            <a href="{{ dork.link }}" target="_blank"
-                                class="btn btn-outline-secondary btn-sm text-start w-100 mb-1 border-opacity-25 hover-action">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <span class="text-light small">{{ dork.name }}</span>
-                                    <i class="fas fa-external-link-alt text-muted x-small"></i>
-                                </div>
-                                <div class="text-muted x-small font-monospace text-truncate opacity-50">{{
-                                    dork.query }}</div>
-                            </a>
-                            {% endfor %}
+                        <div id="dorks-results">
+                            {% if results.phases.osint and results.phases.osint.dorks %}
+                            <div class="d-flex flex-wrap gap-2" style="max-height: 200px; overflow-y: auto;">
+                                {% for dork in results.phases.osint.dorks %}
+                                <a href="{{ dork.link }}" target="_blank"
+                                    class="btn btn-outline-secondary btn-sm text-start w-100 mb-1 border-opacity-25 hover-action">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-light small">{{ dork.name }}</span>
+                                        <i class="fas fa-external-link-alt text-muted x-small"></i>
+                                    </div>
+                                    <div class="text-muted x-small font-monospace text-truncate opacity-50">{{
+                                        dork.query }}</div>
+                                </a>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4 text-muted opacity-50">
+                                <i class="fas fa-search-minus fa-2x mb-2"></i>
+                                <p class="small mb-0">Dorks not generated.</p>
+                            </div>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <div class="text-center py-4 text-muted opacity-50">
-                            <i class="fas fa-search-minus fa-2x mb-2"></i>
-                            <p class="small mb-0">Dorks not generated.</p>
-                        </div>
-                        {% endif %}
                     </div>
                 </div>
 

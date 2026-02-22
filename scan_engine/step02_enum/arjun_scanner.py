@@ -148,7 +148,7 @@ class ArjunScanner:
         if logger: logger(f"Running Arjun on {url} with discovery validation...", "INFO")
         
         # Run process to completion
-        ProcessManager.run_command_sync(command)
+        ProcessManager.run_command(command)
         
         # 3. Parse and Validate
         try:

@@ -57,7 +57,7 @@ class BypassExpertScanner:
             
             try:
                 # 1. Baseline Check
-                s = get_session(options)
+                s = get_session(self.options)
                 r_base = s.get(target_url, verify=True, allow_redirects=False, timeout=5)
                 
                 # Only bypass if we hit a 403 or 401

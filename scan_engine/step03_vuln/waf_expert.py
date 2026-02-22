@@ -7,7 +7,7 @@ class WAFExpertScanner:
     """
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-WAFExpert/1.0"})
         # Fingerprints based on headers and response signatures
         self.waf_signatures = {

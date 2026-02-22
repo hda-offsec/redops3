@@ -195,7 +195,7 @@ def run_dns_osint(orchestrator):
         log(f"DNS Enumeration failed: {e}", "ERROR")
 
     try:
-        cloud = CloudScanner(target)
+        cloud = CloudScanner(target, dns_subdomains=subdomains)
         assets = cloud.scan_all(logger=log)
         if assets:
             log(f"Found {len(assets)} cloud assets.", "SUCCESS")

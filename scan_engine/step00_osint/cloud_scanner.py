@@ -3,111 +3,111 @@ from scan_engine.helpers.http_client import get_session
 import threading
 
 class CloudScanner:
-    def __init__(self, target, options=None):
-        self.options = options
-        # target could be "example.com", we want "example"
-        self.target_name = target.split('.')[0]
+    def __init__(self, target, options=None, dns_subdomains=None):
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        self.options = options or {}
+        self.target = target
+        self.dns_subdomains = dns_subdomains or []
+
+        
+        # Extract keywords from domain parts
+        parts = target.lower().split('.')
+        self.keywords = [p for p in parts if len(p) > 2 and p not in ['com', 'org', 'net', 'io', 'cloud', 'app', 'gov', 'edu']]
+        
+        self.target_name = self.keywords[0] if self.keywords else target.split('.')[0]
+        
+        # Hardened session: ABSOLUTELY NO RETRIES to avoid log flooding with NameResolutionError
+        self.session = get_session(self.options)
+        no_retry_adapter = HTTPAdapter(max_retries=Retry(total=0, connect=0, read=0, status=0, raise_on_status=False))
+        self.session.mount("http://", no_retry_adapter)
+        self.session.mount("https://", no_retry_adapter)
         self.results = []
 
     def check_s3(self, bucket_name):
         url = f"http://{bucket_name}.s3.amazonaws.com"
         try:
-            r = http_client.get(url, options=getattr(self, "options", None), timeout=1)
+            # Silence is golden: use self.session and suppress errors
+            r = self.session.get(url, timeout=2)
             if r.status_code == 200:
-                # RED TEAM: Attempt to list files for impact demonstration
                 files = []
                 try:
                     from xml.etree import ElementTree
                     root = ElementTree.fromstring(r.content)
-                    # S3 XML namespace
                     ns = {'s3': 'http://s3.amazonaws.com/doc/2006-03-01/'}
                     contents = root.findall('s3:Contents', ns)
-                    for item in contents[:10]: # List top 10 files
+                    for item in contents[:10]:
                         key = item.find('s3:Key', ns)
                         if key is not None:
                             files.append(key.text)
-                except Exception:
-                    files = []
+                except Exception: pass
                 
-                return {
-                    "provider": "AWS S3", 
-                    "bucket": bucket_name, 
-                    "url": url, 
-                    "status": "OPEN/PUBLIC",
-                    "files": files
-                }
+                return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC", "files": files}
             elif r.status_code == 403:
                 return {"provider": "AWS S3", "bucket": bucket_name, "url": url, "status": "PROTECTED"}
-        except Exception:
-            return None
+        except Exception: pass
         return None
 
     def check_azure(self, account_name):
+        # Azure account names: 3-24 alphanumeric
+        if not account_name.isalnum() or len(account_name) < 3 or len(account_name) > 24:
+            return None
         url = f"https://{account_name}.blob.core.windows.net"
         try:
-            r = http_client.get(url, options=getattr(self, "options", None), timeout=1)
-            # 400 or 403 on base URL usually means account exists
+            r = self.session.get(url, timeout=2)
             if r.status_code in [400, 403]:
                 return {"provider": "Azure Blob", "account": account_name, "url": url, "status": "EXISTS"}
-        except Exception:
-            return None
+        except Exception: pass
         return None
 
     def check_gcp(self, bucket_name):
         url = f"https://www.googleapis.com/storage/v1/b/{bucket_name}"
         try:
-            r = http_client.get(url, options=getattr(self, "options", None), timeout=1)
+            r = self.session.get(url, timeout=2)
             if r.status_code == 200:
                  return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "OPEN/PUBLIC"}
             elif r.status_code == 403:
                 return {"provider": "Google GCP", "bucket": bucket_name, "url": url, "status": "EXISTS"}
-        except Exception:
-            return None
+        except Exception: pass
         return None
 
+    def _load_patterns(self):
+        import os
+        patterns = ["dev", "stage", "prod", "test", "qa", "ops", "internal", "assets", "static", "media", "images", "files", "content", "public", "cdn", "data", "db", "sql", "backup", "archive", "logs", "config", "dump", "app", "web", "api", "core", "deploy", "build", "registry"]
+        pattern_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data/wordlists/cloud_patterns.txt")
+        if os.path.exists(pattern_file):
+            try:
+                with open(pattern_file, 'r') as f:
+                    patterns = [line.strip() for line in f if line.strip()]
+            except Exception: pass
+        return list(set(patterns))
+
     def scan_all(self, logger=None):
-        # Professional Red Team Permutations (Expanded CloudEnum Style)
-        bases = [self.target_name, self.target_name.replace('-', ''), self.target_name.replace('_', '')]
-        
-        # 1. Environment & Stage
-        envs = ["dev", "development", "stage", "staging", "prod", "production", "test", "testing", "qa", "uat", "beta", "ops", "internal"]
-        
-        # 2. Content & Assets
-        assets = ["assets", "static", "media", "images", "img", "css", "js", "files", "content", "upload", "uploads", "public", "cdn", "bucket"]
-        
-        # 3. Data & Sensitive
-        sensitive = ["data", "db", "sql", "backup", "bak", "archive", "logs", "log", "audit", "private", "secret", "conf", "config", "dump"]
-        
-        # 4. Infrastructure & Tech
-        infra = ["app", "web", "api", "core", "server", "infra", "deploy", "build", "ci", "cd", "k8s", "docker", "jenkins", "gitlab", "registry"]
-        
-        # 5. Business & Func
-        biz = ["admin", "dashboard", "client", "customer", "user", "users", "corp", "finance", "hr", "sales", "marketing", "docs", "report", "reports"]
-
-        suffixes = envs + assets + sensitive + infra + biz
-        
+        suffixes = self._load_patterns()
         patterns = set()
-        for b in bases:
-            patterns.add(b)
-            # Standard: target-suffix, targetsuffix, suffix-target
-            for s in suffixes:
-                patterns.add(f"{b}-{s}")
-                patterns.add(f"{b}{s}")
-                patterns.add(f"{s}-{b}")
-                patterns.add(f"{s}{b}")
+        
+        # 1. Base Target
+        target_exact = self.target.lower().strip()
+        patterns.add(target_exact)
+        
+        # 2. Add DNS Intelligence Subdomains as explicit targets
+        for sub in self.dns_subdomains:
+            if sub and isinstance(sub, str):
+                patterns.add(sub.lower().strip())
                 
-            # Double permutations for high value (e.g. dev-assets)
-            for e in envs:
-                for a in assets:
-                     patterns.add(f"{b}-{e}-{a}")
-                     patterns.add(f"{b}-{a}-{e}")
-
-        if logger: logger(f"Cloud Audit: Checking {len(patterns)*3} potential cloud storage buckets (aggressive mode)...", "INFO")
+        # 3. UX Requested Mutations: pattern.target & pattern-target
+        # Example: dev.datahub.navitia.io & dev-datahub.navitia.io
+        for s in suffixes:
+            patterns.add(f"{s}.{target_exact}")
+            patterns.add(f"{s}-{target_exact}")
+            # Also generate a purely alphanumeric slug for Azure (which rejects dots and dashes)
+            slug = target_exact.replace('.', '').replace('-', '')
+            patterns.add(f"{s}{slug}")
+            
+        if logger: logger(f"Cloud Audit: Checking patterns on target '{target_exact}' (+{len(self.dns_subdomains)} DNS subdomains). Testing {len(patterns)} variations.", "INFO")
         
         found = []
-        import threading
         from queue import Queue
-
         q = Queue()
         for p in patterns:
             q.put(p)
@@ -116,30 +116,29 @@ class CloudScanner:
             while not q.empty():
                 try:
                     p = q.get_nowait()
-                except Exception:
-                    break
-                    
-                # AWS
+                except Exception: break
+                
+                # AWS S3
                 s3 = self.check_s3(p)
                 if s3: found.append(s3)
-                # Azure
-                az = self.check_azure(p)
-                if az: found.append(az)
-                # GCP
+                # Azure Blob
+                if len(p) <= 24:
+                    az = self.check_azure(p)
+                    if az: found.append(az)
+                # Google GCP
                 gcp = self.check_gcp(p)
                 if gcp: found.append(gcp)
                 q.task_done()
 
         threads = []
-        for i in range(25): # Increased to 25 threads for larger wordlist
+        thread_count = 15
+        for i in range(thread_count):
             t = threading.Thread(target=worker)
+            t.daemon = True
             t.start()
             threads.append(t)
         
         for t in threads:
             t.join()
             
-        if logger and found:
-            logger(f"Cloud Audit: Found {len(found)} cloud resources associated with target.", "SUCCESS")
-        
         return found

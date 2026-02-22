@@ -1173,48 +1173,56 @@ class ScanDashboard {
             }; // specialized containers if they exist
 
             // Render specific JSON sections
-            this.renderJSONSection(results.phases.enum, 'waf', 'WAF Detection');
-            this.renderJSONSection(results.phases.enum, 'arjun', 'Hidden Parameters');
-            this.renderJSONSection(results.phases.enum, 'api', 'API Endpoints');
-            this.renderJSONSection(results.phases.enum, 'js_secrets', 'JS Secrets');
-            this.renderJSONSection(results.phases.enum, 'headers', 'Security Headers');
-            this.renderJSONSection(results.phases.enum, 'whatweb', 'Technology Footprint');
+            this.renderJSONSection(results.phases.osint, 'cloud', 'Cloud Assets');
+            this.renderJSONSection(results.phases.osint, 'dorks', 'Google Hacking');
+            this.renderJSONSection(results.phases.osint, 'origin_ips', 'Origin Unmasking');
+            this.renderJSONSection(results.phases.osint, 'emails', 'Email Discovery');
+            this.renderJSONSection(results.phases.osint, 'github', 'GitHub Leaks');
+            this.renderJSONSection(results.phases.dns, 'subdomains', 'Discovered Subdomains');
+            this.renderJSONSection(results.phases.dns, 'records', 'DNS Records');
 
-            this.renderJSONSection(results.phases.vuln, 'tls', 'TLS/SSL Audit');
-            this.renderJSONSection(results.phases.vuln, 'git', 'Git Exposure');
-            this.renderJSONSection(results.phases.vuln, 'backups', 'Backup Files');
-            this.renderJSONSection(results.phases.vuln, 'tech', 'Technology Leaks');
-            this.renderJSONSection(results.phases.vuln, 'graphql', 'GraphQL');
-            this.renderJSONSection(results.phases.vuln, 'ssrf', 'SSRF Candidates');
-            this.renderJSONSection(results.phases.vuln, 'redirects', 'Open Redirects');
-            this.renderJSONSection(results.phases.vuln, 'xss', 'XSS Reflections');
-            this.renderJSONSection(results.phases.vuln, 'prototype', 'Prototype Pollution');
-            this.renderJSONSection(results.phases.vuln, 'ssti', 'SSTI Finds');
-            this.renderJSONSection(results.phases.vuln, 'lfi', 'LFI Assaults');
-            this.renderJSONSection(results.phases.vuln, 'cors_audit', 'CORS Audit');
-            this.renderJSONSection(results.phases.vuln, 'crlf', 'CRLF Injection');
-            this.renderJSONSection(results.phases.vuln, 'firebase', 'Firebase Exposure');
-            this.renderJSONSection(results.phases.vuln, 'xxe', 'XXE Analysis');
-            this.renderJSONSection(results.phases.vuln, 'deserialization', 'Deserialization');
-            this.renderJSONSection(results.phases.vuln, 'acl_bypass', 'ACL Bypass');
-            this.renderJSONSection(results.phases.vuln, 'email_security', 'Email Infrastructure');
-            this.renderJSONSection(results.phases.vuln, 'container_exposure', 'Container/Docker');
-            this.renderJSONSection(results.phases.vuln, 'infra_exposure', 'Infrastructure Exposure');
-            this.renderJSONSection(results.phases.vuln, 'websocket', 'WebSocket Security');
-            this.renderJSONSection(results.phases.vuln, 'data_leaks', 'Sensitive Data Mining');
-            this.renderJSONSection(results.phases.vuln, 'oauth', 'OAuth & OIDC Flows');
-            this.renderJSONSection(results.phases.vuln, 'nosql', 'NoSQL Injection');
-            this.renderJSONSection(results.phases.vuln, 'cache_audit', 'Web Cache Audit');
-            this.renderJSONSection(results.phases.vuln, 'upload_bypass', 'File Upload Expert');
-            this.renderJSONSection(results.phases.vuln, 'logic_flaws', 'Business Logic Auditor');
-            this.renderJSONSection(results.phases.vuln, 'deep_ssrf', 'Cloud SSRF Deep Probe');
-            this.renderJSONSection(results.phases.vuln, 'deserialization', 'Deserialization Expert');
-            this.renderJSONSection(results.phases.vuln, 'api_shadow', 'API Shadow Hunter');
-            this.renderJSONSection(results.phases.vuln, 'csti', 'CSTI framework Auditor');
-            this.renderJSONSection(results.phases.vuln, 'metadata_leaks', 'Metadata Forensics');
-            this.renderJSONSection(results.phases.vuln, 'waf_audit', 'WAF Fingerprinting');
-            this.renderJSONSection(results.phases.vuln, 'java_rce', 'Java RCE Expert');
-            this.renderJSONSection(results.phases.vuln, 'h2c_smuggling', 'H2C Smuggling');
+            const knownEnumTitles = {
+                waf: 'WAF Detection', arjun: 'Hidden Parameters', api: 'API Endpoints',
+                js_secrets: 'JS Secrets', headers: 'Security Headers', whatweb: 'Technology Footprint'
+            };
+
+            for (const key of Object.keys(results.phases.enum || {})) {
+                // Skip structural keys parsed via custom UI components
+                if (['derived', 'targets', 'seed_meta', 'normalized', 'injection_points', 'attack_profile', 'mutation_strategy', 'katana'].includes(key)) continue;
+
+                let title = knownEnumTitles[key];
+                if (!title) {
+                    title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                }
+                this.renderJSONSection(results.phases.enum, key, title);
+            }
+
+            // Dynamically render all vulnerabilities to ensure no module is missed
+            const knownVulnTitles = {
+                tls: 'TLS/SSL Audit', git: 'Git Exposure', backups: 'Backup Files', tech: 'Technology Leaks',
+                graphql: 'GraphQL', ssrf: 'SSRF Candidates', redirects: 'Open Redirects', xss: 'XSS Reflections',
+                prototype: 'Prototype Pollution', ssti: 'SSTI Finds', lfi: 'LFI Assaults', cors_audit: 'CORS Audit',
+                crlf: 'CRLF Injection', firebase: 'Firebase Exposure', xxe: 'XXE Analysis', deserialization: 'Deserialization',
+                acl_bypass: 'ACL Bypass', email_security: 'Email Infrastructure', container_exposure: 'Container/Docker',
+                infra_exposure: 'Infrastructure Exposure', websocket: 'WebSocket Security', data_leaks: 'Sensitive Data Mining',
+                oauth: 'OAuth & OIDC Flows', nosql: 'NoSQL Injection', cache_audit: 'Web Cache Audit', upload_bypass: 'File Upload Expert',
+                logic_flaws: 'Business Logic Auditor', deep_ssrf: 'Cloud SSRF Deep Probe', api_shadow: 'API Shadow Hunter',
+                csti: 'CSTI Framework Auditor', metadata_leaks: 'Metadata Forensics', waf_audit: 'WAF Fingerprinting',
+                java_rce: 'Java RCE Expert', h2c_smuggling: 'H2C Smuggling', spring_boot: 'Spring Boot Expert', cloud_perms: 'Cloud IAM Perms',
+                logic_assault: 'Logic Assault', waf_bypass: 'WAF Bypass Expert', js_vulns: 'JS Vulnerabilities',
+                api_expert: 'API Expert Scan', tech_exposure: 'Tech Exposure', db_audit: 'Database Audit', surface_mapping: 'Surface Mapping'
+            };
+
+            for (const key of Object.keys(results.phases.vuln || {})) {
+                // Skip explicit blocks handled elsewhere
+                if (['wordpress', 'nuclei'].includes(key)) continue;
+
+                let title = knownVulnTitles[key];
+                if (!title) {
+                    title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                }
+                this.renderJSONSection(results.phases.vuln, key, title);
+            }
 
             // --- NATIVE WORDPRESS ADAPTIVE UPDATES ---
             if (results.phases.vuln.wordpress) {
@@ -1268,6 +1276,9 @@ class ScanDashboard {
             let deepContainer = document.getElementById('deep-scan-details');
             if (!deepContainer) return;
 
+            let placeholder = document.getElementById('deep-scan-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+
             const wrapper = document.createElement('div');
             wrapper.id = `${key}-results`;
             wrapper.className = 'col-lg-6 mb-4 animate__animated animate__fadeIn';
@@ -1290,8 +1301,28 @@ class ScanDashboard {
             return;
         }
 
-        // Fallback: Structured Key/Value
-        let html = '<div class="list-group list-group-flush bg-transparent">';
+        // Smart Fallback: Vulnerability List
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
+            container.innerHTML = this.renderGenericVulnList(data);
+            return;
+        }
+
+        // Smart Fallback: Port mapped arrays
+        if (typeof data === 'object' && !Array.isArray(data)) {
+            const keys = Object.keys(data);
+            if (keys.length > 0 && keys.every(k => !isNaN(k) && Array.isArray(data[k]))) {
+                let html = '<div class="row g-2 w-100">';
+                for (const [port, items] of Object.entries(data)) {
+                    html += `<div class="col-12 mb-2"><div class="badge bg-cyber x-small mb-1 text-dark">PORT ${port}</div>${this.renderGenericVulnList(items)}</div>`;
+                }
+                html += '</div>';
+                container.innerHTML = html;
+                return;
+            }
+        }
+
+        // Original Fallback: Structured Key/Value
+        let html = '<div class="list-group list-group-flush bg-transparent w-100">';
         if (Array.isArray(data)) {
             data.slice(0, 100).forEach(item => {
                 const content = typeof item === 'object' ? JSON.stringify(item) : item;
@@ -1301,7 +1332,7 @@ class ScanDashboard {
         } else {
             Object.entries(data).forEach(([k, v]) => {
                 html += `
-                    <div class="mb-2">
+                    <div class="mb-2 w-100">
                         <div class="x-small text-cyber font-monospace text-uppercase fw-bold">${k}</div>
                         <pre class="bg-black p-2 rounded border border-secondary border-opacity-10 x-small text-muted mb-0 overflow-auto" style="max-height: 150px;">${this.escapeHtml(typeof v === 'object' ? JSON.stringify(v, null, 2) : v)}</pre>
                     </div>`;
@@ -1309,6 +1340,41 @@ class ScanDashboard {
         }
         html += '</div>';
         container.innerHTML = html;
+    }
+
+    renderGenericVulnList(data) {
+        if (!Array.isArray(data)) return '';
+        let html = '<div class="list-group list-group-flush bg-transparent w-100">';
+        data.slice(0, 50).forEach(item => {
+            if (!item || typeof item !== 'object') {
+                html += `<div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1 font-monospace x-small text-muted text-break">${this.escapeHtml(item)}</div>`;
+                return;
+            }
+            const title = item.title || item.name || item.id || item.type || 'Discovered Vector';
+            let severity = item.severity || item.risk || 'info';
+            if (typeof severity !== 'string') severity = 'info';
+            const sevClass = ['critical', 'high'].includes(severity.toLowerCase()) ? 'danger' : (['medium'].includes(severity.toLowerCase()) ? 'warning' : 'info');
+            const desc = item.description || item.reason || item.details || '';
+            const tool = item.tool || item.source || item.tool_source || '-';
+
+            html += `
+            <div class="list-group-item bg-black bg-opacity-40 border-secondary border-opacity-25 py-2 mb-2 rounded border border-start border-${sevClass} border-2">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-light fw-bold small text-truncate" style="max-width: 80%;">${this.escapeHtml(title)}</span>
+                    <span class="badge bg-${sevClass} x-small bg-opacity-75">${severity.toUpperCase()}</span>
+                </div>
+                <div class="d-flex gap-2 mb-2">
+                    <span class="badge bg-dark border border-secondary text-muted x-small">${this.escapeHtml(tool)}</span>
+                </div>
+                ${desc ? `<div class="x-small text-muted mb-2 lh-sm overflow-hidden" style="max-height: 60px;">${this.escapeHtml(desc)}</div>` : ''}
+                ${item.url || item.endpoint ? `<div class="x-small text-cyber font-monospace text-truncate w-100 d-block"><i class="fas fa-link me-1 opacity-50"></i><a href="${this.escapeHtml(item.url || item.endpoint)}" target="_blank" class="text-cyber text-decoration-none">${this.escapeHtml(item.url || item.endpoint)}</a></div>` : ''}
+                ${item.match || item.evidence ? `<div class="bg-dark bg-opacity-50 p-1 border border-secondary border-opacity-10 rounded mt-2 x-small text-warning font-monospace text-truncate"><i class="fas fa-search me-1"></i>${this.escapeHtml(item.match || item.evidence)}</div>` : ''}
+                ${item.repro_command ? `<div class="bg-black p-1 border border-secondary border-opacity-25 rounded mt-2 x-small text-muted font-monospace text-truncate"><i class="fas fa-terminal me-1"></i>${this.escapeHtml(item.repro_command)}</div>` : ''}
+            </div>`;
+        });
+        if (data.length > 50) html += `<div class="p-2 x-small text-center text-muted">+ ${data.length - 50} more...</div>`;
+        html += '</div>';
+        return html;
     }
 
     renderSectionHuman(key, data) {
@@ -1330,6 +1396,23 @@ class ScanDashboard {
                 case 'js_secrets':
                 case 'secrets':
                     return this.renderSecretsHuman(data);
+                case 'cloud':
+                    return this.renderCloudHuman(data);
+                case 'dorks':
+                    return this.renderDorksHuman(data);
+                case 'origin_ips':
+                    return this.renderOriginHuman(data);
+                case 'emails':
+                    return this.renderEmailsHuman(data);
+                case 'github':
+                    return this.renderGithubHuman(data);
+                case 'records':
+                    return this.renderDNSRecordsHuman(data);
+                case 'subdomains':
+                    return this.renderSubdomainsHuman(data);
+                case 'api':
+                    return this.renderApiTreeHuman(data);
+
                 default:
                     return null;
             }
@@ -1396,6 +1479,101 @@ class ScanDashboard {
         });
         html += '</div>';
         return html;
+    }
+
+    renderApiTreeHuman(data) {
+        let endpoints = [];
+        if (Array.isArray(data)) {
+            endpoints = data;
+        } else if (data && data.endpoints && Array.isArray(data.endpoints)) {
+            endpoints = data.endpoints;
+        } else if (data && data.discovered_endpoints && Array.isArray(data.discovered_endpoints)) {
+            endpoints = data.discovered_endpoints;
+        }
+
+        if (!endpoints || !endpoints.length) return null;
+
+        const tree = { name: "ROOT", children: {}, endpoints: [] };
+        let hasElements = false;
+        let rootUrlText = '';
+
+        endpoints.forEach(ep => {
+            let urlStr = typeof ep === 'string' ? ep : (ep.url || ep.endpoint);
+            if (!urlStr) return;
+
+            let url;
+            try { url = new URL(urlStr); } catch (e) { return; }
+            if (!rootUrlText) rootUrlText = url.origin;
+
+            const parts = url.pathname.split('/').filter(p => p);
+            let current = tree;
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (!current.children[part]) {
+                    current.children[part] = { name: part, children: {}, endpoints: [] };
+                }
+                current = current.children[part];
+            }
+            if (typeof ep === 'string') {
+                current.endpoints.push({ url: ep });
+            } else {
+                current.endpoints.push(ep);
+            }
+            hasElements = true;
+        });
+
+        if (!hasElements) return null;
+
+        const renderNode = (node, depth) => {
+            let html = '';
+            const indentSpacing = depth > 1 ? '<span class="d-inline-block opacity-25" style="width: 20px; border-left: 1px dashed #fff; height: 24px; vertical-align: middle; margin-right: 5px;"></span>'.repeat(depth - 1) : '';
+
+            if (depth > 0) {
+                const hasEndpoints = node.endpoints.length > 0;
+                let iconHtml = '<i class="far fa-folder-open text-warning me-2 opacity-75"></i>';
+                let stBadge = '';
+
+                if (hasEndpoints) {
+                    const ep = node.endpoints[0];
+                    const st = ep.status || '';
+                    if (st) {
+                        const stColor = (st >= 200 && st < 300) ? 'success' : ((st >= 300 && st < 400) ? 'info' : ((st >= 400 && st < 500) ? 'warning' : 'danger'));
+                        stBadge = `<span class="badge rounded-pill bg-${stColor} bg-opacity-75 ms-2" style="font-size: 0.65em;">${st}</span>`;
+                    }
+                }
+
+                const hasChildren = Object.keys(node.children).length > 0;
+                if (!hasChildren) {
+                    iconHtml = '<i class="fas fa-leaf text-info me-2 opacity-50 x-small" style="vertical-align: middle;"></i>';
+                }
+
+                html += `
+                <div class="d-flex align-items-center py-1 hover-bg-dark rounded px-2">
+                    <div class="d-flex align-items-center font-monospace small w-100">
+                        ${indentSpacing}
+                        <span class="text-secondary opacity-50 me-2" style="font-size: 0.8em;">├──</span>
+                        ${iconHtml}
+                        <span class="${hasChildren ? 'text-light fw-bold opacity-75' : 'text-info'}">${this.escapeHtml(node.name)}${hasChildren ? '/' : ''}</span>
+                        ${stBadge}
+                    </div>
+                </div>`;
+            }
+
+            Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name)).forEach(child => {
+                html += renderNode(child, depth + 1);
+            });
+            return html;
+        };
+
+        const finalHtml = `
+        <div class="bg-black border border-secondary border-opacity-25 rounded p-3 overflow-auto w-100" style="max-height: 400px;">
+            <div class="text-info x-small fw-bold mb-3 text-uppercase"><i class="fas fa-sitemap me-2"></i>API Endpoint Architecture</div>
+            <div class="font-monospace text-muted x-small mb-2 p-2 bg-dark rounded border border-secondary border-opacity-10 shadow-sm"><i class="fas fa-globe-americas me-2"></i>${this.escapeHtml(rootUrlText)}</div>
+            <div class="ps-1 pt-2">
+            ${renderNode(tree, 0)}
+            </div>
+        </div>`;
+        return finalHtml;
     }
 
     renderTechHuman(data) {
@@ -1537,8 +1715,30 @@ class ScanDashboard {
                             </div>
                         </div>
                         ${data.derived_params && data.derived_params.length ? `
-                        <div class="ps-2 mt-1 border-start border-secondary">
-                            <div class="x-small text-muted">Mining Params: <span class="text-warning font-monospace">${data.derived_params.join(', ')}</span></div>
+                        <div class="ps-2 mt-3 border-start border-secondary border-2">
+                            <div class="x-small text-muted mb-1"><i class="fas fa-search-plus me-1 text-info opacity-75"></i>Extracted Parameters <span class="badge bg-dark border border-secondary border-opacity-50 text-muted ms-1">${data.derived_params.length}</span></div>
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                ${data.derived_params.slice(0, 20).map(p => {
+                        let decoded = p;
+                        try { decoded = decodeURIComponent(p); } catch (e) { }
+                        const safeP = decoded.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                        return '<span class="badge bg-black bg-opacity-50 border border-info border-opacity-25 text-warning font-monospace x-small">' + safeP + '</span>';
+                    }).join('')}
+                                ${data.derived_params.length > 20 ? `
+                                <div class="collapse w-100" id="collapse-params-${port}">
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                    ${data.derived_params.slice(20).map(p => {
+                        let decoded = p;
+                        try { decoded = decodeURIComponent(p); } catch (e) { }
+                        const safeP = decoded.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                        return '<span class="badge bg-black bg-opacity-50 border border-secondary border-opacity-25 text-muted font-monospace x-small">' + safeP + '</span>';
+                    }).join('')}
+                                    </div>
+                                </div>
+                                <a data-bs-toggle="collapse" href="#collapse-params-${port}" role="button" aria-expanded="false" class="badge bg-black bg-opacity-20 border border-secondary border-opacity-25 text-cyber text-decoration-none x-small mt-1 hover-glow w-100 text-center py-1">
+                                    <i class="fas fa-chevron-down me-1"></i>+${data.derived_params.length - 20} more variables (Toggle)
+                                </a>` : ''}
+                            </div>
                         </div>` : ''}
                     </div>`;
                 });
@@ -1575,4 +1775,126 @@ class ScanDashboard {
             }
         }
     }
+    renderCloudHuman(data) {
+        let html = '<div class="row g-2">';
+        data.forEach(asset => {
+            const providerIcon = asset.provider.toLowerCase().includes('s3') ? 'fab fa-aws' : (asset.provider.toLowerCase().includes('azure') ? 'fab fa-microsoft' : 'fab fa-google');
+            const statusClass = asset.status === 'OPEN/PUBLIC' ? 'text-danger fw-bold' : 'text-success';
+            html += `
+            <div class="col-md-6">
+                <div class="p-2 bg-black border border-secondary rounded d-flex align-items-center h-100">
+                    <div class="me-3 fs-3 text-info"><i class="${providerIcon}"></i></div>
+                    <div>
+                        <div class="fw-bold small text-truncate" style="max-width: 150px;">${this.escapeHtml(asset.bucket || asset.account)}</div>
+                        <div class="text-muted x-small font-monospace">${this.escapeHtml(asset.provider)} · <span class="${statusClass}">${asset.status}</span></div>
+                        <a href="${asset.url}" target="_blank" class="x-small text-cyber text-decoration-none">Visit Storage <i class="fas fa-external-link-alt"></i></a>
+                    </div>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderDorksHuman(data) {
+        let html = '<div class="d-flex flex-wrap gap-2" style="max-height: 250px; overflow-y: auto;">';
+        data.forEach(dork => {
+            html += `
+            <a href="${dork.link}" target="_blank" class="btn btn-outline-secondary btn-sm text-start w-100 mb-1 border-opacity-25 hover-action">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="text-light small">${this.escapeHtml(dork.name)}</span>
+                    <i class="fas fa-external-link-alt text-muted x-small"></i>
+                </div>
+                <div class="text-muted x-small font-monospace text-truncate opacity-50">${this.escapeHtml(dork.query)}</div>
+            </a>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderOriginHuman(data) {
+        let html = '<div class="list-group list-group-flush bg-transparent">';
+        data.forEach(origin => {
+            const confClass = origin.confidence === 'high' ? 'bg-danger' : 'bg-warning';
+            html += `
+            <div class="list-group-item bg-transparent text-light border-secondary p-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="font-monospace fw-bold text-danger">${origin.ip}</span>
+                    <span class="badge ${confClass}">${origin.confidence.toUpperCase()}</span>
+                </div>
+                <div class="text-muted x-small mt-1">${this.escapeHtml(origin.reason)}</div>
+            </div>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderEmailsHuman(data) {
+        let html = '<div class="list-group list-group-flush">';
+        data.forEach(email => {
+            html += `
+            <div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-envelope text-info me-2 x-small"></i>
+                    <span class="font-monospace small text-light">${this.escapeHtml(email)}</span>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderGithubHuman(data) {
+        let html = '<div class="list-group list-group-flush">';
+        data.forEach(repo => {
+            html += `
+            <div class="list-group-item bg-transparent border-secondary border-opacity-10 py-2">
+                <div class="fw-bold text-info small mb-1">${this.escapeHtml(repo.name || repo)}</div>
+                ${repo.url ? `<a href="${repo.url}" target="_blank" class="x-small text-muted text-decoration-none text-truncate d-block">${repo.url}</a>` : ''}
+            </div>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    renderDNSRecordsHuman(data) {
+        let html = `
+        <div class="table-responsive border border-secondary border-opacity-10 rounded">
+            <table class="table table-dark table-hover mb-0 x-small font-monospace">
+                <thead class="bg-black bg-opacity-50">
+                    <tr>
+                        <th class="text-muted">Type</th>
+                        <th class="text-muted">Name</th>
+                        <th class="text-muted">Address/Data</th>
+                        <th class="text-muted text-end">TTL</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        data.forEach(rec => {
+            html += `
+            <tr>
+                <td><span class="badge bg-secondary x-small">${rec.type}</span></td>
+                <td class="text-cyber opacity-75">${this.escapeHtml(rec.name)}</td>
+                <td class="text-light opacity-75">${this.escapeHtml(rec.address || rec.data)}</td>
+                <td class="text-muted text-end">${rec.ttl || '-'}</td>
+            </tr>`;
+        });
+        html += `</tbody></table></div>`;
+        return html;
+    }
+
+    renderSubdomainsHuman(data) {
+        if (!Array.isArray(data) || data.length === 0) return null;
+        let html = '<div class="d-flex flex-wrap gap-2 p-1">';
+        data.slice(0, 150).forEach(sub => {
+            html += `<a href="https://${this.escapeHtml(sub)}" target="_blank" class="badge bg-black bg-opacity-75 border border-secondary border-opacity-50 text-light font-monospace x-small text-decoration-none hover-glow"><i class="fas fa-satellite-dish me-2 text-info opacity-75"></i>${this.escapeHtml(sub)}</a>`;
+        });
+        if (data.length > 150) {
+            html += `<span class="badge bg-transparent border border-secondary border-opacity-25 text-muted x-small d-flex align-items-center">+ ${data.length - 150} more entries</span>`;
+        }
+        html += '</div>';
+        return html;
+    }
 }
+
+// Global hook

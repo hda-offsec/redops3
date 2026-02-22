@@ -37,7 +37,7 @@ class SpringBootScanner:
             logger(f"Spring Boot Expert: Probing for {len(self.endpoints)} actuator endpoints on port {port}...", "INFO")
 
         # Session for speed & reuse
-        session = get_session(options)
+        session = get_session(self.options)
         session.verify = True
         # Set a generic User-Agent
         session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RedOps3/SpringBootAudit)"})

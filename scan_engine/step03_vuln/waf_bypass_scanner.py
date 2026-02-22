@@ -26,7 +26,7 @@ class WafBypassScanner:
     def __init__(self, target, options=None):
         self.target = target
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
 
     def scan(self, port, protocol='http', logger=None):
         findings = []

@@ -42,6 +42,7 @@ class FfufScanner:
         
         cmd = [
             "ffuf", 
+            "-s",
             "-u", url, 
             "-w", wlist,
             "-mc", "200,204,301,302,307,401,403,405",

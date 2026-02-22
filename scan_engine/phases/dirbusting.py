@@ -69,7 +69,7 @@ def run_dirbusting(orchestrator):
                             status = data.get('status', 200)
                             log(f"DirBust Found: {url} [Status: {status}]", "SUCCESS")
 
-                            item = {"url": url, "path": data.get('input', {}).get('FUZZ', ''), "status": status}
+                            item = {"url": url, "path": data.get('input', {}).get('FUZZ', ''), "status": status, "size": data.get('length', 0)}
 
                             def _append_endpoint():
                                 results['phases'].setdefault('dirbusting', {})
@@ -90,8 +90,8 @@ def run_dirbusting(orchestrator):
                                 tool_source="ffuf"
                             )
                             orch.save_results(orch.scan_id, results)
-                        except Exception:
-                            continue
+                        except Exception as e:
+                            log(f"Failed to parse Ffuf line: {e}", "DEBUG")
 
                 orch.mark_module("ffuf", port, "executed", artifacts=found_count)
                 orch.add_finding(title="Module Executed: ffuf", description=f"Ffuf directory busting finished on port {port}", severity="info", tool_source="redops-core")

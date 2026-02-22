@@ -60,8 +60,9 @@ class Scan(db.Model):
     params = db.Column(db.Text, nullable=True)
     start_time = db.Column(db.DateTime, default=datetime.utcnow)
     end_time = db.Column(db.DateTime, nullable=True)
-    findings = db.relationship("Finding", backref="scan", lazy=True)
-    logs = db.relationship("ScanLog", backref="scan", lazy=True)
+    findings = db.relationship("Finding", backref="scan", lazy=True, cascade="all, delete-orphan")
+    logs = db.relationship("ScanLog", backref="scan", lazy=True, cascade="all, delete-orphan")
+    suggestions = db.relationship("Suggestion", backref="scan", lazy=True, cascade="all, delete-orphan")
     notes = db.Column(db.Text, nullable=True)
     geolocation_data = db.Column(db.JSON, nullable=True)
 

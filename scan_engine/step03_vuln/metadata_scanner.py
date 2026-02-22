@@ -9,7 +9,7 @@ class MetadataScanner:
     """
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-MetadataExpert/1.0"})
         self.target_extensions = [".pdf", ".docx", ".xlsx", ".pptx", ".jpg", ".png"]
 

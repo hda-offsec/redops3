@@ -385,21 +385,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e:
         log(f"Enterprise Expert Error: {e}", "DEBUG")
 
-    # --- EXPERT: Cloud Asset Audit (Point 2) ---
-    try:
-        cloud_assets = results.get('phases', {}).get('osint', {}).get('cloud', [])
-        if cloud_assets:
-            cloud_expert = CloudPermScanner()
-            cloud_findings = cloud_expert.scan_assets(cloud_assets, logger=log)
-            if cloud_findings:
-                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('cloud_perms', []).extend(cloud_findings)))
-                for f in cloud_findings:
-                    orch.add_finding(**f)
-                orch.save_results(orch.scan_id, results)
-            orch.mark_module("cloud_expert", port, "executed", artifacts=len(cloud_findings))
-    except Exception as e:
-        log(f"Cloud Expert Error: {e}", "DEBUG")
-
     # --- EXPERT: Dependency Confusion (Point 8) ---
     try:
         _set_cortex_status(f"Supply Chain Audit (Port {port})...")
@@ -975,6 +960,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         api_endpoints = results.get('phases', {}).get('enum', {}).get('api', {}).get('endpoints', [])
         if not api_endpoints:
              api_endpoints = api_expert.advanced_discovery(logger=log)
+             if api_endpoints:
+                 # Resync discoveries into enum.api to ensure the user interface displays them
+                 def _update_enum_api():
+                     results.setdefault('phases', {}).setdefault('enum', {}).setdefault('api', {})
+                     results['phases']['enum']['api']['endpoints'] = api_endpoints
+                 _ts(_update_enum_api)
+                 orch.save_results(orch.scan_id, results)
         
         api_findings = api_expert.audit_endpoints(api_endpoints, logger=log)
         if api_findings:
@@ -1033,20 +1025,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 orch.add_finding(**normalizer.normalize(f))
             orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"WAF Bypass Error: {e}", "DEBUG")
-
-    # 6. Cloud Identity Leak (Point 2 - Active Audit)
-    try:
-        _set_cortex_status(f"Cloud Storage Audit (Port {port})...")
-        cloud_perm = CloudPermScanner()
-        # Find already discovered cloud assets
-        cloud_assets = results.get('phases', {}).get('osint', {}).get('cloud', [])
-        cp_findings = cloud_perm.scan_assets(cloud_assets, logger=log)
-        if cp_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('cloud_permissions', []).extend(cp_findings)))
-            for f in cp_findings:
-                orch.add_finding(**normalizer.normalize(f))
-            orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"Cloud Permission Error: {e}", "DEBUG")
 
     # 8. Access Control (ACL)
     try:
@@ -1130,6 +1108,7 @@ def run_global_vuln_scans(orchestrator):
     Executes global vulnerability scans (Target-wide, not per-port)
     - Nuclei
     - Subdomain Takeover
+    - Cloud Storage Perimeter Audit (S3/Azure)
     """
     orch = orchestrator
     results = orch.results
@@ -1143,6 +1122,24 @@ def run_global_vuln_scans(orchestrator):
     def _ts(fn):
         return orch.thread_safe_results_update(fn)
     
+    # --- PHASE 2.9: Cloud Perimeter Audit ---
+    try:
+        cloud_assets = results.get('phases', {}).get('osint', {}).get('cloud', [])
+        if cloud_assets:
+            log(f"Cloud Expert: Auditing {len(cloud_assets)} discovered cloud storage assets...", "INFO")
+            cloud_expert = CloudPermScanner(options=orch.options)
+            cloud_findings = cloud_expert.scan_assets(cloud_assets, timeout=120, logger=log)
+            if cloud_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('cloud_perms', []).extend(cloud_findings)))
+                for f in cloud_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("cloud_expert", 0, "executed", artifacts=len(cloud_findings))
+        else:
+            log("Cloud Expert: No cloud assets discovered in OSINT. Skipping audit.", "DEBUG")
+    except Exception as e:
+        log(f"Cloud Expert Error: {e}", "WARN")
+
     # --- PHASE 3: Subdomain Takeover ---
     emit_progress(orch, 50, "Subdomain Takeover Check")
     try:

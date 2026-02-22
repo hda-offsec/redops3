@@ -10,7 +10,7 @@ class JWTScanner:
     """
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-JWTExpert/1.0"})
         # Regex for JWT: header.payload.signature
         self.jwt_pattern = re.compile(r'ey[a-zA-Z0-9_-]+\.ey[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]*')

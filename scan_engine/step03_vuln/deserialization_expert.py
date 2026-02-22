@@ -11,7 +11,7 @@ class DeserializationExpert:
     """
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options)
+        self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-DeserializationExpert/1.0"})
         
         # Signatures for serialised formats
