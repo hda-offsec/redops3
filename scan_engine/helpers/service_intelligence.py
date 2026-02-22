@@ -76,6 +76,25 @@ def derive_service_intel(results: Dict[str, Any]) -> List[Dict[str, Any]]:
             tags.append("api_surface")
             confidence = max(confidence, 72)
 
+        # --- NMAP ENRICHED TELEMETRY ---
+        cpe = port_info.get("cpe")
+        if cpe:
+            tags.append(f"cpe:{cpe.split(':')[2]}") # e.g. cpe:a
+            notes.append(f"Matched CPE fingerprint: {cpe}")
+            confidence = max(confidence, 85)
+            
+        os_guess = port_info.get("os_guess")
+        if os_guess:
+            tags.append(f"os:{_safe_text(os_guess).split()[0]}") # e.g. os:linux
+            notes.append(f"OS detected: {os_guess}")
+            confidence = max(confidence, 75)
+            
+        nse_findings = port_info.get("nse_findings", [])
+        if nse_findings:
+            tags.append("potential_cve")
+            notes.append(f"NSE found CVEs: {', '.join(nse_findings)}")
+            confidence = max(confidence, 90)
+
         if tags:
             intel.append({
                 "port": port,

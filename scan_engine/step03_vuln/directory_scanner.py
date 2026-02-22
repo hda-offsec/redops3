@@ -46,7 +46,6 @@ class DirectoryScanner:
         """
         findings = []
         import scan_engine.helpers.http_client as http_client
-from scan_engine.helpers.http_client import get_session
         
         if logger: logger(f"Directory Audit: Checking {len(endpoints)} endpoints for index exposure...", "INFO")
         

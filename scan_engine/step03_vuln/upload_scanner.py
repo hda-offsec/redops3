@@ -9,7 +9,7 @@ class UploadExpertScanner:
     def __init__(self, target, options=None):
         self.options = options
         self.target = target
-        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
+        self.session = get_session(options)
         
         # Magic bytes for common types to bypass signature checks
         self.magic_bytes = {

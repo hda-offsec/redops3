@@ -138,7 +138,7 @@ class LfiAssaultScanner:
         
         target_urls_with_points = list(set(target_urls_with_points))[:10] # Cap injection points
         
-        session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
+        session = get_session(options)
         session.headers.update({"User-Agent": "RedOps3-Assault/1.0"})
         
         for rule in self.lfi_rules:

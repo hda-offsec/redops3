@@ -11,7 +11,7 @@ class CloudPermScanner:
     
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (RedOps3-CloudExpert-V6)"})
 
     def _generate_test_filename(self):

@@ -41,7 +41,7 @@ class BackupScanner:
         if logger: logger(f"Backup Expert: Probing for {len(fuzz_list)} sensitive backup/archive patterns on port {port}...", "INFO")
 
         # Session for speed
-        session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
+        session = get_session(options)
         session.verify = True 
         
         found_count = 0

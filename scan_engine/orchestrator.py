@@ -411,20 +411,27 @@ class ScanOrchestrator:
                             if not target_port: continue
                             
                             _set_enum_derived("status", f"Mining JS Expert (Port {target_port})...")
-                            self.log(f"🧠 Cortex Decision: SPA detected on port {target_port}. Initiating Deep JS Expert...", "INFO")
+                            
+                            def _set_js_status(status):
+                                self.results.setdefault('phases', {}).setdefault('enum', {})['js_scan_status'] = status
+                            self.thread_safe_results_update(lambda: _set_js_status('RUNNING'))
+                            self._save_results_thread_safe()
+
+                            self.log(f"🧠 Cortex Decision: SPA detected on port {target_port}. Initiating Hardened JS Expert Scan...", "INFO")
                             
                             # Collect JS URLs from Katana
                             katana_urls = self.results.get('phases', {}).get('enum', {}).get('katana', {}).get(str(target_port), [])
                             js_urls = [u for u in katana_urls if u.endswith('.js')]
                             
                             if js_urls:
-                                expert = JSDeepMiningExpert(self.target)
-                                # We can mining in chunks to allow progressive UI updates
-                                mining_results = expert.mine_endpoints(js_urls, logger=self.log)
+                                expert = JSDeepMiningExpert(self.target, options=self.options)
+                                # mine_endpoints now returns a structured report with status and findings
+                                mining_results = expert.mine_endpoints(js_urls, timeout=60, logger=self.log)
                                 
                                 # Store mining findings
                                 def _store_mining():
                                     enum = self.results.setdefault('phases', {}).setdefault('enum', {})
+                                    enum['js_scan_status'] = mining_results['status']
                                     derived = enum.setdefault('derived', {})
                                     js_expert = derived.setdefault('js_expert_mining', {})
                                     js_expert[str(target_port)] = mining_results

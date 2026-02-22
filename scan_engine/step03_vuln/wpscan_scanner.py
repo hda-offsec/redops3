@@ -25,7 +25,6 @@ class WPScanScanner:
     def detect_wordfence(self, port, protocol='http'):
         """Detect if Wordfence is present on the target."""
         import scan_engine.helpers.http_client as http_client
-from scan_engine.helpers.http_client import get_session
         url = f"{protocol}://{self.target}:{port}"
         try:
             # Wordfence often leaves traces in headers or specific paths

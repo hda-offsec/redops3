@@ -15,7 +15,7 @@ from scan_engine.helpers.context_attack_engine import ContextAttackEngine
 
 # prioritization moved to EnumSeedFactory
 
-def analyze_security_headers(target, port, proto, logger_func):
+def analyze_security_headers(target, port, proto, logger_func, options=None):
     """
     Analyzes HTTP headers for security configurations.
     Returns structured results with status and recommendations.
@@ -56,9 +56,9 @@ def analyze_security_headers(target, port, proto, logger_func):
     try:
         url = f"{proto}://{target}:{port}"
         try:
-            resp = http_client.head(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
+            resp = http_client.head(url, options=options, timeout=5, allow_redirects=True)
         except Exception:
-            resp = http_client.get(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
+            resp = http_client.get(url, options=options, timeout=5, allow_redirects=True)
              
         actual_headers = {k.lower(): v for k, v in resp.headers.items()}
         analysis = {}
@@ -194,7 +194,7 @@ def run_enum(orchestrator, port, proto):
 
     # 2. Security Headers
     try:
-        header_analysis = analyze_security_headers(target, port, proto, log)
+        header_analysis = analyze_security_headers(target, port, proto, log, options=orch.options)
         _ts(lambda: results['phases']['enum'].setdefault('headers', {}).__setitem__(str(port), header_analysis))
         orch.mark_module("headers", port, "executed")
     except Exception as e:
@@ -250,21 +250,29 @@ def run_enum(orchestrator, port, proto):
         log(f"WAF scan failed: {e}", "DEBUG")
         orch.mark_module("waf", port, "failed", reason=str(e))
 
-    # 5. Arjun Param Discovery
+    # 5. Arjun Param Discovery (Refactored & Hardened)
     try:
-        arjun = ArjunScanner(target)
+        arjun = ArjunScanner(target, options=orch.options)
         if arjun.check_tools():
-            log(f"Discovering parameters (Arjun)...", "INFO")
-            _ts(lambda: results['commands'].append({'tool': 'arjun', 'cmd': shlex.join(arjun.get_command(port, proto))}))
-            ar_stream = arjun.stream_arjun(port, proto)
-            params = []
-            for ev in ar_stream:
-                if ev["type"] == "stdout" and "parameter" in ev["line"].lower():
-                    p = ev["line"].split(":")[-1].strip()
-                    if p: params.append(p)
+            log(f"Discovering & Validating parameters (Arjun)...", "INFO")
+            # We use a temp file for Arjun JSON output (managed inside scan_and_validate)
+            arjun_results = arjun.scan_and_validate(port, proto, logger=log)
+            
+            params = [p["name"] for p in arjun_results.get("parameters", [])]
+            
             if params:
-                _ts(lambda: results['phases']['enum']['arjun'].__setitem__(str(port), params))
+                def _update_arjun():
+                     results['phases']['enum']['arjun'][str(port)] = params
+                     # Store full metadata for advanced analysis
+                     results['phases']['enum']['arjun'][f"{port}_metadata"] = arjun_results
+                _ts(_update_arjun)
+                
+                log(f"Arjun Summary: Found {arjun_results['total_found']} (Active: {arjun_results['active_validated']}, CMS Config: {arjun_results['passive_filtered']})", "SUCCESS")
+            
             orch.mark_module("arjun", port, "executed", artifacts=len(params))
+    except Exception as e:
+        log(f"Arjun scan failed: {e}", "DEBUG")
+        orch.mark_module("arjun", port, "failed", reason=str(e))
     except Exception as e:
         log(f"Arjun scan failed: {e}", "DEBUG")
         orch.mark_module("arjun", port, "failed", reason=str(e))

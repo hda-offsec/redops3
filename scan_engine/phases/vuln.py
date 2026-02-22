@@ -75,6 +75,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     target = orch.target
     log = orch.log
     profile = orch.options.get('profile', 'quick')
+    is_quick = profile.startswith('quick')
 
     def _ts(fn):
         return orch.thread_safe_results_update(fn)
@@ -313,7 +314,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         
         for js_url in js_urls[:10]: # Limit for performance
             try:
-                r_js = http_client.get(js_url, options=getattr(self, "options", None), timeout=3)
+                r_js = http_client.get(js_url, options=orch.options, timeout=3)
                 if r_js.status_code == 200:
                     leaked = jwt_expert.scan_text(r_js.text, js_url)
                     if leaked: jwt_findings.extend(leaked)
@@ -348,20 +349,27 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e:
         log(f"Smuggling Expert Error: {e}", "DEBUG")
 
-    # --- EXPERT: Vhost Brute-forcing (Point 9) ---
+    # --- EXPERT: Vhost Brute-forcing (Point 9 - Hardened) ---
     try:
         if not is_quick:
             _set_cortex_status(f"Vhost Discovery (Port {port})...")
-            vhost_scanner = VhostScanner(target)
-            vhost_findings = vhost_scanner.scan(port, proto, logger=log)
-            if vhost_findings:
-                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('vhosts', []).extend(vhost_findings)))
-                for f in vhost_findings:
+            vhost_scanner = VhostScanner(target, options=orch.options)
+            # Use the new structured run() method
+            vhost_results = vhost_scanner.run(port, proto, scan_mode=profile, logger=log)
+            
+            findings = vhost_results.get("findings", [])
+            if findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('vhosts', []).extend(findings)))
+                for f in findings:
                     orch.add_finding(**f)
                 orch.save_results(orch.scan_id, results)
-            orch.mark_module("vhost_expert", port, "executed", artifacts=len(vhost_findings))
+            
+            orch.mark_module("vhost_expert", port, "executed", artifacts=len(findings))
+            if vhost_results["status"] == "TIMEOUT":
+                 log(f"Vhost Expert: Scan timed out on port {port} (Partial results saved).", "WARN")
     except Exception as e:
         log(f"Vhost Expert Error: {e}", "DEBUG")
+        orch.mark_module("vhost_expert", port, "failed", reason=str(e))
 
     # --- EXPERT: Enterprise Tech Audit (Point 10) ---
     try:

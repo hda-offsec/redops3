@@ -1,3 +1,5 @@
+import scan_engine.helpers.http_client as http_client
+from scan_engine.helpers.http_client import get_session
 import shlex
 from core.scan_profiles import SCAN_PROFILES
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
@@ -81,15 +83,31 @@ def run_recon(orchestrator):
 
     orch.thread_safe_results_update(_store_recon_output)
 
-    from scan_engine.helpers.output_parsers import parse_nmap_open_ports
-    discovered_ports = parse_nmap_open_ports("\n".join(output_buffer))
+    from scan_engine.helpers.output_parsers import parse_nmap_open_ports, parse_nmap_full_output
+    raw_out = "\n".join(output_buffer)
+    discovered_ports = parse_nmap_open_ports(raw_out)
+    full_intelligence = parse_nmap_full_output(raw_out)
 
     if not discovered_ports:
         log("No open ports found via Nmap. Checking if host is up...", "WARN")
         discovered_ports = probe_web_ports(orch)
     else:
-        orch.thread_safe_results_update(lambda: results['phases']['recon'].__setitem__('open_ports', discovered_ports))
-        log(f"Final Open Ports: {discovered_ports}", "SUCCESS")
+        # Merge intelligence into discovered_ports
+        for p_info in discovered_ports:
+            port_num = p_info.get("port")
+            if port_num in full_intelligence.get("ports_metadata", {}):
+                p_info.update(full_intelligence["ports_metadata"][port_num])
+                # Add default OS if same for all
+                if full_intelligence["enriched"]["os_details"]["accuracy"] > 80:
+                    p_info["os_guess"] = full_intelligence["enriched"]["os_details"]["os"]
+        
+        def _store_enriched():
+            recon = results['phases']['recon']
+            recon['open_ports'] = discovered_ports
+            recon['enriched'] = full_intelligence["enriched"]
+            
+        orch.thread_safe_results_update(_store_enriched)
+        log(f"Final Open Ports: {len(discovered_ports)} (Enriched with {len(full_intelligence['enriched']['vuln_hints'])} vuln hints)", "SUCCESS")
 
     orch.save_results(orch.scan_id, results)
     return discovered_ports
@@ -104,14 +122,12 @@ def probe_web_ports(orchestrator):
     fallback_ports = [80, 443]
     open_ports = []
 
-    import scan_engine.helpers.http_client as http_client
-from scan_engine.helpers.http_client import get_session
     for fp in fallback_ports:
         proto = "https" if fp == 443 else "http"
         url = f"{proto}://{target}:{fp}"
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
-            resp = http_client.get(url, options=getattr(self, "options", None), timeout=5, allow_redirects=True, headers=headers)
+            resp = http_client.get(url, options=getattr(orch, "options", None), timeout=5, allow_redirects=True, headers=headers)
             log(f"  [+] Fallback: Target is ALIVE on {url} (Status: {resp.status_code})", "SUCCESS")
             open_ports.append({
                 "port": fp,

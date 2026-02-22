@@ -24,7 +24,7 @@ class LogicAssaultScanner:
 
     def __init__(self, options=None):
         self.options = options
-        self.session = get_session(options if 'options' in locals() else (self.options if hasattr(self, 'options') else None))
+        self.session = get_session(options)
         self.session.headers.update({"User-Agent": "RedOps3-LogicAssault/1.0"})
 
     def scan(self, target, scan_id, logger=None):

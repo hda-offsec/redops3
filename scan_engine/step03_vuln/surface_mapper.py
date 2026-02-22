@@ -48,7 +48,6 @@ class SurfaceMapperScanner:
                 # We need to fetch the content if it's not already cached.
                 # In a real integration, we might use a shared cache, but for now we fetch.
                 import scan_engine.helpers.http_client as http_client
-from scan_engine.helpers.http_client import get_session
                 resp = http_client.get(source_url, options=getattr(self, "options", None), timeout=10, headers={"User-Agent": "RedOps3-SurfaceMapper/1.0"})
                 if resp.status_code == 200:
                     content = resp.text

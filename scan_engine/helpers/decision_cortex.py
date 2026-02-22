@@ -102,6 +102,31 @@ def suggest_actions(results: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "category": "intel",
             })
 
+        # --- NMAP ENRICHED INTELLIGENCE ---
+        nse_findings = port_info.get("nse_findings", [])
+        if nse_findings:
+            suggestions.append({
+                "id": f"cortex-vuln-nse-triage-{port}",
+                "title": f"Triage identified CVEs on port {port}",
+                "reason": f"Nmap NSE script detected potential vulnerabilities: {', '.join(nse_findings[:3])}",
+                "confidence": 95,
+                "port": port,
+                "category": "vuln",
+            })
+        
+        script_results = port_info.get("script_results", {})
+        if "http-title" in script_results:
+             title = script_results["http-title"]
+             if any(t in title.lower() for t in ("admin", "login", "dashboard", "setup")):
+                 suggestions.append({
+                     "id": f"cortex-enum-auth-focus-{port}",
+                     "title": f"Focus Auth/Logic Audit on port {port}",
+                     "reason": f"Page title '{title}' suggests an administrative or authentication entry point.",
+                     "confidence": 88,
+                     "port": port,
+                     "category": "enum",
+                 })
+
         profile = profile_map.get(port, {})
         profile_text = " ".join(str(v).lower() for v in profile.values()) if isinstance(profile, dict) else str(profile).lower()
         if any(token in profile_text for token in ("spa", "react", "angular", "vue", "svelte", "webpack")):
