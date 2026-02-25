@@ -125,7 +125,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
     # Severity breakdown
     sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     for f in findings:
-        s = f.severity.lower()
+        s = (f.get('severity', 'info') if isinstance(f, dict) else getattr(f, 'severity', 'info')).lower()
         if s in sev_counts: sev_counts[s] += 1
         
     pdf.ln(5)
@@ -402,33 +402,42 @@ def generate_scan_report(scan_id, scan_obj, findings):
     pdf.chapter_title("9. Detailed Vulnerabilities & Vectors")
     
     sev_map = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-    sorted_findings = sorted(findings, key=lambda x: sev_map.get(x.severity.lower(), 4))
+    
+    def get_sev(f):
+        return (f.get('severity', 'info') if isinstance(f, dict) else getattr(f, 'severity', 'info')).lower()
+        
+    sorted_findings = sorted(findings, key=lambda x: sev_map.get(get_sev(x), 4))
     
     for f in sorted_findings:
         if pdf.get_y() > 250: pdf.add_page()
         
-        sev = f.severity.lower()
+        sev = get_sev(f)
         if sev == 'critical': color = (200, 0, 0)
         elif sev == 'high': color = (255, 42, 42)
         elif sev == 'medium': color = (255, 120, 0)
         else: color = (0, 100, 200)
         
+        title = f.get('title', 'Unknown') if isinstance(f, dict) else getattr(f, 'title', 'Unknown')
+        tool_source = f.get('tool_source', 'Unknown') if isinstance(f, dict) else getattr(f, 'tool_source', 'Unknown')
+        description = f.get('description', '') if isinstance(f, dict) else getattr(f, 'description', '')
+        screenshot_path = f.get('screenshot_path', '') if isinstance(f, dict) else getattr(f, 'screenshot_path', '')
+        
         pdf.set_fill_color(*color)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("helvetica", "B", 11)
-        title_cleaned = f.title.replace(f"{f.severity.upper()}:", "").strip()
-        pdf.cell(0, 8, pdf.safe_text(f" {f.severity.upper()}: {title_cleaned}"), fill=True, ln=True)
+        title_cleaned = title.replace(f"{sev.upper()}:", "").strip()
+        pdf.cell(0, 8, pdf.safe_text(f" {sev.upper()}: {title_cleaned}"), fill=True, ln=True)
         
         pdf.set_text_color(50, 50, 50)
         pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 6, pdf.safe_text(f" Source: {f.tool_source}"), ln=True)
+        pdf.cell(0, 6, pdf.safe_text(f" Source: {tool_source}"), ln=True)
         
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(80, 80, 80)
-        pdf.multi_cell(0, 5, pdf.safe_text(f.description))
+        pdf.multi_cell(0, 5, pdf.safe_text(description))
         
-        if f.screenshot_path:
-            full_img_path = os.path.join("ui/web/static", f.screenshot_path)
+        if screenshot_path:
+            full_img_path = os.path.join("ui/web/static", screenshot_path)
             if os.path.exists(full_img_path):
                 try:
                     pdf.ln(2)

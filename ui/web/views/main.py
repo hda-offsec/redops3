@@ -679,21 +679,33 @@ def update_notes(scan_id):
 @main_bp.route("/scan/<int:scan_id>/report")
 def scan_report(scan_id):
     scan = Scan.query.get_or_404(scan_id)
-    findings = Finding.query.filter_by(scan_id=scan.id).all()
+    db_findings = Finding.query.filter_by(scan_id=scan.id).all()
     results = load_results(scan_id)
+    
+    from adapters.detection_adapter import DetectionAdapter
+    normalized_findings = DetectionAdapter.normalize_findings(db_findings, results)
+    
+    # Gather child scans findings if recursive
+    child_scans = Scan.query.filter_by(parent_scan_id=scan.id).all()
+    for child in child_scans:
+        c_findings = Finding.query.filter_by(scan_id=child.id).all()
+        c_results = load_results(child.id)
+        c_norm = DetectionAdapter.normalize_findings(c_findings, c_results)
+        normalized_findings.extend(c_norm)
+        
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).all()
     
     format = request.args.get('format', 'html')
     if format == 'pdf':
         from flask import send_from_directory
         import os
-        filename = generate_scan_report(scan_id, scan, findings)
+        filename = generate_scan_report(scan_id, scan, normalized_findings)
         return send_from_directory(os.path.join(current_app.root_path, "data/reports"), filename, as_attachment=False)
         
     if format == 'html_download':
         from flask import send_from_directory
         import os
-        filename = generate_html_report(scan_id, scan, findings, suggestions)
+        filename = generate_html_report(scan_id, scan, normalized_findings, suggestions)
         return send_from_directory(os.path.join(current_app.root_path, "data/reports"), filename, as_attachment=True)
 
     
@@ -707,7 +719,7 @@ def scan_report(scan_id):
         "reports/standard_report.html",
         scan=scan,
         results=results,
-        findings=findings,
+        findings=normalized_findings,
         suggestions=suggestions,
         generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         duration=duration

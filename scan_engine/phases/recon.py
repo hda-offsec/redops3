@@ -187,6 +187,13 @@ def run_dns_osint(orchestrator):
 
         if subdomains:
             log(f"Found {len(subdomains)} subdomains.", "SUCCESS")
+            if orch.options.get('recursive') and orch.recursion_func:
+                depth = orch.options.get('current_recursion_depth', 0)
+                max_depth = orch.options.get('max_recursion_depth', 1)
+                try:
+                    orch.recursion_func(subdomains, orch.scan_id, depth, max_depth)
+                except Exception as e:
+                    log(f"Failed to trigger recursion: {e}", "ERROR")
         else:
             log("No subdomains found for this target root.", "INFO")
 
