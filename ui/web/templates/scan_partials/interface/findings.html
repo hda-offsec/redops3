@@ -56,8 +56,8 @@
         tool_source: "{{ f.tool_source|default('Unknown Engine') }}",
             request: { { f.request | tojson | safe } },
         response: { { f.response | tojson | safe } },
-        repro: { { f.repro_command | tojson | safe } },
-        screenshot: "{{ f.screenshot_path|default('') }}"
+        repro: { { f.repro | tojson | safe } },
+        screenshot: "{{ f.screenshot|default('') }}"
     } {% if not loop.last %}, {% endif %}
     {% endfor %}
     };
@@ -99,7 +99,6 @@
                 const parsed = JSON.parse(jsonMatch[1]);
                 if (parsed._evidence_model) {
                     evidenceModel = parsed._evidence_model;
-                    cleanDescription = cleanDescription.replace(/```json\n[\s\S]*?\n```/, '').trim();
                 }
             } catch (e) {
                 console.error("Failed to parse evidence model", e);

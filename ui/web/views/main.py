@@ -243,33 +243,28 @@ def scan_detail(scan_id):
     results['scan_id'] = scan.id
     results['target'] = scan.target.identifier
 
-    findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
+    db_findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
+    
+    from adapters.detection_adapter import DetectionAdapter
+    normalized_findings = DetectionAdapter.normalize_findings(db_findings, results)
+    
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).order_by(Suggestion.id.desc()).all()
     logs = ScanLog.query.filter_by(scan_id=scan_id).order_by(ScanLog.timestamp.asc()).all()
     loots = Loot.query.filter_by(scan_id=scan_id).all()
 
     # Serialize findings for JS visualization
-    results['findings'] = [{
-        'id': f.id,
-        'id_stable': f.id_stable,
-        'title': f.title,
-        'severity': f.severity,
-        'description': f.description,
-        'tool_source': f.tool_source
-    } for f in findings]
+    results['findings'] = normalized_findings
     
     # Add metadata for UI persistence
     results['loot_count'] = len(loots)
 
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-    for finding in findings:
-        sev = (finding.severity or "info").lower()
+    for finding in normalized_findings:
+        sev = (finding.get('severity') or "info").lower()
         if sev in severity_counts:
             severity_counts[sev] += 1
         else:
             severity_counts["info"] += 1
-
-    loots = Loot.query.filter_by(scan_id=scan_id).all()
 
     # Debug: Dump results to a file for review
     try:
@@ -283,7 +278,7 @@ def scan_detail(scan_id):
         "scan_detail.html",
         scan=scan,
         results=results,
-        findings=findings,
+        findings=normalized_findings,
         suggestions=suggestions,
         logs=logs,
         severity_counts=severity_counts,
@@ -468,7 +463,11 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                     description=kwargs.get('description'),
                     screenshot_path=kwargs.get('screenshot_path'),
                     command=kwargs.get('command'),
-                    id_stable=kwargs.get('id_stable')
+                    id_stable=kwargs.get('id_stable'),
+                    confidence=kwargs.get('confidence', 'medium'),
+                    request=kwargs.get('request'),
+                    response=kwargs.get('response'),
+                    repro_command=kwargs.get('repro_command')
                 )
             except Exception as e:
                 print(f"[ERROR] Failed to save finding: {e}")

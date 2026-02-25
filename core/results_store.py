@@ -17,10 +17,20 @@ def get_scan_lock(scan_id):
         return _results_locks[scan_id]
 
 def deep_merge(dict1, dict2):
-    """Recursively merges dict2 into dict1"""
+    """Recursively merges dict2 into dict1 NON-DESTRUCTIVELY."""
     for key, value in dict2.items():
-        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
-            deep_merge(dict1[key], value)
+        if key in dict1:
+            if isinstance(dict1[key], dict) and isinstance(value, dict):
+                deep_merge(dict1[key], value)
+            elif isinstance(dict1[key], list) and isinstance(value, list):
+                if value:
+                    for item in value:
+                        if item not in dict1[key]:
+                            dict1[key].append(item)
+            else:
+                if not value and dict1[key] and type(value) == type(dict1[key]):
+                    continue
+                dict1[key] = value
         else:
             dict1[key] = value
     return dict1

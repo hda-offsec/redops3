@@ -18,12 +18,13 @@ def normalize_target_url(target, port=None, scheme=None):
 
     return f"{resolved_scheme}://{target}"
 
-def validate_target(target):
+def validate_target(target, allow_internal=True):
     """
     Validates the target identifier to prevent SSRF and scanning of internal/private networks.
 
     Args:
         target (str): The target hostname or IP address.
+        allow_internal (bool): If True, permits internal scopes.
 
     Returns:
         bool: True if valid.
@@ -63,7 +64,7 @@ def validate_target(target):
         is_ip = False
 
     if is_ip:
-        _check_ip_safety(ip_obj)
+        _check_ip_safety(ip_obj, allow_internal)
         return True
 
     # 2. Resolve Hostname
@@ -90,7 +91,7 @@ def validate_target(target):
                 valid_ip = False
 
             if valid_ip:
-                _check_ip_safety(ip_obj)
+                _check_ip_safety(ip_obj, allow_internal)
     except socket.gaierror:
         # Fallback for domains with no A/AAAA but other records (MX, TXT).
         # We allow them but since they have no IPs, they are effectively "safe"
@@ -105,16 +106,20 @@ def validate_target(target):
 
     return True
 
-def _check_ip_safety(ip_obj):
-    if ip_obj.is_loopback:
-        raise ValueError(f"Target resolves to loopback address: {ip_obj}")
-    if ip_obj.is_private:
-        raise ValueError(f"Target resolves to private address: {ip_obj}")
-    if ip_obj.is_reserved:
-        raise ValueError(f"Target resolves to reserved address: {ip_obj}")
-    if ip_obj.is_link_local:
-        raise ValueError(f"Target resolves to link-local address: {ip_obj}")
-    if ip_obj.is_multicast:
-        raise ValueError(f"Target resolves to multicast address: {ip_obj}")
+def _check_ip_safety(ip_obj, allow_internal):
+    if ip_obj.is_unspecified: # 0.0.0.0
+         raise ValueError(f"Target resolves to unspecified address: {ip_obj}")
+         
+    if not allow_internal:
+        if ip_obj.is_loopback:
+            raise ValueError(f"Target resolves to loopback address: {ip_obj}")
+        if ip_obj.is_private:
+            raise ValueError(f"Target resolves to private address: {ip_obj}")
+        if ip_obj.is_reserved:
+            raise ValueError(f"Target resolves to reserved address: {ip_obj}")
+        if ip_obj.is_link_local:
+            raise ValueError(f"Target resolves to link-local address: {ip_obj}")
+        if ip_obj.is_multicast:
+            raise ValueError(f"Target resolves to multicast address: {ip_obj}")
     if ip_obj.is_unspecified: # 0.0.0.0
          raise ValueError(f"Target resolves to unspecified address: {ip_obj}")
