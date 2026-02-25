@@ -1,6 +1,6 @@
 <!-- WAF INTELLIGENCE -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-user-shield me-2"></i>WAF Intelligence
             (wafw00f)</div>
         <div class="card-body" id="waf-results">
@@ -9,7 +9,7 @@
                 {% for port, waf in results.phases.enum.waf.items() %}
                 <div class="col-md-6">
                     <div
-                        class="p-3 bg-black border {{ 'border-success' if waf == 'None' else 'border-warning' }} rounded d-flex align-items-center justify-content-between">
+                        class="p-3  border {{ 'border-success' if waf == 'None' else 'border-warning' }} rounded d-flex align-items-center justify-content-between">
                         <div>
                             <div class="text-muted small text-uppercase">Port {{ port }}</div>
                             <div class="fw-bold {{ 'text-success' if waf == 'None' else 'text-warning' }}">

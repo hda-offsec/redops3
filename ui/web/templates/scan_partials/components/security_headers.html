@@ -1,51 +1,56 @@
 <!-- SECURITY HEADERS -->
 <div class="col-12">
-    <div class="card glass-panel">
-        <div class="card-header glass-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-shield-virus me-2"></i>Security Headers Audit</span>
-            <span class="badge bg-info x-small">Target Intelligence</span>
+    <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center border-0 pb-0">
+            <span class="extra-small text-muted text-uppercase"><i class="fas fa-shield-virus me-1"></i>Security Headers
+                Audit</span>
+            <span
+                class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-10 extra-small">Target
+                Intelligence</span>
         </div>
         <div class="card-body p-0" id="header-results">
             {% if results and results.phases and results.phases.enum and results.phases.enum.headers %}
             <div class="table-responsive">
-                <table class="table table-dark table-hover table-sm mb-0 align-middle">
+                <table class="table table-hover mb-0 align-middle">
                     <thead>
-                        <tr class="text-white-50 x-small text-uppercase border-bottom border-secondary">
-                            <th class="ps-3 py-2">Header</th>
-                            <th class="py-2">Status</th>
-                            <th class="py-2 w-50 pe-3">Value / Recommendation</th>
+                        <tr class="extra-small text-muted text-uppercase">
+                            <th class="ps-3">Header</th>
+                            <th>Status</th>
+                            <th class="pe-3">Value / Recommendation</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for h, info in results.phases.enum.headers.get(results.target_info.get('port', '80'),
                         results.phases.enum.headers.values()|first if results.phases.enum.headers else {}).items() %}
-                        <tr class="border-bottom border-secondary-subtle">
-                            <td class="ps-3 py-2 font-monospace small text-primary">{{ h }}</td>
-                            <td class="py-2">
+                        <tr>
+                            <td class="ps-3  extra-small text-info fw-bold">{{ h }}</td>
+                            <td>
                                 {% if info.status == 'ok' %}
-                                <span class="badge bg-success x-small"><i class="fas fa-check me-1"></i>Present</span>
+                                <span
+                                    class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-10 extra-small">PRESENT</span>
                                 {% elif info.status == 'missing' %}
-                                <span class="badge bg-danger x-small"><i class="fas fa-times me-1"></i>Missing</span>
+                                <span
+                                    class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-10 extra-small">MISSING</span>
                                 {% elif info.status == 'weak' %}
-                                <span class="badge bg-warning text-dark x-small"><i
-                                        class="fas fa-exclamation-triangle me-1"></i>Weak</span>
+                                <span
+                                    class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-10 extra-small">WEAK</span>
                                 {% else %}
-                                <span class="badge bg-secondary x-small">Info</span>
+                                <span class="badge bg-secondary bg-opacity-10 text-muted extra-small">INFO</span>
                                 {% endif %}
                             </td>
-                            <td class="py-2 x-small text-light font-monospace text-break pe-3">
+                            <td class="extra-small text-light  text-break pe-3">
                                 {% if info.value %}
-                                <div class="text-white opacity-75">{{ info.value }}</div>
+                                <div class="text-white opacity-75 ">{{ info.value }}</div>
                                 {% if info.status != 'ok' and info.recommendation %}
-                                <div class="mt-1 text-warning x-small">
-                                    <i class="fas fa-lightbulb me-1"></i>Rec: {{ info.recommendation }}
+                                <div class="mt-1 text-warning">
+                                    <i class="fas fa-lightbulb me-1"></i>{{ info.recommendation }}
                                 </div>
                                 {% endif %}
                                 {% elif info.recommendation %}
                                 <span class="text-info opacity-75 fst-italic">Recommended: {{ info.recommendation
                                     }}</span>
                                 {% else %}
-                                <span class="text-white-50 opacity-50 fst-italic">No recommendation provided.</span>
+                                <span class="text-muted opacity-50 fst-italic">No recommendation provided.</span>
                                 {% endif %}
                             </td>
                         </tr>
@@ -54,7 +59,9 @@
                 </table>
             </div>
             {% else %}
-            <div class="p-3 text-muted small fst-italic">Headers not yet analyzed.</div>
+            <div class="p-4 text-center text-muted extra-small fst-italic">
+                <i class="fas fa-hourglass-half me-1"></i>Sector headers not yet analyzed.
+            </div>
             {% endif %}
         </div>
     </div>

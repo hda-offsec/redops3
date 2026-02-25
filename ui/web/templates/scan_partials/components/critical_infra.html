@@ -1,11 +1,11 @@
 <!-- CRITICAL INFRASTRUCTURE & DATA EXPOSURE -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-body">
             <div class="row g-3">
                 {% if results.phases.vuln.ssrf %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger border-opacity-50 rounded h-100">
+                    <div class="p-3  border border-danger border-opacity-50 rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-cloud-upload-alt me-2"></i>SSRF
                             / Cloud Metadata</div>
                         {% for f in results.phases.vuln.ssrf %}
@@ -20,7 +20,7 @@
 
                 {% if results.phases.vuln.graphql %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info border-opacity-50 rounded h-100">
+                    <div class="p-3  border border-info border-opacity-50 rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-project-diagram me-2"></i>GraphQL
                             Intelligence</div>
                         {% for f in results.phases.vuln.graphql %}
@@ -35,7 +35,7 @@
 
                 {% if results.phases.vuln.git %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning border-opacity-50 rounded h-100">
+                    <div class="p-3  border border-warning border-opacity-50 rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fab fa-git-alt me-2"></i>Git
                             Repository Exposure</div>
                         {% for f in results.phases.vuln.git %}
@@ -50,7 +50,7 @@
 
                 {% if results.phases.vuln.backups %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-success border-opacity-50 rounded h-100">
+                    <div class="p-3  border border-success border-opacity-50 rounded h-100">
                         <div class="text-success small fw-bold mb-2"><i class="fas fa-archive me-2"></i>Backup &
                             Archive Leaks</div>
                         {% for f in results.phases.vuln.backups %}
@@ -65,7 +65,7 @@
 
                 {% if results.phases.vuln.spring_boot %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-success border-opacity-75 rounded h-100">
+                    <div class="p-3  border border-success border-opacity-75 rounded h-100">
                         <div class="text-success small fw-bold mb-2"><i class="fas fa-leaf me-2"></i>Spring Boot
                             Actuators</div>
                         {% for f in results.phases.vuln.spring_boot %}
@@ -85,7 +85,7 @@
 
                 {% if results.phases.vuln.tech %}
                 <div class="col-12">
-                    <div class="p-3 bg-black border border-secondary rounded">
+                    <div class="p-3  border border-secondary rounded">
                         <div class="text-secondary small fw-bold mb-2"><i class="fas fa-file-code me-2"></i>Technical
                             File Exposure (.env, config,
                             logs)</div>
@@ -95,7 +95,7 @@
                                 <div
                                     class="p-2 bg-dark rounded x-small border border-secondary border-opacity-25 h-100">
                                     <div class="text-info fw-bold">{{ f.title }}</div>
-                                    <div class="text-muted x-small font-monospace">{{
+                                    <div class="text-muted x-small ">{{
                                         f.description|truncate(80) }}</div>
                                 </div>
                             </div>

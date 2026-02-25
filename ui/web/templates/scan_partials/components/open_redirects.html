@@ -1,32 +1,39 @@
 <!-- OPEN REDIRECT AUDIT -->
 <div class="col-12">
-    <div class="card glass-panel">
-        <div class="card-header glass-header"><i class="fas fa-directions me-2"></i>Open Redirect Audit
+    <div class="card h-100">
+        <div class="card-header border-0 pb-0">
+            <span class="extra-small text-muted text-uppercase"><i class="fas fa-directions me-1"></i>Open Redirect
+                Audit</span>
         </div>
         <div class="card-body" id="redirect-results">
             {% if results and results.phases and results.phases.vuln and results.phases.vuln.redirects %}
             <div class="table-responsive">
-                <table class="table table-dark table-sm mb-0 small">
+                <table class="table table-hover mb-0">
                     <thead>
-                        <tr class="text-muted">
-                            <th>Method</th>
+                        <tr class="extra-small text-muted text-uppercase">
+                            <th style="width: 100px;">Method</th>
                             <th>Payload URL</th>
-                            <th>Reason</th>
+                            <th>Reason / Evidence</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for r in results.phases.vuln.redirects %}
                         <tr>
-                            <td class="text-info font-monospace">{{ r.method }}</td>
-                            <td class="font-monospace text-break">{{ r.url }}</td>
-                            <td class="text-warning">{{ r.evidence }}</td>
+                            <td class="align-middle"><span
+                                    class="badge bg-secondary bg-opacity-10 text-info  extra-small">{{
+                                    r.method }}</span></td>
+                            <td class="align-middle  small text-break text-light">{{ r.url }}</td>
+                            <td class="align-middle text-warning extra-small ">{{ r.evidence }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% else %}
-            <div class="text-muted small fst-italic">No open redirects confirmed.</div>
+            <div class="text-center py-4 text-muted extra-small">
+                <i class="fas fa-check-circle me-1 text-success opacity-50"></i>No open redirects confirmed in this
+                sector.
+            </div>
             {% endif %}
         </div>
     </div>

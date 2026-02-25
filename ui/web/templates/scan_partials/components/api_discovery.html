@@ -1,6 +1,6 @@
 <!-- API DISCOVERY RESULTS -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-project-diagram me-2"></i>API Discovery
             (Endpoint Mapping)</div>
         <div class="card-body" id="api-results">
@@ -8,12 +8,12 @@
             <div class="accordion" id="accordionAPI">
                 {% for key, endpoints in results.phases.enum.api.items() %}
                 {% if key|int > 0 %}
-                <div class="accordion-item bg-black border-secondary">
+                <div class="accordion-item  border-secondary">
                     <h2 class="accordion-header" id="heading-api-{{ key }}">
                         <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
                             type="button" data-bs-toggle="collapse" data-bs-target="#collapse-api-{{ key }}">
                             <span class="badge bg-info me-2">Port {{ key }}</span>
-                            <span class="font-monospace small text-primary">{{ endpoints|length }} Endpoints
+                            <span class=" small text-primary">{{ endpoints|length }} Endpoints
                                 Discovered</span>
                         </button>
                     </h2>
@@ -23,8 +23,8 @@
                                 {% for ep in endpoints %}
                                 <div class="col-md-12">
                                     <div
-                                        class="d-flex justify-content-between align-items-center p-2 bg-black mb-1 rounded border border-secondary border-opacity-25 hover-action">
-                                        <div class="font-monospace x-small text-info text-truncate flex-grow-1"
+                                        class="d-flex justify-content-between align-items-center p-2  mb-1 rounded border border-secondary border-opacity-25 hover-action">
+                                        <div class=" x-small text-info text-truncate flex-grow-1"
                                             title="{{ ep.url if ep is mapping else ep }}">
                                             {{ ep.path if ep is mapping else ep }}
                                         </div>

@@ -8,7 +8,8 @@ class CloudScanner:
         from urllib3.util.retry import Retry
         self.options = options or {}
         self.target = target
-        self.dns_subdomains = dns_subdomains or []
+        # Cap DNS subdomains to top 50 to avoid hours-long hangs testing millions of permutations
+        self.dns_subdomains = (dns_subdomains or [])[:50]
 
         
         # Extract keywords from domain parts
@@ -19,7 +20,7 @@ class CloudScanner:
         
         # Hardened session: ABSOLUTELY NO RETRIES to avoid log flooding with NameResolutionError
         self.session = get_session(self.options)
-        no_retry_adapter = HTTPAdapter(max_retries=Retry(total=0, connect=0, read=0, status=0, raise_on_status=False))
+        no_retry_adapter = HTTPAdapter(max_retries=Retry(total=0, connect=0, read=0, status=0, raise_on_status=False), pool_connections=30, pool_maxsize=30)
         self.session.mount("http://", no_retry_adapter)
         self.session.mount("https://", no_retry_adapter)
         self.results = []

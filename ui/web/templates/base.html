@@ -4,110 +4,160 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RedOps3</title>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
-        rel="stylesheet">
+    <title>RedOps3 | Offensive Intelligence</title>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dt_inspired.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
 </head>
 
 <body class="app-shell">
-    <div class="container-fluid app-container">
-        <div class="row">
+    <div class="container-fluid p-0">
+        <div class="d-flex">
             <!-- Sidebar -->
-            <nav id="sidebar" class="col-md-2 d-none d-md-block sidebar vh-100">
-                <div class="position-sticky pt-3">
-                    <div class="px-3 mb-4 text-center">
-                        <h3 class="fw-bold text-cyber">
-                            <i class="fas fa-biohazard me-2 text-primary"></i>REDOPS<span class="text-light">3</span>
-                        </h3>
-                        <small class="text-muted d-block font-monospace"
-                            style="letter-spacing: 2px; font-size: 0.65rem;">OFFENSIVE
-                            ORCHESTRATION</small>
+            <nav id="sidebar" class="vh-100 position-sticky top-0">
+                <div class="pt-4 pb-3">
+                    <div class="px-4 mb-4">
+                        <h5 class="fw-bold mb-0 text-light">
+                            <i class="fas fa-shield-alt me-2 text-primary"></i>RedOps3
+                        </h5>
+                        <small class="text-muted extra-small">ATTACK INTELLIGENCE</small>
                     </div>
-                    {% if current_user.is_authenticated %}
-                    <div class="px-3 mb-2 text-center text-white">
-                        <small>Logged in as: <strong>{{ current_user.username }}</strong></small><br>
-                        <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-danger mt-2">Logout</a>
-                    </div>
-                    {% else %}
-                    <div class="px-3 mb-2 text-center">
-                        <a href="{{ url_for('auth.login') }}" class="btn btn-sm btn-outline-primary">Login</a>
-                    </div>
-                    {% endif %}
 
-                    <h6 class="sidebar-heading px-3 mt-4 mb-2 text-primary text-uppercase" style="letter-spacing: 1px;">
-                        Main Operations
-                    </h6>
+                    <div class="sidebar-heading">PORTFOLIO</div>
                     <ul class="nav flex-column mb-3">
                         <li class="nav-item">
-                            <a class="nav-link fw-bold" href="{{ url_for('main.index') }}"
-                                style="color: var(--primary);">
-                                <i class="fas fa-desktop me-2"></i>Dashboard
+                            <a class="nav-link {% if request.endpoint == 'main.index' %}active{% endif %}"
+                                href="{{ url_for('main.index') }}">
+                                <i class="fas fa-th-large"></i>Dashboard
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('main.mission_list') }}">
-                                <i class="fas fa-folder-open me-2"></i>Missions
+                            <a class="nav-link {% if request.endpoint == 'main.mission_list' %}active{% endif %}"
+                                href="{{ url_for('main.mission_list') }}">
+                                <i class="fas fa-briefcase"></i>Missions
                             </a>
                         </li>
+                    </ul>
+
+                    <div class="sidebar-heading">COMPONENTS</div>
+                    <ul class="nav flex-column mb-3">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="sidebarTabSwitch('surface-tab')">
+                                <i class="fas fa-server"></i>Targets
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="sidebarTabSwitch('surface-tab')">
+                                <i class="fas fa-microchip"></i>Surfaces
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="sidebar-heading">OFFENSIVE</div>
+                    <ul class="nav flex-column mb-3">
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('main.index') }}#history">
+                                <i class="fas fa-radar"></i>Scans
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="sidebarTabSwitch('findings-tab')">
+                                <i class="fas fa-bug"></i>Detections
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="sidebarTabSwitch('graph-tab')">
+                                <i class="fas fa-project-diagram"></i>Attack Graph
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="sidebar-heading">REPORTS & TOOLS</div>
+                    <ul class="nav flex-column mb-3">
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('main.loot_list') }}">
-                                <i class="fas fa-vault me-2"></i>Loot Vault
+                                <i class="fas fa-vault"></i>Loot Vault
                             </a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('main.terminal') }}">
-                                <i class="fas fa-terminal me-2"></i>Tactical Terminal
+                                <i class="fas fa-terminal"></i>Terminal
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">
+                                <i class="fas fa-file-contract"></i>Report Builder
                             </a>
                         </li>
                     </ul>
 
-                    <h6 class="sidebar-heading px-3 mt-4 mb-2 text-body-secondary text-uppercase">
-                        PTES Chain
-                    </h6>
-                    <ul class="nav flex-column">
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-recon" href="#"><i
-                                    class="fas fa-binoculars me-2"></i>Recon</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-enum" href="#"><i
-                                    class="fas fa-list-ul me-2"></i>Enumeration</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-vuln" href="#"><i
-                                    class="fas fa-bug me-2"></i>Vulnerability</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-initial" href="#"><i
-                                    class="fas fa-key me-2"></i>Initial
-                                Access</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-privesc" href="#"><i
-                                    class="fas fa-user-shield me-2"></i>Priv
-                                Esc</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-lateral" href="#"><i
-                                    class="fas fa-network-wired me-2"></i>Lateral</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-postex" href="#"><i
-                                    class="fas fa-ghost me-2"></i>Post-Ex</a>
-                        </li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-reporting" href="#"><i
-                                    class="fas fa-file-alt me-2"></i>Reporting</a></li>
-                        <li class="nav-item"><a class="nav-link" id="sidebar-ptes-lessons" href="#"><i
-                                    class="fas fa-graduation-cap me-2"></i>Lessons</a></li>
-                    </ul>
+                    <div class="mt-auto px-4 pt-4 border-top border-secondary border-opacity-10">
+                        {% if current_user.is_authenticated %}
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="bg-danger rounded-circle p-1 me-2"
+                                style="width: 32px; height: 32px; font-size: 0.7rem; text-align: center; line-height: 24px;">
+                                {{ current_user.username[0]|upper }}</div>
+                            <div class="overflow-hidden">
+                                <div class="text-light small text-truncate">{{ current_user.username }}</div>
+                                <a href="{{ url_for('auth.logout') }}" class="extra-small text-muted">Sign out</a>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             </nav>
 
-            <main class="col-md-10 ms-sm-auto col-lg-10 px-md-4">
-                <div
-                    class="page-header d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-4 border-bottom border-secondary border-opacity-10">
-                    <div class="animate__animated animate__fadeIn">
-                        <div class="page-eyebrow text-muted small text-uppercase font-monospace mb-1"
-                            style="letter-spacing: 1px;">Mission Control</div>
-                        <h1 class="page-title h2 mb-0">{% block title %}Dashboard{% endblock %}</h1>
-                        <div class="page-subtitle text-muted small mt-1">Track and orchestrate every offensive phase.
+            <!-- Main Content -->
+            <main class="flex-grow-1 min-vh-100">
+                <!-- Top Bar -->
+                <header class="top-bar">
+                    <div class="d-flex align-items-center w-100">
+                        <div class="me-auto">
+                            <nav aria-label="breadcrumb">
+                                <ol class="breadcrumb mb-0 small">
+                                    <li class="breadcrumb-item text-muted">REDOPS3</li>
+                                    <li class="breadcrumb-item active text-light" aria-current="page">{% block title
+                                        %}Dashboard{% endblock %}</li>
+                                </ol>
+                            </nav>
+                        </div>
+
+                        <div class="d-flex align-items-center">
+                            <div class="input-group input-group-sm me-3" style="width: 250px;">
+                                <span class="input-group-text bg-transparent border-secondary text-muted"><i
+                                        class="fas fa-search"></i></span>
+                                <input type="text" class="form-control bg-transparent border-secondary text-light"
+                                    placeholder="Search mission/target...">
+                            </div>
+
+                            <div class="status-indicator me-3 d-flex align-items-center">
+                                <span class="badge bg-success border-0 extra-small">
+                                    <i class="fas fa-circle me-1" style="font-size: 0.5rem;"></i> ENGINE READY
+                                </span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </header>
 
-                {% block content %}{% endblock %}
+                <div class="content-area p-4">
+                    <!-- Flash Messages -->
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                    {% for category, message in messages %}
+                    <div class="alert alert-{{ 'success' if category == 'success' else 'danger' if category == 'error' else 'warning' }} alert-dismissible fade show extra-small py-2"
+                        role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% endwith %}
+
+                    {% block content %}{% endblock %}
+                </div>
             </main>
         </div>
     </div>
@@ -118,18 +168,17 @@
         document.addEventListener("DOMContentLoaded", function () {
             const socket = io();
             socket.on('global_notification', function (data) {
-                // Simple Alert/Toast for global notifications
                 const toastContainer = document.createElement('div');
                 toastContainer.className = "position-fixed bottom-0 end-0 p-3";
                 toastContainer.style.zIndex = "1100";
                 toastContainer.innerHTML = `
-                    <div class="toast show bg-black border border-danger text-light" role="alert" aria-live="assertive" aria-atomic="true">
-                        <div class="toast-header bg-danger text-white">
-                            <i class="fas fa-exclamation-triangle me-2"></i>
-                            <strong class="me-auto">${data.title}</strong>
+                    <div class="toast show  border border-danger text-light" role="alert" aria-live="assertive" aria-atomic="true">
+                        <div class="toast-header bg-danger text-white py-1">
+                            <i class="fas fa-exclamation-triangle me-2 extra-small"></i>
+                            <strong class="me-auto small">${data.title}</strong>
                             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
                         </div>
-                        <div class="toast-body">
+                        <div class="toast-body small">
                             ${data.message}
                         </div>
                     </div>
@@ -138,6 +187,21 @@
                 setTimeout(() => toastContainer.remove(), 10000);
             });
         });
+
+        function sidebarTabSwitch(tabId) {
+            const tabBtn = document.getElementById(tabId);
+            if (tabBtn) {
+                const tab = new bootstrap.Tab(tabBtn);
+                tab.show();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+                // If not on a page with tabs, redirect to dashboard or relevant list
+                if (tabId === 'findings-tab' || tabId === 'graph-tab') {
+                    // Possible future routes, for now just home
+                    // window.location.href = '/findings'; 
+                }
+            }
+        }
     </script>
     {% block scripts %}{% endblock %}
 </body>

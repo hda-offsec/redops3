@@ -1,19 +1,19 @@
 <!-- FAVICON INTEL -->
 {% if results and results.phases and results.phases.osint and results.phases.osint.favicon %}
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-fingerprint me-2"></i>Favicon Hashing (OSINT
             Pivot)</div>
         <div class="card-body">
             <div class="row g-3">
                 {% for port, info in results.phases.osint.favicon.items() %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-secondary rounded d-flex align-items-center">
+                    <div class="p-3  border border-secondary rounded d-flex align-items-center">
                         <img src="{{ info.url }}" class="me-3 rounded"
                             style="width: 32px; height: 32px; background: white; padding: 2px;">
                         <div class="flex-grow-1 overflow-hidden">
                             <div class="text-muted small">Port {{ port }} Hash: <span
-                                    class="text-info font-monospace">{{ info.hash }}</span></div>
+                                    class="text-info ">{{ info.hash }}</span></div>
                             <div class="mt-1">
                                 <a href="https://www.shodan.io/search?query={{ info.shodan_query|urlencode }}"
                                     target="_blank" class="btn btn-xs btn-outline-warning">

@@ -1,18 +1,18 @@
 <!-- DEEP CRAWLING (Katana) -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-spider me-2"></i>Deep Crawling (Katana)</div>
         <div class="card-body" id="katana-results">
             {% if results and results.phases and results.phases.enum and results.phases.enum.katana %}
             <div class="accordion" id="accordionKatana">
                 {% for port, endpoints in results.phases.enum.katana.items() %}
-                <div class="accordion-item bg-black border-secondary">
+                <div class="accordion-item  border-secondary">
                     <h2 class="accordion-header" id="heading-katana-{{ port }}">
                         <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
                             type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-{{ port }}"
                             aria-expanded="false" aria-controls="collapse-katana-{{ port }}">
                             <span class="badge bg-info me-2">Port {{ port }}</span>
-                            <span class="font-monospace small text-muted">{{ endpoints|length }} Endpoints
+                            <span class=" small text-muted">{{ endpoints|length }} Endpoints
                                 Discovered</span>
                         </button>
                     </h2>
@@ -32,7 +32,7 @@
                                 %}
 
                                 <div
-                                    class="small font-monospace mb-1 border-bottom border-dark pb-1 text-break d-flex align-items-center">
+                                    class="small  mb-1 border-bottom border-dark pb-1 text-break d-flex align-items-center">
                                     {% if is_crit %}
                                     <i class="fas fa-radiation text-danger me-2" title="CRITICAL ASSET"></i>
                                     <a href="{{ ep }}" target="_blank"
@@ -55,7 +55,7 @@
                                     {% else %}
                                     <i class="fas fa-link text-muted opacity-25 me-2" style="width: 16px;"></i>
                                     <a href="{{ ep }}" target="_blank"
-                                        class="text-decoration-none text-cyber hover-action">{{ ep }}</a>
+                                        class="text-decoration-none text-info hover-action">{{ ep }}</a>
                                     {% endif %}
                                 </div>
                                 {% endfor %}

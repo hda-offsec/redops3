@@ -63,6 +63,8 @@ class Scan(db.Model):
     findings = db.relationship("Finding", backref="scan", lazy=True, cascade="all, delete-orphan")
     logs = db.relationship("ScanLog", backref="scan", lazy=True, cascade="all, delete-orphan")
     suggestions = db.relationship("Suggestion", backref="scan", lazy=True, cascade="all, delete-orphan")
+    knowledge_nodes = db.relationship("KnowledgeNode", backref="scan", lazy=True, cascade="all, delete-orphan")
+    knowledge_edges = db.relationship("KnowledgeEdge", backref="scan", lazy=True, cascade="all, delete-orphan")
     notes = db.Column(db.Text, nullable=True)
     geolocation_data = db.Column(db.JSON, nullable=True)
 
@@ -122,3 +124,29 @@ class Suggestion(db.Model):
     command_suggestion = db.Column(db.Text, nullable=False)
     reason = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class KnowledgeNode(db.Model):
+    __tablename__ = "knowledge_nodes"
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
+    node_id = db.Column(db.String(128), nullable=False) # e.g. "service:80", "finding:nuclei:1"
+    type = db.Column(db.String(50), nullable=False) # service, endpoint, finding, tech_profile, etc.
+    label = db.Column(db.String(255), nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<KnowledgeNode {self.node_id} ({self.type})>"
+
+
+class KnowledgeEdge(db.Model):
+    __tablename__ = "knowledge_edges"
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False)
+    source_node = db.Column(db.String(128), nullable=False)
+    target_node = db.Column(db.String(128), nullable=False)
+    relationship = db.Column(db.String(50), nullable=False) # exposes, has_finding, vulnerable_to, etc.
+    metadata_json = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<KnowledgeEdge {self.source_node} --[{self.relationship}]--> {self.target_node}>"

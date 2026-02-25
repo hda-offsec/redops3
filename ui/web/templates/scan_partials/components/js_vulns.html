@@ -1,6 +1,6 @@
 <!-- JS VULNERABILITY AUDIT -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fab fa-node-js me-2"></i>Client-Side Vulnerabilities
             (Retire.js)</div>
         <div class="card-body" id="js-vuln-results">
@@ -11,11 +11,11 @@
                     PORT {{ port }}</div>
                 <div class="d-flex flex-wrap gap-3">
                     {% for lib in libs %}
-                    <div class="p-3 bg-black border border-secondary rounded position-relative flex-grow-1"
+                    <div class="p-3  border border-secondary rounded position-relative flex-grow-1"
                         style="min-width: 250px;">
                         {% if lib.severity == 'high' or lib.severity == 'critical' %}
                         <div class="position-absolute top-0 end-0 p-2">
-                            <span class="badge bg-danger animate-pulse">VULNERABLE</span>
+                            <span class="badge bg-danger ">VULNERABLE</span>
                         </div>
                         {% endif %}
                         <div class="fw-bold text-info mb-1">{{ lib.library }} <span class="text-muted x-small">v{{

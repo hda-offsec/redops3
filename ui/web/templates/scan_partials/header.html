@@ -1,8 +1,8 @@
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-satellite-dish me-2 animate-flicker"></i>Operation Overview: <span
-                    class="text-cyber">{{ scan.target.identifier }}</span></span>
+            <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview: <span class="text-info">{{
+                    scan.target.identifier }}</span></span>
             <div class="mission-ops d-flex gap-2">
                 <a href="{{ url_for('main.index') }}" class="btn btn-xs btn-outline-cyber">
                     <i class="fas fa-home me-1"></i>Home
@@ -42,7 +42,7 @@
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
                     <div class="text-muted x-small text-uppercase">Subdomains</div>
-                    <div class="h4 mb-0 fw-bold text-cyber">{{ results.phases.dns.subdomains|length if
+                    <div class="h4 mb-0 fw-bold text-info">{{ results.phases.dns.subdomains|length if
                         (results.phases.dns and results.phases.dns.subdomains) else 0 }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
@@ -61,7 +61,7 @@
                 <!-- DISCOVERY STATUS BAR -->
                 <div class="col-12">
                     <div
-                        class="discovery-status-bar d-flex flex-wrap gap-2 mb-4 p-2 bg-black bg-opacity-20 rounded border border-secondary border-opacity-10">
+                        class="discovery-status-bar d-flex flex-wrap gap-2 mb-4 p-2  bg-opacity-20 rounded border border-secondary border-opacity-10">
                         <div id="discovery-dns" class="discovery-btn">
                             <i class="fas fa-network-wired"></i> DNS
                         </div>
@@ -131,7 +131,7 @@
                         </div>
                         <div class="col-md-3">
                             <div class="meta-label text-muted small text-uppercase">Duration</div>
-                            <div class="meta-value font-monospace text-light">
+                            <div class="meta-value  text-light">
                                 {% if scan.end_time and scan.start_time %}
                                 {{ (scan.end_time - scan.start_time)|string|truncate(7, true, '') }}
                                 {% else %}
@@ -142,12 +142,11 @@
                         <div class="col-md-6">
                             <div class="meta-label text-muted small text-uppercase mb-1">Live Progress</div>
                             <div class="d-flex align-items-center mb-1">
-                                <div class="spinner-border spinner-border-sm text-cyber me-2 {% if scan.status != 'running' %}d-none{% endif %}"
+                                <div class="spinner-border spinner-border-sm text-info me-2 {% if scan.status != 'running' %}d-none{% endif %}"
                                     id="scan-spinner" role="status"></div>
-                                <span class="meta-value font-monospace text-uppercase small" id="scan-status-text">{{
+                                <span class="meta-value  text-uppercase small" id="scan-status-text">{{
                                     scan.status }}</span>
-                                <span class="ms-auto small font-monospace text-muted"
-                                    id="scan-phase-text">initializing...</span>
+                                <span class="ms-auto small  text-muted" id="scan-phase-text">initializing...</span>
                             </div>
                             <div class="progress bg-dark border border-secondary"
                                 style="height: 6px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5);">
@@ -162,18 +161,17 @@
 
                 {% if scan.geolocation_data %}
                 <div class="col-12">
-                    <div
-                        class="mt-4 p-3 bg-black bg-opacity-30 border border-secondary border-opacity-25 rounded shadow-sm">
+                    <div class="mt-4 p-3  bg-opacity-30 border border-secondary border-opacity-25 rounded shadow-sm">
                         <div class="row align-items-center">
                             <div class="col-md-1 text-center">
-                                <i class="fas fa-globe-africa fa-2x text-cyber opacity-75"></i>
+                                <i class="fas fa-globe-africa fa-2x text-info opacity-75"></i>
                             </div>
                             <div class="col-md-11">
                                 <h6 class="text-uppercase small text-muted mb-1">Geographical Intelligence</h6>
                                 <div class="d-flex gap-4">
-                                    <div class="font-monospace small"><span class="text-muted">LOCATION:</span> {{
+                                    <div class=" small"><span class="text-muted">LOCATION:</span> {{
                                         scan.geolocation_data.city }}, {{ scan.geolocation_data.country }}</div>
-                                    <div class="font-monospace small"><span class="text-muted">ISP:</span> {{
+                                    <div class=" small"><span class="text-muted">ISP:</span> {{
                                         scan.geolocation_data.isp }}</div>
                                 </div>
                             </div>

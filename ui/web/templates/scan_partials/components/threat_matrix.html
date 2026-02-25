@@ -1,6 +1,6 @@
 <!-- THREAT MATRIX -->
 <div class="col-12">
-    <div class="card glass-panel mb-4">
+    <div class="card  mb-4">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
             <span><i class="fas fa-biohazard me-2"></i>Threat Matrix (High Value Targets)</span>
             {% if severity_counts['critical'] + severity_counts['high'] > 0 %}
@@ -26,7 +26,7 @@
                     {% for port in results.phases.recon.open_ports %}
                     {% if ((port.priority_score|default(0)) >= 50) or port.port in [80, 443, 8080] %}
                     <tr class="border-secondary">
-                        <td class="font-monospace text-info border-secondary">
+                        <td class=" text-info border-secondary">
                             <span class="badge bg-secondary me-1">{{ port.port }}</span> {{
                             port.service_name }}
                         </td>
@@ -69,7 +69,7 @@
                             {% set port_key = port.port|string %}
                             {% if results.phases.enum and results.phases.enum.js_secrets and
                             results.phases.enum.js_secrets[port_key] %}
-                            <span class="badge bg-danger animate-pulse"><i class="fas fa-key"></i> JS LEAKS</span>
+                            <span class="badge bg-danger "><i class="fas fa-key"></i> JS LEAKS</span>
                             {% elif results.phases.vuln and results.phases.vuln.data_leaks %}
                             <span class="badge bg-warning text-dark"><i class="fas fa-file-contract"></i> DATA
                                 FOUND</span>

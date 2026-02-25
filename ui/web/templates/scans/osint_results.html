@@ -5,7 +5,7 @@
 {% block content %}
 <div class="row g-4">
     <div class="col-md-8">
-        <div class="card bg-black border-cyber">
+        <div class="card  border-secondary">
             <div class="card-header"><i class="fas fa-search-plus me-2"></i>Passive Reconnaissance Results</div>
             <div class="card-body">
                 <div class="row mb-4">
@@ -23,7 +23,7 @@
                     </div>
                     <div class="col-md-6">
                         <label class="text-muted small text-uppercase">ISP / Cloud</label>
-                        <div class="h5 text-cyber">
+                        <div class="h5 text-info">
                             {% if intel.shodan.status == 'Success' and intel.shodan.data.isp %}
                             {{ intel.shodan.data.isp }}
                             {% elif scan.geolocation_data and scan.geolocation_data.isp %}
@@ -61,7 +61,7 @@
     </div>
 
     <div class="col-md-4">
-        <div class="card bg-black border-secondary h-100">
+        <div class="card  border-secondary h-100">
             <div class="card-header"><i class="fas fa-shield-alt me-2"></i>Target Reputation</div>
             <div class="card-body text-center d-flex flex-column justify-content-center">
                 <div class="display-1 mb-3"><i class="fas fa-fingerprint text-muted opacity-50"></i></div>

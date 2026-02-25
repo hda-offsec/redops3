@@ -8,12 +8,12 @@
 <div class="row g-4">
     <div class="col-12">
         {% if scan.parent %}
-        <div class="alert alert-dark border-secondary d-flex align-items-center mb-3 fade show bg-black bg-opacity-50">
+        <div class="alert alert-dark border-secondary d-flex align-items-center mb-3 fade show  bg-opacity-50">
             <i class="fas fa-level-up-alt me-3 text-info fa-lg"></i>
             <div>
                 <div class="text-muted x-small text-uppercase">Part of Operation</div>
                 <a href="{{ url_for('main.scan_detail', scan_id=scan.parent.id) }}"
-                    class="fw-bold text-cyber text-decoration-none">
+                    class="fw-bold text-info text-decoration-none">
                     #{{ scan.parent.id }} {{ scan.parent.target.identifier }}
                 </a>
             </div>
@@ -23,12 +23,8 @@
         {% include 'scan_partials/header.html' %}
     </div>
 
-    <div class="col-lg-8">
+    <div class="col-12">
         {% include 'scan_partials/main_content.html' %}
-    </div>
-
-    <div class="col-lg-4">
-        {% include 'scan_partials/sidebar.html' %}
     </div>
 </div>
 

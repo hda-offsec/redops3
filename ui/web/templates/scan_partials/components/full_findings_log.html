@@ -1,157 +1,87 @@
-<!-- FULL FINDINGS LOG (NEW SECTION) -->
+{% from "components/detection_table.html" import detection_table %}
+
+<!-- FULL FINDINGS LOG (Normalized) -->
 <div class="col-12">
-    <div class="card glass-panel mb-4">
-        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="fas fa-clipboard-list me-2"></i>Full Operational Findings Log</span>
-            <span class="badge bg-secondary text-dark">{{ findings|length }} Total Records</span>
+            <span
+                class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small">{{
+                findings|length }} RECORDS</span>
         </div>
         <div class="card-body">
             <!-- Filters -->
-            <div class="row g-3 mb-3">
-                <div class="col-md-6">
-                    <input type="text" id="findingSearch" class="form-control bg-dark text-light border-secondary"
-                        placeholder="Search findings (title, tool, description)...">
+            <div class="row g-2 mb-3 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-transparent border-secondary text-muted"><i
+                                class="fas fa-search"></i></span>
+                        <input type="text" id="findingSearch"
+                            class="form-control bg-transparent border-secondary text-light"
+                            placeholder="Deep filter Findings..." onkeyup="filterFindingsLogs()">
+                    </div>
                 </div>
-                <div class="col-md-6 d-flex align-items-center gap-2">
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" checked value="critical"
-                            onchange="filterFindings()">
-                        <label class="form-check-label text-danger small">Critical</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" checked value="high"
-                            onchange="filterFindings()">
-                        <label class="form-check-label text-warning small">High</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" checked value="medium"
-                            onchange="filterFindings()">
-                        <label class="form-check-label text-info small">Medium</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" checked value="low" onchange="filterFindings()">
-                        <label class="form-check-label text-success small">Low</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" checked value="info"
-                            onchange="filterFindings()">
-                        <label class="form-check-label text-muted small">Info</label>
+                <div class="col-md-7">
+                    <div class="d-flex flex-wrap gap-2 justify-content-end">
+                        <div class="form-check form-check-inline m-0">
+                            <input class="form-check-input bg-transparent border-danger" type="checkbox" checked
+                                value="critical" onchange="filterFindingsLogs()">
+                            <label class="form-check-label extra-small text-danger">CRITICAL</label>
+                        </div>
+                        <div class="form-check form-check-inline m-0">
+                            <input class="form-check-input bg-transparent border-warning" type="checkbox" checked
+                                value="high" onchange="filterFindingsLogs()">
+                            <label class="form-check-label extra-small text-warning">HIGH</label>
+                        </div>
+                        <div class="form-check form-check-inline m-0">
+                            <input class="form-check-input bg-transparent border-info" type="checkbox" checked
+                                value="medium" onchange="filterFindingsLogs()">
+                            <label class="form-check-label extra-small text-info">MEDIUM</label>
+                        </div>
+                        <div class="form-check form-check-inline m-0">
+                            <input class="form-check-input bg-transparent border-success" type="checkbox" checked
+                                value="low" onchange="filterFindingsLogs()">
+                            <label class="form-check-label extra-small text-success">LOW</label>
+                        </div>
+                        <div class="form-check form-check-inline m-0">
+                            <input class="form-check-input bg-transparent border-secondary" type="checkbox" checked
+                                value="info" onchange="filterFindingsLogs()">
+                            <label class="form-check-label extra-small text-muted">INFO</label>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Table -->
-            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                <table class="table table-dark table-hover table-sm mb-0 align-middle">
-                    <thead class="sticky-top bg-black">
-                        <tr class="text-muted small text-uppercase">
-                            <th style="width: 100px;">Severity</th>
-                            <th>Finding Title</th>
-                            <th style="width: 150px;">Tool</th>
-                            <th style="width: 50px;"></th>
-                        </tr>
-                    </thead>
-                    <tbody id="findings-table-body">
-                        {% for f in findings %}
-                        <tr class="finding-row" data-severity="{{ f.severity|lower }}"
-                            data-content="{{ f.title|lower }} {{ f.tool_source|lower }} {{ f.description|lower }}">
-                            <td>
-                                <span class="badge severity-badge {{ f.severity|lower }} text-uppercase w-100">{{
-                                    f.severity }}</span>
-                            </td>
-                            <td>
-                                <div class="fw-bold text-light">{{ f.title }}</div>
-                                <div class="small text-muted text-truncate" style="max-width: 400px;">{{
-                                    f.description[:300] }}...</div>
-                            </td>
-                            <td>
-                                <span class="badge bg-dark border border-secondary text-muted">{{ f.tool_source
-                                    }}</span>
-                            </td>
-                            <td>
-                                <button class="btn btn-xs btn-outline-secondary" type="button" data-bs-toggle="collapse"
-                                    data-bs-target="#finding-detail-{{ f.id }}">
-                                    <i class="fas fa-chevron-down"></i>
-                                </button>
-                            </td>
-                        </tr>
-                        <tr class="finding-detail-row collapse bg-black bg-opacity-25" id="finding-detail-{{ f.id }}">
-                            <td colspan="4" class="p-3">
-                                <div class="d-flex align-items-center mb-2">
-                                    <span class="badge bg-dark border border-secondary text-light x-small me-2">
-                                        <i class="fas fa-bullseye"></i> Confidence: {{ (f.confidence or 'medium')|upper
-                                        }}
-                                    </span>
-                                </div>
-                                <div class="small font-monospace text-light whitespace-pre-wrap">{{ f.description }}
-                                </div>
-
-                                {% if f.request or f.response or f.repro_command %}
-                                <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded"
-                                    style="max-width: 100%;">
-                                    <ul class="nav nav-pills nav-justified mb-2 x-small" role="tablist">
-                                        {% if f.request %}<li class="nav-item"><button class="nav-link py-1 active"
-                                                data-bs-toggle="pill" data-bs-target="#req-{{ f.id }}">Request</button>
-                                        </li>{% endif %}
-                                        {% if f.response %}<li class="nav-item"><button
-                                                class="nav-link py-1 {% if not f.request %}active{% endif %}"
-                                                data-bs-toggle="pill" data-bs-target="#res-{{ f.id }}">Response</button>
-                                        </li>{% endif %}
-                                        {% if f.repro_command %}<li class="nav-item"><button
-                                                class="nav-link py-1 {% if not f.request and not f.response %}active{% endif %}"
-                                                data-bs-toggle="pill"
-                                                data-bs-target="#repro-{{ f.id }}">Reproduction</button></li>{% endif %}
-                                    </ul>
-                                    <div class="tab-content mt-2">
-                                        {% if f.request %}
-                                        <div class="tab-pane fade show active" id="req-{{ f.id }}">
-                                            <pre class="x-small font-monospace text-cyber bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto"
-                                                style="max-height: 250px;">{{ f.request }}</pre>
-                                        </div>
-                                        {% endif %}
-                                        {% if f.response %}
-                                        <div class="tab-pane fade {% if not f.request %}show active{% endif %}"
-                                            id="res-{{ f.id }}">
-                                            <pre class="x-small font-monospace text-success bg-cyber bg-opacity-10 bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto"
-                                                style="max-height: 250px;">{{ f.response }}</pre>
-                                        </div>
-                                        {% endif %}
-                                        {% if f.repro_command %}
-                                        <div class="tab-pane fade {% if not f.request and not f.response %}show active{% endif %}"
-                                            id="repro-{{ f.id }}">
-                                            <div class="d-flex gap-2">
-                                                <div class="flex-grow-1">
-                                                    <pre
-                                                        class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">{{ f.repro_command }}</pre>
-                                                </div>
-                                                <button class="btn btn-xs btn-outline-warning"
-                                                    onclick="navigator.clipboard.writeText(this.parentElement.querySelector('pre').innerText);this.innerHTML='<i class=\'fas fa-check\'></i>';setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i>',1000)"><i
-                                                        class="fas fa-copy"></i></button>
-                                            </div>
-                                        </div>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                {% endif %}
-
-                                {% if f.screenshot_path %}
-                                <div class="mt-3 text-center">
-                                    <img src="{{ url_for('static', filename=f.screenshot_path) }}"
-                                        class="img-fluid rounded border border-secondary"
-                                        style="max-height: 400px; cursor: pointer;" onclick="window.open(this.src)">
-                                </div>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                        <tr id="no-findings-match" class="d-none">
-                            <td colspan="4" class="text-center text-muted py-4">
-                                No findings match your filters.
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div id="full-findings-container" style="max-height: 600px; overflow-y: auto;">
+                {{ detection_table(findings, table_id="full-findings-table") }}
             </div>
         </div>
     </div>
 </div>
+
+<script>
+    function filterFindingsLogs() {
+        const query = document.getElementById('findingSearch').value.toLowerCase();
+        const rows = document.querySelectorAll('#full-findings-table .finding-row');
+
+        // Get checked severities
+        const checkedSeverities = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(cb => cb.value.toLowerCase());
+
+        rows.forEach(row => {
+            const title = row.getAttribute('data-title');
+            const sev = row.getAttribute('data-sev');
+            const tool = row.getAttribute('data-tool');
+
+            const matchesQuery = title.includes(query) || tool.includes(query);
+            const matchesSeverity = checkedSeverities.includes(sev);
+
+            if (matchesQuery && matchesSeverity) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+</script>

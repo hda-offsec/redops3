@@ -1,0 +1,404 @@
+<!-- TAB 4: ATTACK GRAPH (Graph Explorer) -->
+<div class="col-12 mb-3">
+    <div
+        class="d-flex justify-content-between align-items-center  bg-opacity-50 p-2 rounded border border-secondary border-opacity-25">
+        <h5 class="mb-0 text-white ms-2"><i class="fas fa-project-diagram me-2 text-info"></i>Execution Graph</h5>
+        <div class="btn-group">
+            <button class="btn btn-sm btn-outline-cyber active" onclick="setGraphMode('promising')"
+                id="graph-btn-promising">Promising Paths</button>
+            <button class="btn btn-sm btn-outline-cyber" onclick="setGraphMode('forensics')"
+                id="graph-btn-forensics">Forensics</button>
+            <button class="btn btn-sm btn-outline-cyber" onclick="setGraphMode('surface')"
+                id="graph-btn-surface">Surface Expansion</button>
+        </div>
+    </div>
+</div>
+
+<!-- Warning Banner if relations aren't fully persisted -->
+<div class="col-12 mb-3">
+    <div class="alert alert-dark border-warning  bg-opacity-75 fade show d-flex align-items-center mb-0 p-2 d-none"
+        id="graph-warning" role="alert">
+        <i class="fas fa-exclamation-triangle text-warning me-3 ms-2 fa-lg"></i>
+        <div class="x-small  text-muted">
+            <strong class="text-warning">Partial graph:</strong> DB schema relationships not explicitly persisted. Using
+            inferred links from tool logs and seed URLs.
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-8">
+    <div class="card h-100">
+        <div class="card-header border-0 pb-0 d-flex justify-content-between">
+            <span class="extra-small text-muted text-uppercase">Execution Paths</span>
+            <div class="input-group input-group-sm" style="max-width: 300px;">
+                <span class="input-group-text bg-transparent border-secondary text-muted"><i
+                        class="fas fa-search"></i></span>
+                <input type="text" id="graph-filter" class="form-control bg-transparent border-secondary text-light"
+                    placeholder="Search paths..." onkeyup="renderGraphTable()">
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-hover mb-0" id="graph-table">
+                    <thead>
+                        <tr class="extra-small text-muted text-uppercase">
+                            <th class="ps-3">Source (From)</th>
+                            <th>Relationship</th>
+                            <th>Target (To)</th>
+                            <th class="text-end pe-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="graph-tbody" class="extra-small">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+                <div id="graph-empty-state" class="text-center p-5 d-none">
+                    <i class="fas fa-project-diagram fa-3x text-muted opacity-10 mb-3"></i>
+                    <p class="small text-muted">No execution paths match your filter.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-4">
+    <div class="card h-100 position-sticky" style="top: 20px;">
+        <div class="card-header glass-header">
+            <i class="fas fa-crosshairs me-2"></i>Path Context
+        </div>
+        <div class="card-body" id="graph-inspector-panel" style="max-height: 600px; overflow-y: auto;">
+            <div class="text-center p-5 text-muted fst-italic">
+                <i class="fas fa-mouse-pointer fa-2x opacity-25 mb-2"></i>
+                <p class="mb-0">Select a path to inspect provenance.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", initGraphData);
+
+    let graphDataNodes = [];
+    let graphDataEdges = [];
+
+    async function initGraphData() {
+        let allNodes = [];
+        let allEdges = [];
+
+        try {
+            const response = await fetch(`/api/scans/${scanResults.scan_id}/graph`);
+            const data = await response.json();
+
+            if (data.nodes && data.nodes.length > 0) {
+                // Success: Use persisted DB data
+                document.getElementById('graph-warning').classList.add('d-none');
+
+                data.nodes.forEach(n => {
+                    let color = { background: '#222', border: '#444' };
+                    let shape = 'dot';
+                    let font = { color: '#aaa', size: 10 };
+                    let size = 15;
+                    let label = n.label || n.id;
+
+                    if (n.type === 'service') {
+                        shape = 'hexagon';
+                        color = { background: '#111', border: '#00f0ff' };
+                        font = { color: '#00f0ff', face: 'monospace' };
+                        size = 25;
+                    } else if (n.type === 'finding') {
+                        shape = 'box';
+                        const sev = (n.data?.severity || 'info').toLowerCase();
+                        const colorMap = {
+                            'critical': '#ff2a2a', 'high': '#f39c12',
+                            'medium': '#f1c40f', 'low': '#3498db', 'info': '#95a5a6'
+                        };
+                        color = { background: colorMap[sev] || '#95a5a6', border: '#000' };
+                        font = { color: '#000', bold: true };
+                        label = `🚨\n${n.label || n.id}`;
+                    } else if (n.type === 'endpoint') {
+                        label = `🔗\n${n.label || n.id}`;
+                    } else if (n.type === 'target') {
+                        shape = 'star';
+                        color = { background: '#f1c40f', border: '#000' };
+                        font = { color: '#000', bold: true };
+                        size = 30;
+                        label = `🎯\n${n.label || n.id}`;
+                    } else if (n.type === 'subdomain') {
+                        label = `🌐\n${n.label || n.id}`;
+                    } else if (n.type === 'cloud_asset') {
+                        shape = 'database';
+                        color = { background: '#3498db', border: '#fff' };
+                        label = `☁️\n${n.label || n.id}`;
+                    } else if (n.type === 'tech_profile') {
+                        shape = 'diamond';
+                        color = { background: '#333', border: '#a29bfe' };
+                        label = `🛠️\nStack`;
+                    }
+
+                    allNodes.push({
+                        id: n.id,
+                        label: label,
+                        shape: shape,
+                        color: color,
+                        font: font,
+                        size: size,
+                        meta: { type: n.type, ...n.data }
+                    });
+                });
+
+                data.edges.forEach(e => {
+                    allEdges.push({
+                        from: e.from,
+                        to: e.to,
+                        label: e.type,
+                        font: { size: 8, color: '#666', align: 'middle' },
+                        color: { color: '#444' },
+                        arrows: 'to'
+                    });
+                });
+            } else {
+                // Fallback: Build from heuristics if DB is empty
+                buildHeuristicGraph(allNodes, allEdges);
+            }
+        } catch (err) {
+            console.error("Failed to load persisted graph:", err);
+            buildHeuristicGraph(allNodes, allEdges);
+        }
+
+        graphDataNodes = allNodes;
+        graphDataEdges = allEdges;
+
+        renderGraphTable();
+    }
+
+    function buildHeuristicGraph(allNodes, allEdges) {
+        // Ensure Warning Banner is shown because we are falling back to heuristics
+        document.getElementById('graph-warning').classList.remove('d-none');
+
+        // 1. Core Target Node (Seed)
+        const targetNodeId = `target_1`;
+        allNodes.push({
+            id: targetNodeId,
+            label: `🎯\n${scanResults.target}`,
+            shape: 'hexagon',
+            color: { background: '#111', border: '#00f0ff' },
+            font: { color: '#00f0ff', face: 'monospace' },
+            size: 30,
+            meta: { type: 'Seed', details: scanResults.target }
+        });
+
+        // 2. Surface Nodes (Endpoints, Cloud Assets, open ports)
+        if (typeof rawSurfaceData !== 'undefined') {
+            rawSurfaceData.forEach((s, idx) => {
+                let sNodeId = `surface_${idx}`;
+                let icon = s.type === 'asset' ? '🌐' : s.type === 'endpoint' ? '🔗' : '📦';
+                allNodes.push({
+                    id: sNodeId,
+                    label: `${icon}\n${s.value.substring(0, 25)}...`,
+                    shape: 'dot',
+                    color: { background: '#222', border: '#444' },
+                    font: { color: '#aaa', size: 10 },
+                    size: 15,
+                    meta: { type: s.type, source: s.source, details: s.value }
+                });
+
+                allEdges.push({
+                    from: targetNodeId,
+                    to: sNodeId,
+                    label: 'discovered',
+                    font: { size: 8, color: '#666', align: 'middle' },
+                    color: { color: '#333' },
+                    arrows: 'to'
+                });
+            });
+        }
+
+        // 3. Findings/Detections Nodes
+        if (typeof rawFindingsData !== 'undefined') {
+            Object.values(rawFindingsData).forEach(f => {
+                let fNodeId = `vuln_${f.id}`;
+                let colorMap = {
+                    'critical': '#ff2a2a', 'high': '#f39c12',
+                    'medium': '#f1c40f', 'low': '#3498db', 'info': '#95a5a6'
+                };
+                let bgClr = colorMap[f.severity.toLowerCase()] || '#95a5a6';
+
+                allNodes.push({
+                    id: fNodeId,
+                    label: `🚨\n${f.title.substring(0, 20)}...`,
+                    shape: 'box',
+                    color: { background: bgClr, border: '#000' },
+                    font: { color: '#000', bold: true },
+                    meta: { type: 'Detection', severity: f.severity, confidence: f.confidence, source: f.tool_source }
+                });
+
+                let linked = false;
+                if (typeof rawSurfaceData !== 'undefined') {
+                    for (let i = 0; i < rawSurfaceData.length; i++) {
+                        let s = rawSurfaceData[i];
+                        if (f.description && f.description.includes(s.value)) {
+                            allEdges.push({
+                                from: `surface_${i}`,
+                                to: fNodeId,
+                                label: 'affects',
+                                color: { color: bgClr },
+                                font: { size: 8, color: bgClr }
+                            });
+                            linked = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!linked) {
+                    allEdges.push({
+                        from: targetNodeId,
+                        to: fNodeId,
+                        label: `found via ${f.tool_source}`,
+                        color: { color: '#ff2a2a', opacity: 0.3 },
+                        font: { size: 8, color: '#ff2a2a' }
+                    });
+                }
+            });
+        }
+    }
+
+    function renderGraphTable() {
+        const tbody = document.getElementById('graph-tbody');
+        const emptyState = document.getElementById('graph-empty-state');
+        const filter = document.getElementById('graph-filter').value.toLowerCase();
+
+        tbody.innerHTML = '';
+        let matchCount = 0;
+
+        // Map nodes for quick lookup
+        const nodeMap = {};
+        graphDataNodes.forEach(n => nodeMap[n.id] = n);
+
+        graphDataEdges.forEach((edge, idx) => {
+            const fromNode = nodeMap[edge.from];
+            const toNode = nodeMap[edge.to];
+
+            if (!fromNode || !toNode) return;
+
+            const fromLabel = fromNode.label.replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim();
+            const toLabel = toNode.label.replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim();
+            const rel = edge.label || 'connected';
+
+            const searchString = `${fromLabel} ${toLabel} ${rel}`.toLowerCase();
+
+            // Always apply filter, but skip standard filtering if mode doesn't match
+            let showRow = true;
+            if (filter && !searchString.includes(filter)) showRow = false;
+
+            if (graphMode === 'promising') {
+                // Show only edges that lead to findings
+                if (toNode.meta && toNode.meta.type !== 'finding' && toNode.meta.type !== 'Detection') {
+                    showRow = false;
+                }
+            } else if (graphMode === 'surface') {
+                // Show endpoints, assets
+                if (toNode.meta && (toNode.meta.type === 'finding' || toNode.meta.type === 'Detection')) {
+                    showRow = false;
+                }
+            }
+
+            if (showRow) {
+                matchCount++;
+                const tr = document.createElement('tr');
+                tr.className = 'hover-action cursor-pointer finding-row';
+                tr.onclick = () => inspectPath(fromNode, edge, toNode);
+
+                tr.innerHTML = `
+                    <td class="ps-3 align-middle">
+                        <span class="text-light fw-bold">${fromLabel.substring(0, 35)}${fromLabel.length > 35 ? '...' : ''}</span><br>
+                        <span class="text-muted" style="font-size: 0.65rem;">${fromNode.meta ? fromNode.meta.type : 'Node'}</span>
+                    </td>
+                    <td class="align-middle text-center">
+                        <div class="badge bg-secondary bg-opacity-10 border border-secondary text-info px-2 py-1">
+                            <i class="fas fa-long-arrow-alt-right me-1"></i> ${rel}
+                        </div>
+                    </td>
+                    <td class="align-middle">
+                        <span class="text-light fw-bold">${toLabel.substring(0, 35)}${toLabel.length > 35 ? '...' : ''}</span><br>
+                        <span class="text-muted" style="font-size: 0.65rem;">${toNode.meta ? toNode.meta.type : 'Node'}</span>
+                    </td>
+                    <td class="text-end pe-3 align-middle">
+                        <button class="btn btn-xs btn-outline-cyber"><i class="fas fa-eye"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        });
+
+        if (matchCount === 0) {
+            emptyState.classList.remove('d-none');
+        } else {
+            emptyState.classList.add('d-none');
+        }
+    }
+
+    function setGraphMode(mode) {
+        graphMode = mode;
+        document.querySelectorAll('#graph-pane .btn-group button').forEach(b => b.classList.remove('active'));
+        document.getElementById(`graph-btn-${mode}`).classList.add('active');
+        renderGraphTable();
+    }
+
+    function inspectPath(fromNode, edge, toNode) {
+        const panel = document.getElementById('graph-inspector-panel');
+
+        let html = `
+            <div class="mb-4">
+                <h6 class="text-muted text-uppercase small mb-2">Path Context</h6>
+                <div class="d-flex align-items-center justify-content-between p-2 bg-black bg-opacity-20 rounded border border-secondary border-opacity-25">
+                    <div class="text-truncate" style="max-width: 40%;"><span class="badge bg-dark">${fromNode.meta ? fromNode.meta.type : ''}</span><br><span class="text-light small text-wrap">${fromNode.label.replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim()}</span></div>
+                    <div class="text-info small"><i class="fas fa-arrow-right"></i><br><span style="font-size: 0.65rem;">${edge.label}</span></div>
+                    <div class="text-truncate text-end" style="max-width: 40%;"><span class="badge bg-dark">${toNode.meta ? toNode.meta.type : ''}</span><br><span class="text-light small text-wrap">${toNode.label.replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim()}</span></div>
+                </div>
+            </div>
+        `;
+
+        // Detailed Node Info
+        html += `<div class="row g-2">`;
+
+        // From Node
+        html += `<div class="col-12"><h6 class="text-muted text-uppercase extra-small border-bottom border-secondary pb-1 mb-2">Source Node</h6><ul class="list-group list-group-flush bg-transparent small">`;
+        if (fromNode.meta) {
+            Object.entries(fromNode.meta).forEach(([k, v]) => {
+                if (typeof v === 'object') v = JSON.stringify(v);
+                html += `
+                 <li class="list-group-item bg-transparent text-muted px-0 py-1 d-flex justify-content-between text-break">
+                     <span class="opacity-50 text-uppercase">${k}</span>
+                     <span class="text-light text-end w-75">${v || 'N/A'}</span>
+                 </li>`;
+            });
+        }
+        html += `</ul></div>`;
+
+        // To Node
+        html += `<div class="col-12 mt-3"><h6 class="text-muted text-uppercase extra-small border-bottom border-secondary pb-1 mb-2">Target Node</h6><ul class="list-group list-group-flush bg-transparent small">`;
+        if (toNode.meta) {
+            Object.entries(toNode.meta).forEach(([k, v]) => {
+                if (typeof v === 'object') v = JSON.stringify(v);
+                html += `
+                 <li class="list-group-item bg-transparent text-muted px-0 py-1 d-flex justify-content-between text-break">
+                     <span class="opacity-50 text-uppercase">${k}</span>
+                     <span class="text-light text-end w-75">${v || 'N/A'}</span>
+                 </li>`;
+            });
+        }
+        html += `</ul></div>`;
+        html += `</div>`;
+
+        html += `
+        <div class="mt-4 alert alert-dark border-secondary p-2 x-small text-muted">
+            <i class="fas fa-info-circle me-1"></i>Relationships for this path might be inferred if full DB serialization isn't present.
+        </div>
+        `;
+        panel.innerHTML = html;
+
+        // Scroll back to top
+        panel.scrollTop = 0;
+    }
+</script>

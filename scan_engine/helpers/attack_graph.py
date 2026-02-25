@@ -25,12 +25,34 @@ class AttackGraphBuilder:
         recon_ports = phases.get("recon", {}).get("open_ports", [])
         enum = phases.get("enum", {})
         vuln = phases.get("vuln", {})
+        target_name = results.get("target", "unknown")
+        target_node_id = f"target:{target_name}"
+        
+        # Ensure Target Node exists
+        self.nodes.append({"type": "target", "id": target_node_id, "label": target_name, "data": {"target": target_name}})
+
+        # DNS Subdomains
+        subdomains = phases.get("dns", {}).get("subdomains", [])
+        for sub in subdomains:
+            node_id = f"subdomain:{sub}"
+            self.nodes.append({"type": "subdomain", "id": node_id, "label": sub, "data": {"domain": sub}})
+            self._add_edge(target_node_id, node_id, "subdomain_of")
+
+        # Cloud Assets
+        cloud_assets = phases.get("osint", {}).get("cloud", [])
+        for asset in cloud_assets:
+            provider = asset.get("provider", "Cloud")
+            bucket = asset.get("bucket") or asset.get("account") or "unknown"
+            node_id = f"cloud:{provider}:{bucket}"
+            self.nodes.append({"type": "cloud_asset", "id": node_id, "label": f"{provider}: {bucket}", "data": asset})
+            self._add_edge(target_node_id, node_id, "associated_asset")
 
         endpoint_ids_by_port = {}
         for p in recon_ports:
             port = str(p.get("port"))
             service_id = f"service:{port}"
             self.nodes.append({"type": "service", "id": service_id, "data": p})
+            self._add_edge(target_node_id, service_id, "exposes_port")
 
             for ep in enum.get("targets", {}).get(port, []):
                 endpoint_id = f"endpoint:{port}:{ep}"

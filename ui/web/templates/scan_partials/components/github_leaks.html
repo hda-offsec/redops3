@@ -1,7 +1,7 @@
 <!-- GITHUB CODE LEAKS -->
 {% if results and results.phases and results.phases.osint and results.phases.osint.github %}
 <div class="col-12">
-    <div class="card glass-panel border-danger">
+    <div class="card  border-danger">
         <div class="card-header glass-header text-danger d-flex justify-content-between align-items-center">
             <span><i class="fab fa-github me-2 animate-flicker"></i>GitHub Code Leaks / Mentions</span>
             <span class="badge bg-danger text-dark x-small">{{ results.phases.osint.github|length }}
@@ -12,14 +12,14 @@
                 {% for leak in results.phases.osint.github %}
                 <div class="col-md-6">
                     <div
-                        class="p-3 bg-black bg-opacity-40 border border-secondary rounded hover-action h-100 d-flex flex-column">
+                        class="p-3  bg-opacity-40 border border-secondary rounded hover-action h-100 d-flex flex-column">
                         <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h6 class="text-info mb-0 font-monospace small"><i class="fas fa-code-branch me-2"></i>{{
+                            <h6 class="text-info mb-0  small"><i class="fas fa-code-branch me-2"></i>{{
                                 leak.repository }}</h6>
                             <span class="badge bg-dark border border-secondary text-muted x-small">{{
                                 leak.owner }}</span>
                         </div>
-                        <div class="text-muted x-small font-monospace text-truncate mb-3" title="{{ leak.path }}">{{
+                        <div class="text-muted x-small  text-truncate mb-3" title="{{ leak.path }}">{{
                             leak.path }}</div>
                         <div class="mt-auto">
                             <a href="{{ leak.url }}" target="_blank" class="btn btn-xs btn-outline-cyber w-100">

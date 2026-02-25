@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from sqlalchemy.orm import joinedload
-from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, db
+from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, KnowledgeNode, KnowledgeEdge, db
 from sqlalchemy import func
 from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report, generate_html_report
@@ -83,6 +83,29 @@ def get_scan_findings(scan_id):
             "repro_command": f.repro_command,
             "created_at": f.created_at.isoformat() if f.created_at else None
         } for f in items]
+    })
+
+
+@main_bp.route("/api/scans/<int:scan_id>/graph")
+def get_scan_graph(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    nodes = KnowledgeNode.query.filter_by(scan_id=scan_id).all()
+    edges = KnowledgeEdge.query.filter_by(scan_id=scan_id).all()
+    
+    return jsonify({
+        "scan_id": scan_id,
+        "nodes": [{
+            "id": n.node_id,
+            "type": n.type,
+            "label": n.label,
+            "data": n.metadata_json
+        } for n in nodes],
+        "edges": [{
+            "from": e.source_node,
+            "to": e.target_node,
+            "type": e.relationship,
+            "data": e.metadata_json
+        } for e in edges]
     })
 
 
@@ -421,6 +444,7 @@ def _add_suggestion(scan_id, tool, command, reason=None):
 def background_scan(scan_id, target_identifier, scan_type, app):
     from datetime import datetime
     from core.scan_profiles import SCAN_PROFILES
+    from core.reclassifier import PostDetectionReclassifier
     
     with app.app_context():
         scan = Scan.query.get(scan_id)
@@ -488,6 +512,44 @@ def background_scan(scan_id, target_identifier, scan_type, app):
         def add_loot_cb(loot_type, content, context=None):
             return _add_loot(scan.id, loot_type, content, context)
 
+        def persist_graph_cb(nodes, edges):
+            try:
+                # Clear existing graph data for this scan to avoid duplicates
+                KnowledgeEdge.query.filter_by(scan_id=scan.id).delete()
+                KnowledgeNode.query.filter_by(scan_id=scan.id).delete()
+                
+                for node in nodes:
+                    kn = KnowledgeNode(
+                        scan_id=scan.id,
+                        node_id=node.get('id'),
+                        type=node.get('type'),
+                        label=node.get('label'),
+                        metadata_json=node.get('data')
+                    )
+                    db.session.add(kn)
+                
+                for edge in edges:
+                    ke = KnowledgeEdge(
+                        scan_id=scan.id,
+                        source_node=edge.get('from'),
+                        target_node=edge.get('to'),
+                        relationship=edge.get('type'),
+                        metadata_json=edge.get('data')
+                    )
+                    db.session.add(ke)
+                
+                db.session.commit()
+                _log_and_emit(scan.id, f"Attack graph synchronized: {len(nodes)} nodes, {len(edges)} edges persisted.", "SUCCESS")
+                
+                # Notify UI to refresh graph
+                from core.extensions import get_socketio
+                sio = get_socketio()
+                if sio:
+                    sio.emit("graph_updated", {"scan_id": scan.id}, room=f"scan_{scan.id}")
+            except Exception as e:
+                print(f"[ERROR] Failed to persist graph: {e}")
+                db.session.rollback()
+
         orchestrator = ScanOrchestrator(
             scan_id=scan.id,
             target=target_identifier,
@@ -495,7 +557,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
             finding_func=add_finding_cb,
             suggestion_func=add_suggestion_cb,
             results_func=results_update_cb,
-            loot_func=add_loot_cb
+            loot_func=add_loot_cb,
+            graph_func=persist_graph_cb
         )
         
         # Execute Pipeline
@@ -528,6 +591,12 @@ def background_scan(scan_id, target_identifier, scan_type, app):
              # Let's pass the scan_type as profile, and Update Orchestrator to import SCAN_PROFILES.
              success = orchestrator.run_pipeline(profile=scan_type)
              
+             if success:
+                 _log_and_emit(scan.id, "Running Evidence-Based Reclassifier...", "INFO")
+                 reclassifier = PostDetectionReclassifier(scan.id)
+                 reclassifier.process()
+                 _log_and_emit(scan.id, "Reclassification and deduplication complete.", "SUCCESS")
+                 
         except Exception as e:
              _log_and_emit(scan.id, f"Pipeline Error: {str(e)}", "ERROR")
              success = False
@@ -826,6 +895,8 @@ def clear_logs():
         from core.models import Mission
         db.session.query(Finding).delete()
         db.session.query(Suggestion).delete()
+        db.session.query(KnowledgeNode).delete()
+        db.session.query(KnowledgeEdge).delete()
         db.session.query(ScanLog).delete()
         db.session.query(Loot).delete()
         db.session.query(Scan).delete()

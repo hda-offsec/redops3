@@ -1,92 +1,85 @@
 <div class="col-12">
     <!-- NAV TABS -->
-    <ul class="nav nav-pills nav-justified mb-4 p-1 bg-black bg-opacity-40 rounded-pill border border-secondary border-opacity-10"
+    <ul class="nav nav-pills nav-justified mb-4 p-1  bg-opacity-40 rounded-pill border border-secondary border-opacity-10"
         id="scanTabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active rounded-pill px-4" id="intel-tab" data-bs-toggle="tab"
-                data-bs-target="#intel-pane" type="button" role="tab">
-                <i class="fas fa-brain me-2"></i>Intelligence Hub
+            <button class="nav-link active rounded-pill px-4" id="mission-tab" data-bs-toggle="tab"
+                data-bs-target="#mission-pane" type="button" role="tab">
+                <i class="fas fa-crosshairs me-2"></i>Mission Overview
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link rounded-pill px-4" id="enum-tab" data-bs-toggle="tab" data-bs-target="#enum-pane"
-                type="button" role="tab">
-                <i class="fas fa-search me-2"></i>Recon & Surface
+            <button class="nav-link rounded-pill px-4" id="surface-tab" data-bs-toggle="tab"
+                data-bs-target="#surface-pane" type="button" role="tab">
+                <i class="fas fa-network-wired me-2"></i>Attack Surface
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link rounded-pill px-4" id="vuln-tab" data-bs-toggle="tab" data-bs-target="#vuln-pane"
-                type="button" role="tab">
-                <i class="fas fa-biohazard me-2"></i>Vulnerabilities
+            <button class="nav-link rounded-pill px-4" id="findings-tab" data-bs-toggle="tab"
+                data-bs-target="#findings-pane" type="button" role="tab">
+                <i class="fas fa-biohazard me-2"></i>Findings
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link rounded-pill px-4" id="ops-tab" data-bs-toggle="tab" data-bs-target="#ops-pane"
+            <button class="nav-link rounded-pill px-4" id="graph-tab" data-bs-toggle="tab" data-bs-target="#graph-pane"
                 type="button" role="tab">
-                <i class="fas fa-terminal me-2"></i>Operational Log
+                <i class="fas fa-project-diagram me-2"></i>Attack Graph
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link rounded-pill px-4" id="report-tab" data-bs-toggle="tab"
+                data-bs-target="#report-pane" type="button" role="tab">
+                <i class="fas fa-file-invoice me-2"></i>Report Builder
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link rounded-pill px-4" id="hood-tab" data-bs-toggle="tab" data-bs-target="#hood-pane"
+                type="button" role="tab">
+                <i class="fas fa-cogs me-2"></i>Sous le capot
             </button>
         </li>
     </ul>
 
     <div class="tab-content" id="scanTabsContent">
-        <!-- TAB 1: INTELLIGENCE HUB -->
-        <div class="tab-pane fade show active" id="intel-pane" role="tabpanel">
+        <!-- TAB 1: MISSION OVERVIEW -->
+        <div class="tab-pane fade show active" id="mission-pane" role="tabpanel">
             <div class="row g-4">
-                {% include 'scan_partials/components/breach_report.html' %}
-                {% include 'scan_partials/components/observability.html' %}
-                {% include 'scan_partials/components/advanced_recon.html' %}
-                {% include 'scan_partials/components/cortex_intelligence.html' %}
-                {% include 'scan_partials/components/target_dashboard.html' %}
-                {% include 'scan_partials/components/intel_analysis.html' %}
-                {% include 'scan_partials/components/recon_matrix.html' %}
-                {% include 'scan_partials/components/threat_matrix.html' %}
+                {% include 'scan_partials/interface/mission_overview.html' %}
             </div>
         </div>
 
-        <!-- TAB 2: RECON & SURFACE -->
-        <div class="tab-pane fade" id="enum-pane" role="tabpanel">
+        <!-- TAB 2: ATTACK SURFACE -->
+        <div class="tab-pane fade" id="surface-pane" role="tabpanel">
             <div class="row g-4">
-                {% include 'scan_partials/components/dns_intel.html' %}
-                {% include 'scan_partials/components/visual_recon.html' %}
-                {% include 'scan_partials/components/cloud_assets.html' %}
-                {% include 'scan_partials/components/email_discovery.html' %}
-                {% include 'scan_partials/components/data_leaks.html' %}
-                {% include 'scan_partials/components/favicon_intel.html' %}
-                {% include 'scan_partials/components/github_leaks.html' %}
-                {% include 'scan_partials/components/waf_intel.html' %}
-                {% include 'scan_partials/components/arjun_results.html' %}
-                {% include 'scan_partials/components/api_discovery.html' %}
-                {% include 'scan_partials/components/katana.html' %}
-                {% include 'scan_partials/components/whatweb.html' %}
-                {% include 'scan_partials/components/ffuf_results.html' %}
+                {% include 'scan_partials/interface/attack_surface.html' %}
             </div>
         </div>
 
-        <!-- TAB 3: VULNERABILITIES -->
-        <div class="tab-pane fade" id="vuln-pane" role="tabpanel">
+        <!-- TAB 3: FINDINGS -->
+        <div class="tab-pane fade" id="findings-pane" role="tabpanel">
             <div class="row g-4">
-                {% include 'scan_partials/components/vuln_classes.html' %}
-                {% include 'scan_partials/components/nuclei_results.html' %}
-                {% include 'scan_partials/components/xss_results.html' %}
-                {% include 'scan_partials/components/js_vulns.html' %}
-                {% include 'scan_partials/components/js_secrets.html' %}
-                {% include 'scan_partials/components/open_redirects.html' %}
-                {% include 'scan_partials/components/wpscan_results.html' %}
-                {% include 'scan_partials/wordpress_intel.html' %}
-                {% include 'scan_partials/components/security_headers.html' %}
-                {% include 'scan_partials/components/critical_infra.html' %}
-                {% include 'scan_partials/components/advanced_vulns.html' %}
-                {% include 'scan_partials/components/tls_intel.html' %}
-                {% include 'scan_partials/components/deep_scan.html' %}
+                {% include 'scan_partials/interface/findings.html' %}
             </div>
         </div>
 
-        <!-- TAB 4: OPERATIONAL LOG -->
-        <div class="tab-pane fade" id="ops-pane" role="tabpanel">
+        <!-- TAB 4: ATTACK GRAPH -->
+        <div class="tab-pane fade" id="graph-pane" role="tabpanel">
             <div class="row g-4">
-                {% include 'scan_partials/components/full_findings_log.html' %}
-                {% include 'scan_partials/components/execution_log.html' %}
-                {% include 'scan_partials/components/command_history.html' %}
+                {% include 'scan_partials/interface/attack_graph.html' %}
+            </div>
+        </div>
+
+        <!-- TAB 5: REPORT BUILDER -->
+        <div class="tab-pane fade" id="report-pane" role="tabpanel">
+            <div class="row g-4">
+                {% include 'scan_partials/interface/report_builder.html' %}
+            </div>
+        </div>
+
+        <!-- TAB 6: SOUS LE CAPOT -->
+        <div class="tab-pane fade" id="hood-pane" role="tabpanel">
+            <div class="row g-4">
+                {% include 'scan_partials/interface/under_the_hood.html' %}
             </div>
         </div>
     </div>

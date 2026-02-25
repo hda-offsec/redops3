@@ -1,18 +1,18 @@
 <!-- PARAMETER DISCOVERY -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-vial me-2"></i>Parameter Discovery (Arjun)
         </div>
         <div class="card-body" id="arjun-results">
             {% if results and results.phases and results.phases.enum and results.phases.enum.arjun %}
             <div class="accordion" id="accordionArjun">
                 {% for port, findings in results.phases.enum.arjun.items() %}
-                <div class="accordion-item bg-black border-secondary">
+                <div class="accordion-item  border-secondary">
                     <h2 class="accordion-header" id="heading-arjun-{{ port }}">
                         <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
                             type="button" data-bs-toggle="collapse" data-bs-target="#collapse-arjun-{{ port }}">
                             <span class="badge bg-cyber me-2">Port {{ port }}</span>
-                            <span class="font-monospace small text-muted">{{ findings|length }}
+                            <span class=" small text-muted">{{ findings|length }}
                                 Entrypoints/Params Discovered</span>
                         </button>
                     </h2>
@@ -20,7 +20,7 @@
                         data-bs-parent="#accordionArjun">
                         <div class="accordion-body p-2">
                             {% for find in findings %}
-                            <div class="font-monospace small text-cyber mb-1 border-bottom border-dark pb-1">
+                            <div class=" small text-info mb-1 border-bottom border-dark pb-1">
                                 {{ find }}</div>
                             {% endfor %}
                         </div>

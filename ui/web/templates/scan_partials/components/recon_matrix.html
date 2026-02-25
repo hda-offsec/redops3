@@ -1,5 +1,5 @@
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-th me-2"></i>Recon Matrix (Deep Audit)</div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -36,7 +36,7 @@
                                             role="progressbar" style="width: {{ score }}%"></div>
                                     </div>
                                     <span
-                                        class="badge {% if score >= 85 %}text-danger fw-bold{% elif score >= 50 %}text-warning{% else %}text-info{% endif %} font-monospace"
+                                        class="badge {% if score >= 85 %}text-danger fw-bold{% elif score >= 50 %}text-warning{% else %}text-info{% endif %} "
                                         style="font-size: 0.8rem;">
                                         {{ score }}<small class="opacity-50">/100</small>
                                     </span>
@@ -48,7 +48,7 @@
                             </td>
                             <td class="p-3">
                                 {% if port.version and port.version != "Unknown" %}
-                                <span class="text-light opacity-75 small font-monospace">{{ port.version
+                                <span class="text-light opacity-75 small ">{{ port.version
                                     }}</span>
                                 {% else %}
                                 <span class="text-muted fst-italic small">Fingerprinting...</span>
@@ -59,7 +59,7 @@
                                 <div class="d-flex flex-wrap gap-1">
                                     <!-- Service Badge -->
                                     <span
-                                        class="badge border border-secondary bg-dark text-light font-monospace opacity-75">
+                                        class="badge border border-secondary bg-dark text-light  opacity-75">
                                         {{ port.service_name|upper }}
                                     </span>
 
@@ -148,8 +148,8 @@
                                                     <button type="button" class="btn-close btn-close-white"
                                                         data-bs-dismiss="modal" aria-label="Close"></button>
                                                 </div>
-                                                <div class="modal-body bg-black">
-                                                    <pre class="text-success font-monospace small mb-0 p-2"
+                                                <div class="modal-body ">
+                                                    <pre class="text-success  small mb-0 p-2"
                                                         style="white-space: pre-wrap;">{{ port.script_output }}</pre>
                                                 </div>
                                             </div>

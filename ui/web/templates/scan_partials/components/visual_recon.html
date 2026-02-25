@@ -1,6 +1,6 @@
 <!-- VISUAL RECONNAISSANCE -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-camera me-2"></i>Visual Reconnaissance</div>
         <div class="card-body">
             <div class="row g-2" id="visual-recon-gallery">
@@ -12,13 +12,13 @@
                 {% set has_shots = true %}
                 <div class="col-md-4 col-lg-3">
                     <div
-                        class="screenshot-card bg-black border {{ 'border-info animate-pulse' if port.screenshot_path == 'pending' else 'border-secondary' }} rounded overflow-hidden shadow-lg position-relative">
+                        class="screenshot-card  border {{ 'border-info ' if port.screenshot_path == 'pending' else 'border-secondary' }} rounded overflow-hidden shadow-lg position-relative">
                         {% if port.screenshot_path == 'pending' %}
                         <div class="d-flex flex-column align-items-center justify-content-center"
                             style="height: 120px; background: rgba(0,240,255,0.05);">
                             <div class="spinner-border text-info spinner-border-sm mb-2" role="status">
                             </div>
-                            <div class="x-small text-info font-monospace text-uppercase flicker">
+                            <div class="x-small text-info  text-uppercase flicker">
                                 Capturing...</div>
                         </div>
                         {% else %}
@@ -26,7 +26,7 @@
                             style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)"
                             title="Port {{ port.port }}">
                         {% endif %}
-                        <div class="p-1 text-center bg-dark small font-monospace">
+                        <div class="p-1 text-center bg-dark small ">
                             <span class="text-info">PORT {{ port.port }}</span>
                         </div>
                     </div>
@@ -41,11 +41,11 @@
                 {% set has_shots = true %}
                 <div class="col-md-4 col-lg-3">
                     <div
-                        class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+                        class="screenshot-card  border border-danger border-opacity-50 rounded overflow-hidden">
                         <img src="{{ url_for('static', filename=f.screenshot_path) }}" class="img-fluid w-100"
                             style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)"
                             title="{{ f.title }}">
-                        <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
+                        <div class="p-1 text-center bg-danger bg-opacity-10 small ">
                             <span class="text-danger">EXPOSURE</span>
                         </div>
                     </div>

@@ -1,6 +1,6 @@
 <!-- VULNERABILITY CLASSES DASHBOARD -->
 <div class="col-12">
-    <div class="card glass-panel mb-4">
+    <div class="card  mb-4">
         <div class="card-header glass-header"><i class="fas fa-crosshairs me-2"></i>Advanced Exploitation
             Recon</div>
         <div class="card-body p-3">
@@ -97,14 +97,14 @@
                 <div class="col">
                     <div
                         class="p-3 border rounded {{ 'border-danger bg-danger bg-opacity-10 pulse-danger' if detected else 'border-success bg-success bg-opacity-10 opacity-75' }} position-relative overflow-hidden transition-all duration-300">
-                        <div class="fw-bold fs-4 mb-0 {{ 'text-cyber-red' if detected else 'text-success' }}">
+                        <div class="fw-bold fs-4 mb-0 {{ 'text-info-red' if detected else 'text-success' }}">
                             {% if detected %}
                             <i class="fas fa-biohazard animate-flicker"></i>
                             {% else %}
                             <i class="fas fa-check-circle"></i>
                             {% endif %}
                         </div>
-                        <div class="small fw-bold text-uppercase mt-1 {{ 'text-cyber-red' if detected else 'text-success' }}"
+                        <div class="small fw-bold text-uppercase mt-1 {{ 'text-info-red' if detected else 'text-success' }}"
                             style="font-size: 0.65rem; letter-spacing: 1px;">
                             {{ label }}</div>
                         <div class="text-lowercase x-small text-muted opacity-75">

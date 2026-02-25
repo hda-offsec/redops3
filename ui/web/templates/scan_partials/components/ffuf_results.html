@@ -1,6 +1,6 @@
 <!-- FFUF RESULTS -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-folder-open me-2"></i>Dirbusting (ffuf)</div>
         <div class="card-body" id="ffuf-results">
             {% if results and results.phases and results.phases.dirbusting and
@@ -8,9 +8,9 @@
             <div class="result-list">
                 {% for endpoint in results.phases.dirbusting.ffuf.endpoints %}
                 <div
-                    class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between align-items-center">
+                    class="result-row p-2 mb-2  border border-secondary rounded d-flex justify-content-between align-items-center">
                     <div>
-                        <span class="badge bg-secondary font-monospace me-2">/{{ endpoint.path }}</span>
+                        <span class="badge bg-secondary  me-2">/{{ endpoint.path }}</span>
                         <a href="{{ endpoint.url }}" target="_blank"
                             class="x-small text-info text-decoration-none opacity-75 hover-opacity-100">
                             <i class="fas fa-external-link-alt me-1"></i>{{ endpoint.url }}

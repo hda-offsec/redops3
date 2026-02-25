@@ -1,0 +1,218 @@
+<!-- TAB 6: SOUS LE CAPOT (Under the Hood) -->
+<div class="col-12 mb-3">
+    <div
+        class="d-flex justify-content-between align-items-center  bg-opacity-75 p-3 rounded border border-danger border-opacity-50">
+        <h5 class="mb-0 text-white"><i class="fas fa-cogs me-2 text-danger"></i>Sous le capot</h5>
+        <div class="btn-group">
+            <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('timeline')">Task Timeline</button>
+            <button class="btn btn-sm btn-outline-danger active" onclick="toggleHoodTab('live-logs')">Live Logs</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('state')">Engine State</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('integrity')">UI Integrity</button>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION: TIMELINE -->
+<div class="col-12 hood-section d-none" id="hood-timeline">
+    <div class="card  border-secondary">
+        <div class="card-header glass-header">
+            <i class="fas fa-stream me-2"></i>Execution Timeline
+        </div>
+        <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;">
+            {% if logs %}
+            <ul class="list-group list-group-flush bg-transparent  small">
+                {% for log in logs %}
+                <li
+                    class="list-group-item bg-transparent text-light border-secondary border-opacity-25 py-2 px-3 d-flex justify-content-between align-items-start">
+                    <div class="me-auto">
+                        <span
+                            class="badge bg-{{ 'danger' if log.level == 'ERROR' else 'warning text-dark' if log.level == 'WARNING' else 'info' if log.level == 'DEBUG' else 'success' }} me-2">{{
+                            log.level }}</span>
+                        <span class="text-break">{{ log.message }}</span>
+                    </div>
+                    <span class="x-small text-muted text-end" style="min-width: 80px;">{{
+                        log.timestamp.strftime('%H:%M:%S') if log.timestamp else 'N/A' }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="p-4 text-center text-muted">No chronological logs persisted.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- SECTION: LIVE LOGS -->
+<div class="col-lg-8 hood-section" id="hood-live-logs">
+    <div class="card  border-secondary h-100">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-terminal me-2"></i>Raw Application Logs</span>
+            <div class="btn-group">
+                <button class="btn btn-xs btn-outline-cyber"
+                    onclick="document.getElementById('live-log-container').innerHTML=''">Clear UI</button>
+                <button class="btn btn-xs btn-outline-success" onclick="toggleAutoScroll()" id="btn-autoscroll"><i
+                        class="fas fa-arrow-down me-1"></i>Follow</button>
+            </div>
+        </div>
+        <div class="card-body p-0 ">
+            <div id="live-log-container" class="p-3  small text-success"
+                style="height: 500px; overflow-y: auto; white-space: pre-wrap;">
+                {% if logs %}
+                {% for log in logs %}
+                <div>[{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'UNKNOWN_TIME' }}] [{{
+                    log.level }}] {{ log.message }}</div>
+                {% endfor %}
+                {% else %}
+                <div class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Waiting for pipeline logs...</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="col-lg-4 hood-section" id="hood-live-logs-sidebar">
+    <div class="card  border-secondary h-100 position-sticky" style="top: 20px;">
+        <div class="card-header glass-header">
+            <i class="fas fa-filter me-2"></i>Stream Controls
+        </div>
+        <div class="card-body p-3">
+            <div class="mb-3">
+                <span class="text-muted x-small text-uppercase mb-2 d-block">Log Persistence</span>
+                <span class="badge bg-success bg-opacity-10 text-success border border-success">SocketIO Linked</span>
+                <span class="badge bg-success bg-opacity-10 text-success border border-success ms-1">DB Synced</span>
+            </div>
+            <div class="alert alert-dark border-secondary p-2 x-small  text-muted mt-3">
+                <i class="fas fa-info-circle me-1"></i>Raw celery tasks stdout streams dynamically if the task outputs
+                them. Live updating is handled by existing `new_log` socket events in JS.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION: ENGINE STATE -->
+<div class="col-12 hood-section d-none" id="hood-state">
+    <div class="card  border-secondary h-100">
+        <div class="card-header glass-header d-flex justify-content-between">
+            <span><i class="fas fa-database me-2"></i>Raw Engine State (Results JSON)</span>
+        </div>
+        <div class="card-body p-0 ">
+            <pre class="m-0 p-3 text-warning  small"
+                style="height: 600px; overflow-y: auto;">{{ results | tojson(indent=4) }}</pre>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION: INTEGRITY -->
+<div class="col-12 hood-section d-none" id="hood-integrity">
+    <div class="card  border-warning">
+        <div class="card-header glass-header">
+            <i class="fas fa-shield-virus me-2 text-warning"></i>UI Integrity & Schema Validation
+        </div>
+        <div class="card-body p-4  bg-opacity-50">
+            <div class="row text-center mb-4">
+                <div class="col-md-3">
+                    <div class="display-6  text-success">0</div>
+                    <div class="small text-muted text-uppercase">Hallucinations Found</div>
+                </div>
+                <div class="col-md-3 border-start border-secondary border-opacity-25">
+                    <div class="display-6 " id="missing-fields-count">0</div>
+                    <div class="small text-muted text-uppercase">Missing Required Fields</div>
+                </div>
+                <div class="col-md-3 border-start border-secondary border-opacity-25">
+                    <div class="display-6 " id="ui-records-count">0</div>
+                    <div class="small text-muted text-uppercase">Rendered Valid Findings</div>
+                </div>
+                <div class="col-md-3 border-start border-secondary border-opacity-25">
+                    <div class="display-6 " id="ui-relations-count">0</div>
+                    <div class="small text-muted text-uppercase">Rendered valid relations</div>
+                </div>
+            </div>
+
+            <h6 class="text-uppercase x-small  mb-2 text-warning">Integrity Monitor Log</h6>
+            <div class="border border-secondary p-2 bg-dark rounded  small text-muted" id="integrity-log"
+                style="height: 200px; overflow-y: auto;">
+                <div>[SYSTEM] UI parsing engine started in strict anti-hallucination mode.</div>
+                <div>[VERIFICATION] Loaded {{ findings|length }} findings from raw DB records.</div>
+                <div>[VERIFICATION] Detected {{ findings | selectattr('title', 'none') | list | length }} records
+                    missing titles.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleHoodTab(targetId) {
+        document.querySelectorAll('.hood-section').forEach(el => el.classList.add('d-none'));
+
+        let matchingPrefix = `hood-${targetId}`;
+        document.querySelectorAll(`.hood-section`).forEach(el => {
+            if (el.id === matchingPrefix || el.id.startsWith(matchingPrefix + '-')) {
+                el.classList.remove('d-none');
+            }
+        });
+
+        document.querySelectorAll('#hood-pane .btn-group button').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+    }
+
+    let autoScroll = true;
+    function toggleAutoScroll() {
+        autoScroll = !autoScroll;
+        const btn = document.getElementById('btn-autoscroll');
+        if (autoScroll) {
+            btn.classList.add('btn-outline-success');
+            btn.classList.remove('btn-outline-secondary');
+            scrollToBottom('live-log-container');
+        } else {
+            btn.classList.remove('btn-outline-success');
+            btn.classList.add('btn-outline-secondary');
+        }
+    }
+
+    function scrollToBottom(id) {
+        const el = document.getElementById(id);
+        if (el) el.scrollTop = el.scrollHeight;
+    }
+
+    // Connect to global socket 'new_log' if defined.
+    // The RedOps3 UI handles this globally via scan_dashboard.js, so we hook here.
+    if (typeof socket !== 'undefined' && socket) {
+        socket.on('new_log', function (data) {
+            // Check if active on this scan? (Data payload handles it)
+            // Just basic append:
+            const container = document.getElementById('live-log-container');
+            const d = new Date().toISOString().split('T');
+            const time = d[1].substring(0, 8);
+            if (container) {
+                container.innerHTML += `<div>[${d[0]} ${time}] [${data.level || 'INFO'}] ${escapeHtml(data.message)}</div>`;
+                if (autoScroll) scrollToBottom('live-log-container');
+            }
+        });
+    }
+
+    // Integrity checks 
+    document.addEventListener("DOMContentLoaded", () => {
+        let missing = 0;
+        let valid = 0;
+        Object.values(rawFindingsData || {}).forEach(f => {
+            if (!f.title || f.title === 'None' || !f.severity) {
+                missing++;
+                logIntegrity(`[WARN] Finding ${f.id} missing core fields. Rendering N/A.`);
+            } else {
+                valid++;
+            }
+        });
+        document.getElementById('missing-fields-count').textContent = missing;
+        document.getElementById('ui-records-count').textContent = valid;
+
+        if (typeof graphEdges !== 'undefined') {
+            document.getElementById('ui-relations-count').textContent = graphEdges.length || 0;
+        }
+    });
+
+    function logIntegrity(msg) {
+        const log = document.getElementById('integrity-log');
+        if (log) {
+            log.innerHTML += `<div>${msg}</div>`;
+        }
+    }
+</script>

@@ -1,0 +1,87 @@
+/* dt_inspired.css - Overridden to mimic flat Dependency-Track style natively */
+:root {
+    --dt-sidebar-bg: #495057;
+    /* $grey-700 */
+    --dt-main-bg: #343a40;
+    /* $grey-800 */
+    --dt-card-bg: #495057;
+    /* $grey-700 */
+    --dt-border-color: #212529;
+    /* $grey-900 */
+    --dt-text-primary: #e9ecef;
+    /* $grey-200 */
+    --dt-text-secondary: #adb5bd;
+    /* $grey-500 */
+
+    /* DT Severity Colors */
+    --sev-critical: #f86c6b;
+    --sev-high: #fd8c00;
+    --sev-medium: #ffc107;
+    --sev-low: #4dbd74;
+    --sev-info: #20a8d8;
+
+    --dt-accent: #20a8d8;
+}
+
+/* Remove glass and glows */
+body.app-shell {
+    background-color: var(--dt-main-bg);
+    color: var(--dt-text-primary);
+}
+
+.card {
+    background-color: var(--dt-card-bg);
+    border: 1px solid var(--dt-border-color);
+    box-shadow: none !important;
+    border-radius: 0.25rem;
+}
+
+.card-header {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+    border-bottom: 1px solid var(--dt-border-color);
+    color: var(--dt-text-primary) !important;
+}
+
+#sidebar {
+    background-color: var(--dt-sidebar-bg) !important;
+    border-right: 1px solid var(--dt-border-color) !important;
+    box-shadow: none !important;
+}
+
+.top-bar {
+    background-color: var(--dt-sidebar-bg);
+    border-bottom: 1px solid var(--dt-border-color);
+}
+
+/* Badges */
+.badge-severity {
+    font-weight: 600;
+    font-size: 0.75rem;
+    padding: 0.25em 0.5em;
+    border-radius: 0.25rem;
+}
+
+.bg-critical {
+    background-color: var(--sev-critical) !important;
+    color: white !important;
+}
+
+.bg-high {
+    background-color: var(--sev-high) !important;
+    color: white !important;
+}
+
+.bg-medium {
+    background-color: var(--sev-medium) !important;
+    color: black !important;
+}
+
+.bg-low {
+    background-color: var(--sev-low) !important;
+    color: white !important;
+}
+
+.bg-info {
+    background-color: var(--sev-info) !important;
+    color: white !important;
+}

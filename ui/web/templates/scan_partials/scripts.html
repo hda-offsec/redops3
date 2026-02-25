@@ -31,7 +31,7 @@
             div.className = "d-flex justify-content-between align-items-start border-bottom border-dark pb-1 animate__animated animate__fadeIn";
             div.innerHTML = `
                     <div>
-                        <span class="text-muted x-small font-monospace">${timeStr}</span>
+                        <span class="text-muted x-small ">${timeStr}</span>
                         <span class="badge bg-dark border border-secondary text-light x-small ms-1">${evt.module}</span>
                         <span class="text-secondary small ms-1">${evt.type}</span>
                     </div>
@@ -63,10 +63,10 @@
             row.id = rowId;
             row.className = "animate__animated animate__fadeIn";
             row.innerHTML = `
-                    <td class="font-monospace text-info small">${st.module}</td>
-                    <td class="font-monospace text-muted small">${st.port}</td>
+                    <td class=" text-info small">${st.module}</td>
+                    <td class=" text-muted small">${st.port}</td>
                     <td id="${rowId}-status">${badge}</td>
-                    <td id="${rowId}-art" class="text-end font-monospace small">${st.artifacts}</td>
+                    <td id="${rowId}-art" class="text-end  small">${st.artifacts}</td>
                     <td id="${rowId}-reason" class="text-muted x-small">${st.reason || '-'}</td>
                 `;
             if (tbody) tbody.appendChild(row);

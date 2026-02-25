@@ -92,12 +92,16 @@ def validate_target(target):
             if valid_ip:
                 _check_ip_safety(ip_obj)
     except socket.gaierror:
-        # If we can't resolve it, we can't verify it.
-        # In a security context, failing to resolve usually means we shouldn't scan it blindly
-        # (or it's an internal name that only resolves on some internal DNS we don't control,
-        # but here we ARE the internal DNS user).
-        # Safe to block.
-        raise ValueError(f"Could not resolve hostname: {hostname}")
+        # Fallback for domains with no A/AAAA but other records (MX, TXT).
+        # We allow them but since they have no IPs, they are effectively "safe"
+        # from SSRF, they will just fail naturally in scanner steps.
+        import subprocess
+        try:
+            res = subprocess.run(["host", hostname], capture_output=True, text=True, timeout=5)
+            if "not found" in res.stdout or res.returncode != 0:
+                raise ValueError(f"Could not resolve hostname: {hostname}")
+        except Exception:
+             raise ValueError(f"Could not resolve hostname: {hostname}")
 
     return True
 

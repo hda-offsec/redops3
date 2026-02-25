@@ -288,6 +288,45 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 db.session.rollback()
                 _log_and_emit(parent_scan_id, f"Recursion Error: {e}", "ERROR")
 
+        def persist_graph_cb(nodes, edges):
+            try:
+                from core.models import KnowledgeEdge, KnowledgeNode
+                from core.extensions import socketio
+                
+                # Clear existing graph data for this scan to avoid duplicates
+                KnowledgeEdge.query.filter_by(scan_id=scan_id).delete()
+                KnowledgeNode.query.filter_by(scan_id=scan_id).delete()
+                
+                for node in nodes:
+                    kn = KnowledgeNode(
+                        scan_id=scan_id,
+                        node_id=node.get('id'),
+                        type=node.get('type'),
+                        label=node.get('label'),
+                        metadata_json=node.get('data')
+                    )
+                    db.session.add(kn)
+                
+                for edge in edges:
+                    ke = KnowledgeEdge(
+                        scan_id=scan_id,
+                        source_node=edge.get('from'),
+                        target_node=edge.get('to'),
+                        relationship=edge.get('type'),
+                        metadata_json=edge.get('data')
+                    )
+                    db.session.add(ke)
+                
+                db.session.commit()
+                _log_and_emit(scan_id, f"Attack graph synchronized: {len(nodes)} nodes, {len(edges)} edges persisted.", "SUCCESS")
+                
+                # Notify UI to refresh graph
+                if socketio:
+                    socketio.emit("graph_updated", {"scan_id": scan_id}, room=f"scan_{scan_id}")
+            except Exception as e:
+                print(f"[ERROR] Failed to persist graph in task: {e}")
+                db.session.rollback()
+
         import json
         scan_options = json.loads(scan.params) if scan.params else {}
 
@@ -301,6 +340,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             suggestion_func=add_suggestion_cb,
             results_func=results_update_cb,
             loot_func=add_loot_cb,
+            graph_func=persist_graph_cb,
             recursion_func=recurse_scan_cb,
             options=scan_options
         )

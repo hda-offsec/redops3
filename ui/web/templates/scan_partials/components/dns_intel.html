@@ -1,19 +1,19 @@
 <!-- DNS INTELLIGENCE -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-sitemap me-2"></i>DNS Intelligence</div>
         <div class="card-body" id="dns-results">
             {% if results and results.phases and results.phases.dns and results.phases.dns.subdomains %}
             <div class="d-flex flex-wrap gap-2 mb-3">
                 {% for sub in results.phases.dns.subdomains[:500] %}
                 <div
-                    class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber">
+                    class="tag-item px-2 py-1  border border-secondary rounded small  text-info">
                     {{ sub }}
                 </div>
                 {% endfor %}
                 {% if results.phases.dns.subdomains|length > 500 %}
                 <div
-                    class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted">
+                    class="tag-item px-2 py-1  border border-secondary rounded small  text-muted">
                     + {{ results.phases.dns.subdomains|length - 500 }} more...
                 </div>
                 {% endif %}
@@ -43,7 +43,7 @@
                                         class="badge {{ 'bg-success' if sec.spf.rating == 'Secure' else 'bg-danger' }} x-small">{{
                                         sec.spf.rating }}</span>
                                 </div>
-                                <div class="font-monospace x-small text-light opacity-50 text-break">{{ sec.spf.policy
+                                <div class=" x-small text-light opacity-50 text-break">{{ sec.spf.policy
                                     }}</div>
                             </div>
                         </div>
@@ -58,7 +58,7 @@
                                         class="badge {{ 'bg-success' if sec.dmarc.rating == 'Secure' else 'bg-danger' }} x-small">{{
                                         sec.dmarc.rating }}</span>
                                 </div>
-                                <div class="font-monospace x-small text-light opacity-50 text-break">{{ sec.dmarc.policy
+                                <div class=" x-small text-light opacity-50 text-break">{{ sec.dmarc.policy
                                     }}</div>
                             </div>
                         </div>
@@ -67,7 +67,7 @@
                         <div class="col-md-4">
                             <div class="p-2 border border-secondary bg-dark rounded h-100">
                                 <div class="fw-bold small mb-1">Mail Providers</div>
-                                <div class="font-monospace x-small text-info">
+                                <div class=" x-small text-info">
                                     {% if sec.mx_providers %}
                                     {{ sec.mx_providers|join(', ') }}
                                     {% else %}
@@ -107,8 +107,8 @@
                             Records</h6>
                     </div>
                     <div class="table-responsive border border-secondary border-opacity-10 rounded">
-                        <table class="table table-dark table-hover mb-0 x-small font-monospace">
-                            <thead class="bg-black bg-opacity-50">
+                        <table class="table table-dark table-hover mb-0 x-small ">
+                            <thead class=" bg-opacity-50">
                                 <tr>
                                     <th class="text-muted">Type</th>
                                     <th class="text-muted">Name</th>
@@ -120,7 +120,7 @@
                                 {% for rec in results.phases.dns.records %}
                                 <tr>
                                     <td><span class="badge bg-secondary x-small">{{ rec.type }}</span></td>
-                                    <td class="text-cyber opacity-75">{{ rec.name }}</td>
+                                    <td class="text-info opacity-75">{{ rec.name }}</td>
                                     <td class="text-light opacity-75">{{ rec.address if rec.address else rec.data }}
                                     </td>
                                     <td class="text-muted text-end">{{ rec.ttl if rec.ttl else '-' }}</td>

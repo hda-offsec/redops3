@@ -2,7 +2,7 @@
 {% if results and results.phases and results.phases.enum and results.phases.enum.whatweb %}
 {% set ww = results.phases.enum.whatweb %}
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-fingerprint me-2"></i>WhatWeb Intelligence
         </div>
         <div class="card-body" id="whatweb-results">
@@ -19,7 +19,7 @@
                     </div>
                     {% endif %}
                 </div>
-                <pre class="x-small font-monospace p-3 bg-black bg-opacity-60 border border-secondary rounded text-light mb-0"
+                <pre class="x-small  p-3  bg-opacity-60 border border-secondary rounded text-light mb-0"
                     style="max-height: 200px; overflow-y: auto;">{{ output }}</pre>
             </div>
             {% endfor %}

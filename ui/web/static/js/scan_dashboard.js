@@ -171,6 +171,12 @@ class ScanDashboard {
         this.socket.on("progress_update", (data) => this.handleProgressUpdate(data));
         this.socket.on("module_status", (data) => this.handleModuleStatus(data));
         this.socket.on("pipeline_event", (data) => this.handlePipelineEvent(data));
+        this.socket.on("graph_updated", (data) => {
+            if (data.scan_id != this.scanId) return;
+            if (typeof initGraphData === 'function') {
+                initGraphData();
+            }
+        });
     }
 
     handleModuleStatus(data) {

@@ -11,14 +11,14 @@ results.phases.vuln.infra_exposure or results.phases.vuln.api_shadow or results.
 results.phases.vuln.metadata_leaks or results.phases.vuln.waf_audit or results.phases.vuln.java_rce or
 results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 <div class="col-12">
-    <div class="card glass-panel border-danger">
+    <div class="card  border-danger">
         <div class="card-header glass-header text-danger"><i class="fas fa-radiation-alt me-2"></i>Advanced
             Vulnerability Findings</div>
         <div class="card-body">
             <div class="row g-3">
                 {% if results.phases.vuln.firebase %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-fire me-2"></i>Firebase
                             Exposure</div>
                         {% for f in results.phases.vuln.firebase %}
@@ -33,7 +33,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.ssti %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                    <div class="p-3  border border-danger rounded h-100 ">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-code me-2"></i>SSTi (Template
                             Injection)</div>
                         {% for f in results.phases.vuln.ssti %}
@@ -41,7 +41,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="fw-bold text-light">{{ f.title }}</div>
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.method or f.payload or f.status_code %}
-                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 font-monospace">
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 ">
                                 {% if f.method %}<div class="text-secondary"><span class="text-muted">Method:</span>
                                     <span class="text-info">{{ f.method }}</span>
                                 </div>{% endif %}
@@ -52,11 +52,11 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                                 {% if f.payload %}<div class="text-secondary"><span class="text-muted">Payload:</span>
                                     <span class="text-warning">{{ f.payload }}</span>
                                 </div>{% endif %}
-                                {% if f.response_snippet %}<div class="mt-1 p-1 bg-black rounded text-muted x-small">
+                                {% if f.response_snippet %}<div class="mt-1 p-1  rounded text-muted x-small">
                                     Response: {{ f.response_snippet }}</div>{% endif %}
                             </div>
                             {% else %}
-                            <code class="d-block mt-2 text-warning p-1 bg-black rounded">{{ f.raw_loot }}</code>
+                            <code class="d-block mt-2 text-warning p-1  rounded">{{ f.raw_loot }}</code>
                             {% endif %}
                         </div>
                         {% endfor %}
@@ -66,7 +66,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.lfi %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-file-medical-alt me-2"></i>Local
                             File Inclusion</div>
                         {% for f in results.phases.vuln.lfi %}
@@ -74,7 +74,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="fw-bold text-light">{{ f.title }}</div>
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.method or f.payload or f.status_code %}
-                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 font-monospace">
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 ">
                                 {% if f.method %}<div class="text-secondary"><span class="text-muted">Method:</span>
                                     <span class="text-info">{{ f.method }}</span>
                                 </div>{% endif %}
@@ -86,7 +86,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                                     <span class="text-warning">{{ f.payload
                                         }}</span>
                                 </div>{% endif %}
-                                {% if f.response_snippet %}<div class="mt-1 p-1 bg-black rounded text-muted x-small">
+                                {% if f.response_snippet %}<div class="mt-1 p-1  rounded text-muted x-small">
                                     Response: {{
                                     f.response_snippet }}</div>{% endif %}
                             </div>
@@ -94,7 +94,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
                                 <span class="text-secondary me-1">Payload URL:</span>
                                 <a href="{{ f.raw_loot }}" target="_blank"
-                                    class="text-info font-monospace text-break text-decoration-none">
+                                    class="text-info  text-break text-decoration-none">
                                     {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
                                 </a>
                             </div>
@@ -107,7 +107,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.prototype %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fab fa-js me-2"></i>Prototype Pollution
                         </div>
                         {% for f in results.phases.vuln.prototype %}
@@ -122,7 +122,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.cors_audit %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-secondary rounded h-100">
+                    <div class="p-3  border border-secondary rounded h-100">
                         <div class="text-secondary small fw-bold mb-2"><i class="fas fa-globe me-2"></i>CORS
                             Misconfiguration</div>
                         {% for f in results.phases.vuln.cors_audit %}
@@ -137,7 +137,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.crlf %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-secondary rounded h-100">
+                    <div class="p-3  border border-secondary rounded h-100">
                         <div class="text-secondary small fw-bold mb-2"><i class="fas fa-stream me-2"></i>CRLF
                             Injection</div>
                         {% for f in results.phases.vuln.crlf %}
@@ -152,7 +152,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.xxe %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                    <div class="p-3  border border-danger rounded h-100 ">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-code me-2"></i>XXE Detected
                         </div>
                         {% for f in results.phases.vuln.xxe %}
@@ -160,7 +160,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="fw-bold text-light">{{ f.title }}</div>
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.method or f.payload or f.status_code %}
-                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 font-monospace">
+                            <div class="mt-2 pt-2 border-top border-secondary border-opacity-25 ">
                                 {% if f.method %}<div class="text-secondary"><span class="text-muted">Method:</span>
                                     <span class="text-info">{{ f.method }}</span>
                                 </div>{% endif %}
@@ -172,7 +172,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                                     <span class="text-warning">{{ f.payload
                                         }}</span>
                                 </div>{% endif %}
-                                {% if f.response_snippet %}<div class="mt-1 p-1 bg-black rounded text-muted x-small">
+                                {% if f.response_snippet %}<div class="mt-1 p-1  rounded text-muted x-small">
                                     Response: {{
                                     f.response_snippet }}</div>{% endif %}
                             </div>
@@ -180,7 +180,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
                                 <span class="text-secondary me-1">Payload URL:</span>
                                 <a href="{{ f.raw_loot }}" target="_blank"
-                                    class="text-info font-monospace text-break text-decoration-none">
+                                    class="text-info  text-break text-decoration-none">
                                     {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
                                 </a>
                             </div>
@@ -193,7 +193,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.deserialization %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-cube me-2"></i>Insecure
                             Deserialization</div>
                         {% for f in results.phases.vuln.deserialization %}
@@ -204,7 +204,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
                                 <span class="text-secondary me-1">Target URL:</span>
                                 <a href="{{ f.raw_loot }}" target="_blank"
-                                    class="text-info font-monospace text-break text-decoration-none">
+                                    class="text-info  text-break text-decoration-none">
                                     {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
                                 </a>
                             </div>
@@ -217,7 +217,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.acl_bypass %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-lock-open me-2"></i>ACL Bypass
                             (403/401)</div>
                         {% for f in results.phases.vuln.acl_bypass %}
@@ -228,7 +228,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
                                 <span class="text-secondary me-1">Bypassed URL:</span>
                                 <a href="{{ f.raw_loot }}" target="_blank"
-                                    class="text-warning font-monospace text-break text-decoration-none">
+                                    class="text-warning  text-break text-decoration-none">
                                     {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
                                 </a>
                             </div>
@@ -241,7 +241,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.email_security %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-envelope me-2"></i>Email Security
                             (Spoofing)</div>
                         {% for f in results.phases.vuln.email_security %}
@@ -256,7 +256,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.container_exposure %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fab fa-docker me-2"></i>Container/Cluster
                             Exposure</div>
                         {% for f in results.phases.vuln.container_exposure %}
@@ -267,7 +267,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
                                 <span class="text-secondary me-1">Exposed Endpoint:</span>
                                 <a href="{{ f.raw_loot }}" target="_blank"
-                                    class="text-danger font-monospace text-break text-decoration-none">
+                                    class="text-danger  text-break text-decoration-none">
                                     {{ f.raw_loot }} <i class="fas fa-external-link-alt x-small ms-1"></i>
                                 </a>
                             </div>
@@ -280,7 +280,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.jwt %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-key me-2"></i>JWT Security Audit
                         </div>
                         {% for f in results.phases.vuln.jwt %}
@@ -289,7 +289,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="text-muted mt-1">{{ f.desc }}</div>
                             {% if f.token_preview %}
                             <div
-                                class="mt-2 p-1 bg-black rounded font-monospace text-info x-small border border-secondary border-opacity-25">
+                                class="mt-2 p-1  rounded  text-info x-small border border-secondary border-opacity-25">
                                 Token: {{ f.token_preview }}
                             </div>
                             {% endif %}
@@ -301,7 +301,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.smuggling %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                    <div class="p-3  border border-danger rounded h-100 ">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-exchange-alt me-2"></i>HTTP
                             Smuggling (Desync)</div>
                         {% for f in results.phases.vuln.smuggling %}
@@ -316,7 +316,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.vhosts %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-network-wired me-2"></i>Virtual
                             Host Discovery</div>
                         {% for f in results.phases.vuln.vhosts %}
@@ -324,7 +324,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="fw-bold text-light">Host Found: {{ f.vhost }}</div>
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             <div class="mt-2"><a href="{{ f.url }}" target="_blank"
-                                    class="text-info font-monospace text-decoration-none small">{{ f.url }}</a></div>
+                                    class="text-info  text-decoration-none small">{{ f.url }}</a></div>
                         </div>
                         {% endfor %}
                     </div>
@@ -333,7 +333,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.enterprise %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-building me-2"></i>Enterprise Stack
                             Audit</div>
                         {% for f in results.phases.vuln.enterprise %}
@@ -342,7 +342,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.url %}
                             <div class="mt-2"><a href="{{ f.url }}" target="_blank"
-                                    class="text-info font-monospace text-decoration-none small">{{ f.url }}</a></div>
+                                    class="text-info  text-decoration-none small">{{ f.url }}</a></div>
                             {% endif %}
                         </div>
                         {% endfor %}
@@ -352,7 +352,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.cloud_perms %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-cloud me-2"></i>Cloud Storage
                             Expert</div>
                         {% for f in results.phases.vuln.cloud_perms %}
@@ -361,7 +361,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.repro_command %}
                             <div
-                                class="mt-2 p-1 bg-black rounded font-monospace text-warning x-small border border-warning border-opacity-25">
+                                class="mt-2 p-1  rounded  text-warning x-small border border-warning border-opacity-25">
                                 Repro: <code>{{ f.repro_command }}</code>
                             </div>
                             {% endif %}
@@ -373,7 +373,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.dependency %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-box-open me-2"></i>Dependency
                             Confusion</div>
                         {% for f in results.phases.vuln.dependency %}
@@ -388,7 +388,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.oauth %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-shield-alt me-2"></i>OAuth & OIDC
                             Expert</div>
                         {% for f in results.phases.vuln.oauth %}
@@ -396,7 +396,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="fw-bold text-light">{{ f.title }}</div>
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.url %}
-                            <div class="mt-2 text-info font-monospace x-small text-break">{{ f.url }}</div>
+                            <div class="mt-2 text-info  x-small text-break">{{ f.url }}</div>
                             {% endif %}
                         </div>
                         {% endfor %}
@@ -406,7 +406,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.nosql %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-database me-2"></i>NoSQL Injection
                             Expert</div>
                         {% for f in results.phases.vuln.nosql %}
@@ -421,7 +421,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.cache_audit %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-memory me-2"></i>Web Cache Auditor
                         </div>
                         {% for f in results.phases.vuln.cache_audit %}
@@ -436,7 +436,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.upload_bypass %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-file-upload me-2"></i>Upload Expert
                             (Bypass)</div>
                         {% for f in results.phases.vuln.upload_bypass %}
@@ -445,7 +445,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.raw_loot %}
                             <div
-                                class="mt-2 p-1 bg-black rounded font-monospace text-warning x-small border border-warning border-opacity-10">
+                                class="mt-2 p-1  rounded  text-warning x-small border border-warning border-opacity-10">
                                 {{ f.raw_loot }}</div>
                             {% endif %}
                         </div>
@@ -456,7 +456,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.logic_flaws %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-brain me-2"></i>Business Logic
                             Auditor</div>
                         {% for f in results.phases.vuln.logic_flaws %}
@@ -471,7 +471,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.deep_ssrf %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                    <div class="p-3  border border-danger rounded h-100 ">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-cloud-download-alt me-2"></i>Deep
                             Cloud SSRF</div>
                         {% for f in results.phases.vuln.deep_ssrf %}
@@ -479,7 +479,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="fw-bold text-light">{{ f.title }}</div>
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.raw_loot %}
-                            <pre class="mt-2 p-1 bg-black rounded text-info x-small border border-info border-opacity-10"
+                            <pre class="mt-2 p-1  rounded text-info x-small border border-info border-opacity-10"
                                 style="white-space: pre-wrap;">{{ f.raw_loot|truncate(200) }}</pre>
                             {% endif %}
                         </div>
@@ -490,7 +490,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.infra_exposure %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-server me-2"></i>Infra Service
                             Exposure</div>
                         {% for f in results.phases.vuln.infra_exposure %}
@@ -507,7 +507,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.deserialization %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-cube me-2"></i>Deserialization
                             Expert</div>
                         {% for f in results.phases.vuln.deserialization %}
@@ -516,7 +516,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.repro_payload %}
                             <div
-                                class="mt-2 p-1 bg-black rounded font-monospace text-warning x-small border border-warning border-opacity-10">
+                                class="mt-2 p-1  rounded  text-warning x-small border border-warning border-opacity-10">
                                 {{ f.repro_payload }}</div>
                             {% endif %}
                         </div>
@@ -527,7 +527,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.api_shadow %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-eye-slash me-2"></i>API Shadow Hunter
                         </div>
                         {% for f in results.phases.vuln.api_shadow %}
@@ -544,7 +544,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.csti %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-code me-2"></i>CSTI Expert</div>
                         {% for f in results.phases.vuln.csti %}
                         <div class="mb-2 p-2 bg-dark rounded x-small border border-warning border-opacity-25">
@@ -552,7 +552,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             <div class="text-muted mt-1">{{ f.description }}</div>
                             {% if f.repro_payload %}
                             <div
-                                class="mt-2 p-1 bg-black rounded font-monospace text-danger x-small border border-danger border-opacity-10">
+                                class="mt-2 p-1  rounded  text-danger x-small border border-danger border-opacity-10">
                                 {{ f.repro_payload }}</div>
                             {% endif %}
                         </div>
@@ -563,14 +563,14 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.metadata_leaks %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-search me-2"></i>Metadata Forensic
                         </div>
                         {% for f in results.phases.vuln.metadata_leaks %}
                         <div class="mb-2 p-2 bg-dark rounded x-small border border-info border-opacity-25">
                             <div class="fw-bold text-light">{{ f.title }}</div>
                             <pre
-                                class="text-muted mt-1 x-small bg-black p-1 rounded border border-info border-opacity-10">{{ f.description }}</pre>
+                                class="text-muted mt-1 x-small  p-1 rounded border border-info border-opacity-10">{{ f.description }}</pre>
                         </div>
                         {% endfor %}
                     </div>
@@ -579,7 +579,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.waf_audit %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info rounded h-100">
+                    <div class="p-3  border border-info rounded h-100">
                         <div class="text-info small fw-bold mb-2"><i class="fas fa-shield-virus me-2"></i>WAF
                             Fingerprinting</div>
                         {% for f in results.phases.vuln.waf_audit %}
@@ -594,7 +594,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.java_rce %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100 animate-pulse">
+                    <div class="p-3  border border-danger rounded h-100 ">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-ghost me-2"></i>Java RCE Expert
                         </div>
                         {% for f in results.phases.vuln.java_rce %}
@@ -609,7 +609,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.h2c_smuggling %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-danger rounded h-100">
+                    <div class="p-3  border border-danger rounded h-100">
                         <div class="text-danger small fw-bold mb-2"><i class="fas fa-biohazard me-2"></i>H2C Smuggling
                         </div>
                         {% for f in results.phases.vuln.h2c_smuggling %}
@@ -624,7 +624,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
 
                 {% if results.phases.vuln.websocket %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-warning rounded h-100">
+                    <div class="p-3  border border-warning rounded h-100">
                         <div class="text-warning small fw-bold mb-2"><i class="fas fa-plug me-2"></i>WebSocket
                             Hijacking</div>
                         {% for f in results.phases.vuln.websocket %}
@@ -634,7 +634,7 @@ results.phases.vuln.h2c_smuggling or results.phases.vuln.websocket) %}
                             {% if f.raw_loot %}
                             <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
                                 <span class="text-secondary me-1">Target WS:</span>
-                                <code class="text-warning font-monospace text-break">{{ f.raw_loot }}</code>
+                                <code class="text-warning  text-break">{{ f.raw_loot }}</code>
                             </div>
                             {% endif %}
                         </div>

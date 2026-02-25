@@ -1,16 +1,16 @@
 <!-- EMAIL DISCOVERY -->
 {% if results and results.phases and results.phases.osint and results.phases.osint.emails %}
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-envelope-open-text me-2"></i>Discovered Email
             Addresses</div>
         <div class="card-body">
             <div class="d-flex flex-wrap gap-2">
                 {% for email in results.phases.osint.emails %}
                 <div
-                    class="p-2 bg-black bg-opacity-40 border border-secondary rounded d-flex align-items-center hover-action">
+                    class="p-2  bg-opacity-40 border border-secondary rounded d-flex align-items-center hover-action">
                     <i class="fas fa-at text-info me-2 opacity-50"></i>
-                    <span class="font-monospace small text-light">{{ email }}</span>
+                    <span class=" small text-light">{{ email }}</span>
                     <button class="btn btn-link btn-xs text-muted ms-2 p-0"
                         onclick="navigator.clipboard.writeText('{{ email }}'); alert('Email copied!');">
                         <i class="fas fa-copy"></i>

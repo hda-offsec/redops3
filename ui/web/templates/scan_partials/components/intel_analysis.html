@@ -1,19 +1,19 @@
 <!-- ATTACK VECTOR ANALYSIS -->
 <div class="col-12">
-    <div class="card glass-panel">
+    <div class="card ">
         <div class="card-header glass-header"><i class="fas fa-brain me-2"></i>Attack Vector Analysis (Intel
             Engine)</div>
         <div class="card-body" id="intel-results">
             {% if results and results.phases and results.phases.intel %}
             <div class="accordion" id="accordionIntel">
                 {% for port, vectors in results.phases.intel.items() %}
-                <div class="accordion-item bg-black border-secondary">
+                <div class="accordion-item  border-secondary">
                     <h2 class="accordion-header" id="heading-intel-{{ port }}">
                         <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none"
                             type="button" data-bs-toggle="collapse" data-bs-target="#collapse-intel-{{ port }}"
                             aria-expanded="false" aria-controls="collapse-intel-{{ port }}">
                             <span class="badge bg-warning me-2">Port {{ port }}</span>
-                            <span class="font-monospace small text-muted">{{ vectors|length }} Vectors
+                            <span class=" small text-muted">{{ vectors|length }} Vectors
                                 Identified</span>
                         </button>
                     </h2>
@@ -30,7 +30,7 @@
                                             {{ v.score }}</span>
                                     </div>
                                     <div class="small text-muted mb-1">{{ v.description }}</div>
-                                    <div class="font-monospace x-small text-warning bg-black p-1 rounded">
+                                    <div class=" x-small text-warning  p-1 rounded">
                                         Action: {{ v.action }}</div>
                                 </div>
                                 {% endfor %}

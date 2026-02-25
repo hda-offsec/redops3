@@ -4,7 +4,7 @@ results.phases.enum.api.discovered_endpoints %}
 <div class="col-12 animate__animated animate__fadeInUp">
     <div class="card h-100 cyber-card">
         <div class="card-header cyber-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 text-cyber fw-bold"><i class="fas fa-crosshairs me-2 text-danger"></i>Target Intelligence
+            <h5 class="mb-0 text-info fw-bold"><i class="fas fa-crosshairs me-2 text-danger"></i>Target Intelligence
                 (V4 Engine)</h5>
             <span class="badge bg-danger bg-opacity-10 text-danger border border-danger">ATTACK SURFACE</span>
         </div>
@@ -19,9 +19,9 @@ results.phases.enum.api.discovered_endpoints %}
                             {% for port, eps in results.phases.enum.targets.items() %}
                             <div class="mb-2">
                                 <span class="badge bg-secondary mb-1">Port {{ port }}</span>
-                                <ul class="list-unstyled ms-2 x-small font-monospace text-muted">
+                                <ul class="list-unstyled ms-2 x-small  text-muted">
                                     {% for e in eps[:100] %}
-                                    <li><i class="fas fa-angle-right me-1 text-cyber"></i>{{ e }}</li>
+                                    <li><i class="fas fa-angle-right me-1 text-info"></i>{{ e }}</li>
                                     {% endfor %}
                                     {% if eps|length > 100 %}
                                     <li class="text-info fst-italic">+ {{ eps|length - 100 }} more...</li>
@@ -46,7 +46,7 @@ results.phases.enum.api.discovered_endpoints %}
                             {% for port, eps in results.phases.enum.injection_points.items() %}
                             <div class="mb-2">
                                 <span class="badge bg-secondary mb-1">Port {{ port }}</span>
-                                <ul class="list-unstyled ms-2 x-small font-monospace text-warning">
+                                <ul class="list-unstyled ms-2 x-small  text-warning">
                                     {% for e in eps[:100] %}
                                     <li class="text-break"><i class="fas fa-bug me-1"></i>{{ e }}</li>
                                     {% endfor %}
@@ -70,7 +70,7 @@ results.phases.enum.api.discovered_endpoints %}
                         </h6>
                         {% if results.phases.enum.api.discovered_endpoints %}
                         <div class="cyber-scroll" style="max-height: 400px; overflow-y: auto;">
-                            <ul class="list-unstyled ms-2 x-small font-monospace text-success">
+                            <ul class="list-unstyled ms-2 x-small  text-success">
                                 {% for e in results.phases.enum.api.discovered_endpoints[:500] %}
                                 <li class="text-break"><i class="fas fa-code-branch me-1"></i>{{ e }}</li>
                                 {% endfor %}

@@ -1,20 +1,20 @@
 <!-- CORTEX COMMAND & INTELLIGENCE CENTER (V6) -->
 <div class="col-12 animate__animated animate__fadeIn">
-    <div id="cortex-intel-card" class="card glass-panel border-info border-opacity-25 shadow-lg">
+    <div id="cortex-intel-card" class="card  border-info border-opacity-25 shadow-lg">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
-            <span class="text-info fw-bold"><i class="fas fa-microchip me-2 animate-pulse"></i>Cortex Reasoning
+            <span class="text-info fw-bold"><i class="fas fa-microchip me-2 "></i>Cortex Reasoning
                 Engine</span>
             <div class="d-flex gap-2">
                 {% if results.phases.enum and results.phases.enum.derived and
                 results.phases.enum.derived.js_expert_mining %}
                 <span
-                    class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 animate-pulse"><i
+                    class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 "><i
                         class="fas fa-microscope me-1"></i>JS EXPERT ACTIVE</span>
                 {% endif %}
                 <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">ACTIVE
                     ANALYSIS</span>
                 <span id="cortex-dynamic-status"
-                    class="badge bg-black text-info border border-info border-opacity-25 x-small animate-pulse d-none">
+                    class="badge  text-info border border-info border-opacity-25 x-small  d-none">
                     <i class="fas fa-brain me-1"></i>THINKING...
                 </span>
                 <span class="badge bg-dark text-muted border border-secondary">v0.4-BETA</span>
@@ -31,7 +31,7 @@
                         results.phases.enum.derived.cortex_recommendations %}
                         {% for rec in results.phases.enum.derived.cortex_recommendations %}
                         <div
-                            class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow">
+                            class="mb-3 p-3  bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow">
                             <div class="d-flex justify-content-between align-items-start mb-2">
                                 <div class="d-flex align-items-center">
                                     <div class="category-indicator me-2 bg-{{ 'info' if rec.category == 'intel' else ('warning' if rec.category == 'enum' else 'danger') }}"
@@ -39,7 +39,7 @@
                                     <span class="fw-bold text-light small">{{ rec.title }}</span>
                                 </div>
                                 <span
-                                    class="badge bg-dark text-{{ 'info' if rec.confidence > 80 else 'muted' }} border border-secondary x-small font-monospace">CONF:
+                                    class="badge bg-dark text-{{ 'info' if rec.confidence > 80 else 'muted' }} border border-secondary x-small ">CONF:
                                     {{ rec.confidence }}%</span>
                             </div>
                             <div class="text-muted x-small mb-2 ps-3">{{ rec.reason }}</div>
@@ -78,7 +78,7 @@
                             <div class="text-info x-small fw-bold mb-2 text-uppercase">Heuristic Search Surfaces</div>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for ep in expansion.global.derived_endpoints %}
-                                <span class="badge bg-black border border-secondary text-muted font-monospace x-small"
+                                <span class="badge  border border-secondary text-muted  x-small"
                                     title="Heuristic Match">{{ ep }}</span>
                                 {% endfor %}
                             </div>
@@ -88,7 +88,7 @@
                         <div class="mb-2">
                             <div class="text-warning x-small fw-bold mb-2 text-uppercase">Signals Detected</div>
                             {% for port, data in expansion.per_port.items() %}
-                            <div class="mb-2 p-2 bg-black bg-opacity-20 rounded">
+                            <div class="mb-2 p-2  bg-opacity-20 rounded">
                                 <div class="d-flex align-items-center gap-2 mb-1">
                                     <span class="badge bg-info bg-opacity-25 text-info x-small">PORT {{ port }}</span>
                                     <div class="d-flex gap-1">
@@ -101,7 +101,7 @@
                                 {% if data.derived_params %}
                                 <div class="ps-2 mt-1 border-start border-secondary">
                                     <div class="x-small text-muted">Mining Params: <span
-                                            class="text-warning font-monospace">{{ data.derived_params|join(', ')
+                                            class="text-warning ">{{ data.derived_params|join(', ')
                                             }}</span></div>
                                 </div>
                                 {% endif %}

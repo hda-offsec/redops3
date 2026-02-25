@@ -1,0 +1,290 @@
+<!-- TAB 2: ATTACK SURFACE (Normalized Explorer) -->
+<div class="col-12 mb-3">
+    <div
+        class="d-flex justify-content-between align-items-center  bg-opacity-20 p-3 rounded border border-secondary border-opacity-10">
+        <h5 class="mb-0 text-light fw-bold"><i class="fas fa-search me-2 text-primary"></i>Universal Explorer</h5>
+        <div class="input-group input-group-sm" style="max-width: 450px;">
+            <span class="input-group-text bg-transparent border-secondary text-muted"><i
+                    class="fas fa-filter"></i></span>
+            <input type="text" id="surface-filter" class="form-control bg-transparent border-secondary text-light"
+                placeholder="e.g. type:endpoint source:ffuf" onkeyup="applySurfaceFilter()">
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-8">
+    <div class="card h-100">
+        <div class="card-header border-0 pb-0">
+            <span class="extra-small text-muted text-uppercase">Surface Matrix</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 700px; overflow-y: auto;">
+                <table class="table table-hover mb-0" id="surface-table">
+                    <thead>
+                        <tr class="extra-small text-muted text-uppercase">
+                            <th class="ps-3">Entity / Artifact</th>
+                            <th>Category</th>
+                            <th>Sensor</th>
+                            <th class="text-end pe-3"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="surface-tbody" class=" extra-small">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+                <div id="surface-empty-state" class="text-center p-5 d-none">
+                    <i class="fas fa-ghost fa-3x text-muted opacity-10 mb-3"></i>
+                    <p class="small text-muted">No tactical surface artifacts match your current filter.</p>
+                </div>
+            </div>
+            <!-- Pagination -->
+            <div
+                class="d-flex justify-content-between align-items-center p-2 border-top border-secondary border-opacity-10  bg-opacity-10">
+                <span class="extra-small text-muted">Total: <span id="surface-count" class="text-info fw-bold">0</span>
+                    records</span>
+                <div class="btn-group">
+                    <button class="btn btn-xs btn-outline-secondary" onclick="prevSurfacePage()">PREV</button>
+                    <button class="btn btn-xs btn-outline-secondary" onclick="nextSurfacePage()">NEXT</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-4">
+    <div class="card h-100 position-sticky" style="top: 20px;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-info-circle me-2 text-info"></i>Context Panel</span>
+            <span class="badge border border-secondary text-muted extra-small " id="surface-id">---</span>
+        </div>
+        <div class="card-body" id="surface-context-panel">
+            <div class="text-center p-5 text-muted fst-italic">
+                <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
+                <p class="small">Select a surface artifact to expand technical context.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let rawSurfaceData = [];
+    let filteredSurfaceData = [];
+    let surfacePage = 1;
+    const surfacePerPage = 50;
+
+    // Inject backend data (Normalized)
+    const scanResults = {{ results | tojson | safe }};
+
+    document.addEventListener("DOMContentLoaded", () => {
+        buildSurfaceData();
+        applySurfaceFilter();
+    });
+
+    function buildSurfaceData() {
+        rawSurfaceData = [];
+        const phases = scanResults.phases || {};
+
+        // 1. Nmap Ports (Assets)
+        if (phases.recon && phases.recon.open_ports) {
+            phases.recon.open_ports.forEach(p => {
+                rawSurfaceData.push({
+                    value: `Port ${p.port} (${p.service})`,
+                    type: 'asset',
+                    source: 'nmap',
+                    raw: p
+                });
+            });
+        }
+
+        // 2. DNS Subdomains (Assets)
+        if (phases.dns && phases.dns.subdomains) {
+            phases.dns.subdomains.forEach(d => {
+                rawSurfaceData.push({
+                    value: d,
+                    type: 'asset',
+                    source: 'dnsrecon',
+                    raw: { domain: d }
+                });
+            });
+        }
+
+        // 3. Cloud Assets
+        if (phases.osint && phases.osint.cloud) {
+            phases.osint.cloud.forEach(c => {
+                rawSurfaceData.push({
+                    value: typeof c === 'string' ? c : c.service || 'Cloud Asset',
+                    type: 'asset',
+                    source: 'cloud_scanner',
+                    raw: c
+                });
+            });
+        }
+
+        // 4. Endpoints (Ffuf)
+        if (phases.dirbusting && phases.dirbusting.ffuf && phases.dirbusting.ffuf.endpoints) {
+            phases.dirbusting.ffuf.endpoints.forEach(e => {
+                rawSurfaceData.push({
+                    value: e.url,
+                    type: 'endpoint',
+                    source: 'ffuf',
+                    raw: e
+                });
+            });
+        }
+
+        // 5. API Endpoints
+        if (phases.enum && phases.enum.api && phases.enum.api.endpoints) {
+            phases.enum.api.endpoints.forEach(e => {
+                const epUrl = typeof e === 'object' ? e.url : e;
+                rawSurfaceData.push({
+                    value: epUrl,
+                    type: 'endpoint',
+                    source: 'kiterunner/ffuf',
+                    raw: e
+                });
+            });
+        }
+
+        // 6. Params (Arjun)
+        if (phases.enum && phases.enum.arjun) {
+            Object.entries(phases.enum.arjun).forEach(([url, data]) => {
+                const params = Array.isArray(data) ? data : data.params || [];
+                params.forEach(param => {
+                    rawSurfaceData.push({
+                        value: `${url} ?${param.name || param}=`,
+                        type: 'param',
+                        source: 'arjun',
+                        raw: param
+                    });
+                });
+            });
+        }
+
+        // 7. Leaks (Github, JS, Emails)
+        if (phases.osint && phases.osint.emails) {
+            phases.osint.emails.forEach(e => {
+                rawSurfaceData.push({
+                    value: e,
+                    type: 'leak',
+                    source: 'osint',
+                    raw: { email: e }
+                });
+            });
+        }
+        // Add more logic if Katana provides structure
+        if (phases.enum && phases.enum.katana && Array.isArray(phases.enum.katana)) {
+            phases.enum.katana.forEach(url => {
+                rawSurfaceData.push({
+                    value: url,
+                    type: 'endpoint',
+                    source: 'katana',
+                    raw: { url: url }
+                });
+            });
+        }
+    }
+
+    function applySurfaceFilter() {
+        const query = document.getElementById('surface-filter').value.toLowerCase();
+        let terms = {};
+
+        if (query.trim() === '') {
+            filteredSurfaceData = [...rawSurfaceData];
+        } else {
+            const clauses = query.split(' ');
+            clauses.forEach(c => {
+                if (c.includes(':')) {
+                    const [k, v] = c.split(':');
+                    terms[k] = v;
+                } else {
+                    terms['global'] = (terms['global'] || '') + c + ' ';
+                }
+            });
+
+            filteredSurfaceData = rawSurfaceData.filter(row => {
+                let match = true;
+                if (terms.type && !row.type.includes(terms.type)) match = false;
+                if (terms.source && !(row.source || '').includes(terms.source)) match = false;
+                if (terms.global && !row.value.toLowerCase().includes(terms.global.trim())) match = false;
+                return match;
+            });
+        }
+
+        surfacePage = 1;
+        renderSurfaceTable();
+    }
+
+    function renderSurfaceTable() {
+        const tbody = document.getElementById('surface-tbody');
+        const emptyState = document.getElementById('surface-empty-state');
+        const countSpan = document.getElementById('surface-count');
+
+        tbody.innerHTML = '';
+        countSpan.textContent = filteredSurfaceData.length;
+
+        if (filteredSurfaceData.length === 0) {
+            emptyState.classList.remove('d-none');
+        } else {
+            emptyState.classList.add('d-none');
+
+            const start = (surfacePage - 1) * surfacePerPage;
+            const end = start + surfacePerPage;
+            const pageData = filteredSurfaceData.slice(start, end);
+
+            pageData.forEach((row, idx) => {
+                const tr = document.createElement('tr');
+                tr.style.cursor = 'pointer';
+                tr.onclick = () => showSurfaceContext(start + idx);
+
+                tr.innerHTML = `
+                    <td class="ps-3 text-break text-truncate" style="max-width: 300px;" title="${row.value}">${row.value}</td>
+                    <td><span class="badge border border-secondary text-secondary bg-transparent">${row.type}</span></td>
+                    <td><span class="badge bg-secondary bg-opacity-25 text-light">${row.source}</span></td>
+                    <td class="text-end pe-3"><i class="fas fa-chevron-right text-muted opacity-50"></i></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+
+    function prevSurfacePage() {
+        if (surfacePage > 1) {
+            surfacePage--;
+            renderSurfaceTable();
+        }
+    }
+
+    function nextSurfacePage() {
+        const maxPages = Math.ceil(filteredSurfaceData.length / surfacePerPage);
+        if (surfacePage < maxPages) {
+            surfacePage++;
+            renderSurfaceTable();
+        }
+    }
+
+    function showSurfaceContext(idx) {
+        const data = filteredSurfaceData[idx];
+        const panel = document.getElementById('surface-context-panel');
+
+        panel.innerHTML = `
+            <div class="mb-3">
+                <h6 class="text-white text-break fw-bold mb-1">${data.value}</h6>
+                <div class="d-flex gap-2">
+                    <span class="badge border border-secondary text-secondary">${data.type.toUpperCase()}</span>
+                    <span class="badge bg-secondary bg-opacity-25 text-light">${data.source.toUpperCase()}</span>
+                </div>
+            </div>
+            
+            <div class="border border-secondary border-opacity-25 rounded  p-3 mb-3">
+                <span class="text-muted x-small text-uppercase mb-2 d-block">Raw Evidence</span>
+                <pre class="m-0 text-success " style="font-size: 0.75rem; white-space: pre-wrap; max-height: 250px; overflow-y: auto;">${JSON.stringify(data.raw, null, 2)}</pre>
+            </div>
+            
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-warning flex-fill" disabled title="Function coming to Graph Tab">
+                    <i class="fas fa-project-diagram me-2"></i>Find on Graph
+                </button>
+            </div>
+        `;
+    }
+</script>

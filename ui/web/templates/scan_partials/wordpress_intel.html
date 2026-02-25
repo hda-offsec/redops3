@@ -1,7 +1,7 @@
 {% if results.phases.vuln and results.phases.vuln.wordpress %}
 {% for port, wp in results.phases.vuln.wordpress.items() %}
 <div class="col-12 animate__animated animate__fadeIn">
-    <div class="card glass-panel border-info">
+    <div class="card  border-info">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
             <span><i class="fab fa-wordpress me-2"></i>WordPress Intelligence (Port {{ port }})</span>
             <span class="badge bg-info text-dark">CMS SCAN</span>
@@ -10,26 +10,26 @@
             <!-- SUMMARY STATS -->
             <div class="row g-3 mb-4">
                 <div class="col-md-3">
-                    <div class="p-3 bg-black bg-opacity-40 border border-secondary rounded text-center">
+                    <div class="p-3  bg-opacity-40 border border-secondary rounded text-center">
                         <div class="text-muted x-small text-uppercase">Core Version</div>
                         <div class="fw-bold fs-4 {{ 'text-danger' if wp.version == 'Unknown' else 'text-light' }}">{{
                             wp.version }}</div>
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="p-3 bg-black bg-opacity-40 border border-secondary rounded text-center">
+                    <div class="p-3  bg-opacity-40 border border-secondary rounded text-center">
                         <div class="text-muted x-small text-uppercase">Theme</div>
                         <div class="fw-bold fs-5 text-info text-truncate" title="{{ wp.theme }}">{{ wp.theme }}</div>
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="p-3 bg-black bg-opacity-40 border border-secondary rounded text-center">
+                    <div class="p-3  bg-opacity-40 border border-secondary rounded text-center">
                         <div class="text-muted x-small text-uppercase">Users Found</div>
                         <div class="fw-bold fs-4 text-light">{{ wp.users|length }}</div>
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="p-3 bg-black bg-opacity-40 border border-secondary rounded text-center">
+                    <div class="p-3  bg-opacity-40 border border-secondary rounded text-center">
                         <div class="text-muted x-small text-uppercase">Plugins</div>
                         <div class="fw-bold fs-4 text-light">{{ wp.plugins|length }}</div>
                     </div>
@@ -40,10 +40,10 @@
             <div class="row g-3 mb-4">
                 <div class="col-12">
                     <div id="wp-waf-panel-{{ port }}"
-                        class="p-3 bg-black bg-opacity-30 border {% if wp.wordfence_detected %}border-warning{% else %}border-secondary{% endif %} border-opacity-50 rounded d-flex align-items-center justify-content-between">
+                        class="p-3  bg-opacity-30 border {% if wp.wordfence_detected %}border-warning{% else %}border-secondary{% endif %} border-opacity-50 rounded d-flex align-items-center justify-content-between">
                         <div class="d-flex align-items-center">
                             <i id="wp-waf-icon-{{ port }}"
-                                class="fas fa-shield-halved fa-2x me-3 {% if wp.wordfence_detected %}text-warning animate-pulse{% else %}text-muted{% endif %}"></i>
+                                class="fas fa-shield-halved fa-2x me-3 {% if wp.wordfence_detected %}text-warning {% else %}text-muted{% endif %}"></i>
                             <div>
                                 <div class="text-uppercase x-small fw-bold text-muted">Defense Countermeasures</div>
                                 <div id="wp-waf-text-{{ port }}" class="small">
@@ -121,8 +121,8 @@
                                     {% for plugin in wp.plugins %}
                                     <tr>
                                         <td class="fw-bold text-light">{{ plugin.slug }}</td>
-                                        <td class="font-monospace text-info small">{{ plugin.version }}</td>
-                                        <td class="font-monospace text-muted x-small text-truncate"
+                                        <td class=" text-info small">{{ plugin.version }}</td>
+                                        <td class=" text-muted x-small text-truncate"
                                             style="max-width: 150px;" title="{{ plugin.location }}">{{ plugin.location
                                             }}
                                         </td>
@@ -174,7 +174,7 @@
                                 <tr class="border-danger border-opacity-10">
                                     <td class="text-info small">{{ vuln.component }}</td>
                                     <td class="fw-bold text-light small">{{ vuln.raw_title }}</td>
-                                    <td class="font-monospace text-success x-small">{{ vuln.fixed_in|default('Check
+                                    <td class=" text-success x-small">{{ vuln.fixed_in|default('Check
                                         WPScan') }}
                                     </td>
                                     <td>

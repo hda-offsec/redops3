@@ -1,6 +1,6 @@
 <!-- TLS/SSL INTELLIGENCE -->
 <div class="col-12" id="section-tls-intel">
-    <div class="card glass-panel border-info">
+    <div class="card  border-info">
         <div class="card-header glass-header text-info d-flex justify-content-between align-items-center">
             <span><i class="fas fa-certificate me-2"></i>TLS/SSL Intelligence</span>
             <span class="badge bg-info x-small">ENCRYPTION AUDIT</span>
@@ -11,7 +11,7 @@
             <div class="row g-3">
                 {% for port, data in results.phases.vuln.tls.items() %}
                 <div class="col-md-6">
-                    <div class="p-3 bg-black border border-info border-opacity-25 rounded h-100">
+                    <div class="p-3  border border-info border-opacity-25 rounded h-100">
                         <div class="text-info x-small fw-bold mb-2 text-uppercase">Port {{ port }}</div>
                         {% if data.issuer %}
                         <div class="mb-1 small"><span class="text-muted">Issuer:</span> <span class="text-light">{{

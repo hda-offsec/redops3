@@ -1,9 +1,9 @@
 <!-- Backend Surface Exposure Section -->
 <div class="col-12">
-    <div class="card glass-panel mb-4 shadow-lg border-0">
+    <div class="card  mb-4 shadow-lg border-0">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-project-diagram me-2 text-cyber"></i>Backend Surface Exposure Mapping</span>
-            <span class="badge bg-black border border-cyber text-cyber font-monospace">Architecture Driven
+            <span><i class="fas fa-project-diagram me-2 text-info"></i>Backend Surface Exposure Mapping</span>
+            <span class="badge  border border-secondary text-info ">Architecture Driven
                 Discovery</span>
         </div>
         <div class="card-body">
@@ -11,7 +11,7 @@
             <div class="row g-3">
                 {% for port, data in results.phases.vuln.surface_mapping.items() %}
                 <div class="col-md-12">
-                    <div class="p-3 bg-black bg-opacity-50 rounded border border-secondary border-opacity-25">
+                    <div class="p-3  bg-opacity-50 rounded border border-secondary border-opacity-25">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h5 class="mb-0 text-light"><i class="fas fa-network-wired me-2 text-info"></i>Port: {{ port
                                 }}</h5>
@@ -40,7 +40,7 @@
                                         <td>
                                             <div class="d-flex align-items-center">
                                                 <i class="fas fa-link me-2 text-muted x-small"></i>
-                                                <code class="text-cyber small">{{ item.path }}</code>
+                                                <code class="text-info small">{{ item.path }}</code>
                                                 {% if 'backend_lookup_confirmed' in item.risks %}
                                                 <span
                                                     class="badge bg-success bg-opacity-25 text-success ms-2 extra-small"
@@ -48,7 +48,7 @@
                                                         class="fas fa-check-circle me-1"></i>VERIFIED</span>
                                                 {% endif %}
                                             </div>
-                                            <div class="extra-small text-muted font-monospace mt-1">Source: {{
+                                            <div class="extra-small text-muted  mt-1">Source: {{
                                                 item.source }}</div>
                                         </td>
                                         <td>
@@ -73,7 +73,7 @@
                                                 <div class="progress-bar bg-{{ 'danger' if item.score > 70 else ('warning' if item.score > 40 else 'info') }}"
                                                     style="width: {{ item.score }}%"></div>
                                             </div>
-                                            <span class="small font-monospace ms-2">{{ item.score }}</span>
+                                            <span class="small  ms-2">{{ item.score }}</span>
                                         </td>
                                     </tr>
                                     {% endfor %}

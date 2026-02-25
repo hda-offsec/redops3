@@ -1,9 +1,9 @@
 <div class="row g-4 mb-4">
     <!-- MODULES STATUS PANEL -->
     <div class="col-md-6">
-        <div class="card bg-black border-secondary h-100">
+        <div class="card  border-secondary h-100">
             <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 text-cyber"><i class="fas fa-microchip me-2"></i>Module Execution Status</h6>
+                <h6 class="mb-0 text-info"><i class="fas fa-microchip me-2"></i>Module Execution Status</h6>
                 <span class="badge bg-secondary" id="module-count">0 Active</span>
             </div>
             <div class="card-body p-0">
@@ -24,8 +24,8 @@
                             {% for module_name, ports in results.modules.items() %}
                             {% for port, data in ports.items() %}
                             <tr id="mod-row-{{ module_name }}-{{ port }}">
-                                <td class="font-monospace text-info small">{{ module_name }}</td>
-                                <td class="font-monospace text-muted small">{{ port }}</td>
+                                <td class=" text-info small">{{ module_name }}</td>
+                                <td class=" text-muted small">{{ port }}</td>
                                 <td>
                                     {% if data.status == 'running' %}
                                     <span
@@ -44,7 +44,7 @@
                                         data.status|upper }}</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-end font-monospace small">{{ data.artifacts }}</td>
+                                <td class="text-end  small">{{ data.artifacts }}</td>
                                 <td class="text-muted x-small">{{ data.reason or '-' }}</td>
                             </tr>
                             {% endfor %}
@@ -64,9 +64,9 @@
 
     <!-- TIMELINE FEED -->
     <div class="col-md-6">
-        <div class="card bg-black border-secondary h-100">
+        <div class="card  border-secondary h-100">
             <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 text-cyber"><i class="fas fa-stream me-2"></i>Live Operations Timeline</h6>
+                <h6 class="mb-0 text-info"><i class="fas fa-stream me-2"></i>Live Operations Timeline</h6>
                 <div class="spinner-grow text-success spinner-grow-sm" role="status"></div>
             </div>
             <div class="card-body p-0 d-flex flex-column-reverse" id="timeline-feed"
@@ -80,7 +80,7 @@
                     {% for evt in results.timeline %}
                     <div class="d-flex justify-content-between align-items-start border-bottom border-dark pb-1">
                         <div>
-                            <span class="text-muted x-small font-monospace">{{ evt.ts.split('T')[1].split('.')[0]
+                            <span class="text-muted x-small ">{{ evt.ts.split('T')[1].split('.')[0]
                                 }}</span>
                             <span class="badge bg-dark border border-secondary text-light x-small ms-1">{{ evt.module
                                 }}</span>
@@ -103,9 +103,9 @@
 
 <div class="row g-4 mb-4">
     <div class="col-12">
-        <div class="card bg-black border-secondary">
+        <div class="card  border-secondary">
             <div class="card-header bg-dark border-secondary">
-                <h6 class="mb-0 text-cyber"><i class="fas fa-tasks me-2"></i>Task Scheduler State</h6>
+                <h6 class="mb-0 text-info"><i class="fas fa-tasks me-2"></i>Task Scheduler State</h6>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive" style="max-height: 240px; overflow-y: auto;">
@@ -121,7 +121,7 @@
                             {% if results.task_status %}
                             {% for task_id, data in results.task_status.items() %}
                             <tr id="task-row-{{ task_id }}">
-                                <td class="font-monospace text-info x-small">{{ task_id }}</td>
+                                <td class=" text-info x-small">{{ task_id }}</td>
                                 <td class="x-small text-light">{{ data.state }}</td>
                                 <td class="x-small text-muted">{{ data.reason or '-' }}</td>
                             </tr>

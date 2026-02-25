@@ -1,0 +1,124 @@
+<!-- TAB 5: REPORT BUILDER (Operator Output) -->
+<div class="col-12 mb-3">
+    <div
+        class="d-flex justify-content-between align-items-center  bg-opacity-50 p-3 rounded border border-secondary border-opacity-25">
+        <h5 class="mb-0 text-white"><i class="fas fa-file-invoice me-2 text-success"></i>Report Builder</h5>
+
+        <form action="{{ url_for('main.scan_report', scan_id=scan.id) }}" method="GET" target="_blank">
+            <input type="hidden" name="format" value="pdf">
+            <button type="submit" class="btn btn-outline-success">
+                <i class="fas fa-file-pdf me-2"></i>Generate PDF Runbook
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="col-lg-8">
+    <div class="card  h-100">
+        <div class="card-header glass-header">
+            <i class="fas fa-list-check me-2"></i>Include Findings
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                <table class="table table-dark table-hover mb-0">
+                    <thead class="position-sticky top-0  z-index-1">
+                        <tr>
+                            <th class="ps-3" style="width: 40px;">
+                                <input type="checkbox" class="form-check-input  border-secondary" checked
+                                    onclick="toggleAllFindings(this)">
+                            </th>
+                            <th class="text-uppercase x-small text-muted py-3">Severity</th>
+                            <th class="text-uppercase x-small text-muted py-3 w-50">Title</th>
+                            <th class="text-uppercase x-small text-muted py-3">Tool</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if findings %}
+                        {% for f in findings %}
+                        <tr>
+                            <td class="ps-3 align-middle">
+                                <input type="checkbox"
+                                    class="form-check-input  border-secondary finding-checkbox" checked
+                                    value="{{ f.id }}">
+                            </td>
+                            <td class="align-middle">
+                                <span class="badge severity-badge {{ f.severity|default('info') }} text-uppercase">{{
+                                    f.severity }}</span>
+                            </td>
+                            <td class="align-middle text-break text-light small">
+                                {{ f.title }}
+                            </td>
+                            <td class="align-middle text-muted small ">
+                                {{ f.tool_source|default('Unknown') }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center p-5 text-muted">No findings to include in report.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div
+                class="p-3  bg-opacity-50 border-top border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
+                <span class="small text-muted">Currently including all findings backend provides. Custom filtering
+                    requires API support.</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-4">
+    <div class="card  h-100 position-sticky" style="top: 20px;">
+        <div class="card-header glass-header">
+            <i class="fas fa-cogs me-2"></i>Report Settings
+        </div>
+        <div class="card-body p-4">
+            <div class="mb-4">
+                <label class="form-label text-muted small text-uppercase">Theme</label>
+                <select class="form-select bg-dark text-light border-secondary" disabled>
+                    <option>Dark Mode (Default)</option>
+                    <option>Print Friendly</option>
+                </select>
+                <small class="text-muted fst-italic mt-1 d-block">Configured in backend Jinja templates.</small>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label text-muted small text-uppercase">Include Evidence Blocks</label>
+                <div class="form-check form-switch">
+                    <input class="form-check-input  border-secondary" type="checkbox" role="switch"
+                        id="switchEvidence" checked disabled>
+                    <label class="form-check-label text-light small" for="switchEvidence">Raw Requests/Responses</label>
+                </div>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input  border-secondary" type="checkbox" role="switch"
+                        id="switchScreenshots" checked disabled>
+                    <label class="form-check-label text-light small" for="switchScreenshots">Visual Screenshots</label>
+                </div>
+            </div>
+
+            <div class="alert alert-dark border-info  bg-opacity-50 d-flex align-items-center fade show p-2 mb-0"
+                role="alert">
+                <i class="fas fa-info-circle text-info me-2 fa-lg"></i>
+                <div class="x-small  text-muted">
+                    Report generation is fully handled by <span class="text-info">core.reporting</span>. UI serves as an
+                    interactive toggle gateway.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleAllFindings(source) {
+        checkboxes = document.querySelectorAll('.finding-checkbox');
+        for (var i = 0, n = checkboxes.length; i < n; i++) {
+            checkboxes[i].checked = source.checked;
+        }
+        // Note: Currently, backend /report route does not accept a list of finding IDs. 
+        // It renders all findings in the DB for this scan. 
+        // This UI is visual preview only for now.
+    }
+</script>

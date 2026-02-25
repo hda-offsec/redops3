@@ -36,7 +36,7 @@ except Exception:
 
 
 class ScanOrchestrator:
-    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func, loot_func=None, recursion_func=None, options=None):
+    def __init__(self, scan_id, target, logger_func, finding_func, suggestion_func, results_func, loot_func=None, recursion_func=None, options=None, **kwargs):
         self.scan_id = scan_id
         self.target = target
         self.log = logger_func
@@ -44,6 +44,7 @@ class ScanOrchestrator:
         self.add_suggestion = suggestion_func
         self.save_results = results_func
         self._loot_callback = loot_func
+        self.graph_func = kwargs.get('graph_func')
         self.recursion_func = recursion_func
         self.options = options or {}
         self.config = self.options.get('config', {})
@@ -236,6 +237,25 @@ class ScanOrchestrator:
         self.thread_safe_results_update(_update)
         self._save_results_thread_safe(payload)
 
+    def sync_graph(self):
+        """Opportunistic attack graph synchronization to DB"""
+        if not self.graph_func:
+            return
+        try:
+            with self._results_lock:
+                # Use a snapshot of results
+                results_snapshot = json.loads(json.dumps(self.results))
+            
+            builder = AttackGraphBuilder()
+            graph_data = builder.build(results_snapshot)
+            nodes = graph_data.get('nodes', [])
+            edges = graph_data.get('edges', [])
+            if nodes:
+                self.graph_func(nodes, edges)
+        except Exception:
+            # Silent failure for opportunistic sync
+            pass
+
     def _task_wrapper(self, task_id, func, *args, **kwargs):
         from flask import has_app_context
         
@@ -253,7 +273,12 @@ class ScanOrchestrator:
 
         try:
             self._check_control(task_id)
-            return func(*args, **kwargs)
+            res = func(*args, **kwargs)
+            # Opportunistic sync after major discovery milestones
+            if self.graph_func:
+                if any(x in task_id for x in ["recon", "dns", "intel", "vuln_", "discover", "strategic"]):
+                    self.sync_graph()
+            return res
         except Exception as exc:
             reason = str(exc)
             if not reason:
@@ -399,8 +424,12 @@ class ScanOrchestrator:
                     self.log("Cortex: Finalizing prioritized attack plan...", "DEBUG")
                     _set_enum_derived("status", "Finalizing attack plan...")
                     attack_builder = AttackGraphBuilder()
-                    attack_builder.build(self.results)
+                    graph_data = attack_builder.build(self.results)
                     self.thread_safe_results_update(lambda: self.results.__setitem__("attack_plan", attack_builder.rank_actions()))
+                    
+                    if self.graph_func:
+                        self.graph_func(graph_data.get('nodes', []), graph_data.get('edges', []))
+                    
                     self._save_results_thread_safe()
                     
                     # --- FEEDBACK LOOP: Dynamic Task Injection & Expert Mining ---
@@ -559,6 +588,12 @@ class ScanOrchestrator:
                 for item in module_data.values()
                 if isinstance(item, dict)
             )
+
+            # Final Attack Graph Update (including all findings)
+            if self.graph_func:
+                final_builder = AttackGraphBuilder()
+                final_graph = final_builder.build(self.results)
+                self.graph_func(final_graph.get('nodes', []), final_graph.get('edges', []))
 
             json.dumps(self.results)
         except Exception as e:

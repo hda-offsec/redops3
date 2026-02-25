@@ -1,0 +1,256 @@
+{% from "components/detection_table.html" import detection_table %}
+
+<!-- TAB 3: FINDINGS (Dependency-Track Inspired) -->
+<div class="col-12 mb-3">
+    <div
+        class="d-flex justify-content-between align-items-center  bg-opacity-20 p-3 rounded border border-secondary border-opacity-10">
+        <h5 class="mb-0 text-light fw-bold"><i class="fas fa-biohazard me-2 text-danger"></i>Detection Vault</h5>
+        <div class="input-group input-group-sm" style="max-width: 350px;">
+            <span class="input-group-text bg-transparent border-secondary text-muted"><i
+                    class="fas fa-search"></i></span>
+            <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
+                placeholder="Filter detections (title, severity, tool)..." onkeyup="filterFindings()">
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-7">
+    <div class="card h-100">
+        <div class="card-header border-0 pb-0">
+            <span class="extra-small text-muted text-uppercase">Identification Matrix</span>
+        </div>
+        <div class="card-body p-0">
+            <div id="findings-table-container" style="max-height: 700px; overflow-y: auto;">
+                {{ detection_table(findings) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-5">
+    <div class="card h-100 position-sticky" style="top: 20px;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-microscope me-2 text-warning"></i>Tactical Brief</span>
+            <span class="badge border border-secondary text-muted extra-small " id="detail-id">ID:
+                NULL</span>
+        </div>
+        <div class="card-body" id="finding-detail-panel" style="max-height: 700px; overflow-y: auto;">
+            <div class="text-center p-5 text-muted fst-italic">
+                <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
+                <p class="small">Select a discovery record from the identification matrix to retrieve intelligence.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Serialize findings for local JS interaction without hallucination
+    const rawFindingsData = {
+        {% for f in findings %}
+    "{{ f.id_stable or f.id }}": {
+        id: "{{ f.id_stable or f.id }}",
+            title: { { f.title | tojson | safe } },
+        severity: "{{ f.severity|default('info') }}",
+            confidence: "{{ f.confidence|default('medium')|capitalize }}",
+                description: { { f.description | tojson | safe } },
+        tool_source: "{{ f.tool_source|default('Unknown Engine') }}",
+            request: { { f.request | tojson | safe } },
+        response: { { f.response | tojson | safe } },
+        repro: { { f.repro_command | tojson | safe } },
+        screenshot: "{{ f.screenshot_path|default('') }}"
+    } {% if not loop.last %}, {% endif %}
+    {% endfor %}
+    };
+
+    function filterFindings() {
+        const query = document.getElementById('findings-search').value.toLowerCase();
+        const rows = document.querySelectorAll('.finding-row');
+
+        rows.forEach(row => {
+            const t = row.getAttribute('data-title');
+            const s = row.getAttribute('data-sev');
+            const tool = row.getAttribute('data-tool');
+
+            if (t.includes(query) || s.includes(query) || tool.includes(query)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    function showFindingDetail(findId) {
+        const f = rawFindingsData[findId];
+        if (!f) return;
+
+        const panel = document.getElementById('finding-detail-panel');
+        document.getElementById('detail-id').textContent = 'ID: ' + findId.substring(0, 8);
+        document.getElementById('detail-id').title = findId;
+
+        // Reset Scroll
+        panel.scrollTop = 0;
+
+        let cleanDescription = f.description || 'No descriptive payload provided.';
+        let evidenceModel = null;
+
+        const jsonMatch = cleanDescription.match(/```json\n([\s\S]*?)\n```/);
+        if (jsonMatch) {
+            try {
+                const parsed = JSON.parse(jsonMatch[1]);
+                if (parsed._evidence_model) {
+                    evidenceModel = parsed._evidence_model;
+                    cleanDescription = cleanDescription.replace(/```json\n[\s\S]*?\n```/, '').trim();
+                }
+            } catch (e) {
+                console.error("Failed to parse evidence model", e);
+            }
+        }
+
+        let html = `
+            <div class="mb-4">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="badge-severity bg-${f.severity.toLowerCase()}">${f.severity.toUpperCase()}</span>
+                    <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small">CONF: ${f.confidence.toUpperCase()}</span>
+                </div>
+                <h4 class="finding-detail-title text-light">${f.title}</h4>
+            </div>
+            
+            <div class="mb-4 border-start border-3 border-danger border-opacity-50 ps-3 py-1">
+                <h6 class="extra-small  text-muted text-uppercase mb-2">Intelligence Summary</h6>
+                <div class="text-secondary small lh-sm" style="white-space: pre-wrap;">${cleanDescription}</div>
+            </div>
+        `;
+
+        if (evidenceModel) {
+            let levelColor = 'secondary';
+            if (evidenceModel.evidence_level === 'confirmed') levelColor = 'danger';
+            else if (evidenceModel.evidence_level === 'probable') levelColor = 'warning';
+            else if (evidenceModel.evidence_level === 'heuristic') levelColor = 'info';
+
+            let proofHtml = '';
+            if (evidenceModel.proof.markers && evidenceModel.proof.markers.length > 0) {
+                proofHtml += `<div class="mt-2"><span class="text-muted small">Markers:</span> <span class="text-light font-monospace small">${escapeHtml(evidenceModel.proof.markers.join(', '))}</span></div>`;
+            }
+            if (evidenceModel.proof.status_after) {
+                proofHtml += `<div class="mt-1"><span class="text-muted small">Status:</span> <span class="text-light font-monospace small">${evidenceModel.proof.status_before || '*'} &rarr; ${evidenceModel.proof.status_after}</span></div>`;
+            }
+
+            html += `
+            <div class="mb-4 border-start border-3 border-${levelColor} border-opacity-50 ps-3 py-2 bg-black bg-opacity-20 rounded-end">
+                <h6 class="extra-small text-muted text-uppercase mb-2 d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-microscope me-2 text-${levelColor}"></i>Evidence Validation</span>
+                    <span class="badge bg-${levelColor} bg-opacity-20 text-${levelColor} border border-${levelColor} border-opacity-20">${evidenceModel.evidence_level.toUpperCase()}</span>
+                </h6>
+                <div class="text-secondary small">
+                    ${evidenceModel.verification_required ? '<div class="text-warning mb-2"><i class="fas fa-exclamation-triangle me-1"></i>Manual verification required.</div>' : ''}
+                    ${proofHtml}
+                </div>
+            </div>
+            `;
+        }
+
+        if (f.screenshot) {
+            html += `
+             <div class="mb-4">
+                <h6 class="extra-small  text-muted text-uppercase mb-2"><i class="fas fa-camera me-1"></i>Visual Evidence</h6>
+                <img src="/static/${f.screenshot}" class="img-fluid border border-secondary rounded hover-zoom" style="max-height: 250px; cursor: pointer" onclick="window.open(this.src)">
+             </div>
+            `;
+        }
+
+        // Engine Metadata
+        html += `
+            <div class="mb-4 bg-opacity-30 p-2 rounded border border-secondary border-opacity-10">
+                <div class="d-flex justify-content-between align-items-center extra-small">
+                    <span class="text-muted text-uppercase italic">Detection Engine:</span>
+                    <span class="text-info fw-bold">${f.tool_source}</span>
+                </div>
+            </div>
+        `;
+
+        // Technical Evidence
+        if (f.request || f.response) {
+            html += `
+            <div class="mb-4">
+                <h6 class="extra-small  text-muted text-uppercase mb-2"><i class="fas fa-code me-1"></i>Technical Artifacts</h6>
+                <div class="accordion accordion-flush" id="techEvidence">
+                    ${f.request ? `
+                    <div class="accordion-item bg-transparent">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed bg-transparent text-light extra-small py-2 border-bottom border-secondary border-opacity-10" type="button" data-bs-toggle="collapse" data-bs-target="#collapseReq">
+                                <i class="fas fa-arrow-right me-2 text-danger"></i>OFFENSIVE REQUEST
+                            </button>
+                        </h2>
+                        <div id="collapseReq" class="accordion-collapse collapse" data-bs-parent="#techEvidence">
+                            <div class="accordion-body p-0 pt-2">
+                                <pre class="evidence-block">${escapeHtml(f.request)}</pre>
+                            </div>
+                        </div>
+                    </div>` : ''}
+                    
+                    ${f.response ? `
+                    <div class="accordion-item bg-transparent">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed bg-transparent text-light extra-small py-2 border-bottom border-secondary border-opacity-10" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRes">
+                                <i class="fas fa-arrow-left me-2 text-info"></i>SERVER RESPONSE
+                            </button>
+                        </h2>
+                        <div id="collapseRes" class="accordion-collapse collapse" data-bs-parent="#techEvidence">
+                            <div class="accordion-body p-0 pt-2">
+                                <pre class="evidence-block" style="color: #66ccff;">${escapeHtml(f.response)}</pre>
+                            </div>
+                        </div>
+                    </div>` : ''}
+                </div>
+            </div>
+        `;
+        }
+
+        // Reproduction
+        if (f.repro) {
+            html += `
+             <div class="mb-4">
+                <h6 class="extra-small  text-muted text-uppercase mb-2"><i class="fas fa-terminal me-1"></i>Reproduction Vector</h6>
+                <div class=" p-2 rounded border border-danger border-opacity-20">
+                    <pre class="mb-0 text-warning extra-small  text-wrap">${escapeHtml(f.repro)}</pre>
+                </div>
+             </div>
+            `;
+        }
+
+        html += `
+            <div class="mt-4 pt-3 border-top border-secondary border-opacity-10 d-flex gap-2">
+                <button class="btn btn-xs btn-outline-info flex-fill" onclick="$('#graph-tab').tab('show')"><i class="fas fa-project-diagram me-1"></i>Graph View</button>
+                <button class="btn btn-xs btn-outline-secondary flex-fill" onclick="$('#hood-tab').tab('show')"><i class="fas fa-bug me-1"></i>Raw Log</button>
+            </div>
+        `;
+
+        panel.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>'"]/g,
+            tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag])
+        );
+    }
+
+    // Global helper for other tabs to open findings
+    window.openFindingDrawer = function (findId) {
+        const tabBtn = document.getElementById('findings-tab');
+        if (tabBtn) {
+            const tab = new bootstrap.Tab(tabBtn);
+            tab.show();
+            // Wait for tab animation then show detail
+            setTimeout(() => showFindingDetail(findId), 150);
+        } else {
+            showFindingDetail(findId);
+        }
+    };
+</script>
