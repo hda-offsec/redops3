@@ -49,8 +49,8 @@ class WafBypassScanner:
                 continue
 
         if not protected_paths:
-            if logger: logger(f"WAF Bypass: No obvious protected paths found on port {port}. Running generic bypass check on root...", "DEBUG")
-            protected_paths.append(("", 200, 0)) # Try root anyway
+            if logger: logger(f"WAF Bypass: No protected paths (401/403) found on port {port}. Nothing to bypass.", "DEBUG")
+            return findings  # V10: No protected path → no bypass possible
 
         # 2. Bypass Probing
         for path, orig_status, orig_len in protected_paths:
@@ -61,23 +61,47 @@ class WafBypassScanner:
                         headers = {header: val}
                         r = self.session.get(url, headers=headers, timeout=5, allow_redirects=False)
                         
-                        # Detection Logic: Status code change or significantly different content length
-                        if (orig_status in [401, 403] and r.status_code == 200) or \
-                           (orig_status == 200 and abs(len(r.content) - orig_len) > 1000):
+                        # Detection Logic: 
+                        # - Critical: Transition from 403/401 to 200
+                        # - Medium: Massive content length change on 200 (still risky, better evidence needed)
+                        is_bypass = False
+                        sev = "info"
+                        
+                        if orig_status in [401, 403] and r.status_code == 200:
+                            is_bypass = True
+                            sev = "critical"
+                        # V10: Content-length diff on 200→200 is NOT a bypass
+                        # Only status code transitions from restricted to accessible count
+
+                        if is_bypass:
+                            if logger: logger(f"🚩 WAF BYPASS DETECTED ({sev.upper()}): {url} via {header}: {val}", "SUCCESS")
                             
-                            if logger: logger(f"🚩 WAF BYPASS DETECTED: {url} via {header}: {val}", "SUCCESS")
+                            # Build detailed request/response evidence
+                            req_dump = f"GET {url} HTTP/1.1\n"
+                            req_dump += f"Host: {self.target}\n"
+                            req_dump += f"{header}: {val}\n"
+                            
+                            res_dump = f"HTTP/1.1 {r.status_code} {r.reason}\n"
+                            for k, v in r.headers.items():
+                                res_dump += f"{k}: {v}\n"
+                            res_dump += f"\n{r.text[:2000]}..." # Snippet
+
                             findings.append({
-                                "title": "Critical: WAF/ACL Bypass via HTTP Header",
+                                "title": f"{sev.capitalize()}: WAF/ACL Bypass via HTTP Header",
                                 "description": (
-                                    f"Successfully bypassed access control on `{url}` using the `{header}` header.\n"
-                                    f"Original Status: {orig_status}\n"
-                                    f"Bypass Status: {r.status_code}\n"
-                                    f"Payload: `{header}: {val}`"
+                                    f"Potential access control bypass on `{url}` using the `{header}` header.\n"
+                                    f"Original Status: {orig_status} ({orig_len} bytes)\n"
+                                    f"Bypass Status: {r.status_code} ({len(r.content)} bytes)\n\n"
+                                    f"**Validation Evidence**:\n"
+                                    f"- Header `{header}: {val}` caused the server to respond differently.\n"
+                                    f"- This often indicates the server trusts this header for internal IP validation or virtual host routing."
                                 ),
-                                "severity": "critical",
+                                "severity": sev,
                                 "tool_source": "waf_bypass_expert",
-                                "raw_loot": f"{header}: {val}",
-                                "loot_type": "Bypass Header"
+                                "url": url,
+                                "request": req_dump,
+                                "response": res_dump,
+                                "repro_command": f"curl -v -H '{header}: {val}' '{url}'"
                             })
                             break # Found one for this path
                     except Exception:

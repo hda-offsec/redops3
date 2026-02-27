@@ -187,6 +187,14 @@ def run_dns_osint(orchestrator):
 
         if subdomains:
             log(f"Found {len(subdomains)} subdomains.", "SUCCESS")
+            # V10: Surface subdomain discovery as INFO finding
+            sub_list = ", ".join(subdomains[:10])
+            orch.add_finding(
+                title=f"Subdomains Discovered ({len(subdomains)})",
+                description=f"DNS enumeration found {len(subdomains)} subdomains:\n{sub_list}" + (f"\n...and {len(subdomains)-10} more" if len(subdomains) > 10 else ""),
+                severity="info",
+                tool_source="dns_enum"
+            )
             if orch.options.get('recursive') and orch.recursion_func:
                 depth = orch.options.get('current_recursion_depth', 0)
                 max_depth = orch.options.get('max_recursion_depth', 1)
@@ -196,6 +204,17 @@ def run_dns_osint(orchestrator):
                     log(f"Failed to trigger recursion: {e}", "ERROR")
         else:
             log("No subdomains found for this target root.", "INFO")
+
+        # V10: Surface DNS records as INFO finding
+        records = dns_data.get('records', [])
+        if records:
+            rec_summary = ", ".join([f"{r.get('type','?')}: {r.get('value','')}" for r in records[:10] if isinstance(r, dict)])
+            orch.add_finding(
+                title=f"DNS Records ({len(records)})",
+                description=f"DNS enumeration found {len(records)} records:\n{rec_summary}",
+                severity="info",
+                tool_source="dns_enum"
+            )
 
         orch.save_results(orch.scan_id, results)
     except Exception as e:
@@ -217,6 +236,14 @@ def run_dns_osint(orchestrator):
         if emails:
             log(f"Found {len(emails)} emails.", "SUCCESS")
             orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('emails', emails))
+            # V10: Surface email OSINT as INFO finding
+            email_list = ", ".join(emails[:5]) if isinstance(emails[0], str) else ", ".join([e.get('email','') for e in emails[:5]])
+            orch.add_finding(
+                title=f"OSINT: Email Addresses ({len(emails)})",
+                description=f"Email enumeration discovered {len(emails)} addresses:\n{email_list}",
+                severity="info",
+                tool_source="email_osint"
+            )
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"Email scan failed: {e}", "DEBUG")
@@ -227,6 +254,13 @@ def run_dns_osint(orchestrator):
         if leaks:
             log(f"Found {len(leaks)} GitHub leaks.", "SUCCESS")
             orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('github', leaks))
+            # V10: Surface GitHub leaks as finding
+            orch.add_finding(
+                title=f"GitHub Intelligence ({len(leaks)} results)",
+                description=f"GitHub OSINT found {len(leaks)} potential code/secret exposures for {target}.",
+                severity="low",
+                tool_source="github_osint"
+            )
             orch.save_results(orch.scan_id, results)
     except Exception as e:
         log(f"GitHub scan failed: {e}", "DEBUG")

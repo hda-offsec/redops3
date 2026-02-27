@@ -45,27 +45,61 @@ class BusinessLogicScanner:
 
     def scan_hpp(self, url, logger=None):
         findings = []
-        # Logic: ?user=1&user=2 -> Does the server use the first, last, or both?
-        # Useful for bypassing WAFs or logic checks
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         if not params: return []
 
         for param in params:
             try:
-                # Original
+                # Baseline request
                 orig = self.session.get(url, timeout=5)
+                orig_status = orig.status_code
+                orig_len = len(orig.content)
                 
-                # Malicious (Double parameter)
-                # new_qs = ?param=val&param=attack
+                # V10: Duplicate parameter injection
                 new_url = url + f"&{param}=redops_hpp_test"
                 resp = self.session.get(new_url, timeout=5)
                 
-                if resp.status_code == 200 and "redops_hpp_test" in resp.text:
-                     findings.append({
+                # V10 HPP Hard Gate: ALL must be true
+                # H1: Test value must be reflected (server processes it)
+                reflected = "redops_hpp_test" in resp.text
+                # H2: Server behavior must actually change
+                #     (status code change OR significant body diff)
+                status_changed = resp.status_code != orig_status
+                body_diff = abs(len(resp.content) - orig_len) > 100
+                # H3: Access control or redirect altered
+                redirect_altered = (
+                    resp.status_code in [301, 302, 303, 307]
+                    and resp.headers.get('Location', '') != orig.headers.get('Location', '')
+                )
+                
+                behavior_changed = status_changed or redirect_altered or body_diff
+                
+                if reflected and behavior_changed:
+                    findings.append({
                         "title": "HTTP Parameter Pollution (HPP)",
-                        "description": f"Server processed secondary occurrence of parameter '{param}'. This can be used to bypass security filters or manipulate internal logic.\nURL: {new_url}",
+                        "description": (
+                            f"Server processed secondary occurrence of parameter '{param}' "
+                            f"AND behavior changed.\n"
+                            f"Status: {orig_status} → {resp.status_code}\n"
+                            f"Body delta: {abs(len(resp.content) - orig_len)}B\n"
+                            f"URL: {new_url}"
+                        ),
                         "severity": "medium",
+                        "tool_source": "business_logic_expert",
+                        "url": new_url
+                    })
+                elif reflected:
+                    # V10: Reflection without behavior change → INFO
+                    findings.append({
+                        "title": "HTTP Parameter Reflection (Informational)",
+                        "description": (
+                            f"Server reflects secondary parameter '{param}' value "
+                            f"but behavior is identical to baseline.\n"
+                            f"No exploitable logic change detected.\n"
+                            f"URL: {new_url}"
+                        ),
+                        "severity": "info",
                         "tool_source": "business_logic_expert",
                         "url": new_url
                     })

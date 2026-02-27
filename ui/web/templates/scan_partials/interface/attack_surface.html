@@ -12,7 +12,7 @@
     </div>
 </div>
 
-<div class="col-lg-8">
+<div class="col-lg-12">
     <div class="card h-100">
         <div class="card-header border-0 pb-0">
             <span class="extra-small text-muted text-uppercase">Surface Matrix</span>
@@ -51,29 +51,36 @@
     </div>
 </div>
 
-<div class="col-lg-4">
-    <div class="card h-100 position-sticky" style="top: 20px;">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-info-circle me-2 text-info"></i>Context Panel</span>
-            <span class="badge border border-secondary text-muted extra-small " id="surface-id">---</span>
+<div class="offcanvas offcanvas-end bg-dark text-light" tabindex="-1" id="surfaceContextOffcanvas"
+    style="width: 700px; border-left: 1px solid #333;">
+    <div class="offcanvas-header border-bottom border-secondary border-opacity-25 pb-3">
+        <h5 class="offcanvas-title"><i class="fas fa-info-circle me-2 text-info"></i>Context Panel</h5>
+        <div>
+            <span class="badge border border-secondary text-muted extra-small me-2" id="surface-id">---</span>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"
+                aria-label="Close"></button>
         </div>
-        <div class="card-body" id="surface-context-panel">
-            <div class="text-center p-5 text-muted fst-italic">
-                <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
-                <p class="small">Select a surface artifact to expand technical context.</p>
-            </div>
+    </div>
+    <div class="offcanvas-body" id="surface-context-panel">
+        <div class="text-center p-5 text-muted fst-italic">
+            <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
+            <p class="small">Select a surface artifact to expand technical context.</p>
         </div>
     </div>
 </div>
 
+</script>
+<script id="surface-json-results" type="application/json">
+{{ results | tojson }}
+</script>
 <script>
     let rawSurfaceData = [];
     let filteredSurfaceData = [];
     let surfacePage = 1;
     const surfacePerPage = 50;
 
-    // Inject backend data (Normalized)
-    const scanResults = {{ results | tojson | safe }};
+    // Inject backend data (Normalized safely)
+    const scanResults = JSON.parse(document.getElementById('surface-json-results').textContent);
 
     document.addEventListener("DOMContentLoaded", () => {
         buildSurfaceData();
@@ -120,29 +127,45 @@
             });
         }
 
-        // 4. Endpoints (Ffuf)
-        if (phases.dirbusting && phases.dirbusting.ffuf && phases.dirbusting.ffuf.endpoints) {
-            phases.dirbusting.ffuf.endpoints.forEach(e => {
-                rawSurfaceData.push({
-                    value: e.url,
-                    type: 'endpoint',
-                    source: 'ffuf',
-                    raw: e
-                });
+        // 4. Endpoints (Ffuf/Dirbusting)
+        if (phases.dirbusting) {
+            Object.keys(phases.dirbusting).forEach(tool => {
+                if (phases.dirbusting[tool].endpoints) {
+                    phases.dirbusting[tool].endpoints.forEach(e => {
+                        rawSurfaceData.push({
+                            value: typeof e === 'string' ? e : e.url || JSON.stringify(e),
+                            type: 'endpoint',
+                            source: tool,
+                            raw: e,
+                            status: e.status || null
+                        });
+                    });
+                }
             });
         }
 
         // 5. API Endpoints
-        if (phases.enum && phases.enum.api && phases.enum.api.endpoints) {
-            phases.enum.api.endpoints.forEach(e => {
-                const epUrl = typeof e === 'object' ? e.url : e;
-                rawSurfaceData.push({
-                    value: epUrl,
-                    type: 'endpoint',
-                    source: 'kiterunner/ffuf',
-                    raw: e
+        if (phases.enum && phases.enum.api) {
+            if (phases.enum.api.endpoints) {
+                phases.enum.api.endpoints.forEach(e => {
+                    rawSurfaceData.push({
+                        value: typeof e === 'object' ? (e.url || JSON.stringify(e)) : e,
+                        type: 'api_route',
+                        source: 'kiterunner',
+                        raw: e
+                    });
                 });
-            });
+            }
+            if (phases.enum.api.discovered_endpoints) {
+                phases.enum.api.discovered_endpoints.forEach(e => {
+                    rawSurfaceData.push({
+                        value: typeof e === 'object' ? (e.url || JSON.stringify(e)) : e,
+                        type: 'api_route',
+                        source: 'api_discovery',
+                        raw: e
+                    });
+                });
+            }
         }
 
         // 6. Params (Arjun)
@@ -171,15 +194,62 @@
                 });
             });
         }
-        // Add more logic if Katana provides structure
-        if (phases.enum && phases.enum.katana && Array.isArray(phases.enum.katana)) {
-            phases.enum.katana.forEach(url => {
-                rawSurfaceData.push({
-                    value: url,
-                    type: 'endpoint',
-                    source: 'katana',
-                    raw: { url: url }
+
+        // 8. Katana Spidering URLs
+        if (phases.enum && phases.enum.katana) {
+            // Katana results might be an array or a dict mapped by port
+            if (Array.isArray(phases.enum.katana)) {
+                phases.enum.katana.forEach(url => {
+                    rawSurfaceData.push({
+                        value: url,
+                        type: 'url',
+                        source: 'katana',
+                        raw: { url: url }
+                    });
                 });
+            } else {
+                Object.entries(phases.enum.katana).forEach(([port, urls]) => {
+                    if (Array.isArray(urls)) {
+                        urls.forEach(url => {
+                            rawSurfaceData.push({
+                                value: url,
+                                type: 'url',
+                                source: `katana (port ${port})`,
+                                raw: { url: url }
+                            });
+                        });
+                    }
+                });
+            }
+        }
+
+        // 9. Technologies, Components & Versions (WhatWeb/Wappalyzer)
+        if (phases.enum && phases.enum.whatweb && phases.enum.whatweb.technologies) {
+            Object.entries(phases.enum.whatweb.technologies).forEach(([port, techs]) => {
+                if (Array.isArray(techs)) {
+                    techs.forEach(tech => {
+                        rawSurfaceData.push({
+                            value: tech,
+                            type: 'technology',
+                            source: `whatweb (port ${port})`,
+                            raw: { tech: tech }
+                        });
+                    });
+                }
+            });
+        }
+
+        // 10. General Technology Stack (derived/cpe)
+        if (phases.enum && phases.enum.derived && phases.enum.derived.service_intelligence) {
+            phases.enum.derived.service_intelligence.forEach(intel => {
+                if (intel.cpe) {
+                    rawSurfaceData.push({
+                        value: intel.cpe,
+                        type: 'component',
+                        source: `intel (port ${intel.port})`,
+                        raw: intel
+                    });
+                }
             });
         }
     }
@@ -236,8 +306,32 @@
                 tr.style.cursor = 'pointer';
                 tr.onclick = () => showSurfaceContext(start + idx);
 
+                // Add status badge if available 
+                let statusBadge = '';
+                if (row.status) {
+                    let sColor = 'secondary';
+                    if (row.status == 200) sColor = 'success';
+                    else if (row.status >= 300 && row.status < 400) sColor = 'warning';
+                    else if (row.status >= 400) sColor = 'danger';
+                    statusBadge = `<span class="badge bg-${sColor} bg-opacity-25 text-${sColor} border border-${sColor} border-opacity-25 ms-2">${row.status}</span>`;
+                }
+
+                // Add nice icon based on type
+                let iconHtml = '<i class="fas fa-cube text-secondary"></i>';
+                if (row.type === 'asset') iconHtml = '<i class="fas fa-server text-light"></i>';
+                else if (row.type === 'endpoint') iconHtml = '<i class="fas fa-link text-info"></i>';
+                else if (row.type === 'url') iconHtml = '<i class="fas fa-globe text-primary"></i>';
+                else if (row.type === 'api_route') iconHtml = '<i class="fas fa-project-diagram text-warning"></i>';
+                else if (row.type === 'technology' || row.type === 'component') iconHtml = '<i class="fas fa-layer-group text-danger"></i>';
+
                 tr.innerHTML = `
-                    <td class="ps-3 text-break text-truncate" style="max-width: 300px;" title="${row.value}">${row.value}</td>
+                    <td class="ps-3 text-break" style="max-width: 400px;">
+                        <div class="d-flex align-items-center gap-2">
+                            ${iconHtml}
+                            <span class="text-truncate d-inline-block" style="max-width:350px;" title="${row.value}">${row.value}</span>
+                            ${statusBadge}
+                        </div>
+                    </td>
                     <td><span class="badge border border-secondary text-secondary bg-transparent">${row.type}</span></td>
                     <td><span class="badge bg-secondary bg-opacity-25 text-light">${row.source}</span></td>
                     <td class="text-end pe-3"><i class="fas fa-chevron-right text-muted opacity-50"></i></td>
@@ -264,7 +358,14 @@
 
     function showSurfaceContext(idx) {
         const data = filteredSurfaceData[idx];
+        if (!data) return;
+
         const panel = document.getElementById('surface-context-panel');
+        document.getElementById('surface-id').textContent = data.type.toUpperCase();
+
+        const offcanvasEl = document.getElementById('surfaceContextOffcanvas');
+        const offcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl) || new bootstrap.Offcanvas(offcanvasEl);
+        offcanvas.show();
 
         panel.innerHTML = `
             <div class="mb-3">
@@ -275,15 +376,9 @@
                 </div>
             </div>
             
-            <div class="border border-secondary border-opacity-25 rounded  p-3 mb-3">
-                <span class="text-muted x-small text-uppercase mb-2 d-block">Raw Evidence</span>
-                <pre class="m-0 text-success " style="font-size: 0.75rem; white-space: pre-wrap; max-height: 250px; overflow-y: auto;">${JSON.stringify(data.raw, null, 2)}</pre>
-            </div>
-            
-            <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-warning flex-fill" disabled title="Function coming to Graph Tab">
-                    <i class="fas fa-project-diagram me-2"></i>Find on Graph
-                </button>
+            <div class="border border-secondary border-opacity-25 rounded bg-black bg-opacity-20 p-3 mb-3">
+                <span class="text-muted x-small text-uppercase mb-2 d-block"><i class="fas fa-code me-1"></i>Raw Evidence Data</span>
+                <pre class="m-0 text-success" style="font-size: 0.75rem; white-space: pre-wrap; max-height: 450px; overflow-y: auto;">${JSON.stringify(data.raw, null, 2)}</pre>
             </div>
         `;
     }

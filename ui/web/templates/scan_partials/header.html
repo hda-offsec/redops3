@@ -26,33 +26,37 @@
             <div class="row tactical-summary-bar p-3 rounded mb-4 g-1">
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
                     <div class="text-muted x-small text-uppercase">Critical Risks</div>
-                    <div
+                    <div id="stat-critical"
                         class="h4 mb-0 fw-bold {{ 'text-danger pulse-danger' if severity_counts['critical'] > 0 else 'text-muted' }}">
                         {{ severity_counts['critical'] }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
                     <div class="text-muted x-small text-uppercase">High Risks</div>
-                    <div class="h4 mb-0 fw-bold {{ 'text-warning' if severity_counts['high'] > 0 else 'text-muted' }}">
+                    <div id="stat-high"
+                        class="h4 mb-0 fw-bold {{ 'text-warning' if severity_counts['high'] > 0 else 'text-muted' }}">
                         {{ severity_counts['high'] }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
                     <div class="text-muted x-small text-uppercase">Entry Points</div>
-                    <div class="h4 mb-0 fw-bold text-info">{{ results.phases.recon.open_ports|length if
+                    <div id="stat-ports-header" class="h4 mb-0 fw-bold text-info">{{
+                        results.phases.recon.open_ports|length if
                         (results.phases.recon and results.phases.recon.open_ports) else 0 }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
                     <div class="text-muted x-small text-uppercase">Subdomains</div>
-                    <div class="h4 mb-0 fw-bold text-info">{{ results.phases.dns.subdomains|length if
+                    <div id="stat-subdomains-header" class="h4 mb-0 fw-bold text-info">{{
+                        results.phases.dns.subdomains|length if
                         (results.phases.dns and results.phases.dns.subdomains) else 0 }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
                     <div class="text-muted x-small text-uppercase">Intel Vectors</div>
-                    <div class="h4 mb-0 fw-bold text-warning">{{ results.phases.intel|length if results.phases.intel
+                    <div id="stat-intel-header" class="h4 mb-0 fw-bold text-warning">{{ results.phases.intel|length if
+                        results.phases.intel
                         else 0 }}</div>
                 </div>
                 <div class="col-md-2 text-center">
                     <div class="text-muted x-small text-uppercase">Loot Collected</div>
-                    <div class="h4 mb-0 fw-bold text-success loot-counter-val">
+                    <div id="stat-loot-header" class="h4 mb-0 fw-bold text-success loot-counter-val">
                         {{ loots|length if loots else 0 }}
                     </div>
                 </div>
@@ -152,7 +156,7 @@
                                 style="height: 6px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5);">
                                 <div class="progress-bar progress-bar-striped progress-bar-animated bg-cyber shadow-cyber"
                                     id="scan-progress-bar" role="progressbar"
-                                    style="width: {% if scan.status == 'completed' %}100{% elif scan.status == 'running' %}5{% else %}0{% endif %}%">
+                                    style="width: {{ '100%' if scan.status == 'completed' else '5%' if scan.status == 'running' else '0%' }}">
                                 </div>
                             </div>
                         </div>

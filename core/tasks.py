@@ -113,11 +113,17 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 cleaned_response = cap_text(sanitize_evidence(raw_response))
                 cleaned_repro = cap_text(sanitize_evidence(raw_repro))
 
+                id_stable = kwargs.get('id_stable')
+                if not id_stable:
+                    import hashlib
+                    id_str = f"{title}|{kwargs.get('tool_source', 'orchestrator')}|{kwargs.get('description', '')[:50]}"
+                    id_stable = hashlib.sha256(id_str.encode()).hexdigest()
+
                 finding = Finding(
                     scan_id=scan_id,
                     severity=severity,
                     confidence=kwargs.get('confidence', 'medium'),
-                    id_stable=kwargs.get('id_stable'),
+                    id_stable=id_stable,
                     title=title,
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),

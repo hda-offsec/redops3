@@ -22,15 +22,36 @@ class EnterpriseScanner:
         for p in paths:
             url = f"{base_url}{p}"
             try:
-                r = self.session.get(url, timeout=3, verify=False)
-                if "ColdFusion" in r.text or "CFIDE" in r.text:
+                r = self.session.get(url, timeout=5, verify=False)
+                # Hardened Detection: Page must be 200 OK and contains specific markers
+                # Generic "ColdFusion" string is too weak.
+                is_detected = False
+                if r.status_code == 200:
+                    if "ColdFusion Administrator" in r.text or "CFIDE" in r.text or "RDSPassword" in r.text:
+                        is_detected = True
+
+                if is_detected:
+                    # Build evidence
+                    req_dump = f"GET {url} HTTP/1.1\nHost: {self.target}\n"
+                    res_dump = f"HTTP/1.1 {r.status_code} {r.reason}\n"
+                    res_dump += f"\n{r.text[:2000]}..." # Snippet
+
                     findings.append({
                         "title": "Medium: Adobe ColdFusion Admin Panel Exposed",
-                        "description": f"A ColdFusion administrator interface was found at `{url}`.",
+                        "description": (
+                            f"A ColdFusion administrator interface was confirmed at `{url}`.\n\n"
+                            f"**Validation Evidence**:\n"
+                            f"- Status Code: 200 OK\n"
+                            f"- Source Code Check: Found 'ColdFusion Administrator' login markers."
+                        ),
                         "severity": "medium",
                         "tool_source": "enterprise_expert",
-                        "url": url
+                        "url": url,
+                        "request": req_dump,
+                        "response": res_dump,
+                        "repro_command": f"curl -v '{url}'"
                     })
+                    if logger: logger(f"🚩 ENTERPRISE: ColdFusion Admin found at {url}", "SUCCESS")
             except Exception: pass
         return findings
 

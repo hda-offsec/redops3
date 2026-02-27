@@ -7,11 +7,18 @@
             <div class="card h-100 border-0  bg-opacity-20">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Assets</div>
-                    <div class="h4 mb-0 fw-bold text-info ">
-                        {% set total_assets = (results.phases.recon.open_ports|length if results.phases.recon and
-                        results.phases.recon.open_ports else 0) + (results.phases.dns.subdomains|length if
-                        results.phases.dns and results.phases.dns.subdomains else 0) %}
-                        {{ total_assets if total_assets > 0 else '0' }}
+                    <div class="h4 mb-0 fw-bold text-info " id="stat-assets">
+                        {% set ns_assets = namespace(count=0) %}
+                        {% if results.phases.recon and results.phases.recon.open_ports %}
+                        {% set ns_assets.count = ns_assets.count + results.phases.recon.open_ports|length %}
+                        {% endif %}
+                        {% if results.phases.dns and results.phases.dns.subdomains %}
+                        {% set ns_assets.count = ns_assets.count + results.phases.dns.subdomains|length %}
+                        {% endif %}
+                        {% if results.phases.osint and results.phases.osint.cloud %}
+                        {% set ns_assets.count = ns_assets.count + results.phases.osint.cloud|length %}
+                        {% endif %}
+                        {{ ns_assets.count }}
                     </div>
                 </div>
             </div>
@@ -20,11 +27,21 @@
             <div class="card h-100 border-0  bg-opacity-20">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Endpoints</div>
-                    <div class="h4 mb-0 fw-bold text-info ">
-                        {% set total_endpoints = results.phases.dirbusting.ffuf.endpoints|length if
-                        results.phases.dirbusting and results.phases.dirbusting.ffuf and
-                        results.phases.dirbusting.ffuf.endpoints else 0 %}
-                        {{ total_endpoints if total_endpoints > 0 else '0' }}
+                    <div class="h4 mb-0 fw-bold text-info " id="stat-endpoints">
+                        {% set ns_eps = namespace(count=0) %}
+                        {% if results.phases.dirbusting and results.phases.dirbusting.ffuf and
+                        results.phases.dirbusting.ffuf.endpoints %}
+                        {% set ns_eps.count = ns_eps.count + results.phases.dirbusting.ffuf.endpoints|length %}
+                        {% endif %}
+                        {% if results.phases.enum and results.phases.enum.api and results.phases.enum.api.endpoints %}
+                        {% set ns_eps.count = ns_eps.count + results.phases.enum.api.endpoints|length %}
+                        {% endif %}
+                        {% if results.phases.enum and results.phases.enum.katana %}
+                        {% for p, urls in results.phases.enum.katana.items() %}
+                        {% set ns_eps.count = ns_eps.count + urls|length %}
+                        {% endfor %}
+                        {% endif %}
+                        {{ ns_eps.count }}
                     </div>
                 </div>
             </div>
@@ -33,7 +50,7 @@
             <div class="card h-100 border-0  bg-opacity-20">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Detections</div>
-                    <div class="h4 mb-0 fw-bold text-warning ">
+                    <div class="h4 mb-0 fw-bold text-warning " id="stat-findings">
                         {{ findings|length if findings else '0' }}
                     </div>
                 </div>
@@ -43,7 +60,7 @@
             <div class="card h-100 border-0  bg-opacity-20">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">High Risk</div>
-                    <div class="h4 mb-0 fw-bold text-danger ">
+                    <div class="h4 mb-0 fw-bold text-danger " id="stat-high-risk">
                         {% set high_plus = (severity_counts['critical']|default(0)) +
                         (severity_counts['high']|default(0)) %}
                         {{ high_plus }}
@@ -73,6 +90,67 @@
         </div>
     </div>
 </div>
+
+{% if results.phases.vuln.wordpress %}
+<div class="col-12 mb-4">
+    <div class="card  border-info bg-opacity-10">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fab fa-wordpress me-2 text-info"></i>CMS Intelligence: WordPress Discovery</span>
+            <span class="badge bg-info bg-opacity-20 text-info">Deep Scan Analysis</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                {% for port, wp in results.phases.vuln.wordpress.items() %}
+                <div class="col-md-4">
+                    <div class="p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 h-100">
+                        <div class="extra-small text-muted text-uppercase mb-2">Platform (Port {{ port }})</div>
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <div class="h5 mb-0 text-light fw-bold">v{{ wp.version|default('Unknown') }}</div>
+                            <span class="badge bg-secondary extra-small">Theme: {{ wp.theme|default('Unknown') }}</span>
+                        </div>
+
+                        <div class="d-flex flex-column gap-2 mb-3">
+                            <div class="d-flex justify-content-between x-small">
+                                <span class="text-muted">Detected Components</span>
+                                <span class="text-light">{{ (wp.plugins|length if wp.plugins else 0) + (1 if wp.theme
+                                    else 0) }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between x-small">
+                                <span class="text-muted">Vulnerabilities</span>
+                                <span class="text-{{ 'danger' if wp.vulns|length > 0 else 'success' }} fw-bold">{{
+                                    wp.vulns|length }}</span>
+                            </div>
+                            {% if wp.wordfence_detected %}
+                            <div class="d-flex justify-content-between x-small">
+                                <span class="text-warning"><i class="fas fa-shield-alt me-1"></i>Wordfence</span>
+                                <span class="text-warning">ACTIVE</span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <button class="btn btn-xs btn-outline-info w-100"
+                            onclick="openFindingDrawer(null, 'WordPress Vulnerabilities Detected ({{ port }})')">View
+                            Analysis</button>
+                        <div
+                            class="d-flex flex-column gap-1 extra-small mt-3 pt-2 border-top border-secondary border-opacity-10">
+                            {% if wp.wordfence_detected %}
+                            <div class="text-danger"><i class="fas fa-shield-alt me-1"></i> Wordfence WAF Detected</div>
+                            {% endif %}
+                            {% if wp.version == 'Unknown' or not wp.version %}
+                            <div class="text-warning"><i class="fas fa-question-circle me-1"></i> Version
+                                Headless/Obfuscated</div>
+                            {% else %}
+                            <div class="text-success"><i class="fas fa-check-circle me-1"></i> Signature Confirmed</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <div class="col-lg-8 mb-4">
     <!-- Top Findings -->

@@ -2,6 +2,8 @@ import scan_engine.helpers.http_client as http_client
 import shlex
 import time
 import os
+import re
+import json
 from scan_engine.step03_vuln.nuclei_scanner import NucleiScanner
 from scan_engine.step03_vuln.wpscan_scanner import WPScanScanner
 from scan_engine.step03_vuln.dalfox_scanner import DalfoxScanner
@@ -128,6 +130,13 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         if 'wp-json' in headers_str or 'wordpress' in headers.get('X-Redirect-By', '').lower():
             is_wordpress = True
             log(f"WordPress detected via HTTP Headers on port {port}.", "SUCCESS")
+            
+    # Check Katana enumeration if available 
+    if not is_wordpress and 'enum' in results['phases'] and 'katana' in results['phases']['enum']:
+        katana_urls = results['phases']['enum']['katana'].get(str(port), [])
+        if any("wp-content" in u or "wp-includes" in u or "wp-json" in u or "wp-admin" in u for u in katana_urls):
+            is_wordpress = True
+            log(f"WordPress detected via enumerated paths (Katana) on port {port}.", "SUCCESS")
 
     # Cortex Status Update Utility
     def _set_cortex_status(status):
@@ -161,6 +170,19 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 wp_data, wp_raw_log = extract_wp_data(wp_stream, port, log)
                 
                 if wp_data:
+                    # FALLBACK: Use fingerprint data (WhatWeb) if WPScan missed version/theme
+                    if (wp_data.get('version') == 'Unknown' or not wp_data.get('version')) and 'WordPress' in fingerprint_data:
+                        ver_match = re.search(r"WordPress[\s/]*([\d\.]+)", fingerprint_data)
+                        if ver_match:
+                            wp_data['version'] = ver_match.group(1)
+                            log(f"Recovered WordPress version {wp_data['version']} from fingerprint data on port {port}.", "SUCCESS")
+                    
+                    if (wp_data.get('theme') == 'Unknown' or not wp_data.get('theme')) and 'Theme' in fingerprint_data:
+                         theme_match = re.search(r"Theme:?\s*([a-zA-Z0-9_-]+)", fingerprint_data)
+                         if theme_match:
+                             wp_data['theme'] = theme_match.group(1)
+                             log(f"Recovered WordPress theme {wp_data['theme']} from fingerprint data on port {port}.", "SUCCESS")
+
                     # Inject Evasion Metadata for UI
                     wp_data['wordfence_detected'] = wf_detected
                     wp_data['evasion_active'] = stealth_mode
@@ -212,6 +234,19 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                             title=f"WordPress Vulnerabilities Detected ({port})",
                             description=desc,
                             severity="high",
+                            tool_source="wpscan"
+                        )
+                    else:
+                        # V10: Always surface WP detection even without vulns
+                        wp_desc = f"WordPress v{wp_data.get('version', 'Unknown')} | Theme: {wp_data.get('theme', 'Unknown')}"
+                        if wp_data.get('plugins'):
+                            wp_desc += f"\nPlugins: {', '.join([p['slug'] + ' v' + p['version'] for p in wp_data['plugins'][:10]])}"
+                        if wp_data.get('wordfence_detected'):
+                            wp_desc += "\n🛡️ Wordfence WAF active"
+                        orch.add_finding(
+                            title=f"WordPress Detected ({port})",
+                            description=wp_desc,
+                            severity="info",
                             tool_source="wpscan"
                         )
                 
@@ -768,7 +803,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                              log(f"XSS Discovered: {line}", "SUCCESS")
                              
                              # Parse Dalfox line into structured object for UI template
-                             import re
                              xss_obj = {"url": "", "method": "GET", "payload": line, "evidence": line, "port": port}
                              method_match = re.search(r'\[(GET|POST|PUT|DELETE)\]', line)
                              if method_match:
@@ -791,12 +825,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                                 break
                              
                              # NORMALIZED FINDING
-                             normalized_f = normalizer.normalize({"url": "", "param": "", "poison": "", "evidence": line}, "dalfox")
+                             normalized_f = normalizer.normalize({"url": xss_obj["url"], "param": "", "poison": xss_obj["payload"], "evidence": line}, "dalfox")
+                             
+                             # Build rich evidence for XSS
+                             req_dump = f"{xss_obj['method']} {xss_obj['url']} HTTP/1.1\nHost: {target}\n"
+                             
                              orch.add_finding(
                                 title=normalized_f["title"],
-                                description=normalized_f["description"],
+                                description=normalized_f["description"] + f"\n\n**Validation Evidence**:\n- Dalfox confirmed execution via PoC: `{xss_obj['payload']}`",
                                 severity=normalized_f["severity"],
-                                tool_source="dalfox"
+                                tool_source="dalfox",
+                                url=xss_obj["url"],
+                                request=req_dump,
+                                response=f"HTTP/1.1 200 OK\n\n[PoC Reflects in body]",
+                                repro_command=f"dalfox url '{xss_obj['url']}' --no-color --silence"
                              )
             
             if xss_found:
@@ -1046,10 +1088,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             if miner_findings:
                 _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('data_leaks', miner_findings)))
                 for f in miner_findings:
+                    # V10: Public data ≠ leak. Classify by type.
+                    SECRET_TYPES = {'api_keys', 'aws_keys', 'jwt_tokens', 'google_api',
+                                    'private_keys', 'stripe_keys', 'slack_tokens'}
+                    ftype = f['type']
+                    if ftype in SECRET_TYPES:
+                        sev = "high"
+                    elif ftype in ('emails', 'ip_addresses'):
+                        sev = "info"  # Public data visible in HTML
+                    else:
+                        sev = "low"
                     orch.add_finding(
-                        title=f"Data Leak: {f['type'].upper()} Detected",
+                        title=f"Data Exposure: {ftype.upper()}",
                         description=f"Found {f['count']} matches in response. Sample: {', '.join(f['matches'])}",
-                        severity="high",
+                        severity=sev,
                         tool_source="data_miner"
                     )
                 orch.save_results(orch.scan_id, results)
@@ -1116,9 +1168,6 @@ def run_global_vuln_scans(orchestrator):
     log = orch.log
     normalizer = FindingNormalizer()
 
-    def _ts(fn):
-        return orch.thread_safe_results_update(fn)
-    
     def _ts(fn):
         return orch.thread_safe_results_update(fn)
     

@@ -23,7 +23,11 @@ class FindingNormalizer:
             "description": tool_data.get("description", "") if isinstance(tool_data, dict) else str(tool_data),
             "target": tool_data.get("url", tool_data.get("target", "")) if isinstance(tool_data, dict) else "",
             "evidence": {},
-            "tool_source": tool_name or tool_data.get("tool_source", "generic"),
+            "request": tool_data.get("request", "") if isinstance(tool_data, dict) else "",
+            "response": tool_data.get("response", "") if isinstance(tool_data, dict) else "",
+            "repro_command": tool_data.get("repro_command", tool_data.get("curl-command", "")) if isinstance(tool_data, dict) else "",
+            "screenshot_path": tool_data.get("screenshot_path", "") if isinstance(tool_data, dict) else "",
+            "tool_source": tool_name or (tool_data.get("tool_source", "generic") if isinstance(tool_data, dict) else "generic"),
             "timestamp": int(time.time()),
             "id_stable": "" # V6 Stable ID
         }

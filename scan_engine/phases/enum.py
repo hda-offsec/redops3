@@ -188,6 +188,15 @@ def run_enum(orchestrator, port, proto):
             _ts(_store_whatweb)
             orch.save_results(orch.scan_id, results)
             orch.mark_module("whatweb", port, "executed", artifacts=len(techs))
+            # V10: Surface discovered technologies as INFO finding
+            if techs:
+                tech_list = ", ".join(techs[:15])
+                orch.add_finding(
+                    title=f"Technology Fingerprint ({port})",
+                    description=f"Detected {len(techs)} technologies on port {port}:\n{tech_list}",
+                    severity="info",
+                    tool_source="whatweb"
+                )
     except Exception as e:
         log(f"WhatWeb failed: {e}", "ERROR")
         orch.mark_module("whatweb", port, "failed", reason=str(e))
@@ -196,6 +205,22 @@ def run_enum(orchestrator, port, proto):
     try:
         header_analysis = analyze_security_headers(target, port, proto, log, options=orch.options)
         _ts(lambda: results['phases']['enum'].setdefault('headers', {}).__setitem__(str(port), header_analysis))
+        
+        # V10: Surface missing headers as LOW findings (hardening, not vulnerability)
+        missing = [k for k, v in header_analysis.items() if v.get('status') == 'missing']
+        if missing:
+            header_list = "\n".join(f"  • {h}" for h in missing)
+            orch.add_finding(
+                title=f"Missing Security Headers ({port})",
+                description=(
+                    f"The following security headers are not configured:\n\n"
+                    f"{header_list}\n\n"
+                    f"These are hardening recommendations, not exploitable vulnerabilities."
+                ),
+                severity="low",
+                tool_source="header_audit"
+            )
+        
         orch.mark_module("headers", port, "executed")
     except Exception as e:
         log(f"Security headers scan failed: {e}", "DEBUG")
@@ -230,6 +255,14 @@ def run_enum(orchestrator, port, proto):
              
              _ts(lambda: results['phases']['enum']['katana'].__setitem__(str(port), endpoints[:1000]))
              orch.mark_module("katana", port, "executed", artifacts=len(endpoints))
+             # V10: Surface crawl summary as INFO finding
+             if endpoints:
+                 orch.add_finding(
+                     title=f"Web Crawl Summary ({port})",
+                     description=f"Katana discovered {len(endpoints)} endpoints on port {port}.",
+                     severity="info",
+                     tool_source="katana"
+                 )
     except Exception as e:
         log(f"Katana scan failed: {e}", "DEBUG")
         orch.mark_module("katana", port, "failed", reason=str(e))
@@ -245,6 +278,13 @@ def run_enum(orchestrator, port, proto):
                     res = event["line"].split("is behind")[-1].strip()
                     _ts(lambda: results['phases']['enum'].setdefault('waf', {}).__setitem__(str(port), res))
                     log(f"🛡️ WAF: {res}", "SUCCESS")
+                    # V10: Surface WAF detection as INFO finding
+                    orch.add_finding(
+                        title=f"WAF Detected ({port})",
+                        description=f"Web Application Firewall identified: {res}",
+                        severity="info",
+                        tool_source="wafw00f"
+                    )
             orch.mark_module("waf", port, "executed")
     except Exception as e:
         log(f"WAF scan failed: {e}", "DEBUG")
@@ -305,6 +345,15 @@ def run_enum(orchestrator, port, proto):
                      results['phases']['enum']['api'][str(port)] = api_endpoints
                      results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200, "source": "fuzzing"} for url in api_endpoints])
                  _ts(_store_api)
+            # V10: Surface API discovery as INFO finding
+            if api_endpoints:
+                sample = ", ".join(api_endpoints[:5])
+                orch.add_finding(
+                    title=f"API Endpoints Discovered ({port})",
+                    description=f"Kiterunner discovered {len(api_endpoints)} API endpoints on port {port}.\nSample: {sample}",
+                    severity="info",
+                    tool_source="kiterunner"
+                )
             orch.mark_module("api_scanner", port, "executed", artifacts=len(api_endpoints))
     except Exception as e:
         log(f"API discovery failed: {e}", "DEBUG")

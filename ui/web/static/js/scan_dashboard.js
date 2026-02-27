@@ -802,8 +802,22 @@ class ScanDashboard {
         if (results.findings && statFindings) {
             statFindings.innerText = results.findings.length;
 
-            // Sync findings from results JSON (secondary source)
+            // Sync new mission overview counters
+            const statAssets = document.getElementById('stat-assets');
+            const statEndpoints = document.getElementById('stat-endpoints');
+            const statHighRisk = document.getElementById('stat-high-risk');
+            const statCritical = document.getElementById('stat-critical');
+            const statHigh = document.getElementById('stat-high');
+
+            let highRiskCount = 0;
+            let criticalCount = 0;
+            let highCount = 0;
+
             results.findings.forEach(f => {
+                const sev = (f.severity || "info").toLowerCase();
+                if (sev === 'critical') { criticalCount++; highRiskCount++; }
+                if (sev === 'high') { highCount++; highRiskCount++; }
+
                 this.handleNewFinding({
                     scan_id: this.scanId,
                     id: f.id,
@@ -815,6 +829,28 @@ class ScanDashboard {
                     screenshot_path: f.screenshot_path
                 });
             });
+
+            if (statHighRisk) statHighRisk.innerText = highRiskCount;
+            if (statCritical) statCritical.innerText = criticalCount;
+            if (statHigh) statHigh.innerText = highCount;
+
+            // Update assets/endpoints if available
+            if (statAssets) {
+                const ports = results.phases?.recon?.open_ports?.length || 0;
+                const subs = results.phases?.dns?.subdomains?.length || 0;
+                const clouds = results.phases?.osint?.cloud?.length || 0;
+                statAssets.innerText = ports + subs + clouds;
+            }
+            if (statEndpoints) {
+                let totalEps = results.phases?.dirbusting?.ffuf?.endpoints?.length || 0;
+                totalEps += results.phases?.enum?.api?.endpoints?.length || 0;
+                if (results.phases?.enum?.katana) {
+                    Object.values(results.phases.enum.katana).forEach(urls => {
+                        if (Array.isArray(urls)) totalEps += urls.length;
+                    });
+                }
+                statEndpoints.innerText = totalEps;
+            }
         }
 
         // Sync Progress UI

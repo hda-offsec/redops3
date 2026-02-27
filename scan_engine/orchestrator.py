@@ -138,13 +138,48 @@ class ScanOrchestrator:
         self._save_results_thread_safe(payload)
 
     def add_finding(self, **kwargs):
-        """Wrapper to track findings count in metrics"""
+        """Wrapper to track findings count in metrics. V10: Global deduplication."""
         if self._finding_callback:
+            # V10 Deduplication: fingerprint = sha256(title + url_path + severity + tool)
+            import hashlib
+            from urllib.parse import urlparse
+            try:
+                url_raw = kwargs.get('target', kwargs.get('url', ''))
+                parsed = urlparse(str(url_raw))
+                url_path = parsed.path or '/'
+            except Exception:
+                url_path = '/'
+            
+            fp_seed = (
+                str(kwargs.get('title', '')) + '|'
+                + url_path + '|'
+                + str(kwargs.get('severity', '')) + '|'
+                + str(kwargs.get('tool_source', ''))
+            )
+            fingerprint = hashlib.sha256(fp_seed.encode()).hexdigest()
+            
+            if not hasattr(self, '_finding_fingerprints'):
+                self._finding_fingerprints = set()
+            
+            if fingerprint in self._finding_fingerprints:
+                return  # V10: Duplicate suppressed
+            self._finding_fingerprints.add(fingerprint)
+            
             self._finding_callback(**kwargs)
             def _inc():
                 m = self.results.setdefault("metrics", {})
                 m["findings_count"] = m.get("findings_count", 0) + 1
             self.thread_safe_results_update(_inc)
+            
+            # Emit timeline event if it's an actual vulnerability finding (not info logging)
+            if kwargs.get('severity') != 'info':
+                level = "WARNING" if kwargs.get('severity') in ['high', 'critical'] else "INFO"
+                self.emit_event(
+                    "FINDING", 
+                    kwargs.get('tool_source', 'engine'), 
+                    level=level, 
+                    data={"title": kwargs.get('title', 'Unknown Detection'), "severity": kwargs.get('severity', 'info')}
+                )
 
     def add_loot(self, loot_type, content, context=None):
         """Wrapper to track loot count in metrics"""

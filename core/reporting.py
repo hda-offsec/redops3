@@ -21,6 +21,7 @@ class RedOpsReport(FPDF):
         self.rect(0, 0, 210, 25, 'F')
         
         self.set_y(5)
+        self.set_x(10)
         self.set_font('helvetica', 'B', 12)
         self.set_text_color(255, 42, 42)
         self.cell(0, 10, 'REDOPS3 - OFFENSIVE INTELLIGENCE REPORT', ln=True, align='L')
@@ -33,6 +34,7 @@ class RedOpsReport(FPDF):
 
     def footer(self):
         self.set_y(-15)
+        self.set_x(10)
         self.set_font('helvetica', 'I', 8)
         self.set_text_color(100, 100, 100)
         self.cell(0, 10, f'Page {self.page_no()} - RedOps3 Framework - Proprietary Offensive Data', align='C')
@@ -74,9 +76,9 @@ class RedOpsReport(FPDF):
         if not text: return ""
         # Map common problematic chars
         replacements = {
-            "✅": "[YES]", "❌": "[NO]", "⚠️": "[WARN]", "🔥": "[CRIT]",
+            "•": "-", "✅": "[YES]", "❌": "[NO]", "⚠️": "[WARN]", "🔥": "[CRIT]",
             "✓": "[OK]", "—": "-", "’": "'", "“": "\"", "”": "\"",
-            "…": "..."
+            "…": "...", "►": ">", "→": "->", "«": "\"", "»": "\""
         }
         # Coerce non-string types (dict, list, int, etc.) to string
         if not isinstance(text, str):
@@ -138,6 +140,31 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.cell(40, 6, f"- {s.upper()}: {c}")
             pdf.ln()
 
+    # Timeline highlights
+    if results and results.get('events'):
+        pdf.ln(5)
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(0, 7, "Mission Chronology (Key Events):")
+        pdf.ln(5)
+        pdf.set_font("helvetica", "", 8)
+        # Sort and take recent/important events
+        important_events = [e for e in results['events'] if e.get('type') != 'LOG'][:15]
+        for e in important_events:
+            ts = e.get('ts', '').split('T')[-1].split('.')[0] if 'T' in e.get('ts', '') else ''
+            module = str(e.get('module', 'engine'))
+            etype = str(e.get('type', 'EVENT'))
+            data = e.get('data', {})
+            msg = data.get('title') or data.get('message') or str(data)
+            
+            pdf.set_x(10) # Force reset to left margin
+            pdf.set_font("helvetica", "", 8)
+            pdf.cell(20, 5, pdf.safe_text(ts))
+            pdf.set_font("helvetica", "B", 8)
+            pdf.cell(30, 5, pdf.safe_text(f"[{module}]"))
+            pdf.set_font("helvetica", "", 8)
+            # Use safe width: 210 - 10 - 10 - 20 - 30 = 140
+            pdf.multi_cell(140, 5, pdf.safe_text(f"{etype}: {msg}"))
+    
     # 3. Recon Matrix
     pdf.chapter_title("2. Technical Reconnaissance Matrix")
     if results and 'phases' in results and 'recon' in results['phases']:
@@ -299,6 +326,13 @@ def generate_scan_report(scan_id, scan_obj, findings):
         
         # Combine WhatWeb and Tech Detector
         all_techs = []
+        is_wp_detected = False
+        
+        # Check vuln phase for explicit WP detection
+        if results.get('phases', {}).get('vuln', {}).get('wordpress'):
+            all_techs.append("WordPress (Confirmed)")
+            is_wp_detected = True
+
         if 'whatweb' in results['phases']['enum']:
             ww_data = results['phases']['enum']['whatweb']
             # Check for parsed technologies first (new format)
@@ -307,17 +341,83 @@ def generate_scan_report(scan_id, scan_obj, findings):
                      if isinstance(port_techs, list):
                          for t in port_techs:
                              if t not in all_techs: all_techs.append(t)
+                             if "WordPress" in t: is_wp_detected = True
             
             # Fallback to summary parsing (legacy / backward compatibility)
             elif 'summary' in ww_data:
                  # Try to extract from summary if not parsed
-                 pass
+                 for port, summ in ww_data['summary'].items():
+                     if "WordPress" in summ: is_wp_detected = True
 
         if all_techs:
              pdf.multi_cell(0, 5, pdf.safe_text(", ".join(all_techs)))
         else:
              pdf.cell(0, 5, "No specific frameworks identified.", ln=True)
         pdf.ln(3)
+
+    # 5.5 CMS Intelligence (WordPress Deep Dive)
+    if results and 'phases' in results and 'vuln' in results['phases'] and 'wordpress' in results['phases']['vuln']:
+        wp_data_all = results['phases']['vuln']['wordpress']
+        pdf.chapter_title("5.5 CMS Intelligence (WordPress Analysis)")
+        
+        for port, wp in wp_data_all.items():
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(0, 7, f"WordPress Analysis on Port {port}:", ln=True)
+            
+            pdf.set_font("helvetica", "", 9)
+            pdf.cell(50, 6, "WordPress Version:", border=1)
+            pdf.cell(0, 6, pdf.safe_text(wp.get('version', 'Unknown')), border=1, ln=True)
+            
+            pdf.cell(50, 6, "Theme:", border=1)
+            pdf.cell(0, 6, pdf.safe_text(wp.get('theme', 'Unknown')), border=1, ln=True)
+            
+            if wp.get('wordfence_detected'):
+                pdf.set_text_color(200, 50, 0)
+                pdf.cell(50, 6, "WAF Detected:", border=1)
+                pdf.cell(0, 6, "Wordfence (Evasion Mode Active)", border=1, ln=True)
+                pdf.set_text_color(0, 0, 0)
+
+            # Vulnerable Plugins
+            vulns = wp.get('vulns', [])
+            if vulns:
+                pdf.ln(2)
+                pdf.set_font("helvetica", "B", 10)
+                pdf.set_text_color(255, 42, 42)
+                pdf.cell(0, 7, f"Direct Vulnerabilities Found ({len(vulns)}):", ln=True)
+                pdf.set_font("helvetica", "", 8)
+                pdf.set_text_color(0, 0, 0)
+                for v in vulns:
+                    pdf.set_x(15) # Indent slightly and ensure space
+                    # Width: 180 (10 margin + 180 = 190, leaves 10 margin at right)
+                    pdf.multi_cell(180, 5, pdf.safe_text(f"• [{v.get('component', 'Core')}] {v.get('title') or v.get('raw_title')}"))
+            
+            # Enumerated Plugins
+            plugins = wp.get('plugins', [])
+            if plugins:
+                pdf.ln(2)
+                pdf.set_font("helvetica", "B", 10)
+                pdf.cell(0, 7, f"Detected Plugins ({len(plugins)}):", ln=True)
+                pdf.set_font("helvetica", "", 8)
+                for p in plugins:
+                    p_info = f"- {p['slug']} v{p['version']}"
+                    if p.get('vulns'): p_info += f" [! {len(p['vulns'])} VULNS]"
+                    pdf.cell(0, 5, pdf.safe_text(p_info), ln=True)
+            
+            # Users
+            users = wp.get('users', [])
+            if users:
+                pdf.ln(2)
+                pdf.set_font("helvetica", "B", 10)
+                pdf.cell(0, 7, f"Enumerated Users ({len(users)}):", ln=True)
+                pdf.set_font("helvetica", "", 8)
+                user_names = []
+                for u in users:
+                    if isinstance(u, dict): user_names.append(u.get('name', 'Unknown'))
+                    else: user_names.append(str(u))
+                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(user_names)))
+            
+            pdf.ln(5)
+
 
     # 4.6 Security Headers
     if results and 'phases' in results and 'enum' in results['phases'] and 'headers' in results['phases']['enum']:
@@ -333,16 +433,16 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 # Interesting headers to highlight
                 highlights = ['Server', 'X-Powered-By', 'Strict-Transport-Security', 'Content-Security-Policy', 'X-Frame-Options', 'X-Content-Type-Options']
                 
+                highlight_keys = [h.lower() for h in highlights]
                 for k, v in headers.items():
-                    # Highlight key headers
-                    if any(h.lower() == k.lower() for h in highlights):
+                    if k.lower() in highlight_keys:
+                        pdf.set_x(15)
                         pdf.set_font("helvetica", "B", 8)
                         pdf.cell(50, 5, pdf.safe_text(k), border=1)
                         pdf.set_font("helvetica", "", 8)
-                        # Use a safer fixed width and leave a margin at the end
-                        pdf.multi_cell(130, 5, pdf.safe_text(v), border=1)
+                        # More conservative width: 120 (Total 15+50+120=185)
+                        pdf.multi_cell(120, 5, pdf.safe_text(v), border=1)
                     else:
-                        # Optional: Skip common headers to save space, or list all
                         pass
                 pdf.ln(2)
 
@@ -434,7 +534,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
         
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(80, 80, 80)
-        pdf.multi_cell(0, 5, pdf.safe_text(description))
+        pdf.set_x(10)
+        pdf.multi_cell(190, 5, pdf.safe_text(description))
         
         if screenshot_path:
             full_img_path = os.path.join("ui/web/static", screenshot_path)
@@ -444,7 +545,43 @@ def generate_scan_report(scan_id, scan_obj, findings):
                     pdf.image(full_img_path, w=150)
                     pdf.ln(5)
                 except Exception: pass
-        pdf.ln(4)
+
+        # Technical Reproducibility Section
+        request_text = f.get('request', '') if isinstance(f, dict) else getattr(f, 'request', '')
+        response_text = f.get('response', '') if isinstance(f, dict) else getattr(f, 'response', '')
+        repro_cmd = f.get('repro_command', '') if isinstance(f, dict) else getattr(f, 'repro_command', '')
+
+        if repro_cmd or request_text or response_text:
+            pdf.ln(2)
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_text_color(100, 100, 100)
+            pdf.set_font("helvetica", "B", 8)
+            pdf.cell(0, 6, " TECHNICAL REPRODUCIBILITY & EVIDENCE", fill=True, ln=True)
+            
+            if repro_cmd:
+                pdf.set_text_color(180, 0, 0)
+                pdf.set_font("courier", "B", 8)
+                pdf.multi_cell(190, 4, pdf.safe_text(f"Command: {repro_cmd}"), border='LRB')
+            
+            if request_text:
+                pdf.set_text_color(50, 50, 50)
+                pdf.set_font("helvetica", "B", 7)
+                pdf.cell(0, 5, " Offensive Request:", ln=True)
+                pdf.set_font("courier", "", 7)
+                # Cap request length for report
+                req_disp = request_text[:1000] + ("..." if len(request_text) > 1000 else "")
+                pdf.multi_cell(190, 3.5, pdf.safe_text(req_disp), border=1)
+
+            if response_text:
+                pdf.set_text_color(50, 50, 50)
+                pdf.set_font("helvetica", "B", 7)
+                pdf.cell(0, 5, " Server Response Validation:", ln=True)
+                pdf.set_font("courier", "", 7)
+                # Cap response
+                res_disp = response_text[:1000] + ("..." if len(response_text) > 1000 else "")
+                pdf.multi_cell(190, 3.5, pdf.safe_text(res_disp), border=1)
+
+        pdf.ln(6)
 
     # 6. LOOT VAULT
     from core.models import Loot

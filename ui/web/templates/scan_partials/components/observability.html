@@ -85,6 +85,11 @@
                             <span class="badge bg-dark border border-secondary text-light x-small ms-1">{{ evt.module
                                 }}</span>
                             <span class="text-secondary small ms-1">{{ evt.type }}</span>
+                            {% if evt.type == 'FINDING' and evt.data and evt.data.title %}
+                            <span class="text-info x-small ms-2"><i
+                                    class="fas fa-biohazard text-{{ 'danger' if evt.data.severity in ['critical', 'high'] else 'warning' if evt.data.severity == 'medium' else 'info' }}"></i>
+                                {{ evt.data.title }}</span>
+                            {% endif %}
                         </div>
                         {% if evt.level == 'ERROR' %}
                         <span class="text-danger x-small fw-bold">ERROR</span>
@@ -128,7 +133,8 @@
                             {% endfor %}
                             {% else %}
                             <tr id="no-tasks-row">
-                                <td colspan="3" class="text-center text-muted small fst-italic py-3">No task state yet.</td>
+                                <td colspan="3" class="text-center text-muted small fst-italic py-3">No task state yet.
+                                </td>
                             </tr>
                             {% endif %}
                         </tbody>
