@@ -54,3 +54,18 @@ walkthrough_*.md
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+tests/
+test_*.py
+
+# Development & Cleanup Scripts
+fix_*.py
+debug_*.py
+check_*.py
+reorder_*.py
+reorganize_*.py
+revert.py
+list_scans.py
+
+# Temporary & Auxiliary
+tmp/
+ui/web/templates/test_graph.html
