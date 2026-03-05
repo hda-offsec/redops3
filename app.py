@@ -23,6 +23,34 @@ import core.tasks
 load_dotenv()
 
 
+def run_runtime_migrations(app):
+    """Best-effort SQLite migrations for backward-compatible schema extensions."""
+    if "sqlite" not in app.config.get("SQLALCHEMY_DATABASE_URI", ""):
+        return
+    try:
+        with app.app_context():
+            with db.engine.connect() as conn:
+                result = conn.execute(db.text("PRAGMA table_info(findings);")).fetchall()
+                columns = {row[1] for row in result}
+                alter_map = {
+                    "module": "ALTER TABLE findings ADD COLUMN module TEXT;",
+                    "category": "ALTER TABLE findings ADD COLUMN category TEXT;",
+                    "target": "ALTER TABLE findings ADD COLUMN target TEXT;",
+                    "endpoint": "ALTER TABLE findings ADD COLUMN endpoint TEXT;",
+                    "parameter": "ALTER TABLE findings ADD COLUMN parameter TEXT;",
+                    "payload": "ALTER TABLE findings ADD COLUMN payload TEXT;",
+                    "evidence": "ALTER TABLE findings ADD COLUMN evidence TEXT;",
+                    "reproduction": "ALTER TABLE findings ADD COLUMN reproduction TEXT;",
+                    "raw_output": "ALTER TABLE findings ADD COLUMN raw_output TEXT;",
+                    "metadata_json": "ALTER TABLE findings ADD COLUMN metadata_json JSON;",
+                }
+                for col, ddl in alter_map.items():
+                    if col not in columns:
+                        conn.execute(db.text(ddl))
+    except Exception as e:
+        app.logger.warning(f"Runtime migration check failed: {e}")
+
+
 def ensure_sqlite_directory(uri, root_path):
     """Ensure the directory for the SQLite database exists."""
     if "sqlite" not in uri:
@@ -87,6 +115,8 @@ def create_app():
         return User.query.filter_by(username="admin").first()
 
     with app.app_context():
+        db.create_all()
+        run_runtime_migrations(app)
         from ui.web.views.main import main_bp
         from ui.web.views.auth import auth_bp
         import core.socket_events # Ensure socket handlers are registered

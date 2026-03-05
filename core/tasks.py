@@ -16,6 +16,8 @@ from datetime import datetime
 from flask import current_app
 import logging
 
+logger = logging.getLogger(__name__)
+
 @celery.task(bind=True, name='redops.run_scan')
 def run_scan_task(self, scan_id, target_identifier, scan_type):
     # We import create_app inside the task to avoid circular import at module level
@@ -145,6 +147,16 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     title=title,
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),
+                    module=kwargs.get('module') or kwargs.get('tool_source', 'orchestrator'),
+                    category=kwargs.get('category'),
+                    target=kwargs.get('target') or kwargs.get('url'),
+                    endpoint=kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url'),
+                    parameter=kwargs.get('parameter') or kwargs.get('param'),
+                    payload=kwargs.get('payload') or kwargs.get('poison'),
+                    evidence=kwargs.get('evidence') if isinstance(kwargs.get('evidence'), str) else None,
+                    reproduction=cleaned_repro,
+                    raw_output=kwargs.get('raw_output') or kwargs.get('response'),
+                    metadata_json=kwargs.get('metadata') if isinstance(kwargs.get('metadata'), dict) else None,
                     screenshot_path=kwargs.get('screenshot_path'),
                     endpoint=kwargs.get('endpoint') or kwargs.get('url'),
                     parameter=kwargs.get('parameter'),
@@ -170,6 +182,13 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     'title': title,
                     'description': kwargs.get('description'),
                     'tool': kwargs.get('tool_source', 'orchestrator'),
+                    'module': kwargs.get('module') or kwargs.get('tool_source', 'orchestrator'),
+                    'category': kwargs.get('category'),
+                    'target': kwargs.get('target') or kwargs.get('url'),
+                    'endpoint': kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url'),
+                    'parameter': kwargs.get('parameter') or kwargs.get('param'),
+                    'payload': kwargs.get('payload') or kwargs.get('poison'),
+                    'evidence': kwargs.get('evidence'),
                     'screenshot_path': kwargs.get('screenshot_path'),
                     'target': kwargs.get('target') or kwargs.get('url'),
                     'endpoint': kwargs.get('endpoint') or kwargs.get('url'),
@@ -180,6 +199,17 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     'response': cleaned_response,
                     'repro_command': cleaned_repro
                 }, room=f"scan_{scan_id}")
+
+                logger.info(
+                    "finding_created",
+                    extra={
+                        "scanner_name": kwargs.get('tool_source', 'orchestrator'),
+                        "target": kwargs.get('target') or kwargs.get('url') or target_identifier,
+                        "finding_type": kwargs.get('category', 'general'),
+                        "severity": severity,
+                        "confidence": kwargs.get('confidence', 'medium')
+                    }
+                )
 
                 # Global Alert for Critical Issues from the worker
                 if severity.lower() == 'critical':
@@ -399,6 +429,12 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 scan.status = 'completed' if success else 'failed'
                 scan.end_time = datetime.utcnow()
                 db.session.commit()
+
+            try:
+                from core.correlation import run_attack_chain_correlation
+                run_attack_chain_correlation(scan_id)
+            except Exception as corr_err:
+                logger.warning(f"correlation_failed scan_id={scan_id} err={corr_err}")
         except Exception as e:
             _log_and_emit(scan_id, f"Pipeline Error: {str(e)}", "ERROR")
             scan = Scan.query.get(scan_id)
