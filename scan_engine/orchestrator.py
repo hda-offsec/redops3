@@ -64,7 +64,7 @@ class ScanOrchestrator:
         self.recursion_func = recursion_func
         self.options = options or {}
         self.config = self.options.get("config", {})
-        self.results = {}
+        self.results = {'commands': []}
 
         self._results_lock = threading.RLock()
         self._control_lock = threading.Lock()

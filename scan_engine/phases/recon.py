@@ -52,7 +52,7 @@ def run_recon(orchestrator):
             scan_args = ["-F"]
 
     log(f"Executing Nmap with: {shlex.join(scan_args)}", "DEBUG")
-    orch.thread_safe_results_update(lambda: results['commands'].append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [target])}))
+    orch.thread_safe_results_update(lambda: results.setdefault('commands', []).append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [target])}))
 
     try:
         stream = scanner.stream_scan(scan_args)
