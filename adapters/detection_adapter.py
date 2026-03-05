@@ -78,6 +78,15 @@ class DetectionAdapter:
             'response': extra.get('response', ''),
             'repro_command': extra.get('repro_command', ''),
             'screenshot_path': extra.get('screenshot_path', ''),
+            'target': extra.get('target', ''),
+            'endpoint': extra.get('endpoint', extra.get('target', '')),
+            'parameter': extra.get('parameter', ''),
+            'payload': extra.get('payload', ''),
+            'evidence': extra.get('evidence', ''),
+            'reproduction': extra.get('reproduction', extra.get('repro_command', '')),
+            'raw_output': extra.get('raw_output', ''),
+            'category': extra.get('category', ''),
+            'module': extra.get('module', tool_source or 'unknown'),
         }
 
     # ------------------------------------------------------------------
@@ -270,6 +279,51 @@ class DetectionAdapter:
         )
 
     @staticmethod
+    def _synth_passive_intel(json_results, normalized):
+        phases = json_results.get('phases', {}) if isinstance(json_results, dict) else {}
+        enum_data = phases.get('enum', {}) if isinstance(phases, dict) else {}
+        vuln_data = phases.get('vuln', {}) if isinstance(phases, dict) else {}
+
+        headers = enum_data.get('headers', {}) if isinstance(enum_data, dict) else {}
+        for port, hdata in headers.items():
+            if not isinstance(hdata, dict):
+                continue
+            allow = str(hdata.get('Allow') or hdata.get('allow') or '')
+            risky = [m for m in ['PUT', 'DELETE', 'PATCH', 'TRACE'] if m in allow.upper()]
+            if risky:
+                fid = DetectionAdapter._make_id('passive_methods', port, ','.join(risky))
+                DetectionAdapter._add(normalized, fid, f"Dangerous HTTP Methods Exposed ({port})", 'medium',
+                                      f"Server advertises potentially dangerous methods: {', '.join(risky)}", 'passive_intel',
+                                      confidence='high', evidence=allow, endpoint=f"port:{port}", category='passive_intel')
+
+        js_data = enum_data.get('js_secrets', {}) if isinstance(enum_data, dict) else {}
+        for port, secrets in js_data.items():
+            if not isinstance(secrets, list):
+                continue
+            for s in secrets:
+                if not isinstance(s, dict):
+                    continue
+                typ = str(s.get('type', '')).lower()
+                if any(x in typ for x in ['token', 'api key', 'secret', 'jwt', 'private key']):
+                    fid = DetectionAdapter._make_id('passive_token', port, s.get('match', ''))
+                    DetectionAdapter._add(normalized, fid, f"Potential Secret Leakage in JS ({port})", 'high',
+                                          f"Discovered {s.get('type')} in client-side JavaScript source.", 'passive_intel',
+                                          confidence='medium', payload=s.get('match', ''), evidence=s.get('context', ''), category='secret_leak')
+
+        for k, v in vuln_data.items():
+            if not isinstance(v, list):
+                continue
+            for item in v:
+                if not isinstance(item, dict):
+                    continue
+                endpoint = str(item.get('url') or item.get('endpoint') or '')
+                if any(d in endpoint.lower() for d in ['/swagger', '/docs', '/graphql']):
+                    fid = DetectionAdapter._make_id('api_docs', endpoint)
+                    DetectionAdapter._add(normalized, fid, f"API Documentation Exposure: {endpoint}", 'medium',
+                                          'Endpoint pattern indicates exposed API documentation or graph explorer.', 'passive_intel',
+                                          confidence='medium', endpoint=endpoint, category='api_exposure')
+
+    @staticmethod
     def normalize_findings(db_findings, json_results):
         print("[V10_RESTORE] detection_adapter synthesizing findings...")
         normalized = {}
@@ -290,7 +344,16 @@ class DetectionAdapter:
                 request=f.request,
                 response=f.response,
                 repro_command=f.repro_command,
-                screenshot_path=f.screenshot_path
+                screenshot_path=f.screenshot_path,
+                target=getattr(f, 'target', ''),
+                endpoint=getattr(f, 'endpoint', ''),
+                parameter=getattr(f, 'parameter', ''),
+                payload=getattr(f, 'payload', ''),
+                evidence=getattr(f, 'evidence', ''),
+                reproduction=getattr(f, 'reproduction', ''),
+                raw_output=getattr(f, 'raw_output', ''),
+                category=getattr(f, 'category', ''),
+                module=getattr(f, 'module', f.tool_source)
             )
 
         # 2. Normalize JSON findings (from Vuln and Enum phases — list-based data)
@@ -349,6 +412,15 @@ class DetectionAdapter:
                         response=item.get('response', ''),
                         repro_command=item.get('curl-command', '') or item.get('repro_command', ''),
                         screenshot_path=item.get('screenshot_path', ''),
+                        target=item.get('target', item.get('url', '')),
+                        endpoint=item.get('endpoint', item.get('target', item.get('url', ''))),
+                        parameter=item.get('parameter', item.get('param', '')),
+                        payload=item.get('payload', item.get('poison', '')),
+                        evidence=item.get('evidence', ''),
+                        reproduction=item.get('reproduction', item.get('repro_command', '')),
+                        raw_output=item.get('raw_output', item.get('response', '')),
+                        category=item.get('category', ''),
+                        module=item.get('module', tool)
                     )
 
         # 3. SYNTHESIZE findings from structural data
@@ -373,6 +445,8 @@ class DetectionAdapter:
             # Vuln phase — WordPress
             if 'vuln' in phases:
                 DetectionAdapter._synth_wordpress(phases['vuln'], normalized)
+
+            DetectionAdapter._synth_passive_intel(json_results, normalized)
 
         print(f"[INTEL_RESTORE] merged JSON + DB findings. Total detections: {len(normalized)}")
         return list(normalized.values())
@@ -417,7 +491,8 @@ class DetectionAdapter:
                     ),
                     tool_source="wpscan",
                     confidence="high",
-                    repro_command=f"wpscan --url http://TARGET:{port}/ --enumerate vp,vt,u"
+                    repro_command=f"wpscan --url http://TARGET:{port}/ --enumerate vp,vt,u",
+                endpoint=f"http://TARGET:{port}/"
                 )
 
             # --- 2. Theme Detection ---

@@ -1,5 +1,17 @@
 import hashlib
 import time
+import json
+
+
+def _confidence_from_signal(finding):
+    severity = str(finding.get("severity", "info")).lower()
+    evidence = finding.get("evidence") or {}
+    payload = finding.get("payload") or (evidence.get("poison") if isinstance(evidence, dict) else "")
+    if finding.get("response") and payload and str(payload) in str(finding.get("response")):
+        return "high"
+    if severity in {"critical", "high"}:
+        return "medium"
+    return "low"
 
 class FindingNormalizer:
     """
@@ -22,12 +34,19 @@ class FindingNormalizer:
             "category": tool_data.get("category", "general") if isinstance(tool_data, dict) else "general",
             "description": tool_data.get("description", "") if isinstance(tool_data, dict) else str(tool_data),
             "target": tool_data.get("url", tool_data.get("target", "")) if isinstance(tool_data, dict) else "",
+            "endpoint": tool_data.get("endpoint", tool_data.get("url", tool_data.get("target", ""))) if isinstance(tool_data, dict) else "",
+            "parameter": tool_data.get("parameter", tool_data.get("param", "")) if isinstance(tool_data, dict) else "",
+            "payload": tool_data.get("payload", tool_data.get("poison", "")) if isinstance(tool_data, dict) else "",
             "evidence": {},
             "request": tool_data.get("request", "") if isinstance(tool_data, dict) else "",
             "response": tool_data.get("response", "") if isinstance(tool_data, dict) else "",
             "repro_command": tool_data.get("repro_command", tool_data.get("curl-command", "")) if isinstance(tool_data, dict) else "",
+            "reproduction": tool_data.get("reproduction", tool_data.get("repro_command", tool_data.get("curl-command", ""))) if isinstance(tool_data, dict) else "",
             "screenshot_path": tool_data.get("screenshot_path", "") if isinstance(tool_data, dict) else "",
             "tool_source": tool_name or (tool_data.get("tool_source", "generic") if isinstance(tool_data, dict) else "generic"),
+            "module": tool_data.get("module", tool_name or "generic") if isinstance(tool_data, dict) else (tool_name or "generic"),
+            "raw_output": tool_data.get("raw_output", tool_data.get("response", tool_data.get("description", ""))) if isinstance(tool_data, dict) else str(tool_data),
+            "metadata": tool_data.get("metadata", {}) if isinstance(tool_data, dict) and isinstance(tool_data.get("metadata", {}), dict) else {},
             "timestamp": int(time.time()),
             "id_stable": "" # V6 Stable ID
         }
@@ -59,8 +78,21 @@ class FindingNormalizer:
                     "param": tool_data.get("param"),
                     "poison": tool_data.get("poison"),
                     "proof": tool_data.get("evidence")
-                }
+                },
+                "parameter": tool_data.get("param", ""),
+                "payload": tool_data.get("poison", ""),
+                "endpoint": tool_data.get("url", ""),
+                "reproduction": tool_data.get("repro_command", tool_data.get("curl-command", "")) or f"dalfox url '{tool_data.get('url', '')}'"
             })
+
+        vuln_class = str(finding.get("category", "")).lower()
+        if vuln_class in {"xss", "sqli", "sqli", "lfi", "rfi", "ssrf", "idor", "command-injection", "cmdi"}:
+            if not finding.get("parameter"):
+                finding["parameter"] = tool_data.get("param", "") if isinstance(tool_data, dict) else ""
+            if not finding.get("payload") and isinstance(finding.get("evidence"), dict):
+                finding["payload"] = finding["evidence"].get("poison", "")
+            if not finding.get("reproduction"):
+                finding["reproduction"] = finding.get("repro_command", "")
 
         # --- SEVERITY NORMALIZATION ---
         sev_map = {"critical": "critical", "high": "high", "medium": "medium", "low": "low", "info": "info", "warn": "medium"}
@@ -69,16 +101,29 @@ class FindingNormalizer:
         # --- EVIDENCE VALIDATION ---
         if not any(finding["evidence"].values()) and isinstance(tool_data, dict):
              finding["evidence"] = tool_data
+        if not isinstance(finding.get("evidence"), str):
+            finding["evidence"] = json.dumps(finding.get("evidence", {}), default=str)
+
+        if not finding.get("confidence"):
+            finding["confidence"] = _confidence_from_signal(finding)
+        else:
+            finding["confidence"] = str(finding.get("confidence")).lower()
 
         # --- STABLE ID GENERATION (V6) ---
         try:
             from urllib.parse import urlparse
             parsed = urlparse(str(finding["target"]))
             path_stable = parsed.path or "/"
+            evidence_obj = finding.get("evidence")
+            if isinstance(evidence_obj, str):
+                try:
+                    evidence_obj = json.loads(evidence_obj)
+                except Exception:
+                    evidence_obj = {}
             
             # Use evidence if available, else title/category
-            trigger_stable = str(finding["evidence"].get("param", "")) or \
-                             str(finding["evidence"].get("parameter", "")) or \
+            trigger_stable = str((evidence_obj or {}).get("param", "")) or \
+                             str((evidence_obj or {}).get("parameter", "")) or \
                              str(finding["title"])
                              
             payload_class = str(finding["category"])
@@ -92,4 +137,3 @@ class FindingNormalizer:
             finding["id"] = finding["id_stable"]
         
         return finding
-

@@ -164,6 +164,10 @@
                     <span class="text-muted text-uppercase italic">Detection Engine:</span>
                     <span class="text-info fw-bold">${f.tool_source}</span>
                 </div>
+                ${f.endpoint ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Endpoint:</span> <span class="font-monospace">${escapeHtml(f.endpoint)}</span></div>` : ''}
+                ${f.parameter ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Parameter:</span> <span class="text-warning">${escapeHtml(f.parameter)}</span></div>` : ''}
+                ${f.payload ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Payload:</span> <span class="text-danger">${escapeHtml(f.payload)}</span></div>` : ''}
+                ${f.evidence ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Evidence:</span> <span class="text-info">${escapeHtml(String(f.evidence).slice(0, 500))}</span></div>` : ''}
             </div>
         `;
 
