@@ -80,12 +80,17 @@
     const surfacePerPage = 50;
 
     // Inject backend data (Normalized safely)
-    const scanResults = JSON.parse(document.getElementById('surface-json-results').textContent);
+    window.scanResults = JSON.parse(document.getElementById('surface-json-results').textContent);
 
     document.addEventListener("DOMContentLoaded", () => {
+        updateSurfaceExplorer(window.scanResults);
+    });
+
+    window.updateSurfaceExplorer = function (newResults) {
+        if (newResults) window.scanResults = newResults;
         buildSurfaceData();
         applySurfaceFilter();
-    });
+    };
 
     function buildSurfaceData() {
         rawSurfaceData = [];
@@ -95,7 +100,7 @@
         if (phases.recon && phases.recon.open_ports) {
             phases.recon.open_ports.forEach(p => {
                 rawSurfaceData.push({
-                    value: `Port ${p.port} (${p.service})`,
+                    value: `Port ${p.port} (${p.service_name || p.service || 'unknown'})`,
                     type: 'asset',
                     source: 'nmap',
                     raw: p

@@ -9,6 +9,16 @@
         --cyber-purple: #bc13fe;
     }
 
+    .stat-card {
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .stat-card:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+        transform: translateY(-2px);
+    }
+
     .glass-panel {
         background: var(--glass-bg);
         backdrop-filter: blur(12px) saturate(160%);
@@ -32,8 +42,8 @@
     }
 
     .tactical-summary-bar {
-        background: linear-gradient(90deg, rgba(255, 42, 42, 0.1), rgba(0, 240, 255, 0.05));
-        border-left: 4px solid var(--cyber-red);
+        background: rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--glass-border);
     }
 
     .risk-indicator {

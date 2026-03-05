@@ -3,8 +3,8 @@
 <!-- Executive Summary Cards (Normalized) -->
 <div class="col-12 mb-4">
     <div class="row g-2">
-        <div class="col-md-2">
-            <div class="card h-100 border-0  bg-opacity-20">
+        <div class="col-md-2" onclick="applyTacticalFilter('surface', 'type:asset')">
+            <div class="card h-100 border-0  bg-opacity-20 stat-card">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Assets</div>
                     <div class="h4 mb-0 fw-bold text-info " id="stat-assets">
@@ -23,8 +23,8 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-2">
-            <div class="card h-100 border-0  bg-opacity-20">
+        <div class="col-md-2" onclick="applyTacticalFilter('surface', 'type:endpoint')">
+            <div class="card h-100 border-0  bg-opacity-20 stat-card">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Endpoints</div>
                     <div class="h4 mb-0 fw-bold text-info " id="stat-endpoints">
@@ -46,8 +46,8 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-2">
-            <div class="card h-100 border-0  bg-opacity-20">
+        <div class="col-md-2" onclick="applyTacticalFilter('findings', '')">
+            <div class="card h-100 border-0  bg-opacity-20 stat-card">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Detections</div>
                     <div class="h4 mb-0 fw-bold text-warning " id="stat-findings">
@@ -56,8 +56,8 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-2">
-            <div class="card h-100 border-0  bg-opacity-20">
+        <div class="col-md-2" onclick="applyTacticalFilter('findings', 'high-risk')">
+            <div class="card h-100 border-0  bg-opacity-20 stat-card">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">High Risk</div>
                     <div class="h4 mb-0 fw-bold text-danger " id="stat-high-risk">
@@ -68,8 +68,8 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-2">
-            <div class="card h-100 border-0  bg-opacity-20">
+        <div class="col-md-2" onclick="applyTacticalFilter('findings', 'high-confidence')">
+            <div class="card h-100 border-0  bg-opacity-20 stat-card">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Confidence</div>
                     <div class="h4 mb-0 fw-bold text-success ">
@@ -80,8 +80,8 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-2">
-            <div class="card h-100 border-0  bg-opacity-20">
+        <div class="col-md-2" onclick="applyTacticalFilter('findings', 'delta')">
+            <div class="card h-100 border-0  bg-opacity-20 stat-card">
                 <div class="card-body p-2">
                     <div class="text-muted extra-small text-uppercase fw-bold mb-1">Delta</div>
                     <div class="h4 mb-0 fw-bold text-muted ">0</div>

@@ -57,19 +57,27 @@
     });
 
     function filterFindings() {
-        const query = document.getElementById('findings-search').value.toLowerCase();
+        const query = document.getElementById('findings-search').value.toLowerCase().trim();
         const rows = document.querySelectorAll('.finding-row');
 
         rows.forEach(row => {
-            const t = row.getAttribute('data-title');
-            const s = row.getAttribute('data-sev');
-            const tool = row.getAttribute('data-tool');
+            const t = row.getAttribute('data-title') || '';
+            const s = row.getAttribute('data-sev') || '';
+            const tool = row.getAttribute('data-tool') || '';
+            const confidence = row.innerText.toLowerCase(); // Heuristic for confidence text
 
-            if (t.includes(query) || s.includes(query) || tool.includes(query)) {
-                row.style.display = '';
+            let match = false;
+            if (query === '') {
+                match = true;
+            } else if (query === 'high-risk') {
+                match = (s === 'high' || s === 'critical');
+            } else if (query === 'certain' || query === 'high-confidence') {
+                match = confidence.includes('certain') || confidence.includes('high');
             } else {
-                row.style.display = 'none';
+                match = t.includes(query) || s.includes(query) || tool.includes(query);
             }
+
+            row.style.display = match ? '' : 'none';
         });
     }
 
@@ -281,5 +289,14 @@
         } else {
             showFindingDetail(findId);
         }
+    };
+    window.updateFindingsList = function (newFindings) {
+        if (newFindings) {
+            // Update local memory
+            newFindings.forEach(f => {
+                rawFindingsData[f.id_stable || f.id] = f;
+            });
+        }
+        filterFindings();
     };
 </script>

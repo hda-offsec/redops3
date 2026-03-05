@@ -281,7 +281,12 @@ class ScanDashboard {
                 sp.className = 'badge status-pill status-finished ms-2';
             }
             this.toggleScanToast(false);
-            document.querySelectorAll('.discovery-btn').forEach(btn => btn.classList.remove('active'));
+
+            // Mark all buttons as 'discovered' (blue) when the scan is completely finished
+            document.querySelectorAll('.discovery-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.classList.add('discovered');
+            });
         }
     }
 
@@ -588,8 +593,11 @@ class ScanDashboard {
             }
             this.toggleScanToast(false);
 
-            // --- CLEANUP: Stop all stuck animations when completed ---
-            document.querySelectorAll('.discovery-btn').forEach(btn => btn.classList.remove('active'));
+            // --- CLEANUP: Set all buttons to 'discovered' (blue) when completed ---
+            document.querySelectorAll('.discovery-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.classList.add('discovered');
+            });
         } else {
             if (statusText) statusText.innerText = 'running';
             if (spinner) spinner.classList.remove('d-none');
@@ -766,6 +774,14 @@ class ScanDashboard {
     }
     updateUI(results) {
         if (!results) return;
+
+        // Sync with dynamic explorers if they are present in the DOM
+        if (typeof updateSurfaceExplorer === 'function') {
+            updateSurfaceExplorer(results);
+        }
+        if (typeof updateFindingsList === 'function' && results.findings) {
+            updateFindingsList(results.findings);
+        }
 
         // 0. Update Target Intelligence Dashboard
         this.updateCortexUI(results);
@@ -1939,4 +1955,39 @@ class ScanDashboard {
     }
 }
 
-// Global hook
+// Global Routing & Filtering Helper
+window.applyTacticalFilter = function (targetTab, filterValue) {
+    const tabId = targetTab === 'findings' ? 'findings-tab' : 'surface-tab';
+    const tabBtn = document.getElementById(tabId);
+    if (!tabBtn) return;
+
+    // Use Bootstrap's Tab API to switch
+    const tab = bootstrap.Tab.getOrCreateInstance(tabBtn);
+    tab.show();
+
+    // Delay ensures the target tab's DOM is fully ready/visible before filtering
+    setTimeout(() => {
+        if (targetTab === 'findings') {
+            const searchInput = document.getElementById('findings-search');
+            if (searchInput) {
+                searchInput.value = filterValue;
+                // Trigger the local filter function defined in findings.html
+                if (typeof filterFindings === 'function') {
+                    filterFindings();
+                }
+            }
+        } else if (targetTab === 'surface') {
+            const filterInput = document.getElementById('surface-filter');
+            if (filterInput) {
+                filterInput.value = filterValue;
+                // Trigger the local filter function defined in attack_surface.html
+                if (typeof applySurfaceFilter === 'function') {
+                    applySurfaceFilter();
+                }
+            }
+        }
+
+        // Scroll to top of results
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 150);
+};
