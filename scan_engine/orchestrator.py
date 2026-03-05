@@ -154,7 +154,9 @@ class ScanOrchestrator:
                 str(kwargs.get('title', '')) + '|'
                 + url_path + '|'
                 + str(kwargs.get('severity', '')) + '|'
-                + str(kwargs.get('tool_source', ''))
+                + str(kwargs.get('tool_source', '')) + '|'
+                + str(kwargs.get('parameter', kwargs.get('param', ''))) + '|'
+                + str(kwargs.get('payload', kwargs.get('poison', '')))
             )
             fingerprint = hashlib.sha256(fp_seed.encode()).hexdigest()
             

@@ -83,6 +83,16 @@ class Finding(db.Model):
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     tool_source = db.Column(db.String(50))
+    module = db.Column(db.String(100), nullable=True)
+    category = db.Column(db.String(100), nullable=True)
+    target = db.Column(db.String(1024), nullable=True)
+    endpoint = db.Column(db.String(1024), nullable=True)
+    parameter = db.Column(db.String(255), nullable=True)
+    payload = db.Column(db.Text, nullable=True)
+    evidence = db.Column(db.Text, nullable=True)
+    reproduction = db.Column(db.Text, nullable=True)
+    raw_output = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=True)
     screenshot_path = db.Column(db.String(255), nullable=True)
     
     # Evidence for Validation
