@@ -44,6 +44,7 @@ class ScanOrchestrator:
         self.add_suggestion = suggestion_func
         self.save_results = results_func
         self._loot_callback = loot_func
+        self._signal_callback = kwargs.get("signal_func")
         self.graph_func = kwargs.get('graph_func')
         self.recursion_func = recursion_func
         self.options = options or {}
@@ -137,49 +138,70 @@ class ScanOrchestrator:
         self.emit_event(evt_type, module, port, level=level, data={"artifacts": artifacts, "reason": normalized_reason})
         self._save_results_thread_safe(payload)
 
+    def add_signal(self, **kwargs):
+        if not self._signal_callback:
+            return None
+        return self._signal_callback(**kwargs)
+
     def add_finding(self, **kwargs):
-        """Wrapper to track findings count in metrics. V10: Global deduplication."""
-        if self._finding_callback:
-            # V10 Deduplication: fingerprint = sha256(title + url_path + severity + tool)
-            import hashlib
-            from urllib.parse import urlparse
-            try:
-                url_raw = kwargs.get('target', kwargs.get('url', ''))
-                parsed = urlparse(str(url_raw))
-                url_path = parsed.path or '/'
-            except Exception:
-                url_path = '/'
-            
-            fp_seed = (
-                str(kwargs.get('title', '')) + '|'
-                + url_path + '|'
-                + str(kwargs.get('severity', '')) + '|'
-                + str(kwargs.get('tool_source', ''))
+        """Persist findings with immutable signal capture first (no cross-scanner suppression)."""
+        if not self._finding_callback:
+            return
+
+        normalized_conf = str(kwargs.get("confidence", "medium")).strip().lower()
+        if normalized_conf not in {"low", "medium", "high"}:
+            normalized_conf = "medium"
+        kwargs["confidence"] = normalized_conf
+
+        signal_id = None
+        signal_payload = {
+            "tool": kwargs.get("tool_source") or kwargs.get("tool") or "orchestrator",
+            "type": kwargs.get("category") or kwargs.get("type") or "finding",
+            "target": kwargs.get("target") or kwargs.get("url") or self.target,
+            "endpoint": kwargs.get("endpoint") or kwargs.get("url"),
+            "parameter": kwargs.get("parameter"),
+            "payload": kwargs.get("payload"),
+            "raw_output": kwargs.get("raw_output") or kwargs.get("response") or kwargs.get("description"),
+            "metadata": kwargs.get("metadata") or {}
+        }
+        try:
+            signal = self.add_signal(**signal_payload)
+            if signal is not None:
+                signal_id = signal.id
+        except Exception:
+            signal_id = None
+
+        incoming_signal_ids = kwargs.get("signal_ids")
+        if isinstance(incoming_signal_ids, list):
+            merged_signal_ids = [sid for sid in incoming_signal_ids if sid is not None]
+        elif incoming_signal_ids is None:
+            merged_signal_ids = []
+        else:
+            merged_signal_ids = [incoming_signal_ids]
+        if signal_id is not None:
+            merged_signal_ids.append(signal_id)
+        if merged_signal_ids:
+            kwargs["signal_ids"] = sorted(set(merged_signal_ids))
+
+        self._finding_callback(**kwargs)
+        def _inc():
+            m = self.results.setdefault("metrics", {})
+            m["findings_count"] = m.get("findings_count", 0) + 1
+        self.thread_safe_results_update(_inc)
+
+        if kwargs.get('severity') != 'info':
+            level = "WARNING" if kwargs.get('severity') in ['high', 'critical'] else "INFO"
+            self.emit_event(
+                "FINDING",
+                kwargs.get('tool_source', 'engine'),
+                level=level,
+                data={
+                    "title": kwargs.get('title', 'Unknown Detection'),
+                    "severity": kwargs.get('severity', 'info'),
+                    "confidence": normalized_conf,
+                    "signal_ids": kwargs.get("signal_ids", [])
+                }
             )
-            fingerprint = hashlib.sha256(fp_seed.encode()).hexdigest()
-            
-            if not hasattr(self, '_finding_fingerprints'):
-                self._finding_fingerprints = set()
-            
-            if fingerprint in self._finding_fingerprints:
-                return  # V10: Duplicate suppressed
-            self._finding_fingerprints.add(fingerprint)
-            
-            self._finding_callback(**kwargs)
-            def _inc():
-                m = self.results.setdefault("metrics", {})
-                m["findings_count"] = m.get("findings_count", 0) + 1
-            self.thread_safe_results_update(_inc)
-            
-            # Emit timeline event if it's an actual vulnerability finding (not info logging)
-            if kwargs.get('severity') != 'info':
-                level = "WARNING" if kwargs.get('severity') in ['high', 'critical'] else "INFO"
-                self.emit_event(
-                    "FINDING", 
-                    kwargs.get('tool_source', 'engine'), 
-                    level=level, 
-                    data={"title": kwargs.get('title', 'Unknown Detection'), "severity": kwargs.get('severity', 'info')}
-                )
 
     def add_loot(self, loot_type, content, context=None):
         """Wrapper to track loot count in metrics"""

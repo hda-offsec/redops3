@@ -103,6 +103,26 @@ class AttackGraphBuilder:
             for endpoint_id in endpoint_ids_by_port.get(port, []):
                 self._add_edge(endpoint_id, fid, "vulnerable_to")
 
+
+        # DB-normalized findings (if attached by UI/API layer)
+        for idx, finding in enumerate(results.get("findings", []) or [], 1):
+            if not isinstance(finding, dict):
+                continue
+            fid = f"finding:db:{finding.get('id_stable') or idx}"
+            self.nodes.append({"type": "vulnerability", "id": fid, "label": finding.get("title", "Finding"), "data": finding})
+            endpoint = finding.get("endpoint") or finding.get("target")
+            param = finding.get("parameter")
+            if endpoint:
+                endpoint_id = f"endpoint:derived:{endpoint}"
+                self.nodes.append({"type": "endpoint", "id": endpoint_id, "label": endpoint, "data": {"url": endpoint}})
+                self._add_edge(target_node_id, endpoint_id, "exposes")
+                self._add_edge(endpoint_id, fid, "exploitable")
+            else:
+                self._add_edge(target_node_id, fid, "contains")
+            if param:
+                param_id = f"parameter:{param}"
+                self.nodes.append({"type": "parameter", "id": param_id, "label": param, "data": {"parameter": param}})
+                self._add_edge(fid, param_id, "leads_to")
         # --- PHASE 4.5: BACKEND SURFACE EXPOSURE (ARCHITECTURE DRIVEN) ---
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():

@@ -55,16 +55,6 @@ class DetectionAdapter:
         if fid in normalized:
             return
 
-        for existing in normalized.values():
-            ext_title = re.sub(r'^(critical|high|medium|low|info|warn|warning):\s*', '', existing.get('title', ''), flags=re.IGNORECASE).strip().lower()
-            if ext_title == clean_title_lower:
-                # If tool source matches or title is very specific, it's a duplicate
-                # Module execution logs should definitely be collapsed
-                if 'module executed' in clean_title_lower:
-                    return
-                # General rule: if title is identical, we collapse to the first one found (usually DB highest priority)
-                return
-
         # 4. Final storage
         normalized[fid] = {
             'id': str(extra.get('id', '')),
@@ -78,6 +68,13 @@ class DetectionAdapter:
             'response': extra.get('response', ''),
             'repro_command': extra.get('repro_command', ''),
             'screenshot_path': extra.get('screenshot_path', ''),
+            'target': extra.get('target', ''),
+            'endpoint': extra.get('endpoint', ''),
+            'parameter': extra.get('parameter', ''),
+            'payload': extra.get('payload', ''),
+            'raw_output': extra.get('raw_output', ''),
+            'signal_ids': extra.get('signal_ids', []),
+            'category': extra.get('category', ''),
         }
 
     # ------------------------------------------------------------------
@@ -290,7 +287,14 @@ class DetectionAdapter:
                 request=f.request,
                 response=f.response,
                 repro_command=f.repro_command,
-                screenshot_path=f.screenshot_path
+                screenshot_path=f.screenshot_path,
+                target=f.target,
+                endpoint=f.endpoint,
+                parameter=f.parameter,
+                payload=f.payload,
+                raw_output=f.raw_output,
+                signal_ids=f.signal_ids or [],
+                category=f.category
             )
 
         # 2. Normalize JSON findings (from Vuln and Enum phases — list-based data)
@@ -349,6 +353,13 @@ class DetectionAdapter:
                         response=item.get('response', ''),
                         repro_command=item.get('curl-command', '') or item.get('repro_command', ''),
                         screenshot_path=item.get('screenshot_path', ''),
+                        target=item.get('target', item.get('url', '')),
+                        endpoint=item.get('endpoint', item.get('url', '')),
+                        parameter=item.get('parameter', ''),
+                        payload=item.get('payload', ''),
+                        raw_output=item.get('raw_output', ''),
+                        signal_ids=item.get('signal_ids', []),
+                        category=item.get('category', ''),
                     )
 
         # 3. SYNTHESIZE findings from structural data

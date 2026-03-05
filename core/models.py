@@ -61,6 +61,7 @@ class Scan(db.Model):
     start_time = db.Column(db.DateTime, default=datetime.utcnow)
     end_time = db.Column(db.DateTime, nullable=True)
     findings = db.relationship("Finding", backref="scan", lazy=True, cascade="all, delete-orphan")
+    signals = db.relationship("Signal", backref="scan", lazy=True, cascade="all, delete-orphan")
     logs = db.relationship("ScanLog", backref="scan", lazy=True, cascade="all, delete-orphan")
     suggestions = db.relationship("Suggestion", backref="scan", lazy=True, cascade="all, delete-orphan")
     knowledge_nodes = db.relationship("KnowledgeNode", backref="scan", lazy=True, cascade="all, delete-orphan")
@@ -70,6 +71,22 @@ class Scan(db.Model):
 
     def __repr__(self):
         return f"<Scan {self.id} - {self.scan_type}>"
+
+
+class Signal(db.Model):
+    __tablename__ = "signals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=False, index=True)
+    tool = db.Column(db.String(64), nullable=False, default="unknown")
+    type = db.Column(db.String(64), nullable=False, default="generic")
+    target = db.Column(db.String(1024), nullable=True)
+    endpoint = db.Column(db.String(2048), nullable=True)
+    parameter = db.Column(db.String(255), nullable=True)
+    payload = db.Column(db.Text, nullable=True)
+    raw_output = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
 
 class Finding(db.Model):
@@ -83,6 +100,18 @@ class Finding(db.Model):
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     tool_source = db.Column(db.String(50))
+    signal_ids = db.Column(db.JSON, nullable=True)
+    target = db.Column(db.String(1024), nullable=True)
+    tool = db.Column(db.String(64), nullable=True)
+    module = db.Column(db.String(128), nullable=True)
+    category = db.Column(db.String(128), nullable=True)
+    endpoint = db.Column(db.String(2048), nullable=True)
+    parameter = db.Column(db.String(255), nullable=True)
+    payload = db.Column(db.Text, nullable=True)
+    raw_output = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    evidence = db.Column(db.Text, nullable=True)
+    reproduction = db.Column(db.Text, nullable=True)
     screenshot_path = db.Column(db.String(255), nullable=True)
     
     # Evidence for Validation
