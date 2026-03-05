@@ -186,6 +186,32 @@ if __name__ == "__main__":
                         conn.execute(db.text("ALTER TABLE findings ADD COLUMN id_stable TEXT;"))
                         conn.execute(db.text("CREATE INDEX idx_findings_id_stable ON findings(id_stable);"))
                         print("Migration successful.")
+
+                    # Signal table bootstrap
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS signals (id INTEGER PRIMARY KEY, scan_id INTEGER NOT NULL, tool TEXT DEFAULT 'unknown', type TEXT DEFAULT 'generic', target TEXT, endpoint TEXT, parameter TEXT, payload TEXT, raw_output TEXT, metadata JSON, timestamp DATETIME);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_signals_scan_id ON signals(scan_id);"))
+
+                    # Ensure hardened finding columns exist
+                    required_finding_columns = {
+                        "signal_ids": "ALTER TABLE findings ADD COLUMN signal_ids JSON;",
+                        "target": "ALTER TABLE findings ADD COLUMN target TEXT;",
+                        "tool": "ALTER TABLE findings ADD COLUMN tool TEXT;",
+                        "module": "ALTER TABLE findings ADD COLUMN module TEXT;",
+                        "category": "ALTER TABLE findings ADD COLUMN category TEXT;",
+                        "endpoint": "ALTER TABLE findings ADD COLUMN endpoint TEXT;",
+                        "parameter": "ALTER TABLE findings ADD COLUMN parameter TEXT;",
+                        "payload": "ALTER TABLE findings ADD COLUMN payload TEXT;",
+                        "raw_output": "ALTER TABLE findings ADD COLUMN raw_output TEXT;",
+                        "metadata": "ALTER TABLE findings ADD COLUMN metadata JSON;",
+                        "evidence": "ALTER TABLE findings ADD COLUMN evidence TEXT;",
+                        "reproduction": "ALTER TABLE findings ADD COLUMN reproduction TEXT;"
+                    }
+                    result = conn.execute(db.text("PRAGMA table_info(findings);")).fetchall()
+                    columns = [row[1] for row in result]
+                    for col_name, ddl in required_finding_columns.items():
+                        if col_name not in columns:
+                            print(f"Migrating database: adding {col_name} to findings table...")
+                            conn.execute(db.text(ddl))
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

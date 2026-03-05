@@ -9,7 +9,7 @@ if _project_root not in sys.path:
 
 from core.celery_app import celery
 from core.extensions import db
-from core.models import Scan, ScanLog, Finding, Suggestion, Loot, Target
+from core.models import Scan, ScanLog, Finding, Suggestion, Loot, Target, Signal
 from scan_engine.orchestrator import ScanOrchestrator
 from core.results_store import save_results
 from datetime import datetime
@@ -49,16 +49,8 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             num_logs = ScanLog.query.filter_by(scan_id=scan_id).delete()
             num_suggestions = Suggestion.query.filter_by(scan_id=scan_id).delete()
             
-            # SMART FILTER Findings
+            # Preserve findings/signals for detection entropy control (immutable history).
             findings_to_delete = []
-            for f in Finding.query.filter_by(scan_id=scan_id).all():
-                # If target strictly not in title/desc, mark for deletion
-                # (Simple heuristic; can be improved if target has alias)
-                if scan.target.identifier not in f.title and (not f.description or scan.target.identifier not in f.description):
-                    findings_to_delete.append(f.id)
-            
-            if findings_to_delete:
-                Finding.query.filter(Finding.id.in_(findings_to_delete)).delete(synchronize_session=False)
 
             # SMART FILTER Loot
             loot_to_delete = []
@@ -98,6 +90,27 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 print(f"Log/Emit Error: {e}")
             print(f"[{level}] Scan {scan_id}: {msg}")
 
+        def add_signal_cb(**kwargs):
+            try:
+                signal = Signal(
+                    scan_id=scan_id,
+                    tool=kwargs.get("tool", "orchestrator"),
+                    type=kwargs.get("type", "finding"),
+                    target=kwargs.get("target"),
+                    endpoint=kwargs.get("endpoint"),
+                    parameter=kwargs.get("parameter"),
+                    payload=kwargs.get("payload"),
+                    raw_output=kwargs.get("raw_output"),
+                    metadata_json=kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {"raw_metadata": kwargs.get("metadata")} if kwargs.get("metadata") else None
+                )
+                db.session.add(signal)
+                db.session.commit()
+                return signal
+            except Exception as e:
+                db.session.rollback()
+                print(f"Signal Save Error: {e}")
+                return None
+
         def add_finding_cb(**kwargs):
             try:
                 from core.extensions import socketio
@@ -125,6 +138,11 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     scan_id=scan_id,
                     severity=severity,
                     confidence=kwargs.get('confidence', 'medium'),
+                    signal_ids=kwargs.get('signal_ids') if isinstance(kwargs.get('signal_ids'), list) else None,
+                    target=kwargs.get('target') or kwargs.get('url'),
+                    tool=kwargs.get('tool') or kwargs.get('tool_source', 'orchestrator'),
+                    module=kwargs.get('module'),
+                    category=kwargs.get('category'),
                     id_stable=id_stable,
                     title=title,
                     description=kwargs.get('description'),
@@ -140,6 +158,13 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     raw_output=kwargs.get('raw_output') or kwargs.get('response'),
                     metadata_json=kwargs.get('metadata') if isinstance(kwargs.get('metadata'), dict) else None,
                     screenshot_path=kwargs.get('screenshot_path'),
+                    endpoint=kwargs.get('endpoint') or kwargs.get('url'),
+                    parameter=kwargs.get('parameter'),
+                    payload=kwargs.get('payload'),
+                    raw_output=cap_text(sanitize_evidence(kwargs.get('raw_output'))),
+                    metadata_json=kwargs.get('metadata') if isinstance(kwargs.get('metadata'), dict) else None,
+                    evidence=kwargs.get('evidence') if isinstance(kwargs.get('evidence'), str) else None,
+                    reproduction=cleaned_repro,
                     request=cleaned_request,
                     response=cleaned_response,
                     repro_command=cleaned_repro
@@ -165,6 +190,11 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     'payload': kwargs.get('payload') or kwargs.get('poison'),
                     'evidence': kwargs.get('evidence'),
                     'screenshot_path': kwargs.get('screenshot_path'),
+                    'target': kwargs.get('target') or kwargs.get('url'),
+                    'endpoint': kwargs.get('endpoint') or kwargs.get('url'),
+                    'parameter': kwargs.get('parameter'),
+                    'payload': kwargs.get('payload'),
+                    'signal_ids': kwargs.get('signal_ids', []),
                     'request': cleaned_request,
                     'response': cleaned_response,
                     'repro_command': cleaned_repro
@@ -378,14 +408,21 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             loot_func=add_loot_cb,
             graph_func=persist_graph_cb,
             recursion_func=recurse_scan_cb,
-            options=scan_options
+            options=scan_options,
+            signal_func=add_signal_cb
         )
         
         try:
             # Force use of DB source of truth for scan_type as well
             scan_profile = scan.scan_type # Cache this
             success = orchestrator.run_pipeline(profile=scan_profile)
-            
+
+            try:
+                from core.analysis import run_signal_correlation
+                run_signal_correlation(scan_id, add_finding_cb)
+            except Exception as corr_e:
+                _log_and_emit(scan_id, f"Signal correlation skipped: {corr_e}", "WARN")
+
             # Re-fetch scan logic to avoid ObjectDeletedError / Stale Session
             scan = Scan.query.get(scan_id)
             if scan:

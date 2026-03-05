@@ -112,6 +112,9 @@
                 </div>
                 <h4 class="finding-detail-title text-light">${f.title}</h4>
                 ${f.target ? `<div class="extra-small text-info mt-1 font-monospace" style="word-break: break-all;"><i class="fas fa-link me-1"></i>${f.target}</div>` : ''}
+                ${f.endpoint ? `<div class="extra-small text-muted mt-1 font-monospace" style="word-break: break-all;"><i class="fas fa-route me-1"></i>Endpoint: ${escapeHtml(f.endpoint)}</div>` : ''}
+                ${f.parameter ? `<div class="extra-small text-muted mt-1 font-monospace"><i class="fas fa-filter me-1"></i>Parameter: ${escapeHtml(f.parameter)}</div>` : ''}
+                ${f.payload ? `<div class="extra-small text-warning mt-1 font-monospace text-truncate"><i class="fas fa-vial me-1"></i>Payload: ${escapeHtml(f.payload)}</div>` : ''}
             </div>
             
             <div class="mb-4 border-start border-3 border-danger border-opacity-50 ps-3 py-1">
