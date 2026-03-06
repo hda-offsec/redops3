@@ -1,6 +1,7 @@
 import hashlib
 import time
 import json
+from scan_engine.helpers.finding_schema import normalize_finding_shape
 
 
 def _confidence_from_signal(finding):
@@ -136,4 +137,4 @@ class FindingNormalizer:
             finding["id_stable"] = hashlib.sha256(id_str.encode()).hexdigest()
             finding["id"] = finding["id_stable"]
         
-        return finding
+        return normalize_finding_shape(finding, source=tool_name)

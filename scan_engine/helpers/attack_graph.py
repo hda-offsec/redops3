@@ -1,4 +1,11 @@
 class AttackGraphBuilder:
+    def _norm_token(self, value):
+        return str(value or "").strip().lower()
+
+    def _node_id(self, prefix, *parts):
+        token = ":".join(self._norm_token(p) for p in parts if str(p or "").strip())
+        return f"{prefix}:{token}" if token else f"{prefix}:unknown"
+
     def __init__(self, options=None):
         self.options = options
         self.nodes = []
@@ -29,7 +36,7 @@ class AttackGraphBuilder:
         self._actions = []
 
     def _endpoint_node_id(self, endpoint):
-        return f"endpoint:derived:{endpoint}"
+        return self._node_id("endpoint", "derived", endpoint)
 
     def build(self, results):
         self._reset()
@@ -38,36 +45,36 @@ class AttackGraphBuilder:
         enum = phases.get("enum", {})
         vuln = phases.get("vuln", {})
         target_name = results.get("target", "unknown")
-        target_node_id = f"target:{target_name}"
+        target_node_id = self._node_id("target", target_name)
         self._add_node({"type": "target", "id": target_node_id, "label": target_name, "data": {"target": target_name}})
 
         for sub in phases.get("dns", {}).get("subdomains", []) or []:
-            node_id = f"subdomain:{sub}"
+            node_id = self._node_id("subdomain", sub)
             self._add_node({"type": "subdomain", "id": node_id, "label": sub, "data": {"domain": sub}})
             self._add_edge(target_node_id, node_id, "subdomain_of")
 
         for asset in phases.get("osint", {}).get("cloud", []) or []:
             provider = asset.get("provider", "cloud")
             bucket = asset.get("bucket") or asset.get("account") or "unknown"
-            node_id = f"cloud:{provider}:{bucket}"
+            node_id = self._node_id("cloud", provider, bucket)
             self._add_node({"type": "cloud_resource", "id": node_id, "label": f"{provider}: {bucket}", "data": asset})
             self._add_edge(target_node_id, node_id, "exposes_asset")
 
         endpoint_ids_by_port = {}
         for p in recon_ports:
             port = str(p.get("port"))
-            service_id = f"service:{port}"
+            service_id = self._node_id("service", port)
             self._add_node({"type": "service", "id": service_id, "data": p})
             self._add_edge(target_node_id, service_id, "exposes_port")
 
             for ep in enum.get("targets", {}).get(port, []) or []:
-                endpoint_id = f"endpoint:{port}:{ep}"
+                endpoint_id = self._node_id("endpoint", port, ep)
                 endpoint_ids_by_port.setdefault(port, set()).add(endpoint_id)
                 self._add_node({"type": "endpoint", "id": endpoint_id, "data": {"url": ep}})
                 self._add_edge(service_id, endpoint_id, "exposes")
 
             for injection in enum.get("injection_points", {}).get(port, []) or []:
-                injection_id = f"injection:{port}:{injection}"
+                injection_id = self._node_id("injection", port, injection)
                 self._add_node({"type": "parameter", "id": injection_id, "data": {"value": injection}})
                 self._add_edge(service_id, injection_id, "has_param")
                 for endpoint_id in endpoint_ids_by_port.get(port, []):
@@ -93,7 +100,7 @@ class AttackGraphBuilder:
                 self._add_edge(target_node_id, fid, "contains")
 
             if parameter:
-                param_id = f"parameter:{parameter}"
+                param_id = self._node_id("parameter", parameter)
                 self._add_node({"type": "parameter", "id": param_id, "label": parameter, "data": {"parameter": parameter}})
                 self._add_edge(fid, param_id, "depends_on")
                 if endpoint_id:
@@ -138,11 +145,11 @@ class AttackGraphBuilder:
                         node_type = "asset"
                     else:
                         node_type = "asset"
-                    asset_id = f"{node_type}:{discovered}"
+                    asset_id = self._node_id(node_type, discovered)
                     self._add_node({"type": node_type, "id": asset_id, "label": str(discovered), "data": finding})
                     self._add_edge(target_node_id, asset_id, "exposes_asset")
                     if provider:
-                        provider_id = f"provider:{provider}"
+                        provider_id = self._node_id("provider", provider)
                         self._add_node({"type": "provider", "id": provider_id, "label": str(provider), "data": {"provider": provider}})
                         self._add_edge(asset_id, provider_id, "hosted_by")
                     if endpoint_id:
@@ -172,16 +179,16 @@ class AttackGraphBuilder:
                 component = metadata.get("component") or finding.get("title")
                 version = metadata.get("version")
                 if component:
-                    comp_id = f"component:{component}"
+                    comp_id = self._node_id("component", component)
                     self._add_node({"type": "component", "id": comp_id, "label": str(component), "data": finding})
                     self._add_edge(target_node_id, comp_id, "runs_component")
                     if version:
-                        ver_id = f"version:{component}:{version}"
+                        ver_id = self._node_id("version", component, version)
                         self._add_node({"type": "version", "id": ver_id, "label": str(version), "data": {"component": component, "version": version}})
                         self._add_edge(comp_id, ver_id, "uses_version")
                     cve_id = metadata.get("cve_id")
                     if cve_id:
-                        cve_node = f"cve_candidate:{cve_id}"
+                        cve_node = self._node_id("cve_candidate", cve_id)
                         self._add_node({"type": "cve_candidate", "id": cve_node, "label": str(cve_id), "data": finding})
                         self._add_edge(comp_id, cve_node, "depends_on")
 
@@ -197,9 +204,9 @@ class AttackGraphBuilder:
         for port, data in surface_mapping.items():
             for _, items in data.get("tree", {}).items():
                 for item in items:
-                    node_id = f"surface:{port}:{item['path']}"
+                    node_id = self._node_id("surface", port, item["path"])
                     self._add_node({"type": "backend_endpoint", "id": node_id, "data": item})
-                    self._add_edge(f"service:{port}", node_id, "exposes_surface")
+                    self._add_edge(self._node_id("service", port), node_id, "exposes_surface")
 
         self._actions = self._derive_actions(results)
         return {"nodes": self.nodes, "edges": self.edges}
