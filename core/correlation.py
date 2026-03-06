@@ -170,6 +170,79 @@ def run_attack_chain_correlation(scan_id):
         ):
             created += 1
 
+    has_auth_surface = any(
+        (f.category or "") == "auth_surface" or "authentication surface" in t
+        for f, t in zip(findings, titles)
+    )
+    has_sensitive_headers = any(
+        (f.category or "") == "sensitive_headers" or "sensitive technology headers" in t
+        for f, t in zip(findings, titles)
+    )
+    if has_auth_surface and has_sensitive_headers:
+        source = [
+            f for f, t in zip(findings, titles)
+            if (f.category or "") in {"auth_surface", "sensitive_headers"}
+            or "authentication surface" in t
+            or "sensitive technology headers" in t
+        ]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: Auth Surface + Sensitive Headers",
+            "Authentication endpoints were correlated with stack-disclosing headers. This combination improves attacker fingerprinting and targeted auth abuse.",
+            severity="high",
+            confidence="medium",
+            metadata={"tags": ["attack_chain"], "chain": ["auth_surface", "sensitive_headers"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_api_surface = any((f.category or "") == "api_surface" for f in findings)
+    has_token_exposure = any((f.category or "") in {"token_leakage", "jwt_exposure", "api_key_exposure"} for f in findings)
+    if has_api_surface and has_token_exposure:
+        source = [
+            f for f in findings
+            if (f.category or "") in {"api_surface", "token_leakage", "jwt_exposure", "api_key_exposure"}
+        ]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: API Surface + Token Exposure",
+            "API discovery telemetry overlaps with exposed token material, indicating potential direct authenticated abuse paths.",
+            severity="critical",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["api_surface", "token_exposure"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_upload_surface = any((f.category or "") == "upload_surface" for f in findings)
+    has_dangerous_methods = any((f.category or "") == "http_method_exposure" for f in findings)
+    if has_upload_surface and has_dangerous_methods:
+        source = [f for f in findings if (f.category or "") in {"upload_surface", "http_method_exposure"}]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: Upload Surface + Dangerous HTTP Methods",
+            "Upload-capable routes were correlated with dangerous HTTP methods, increasing arbitrary file write and route abuse risk.",
+            severity="critical",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["upload_surface", "dangerous_http_methods"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_js_routes = any((f.category or "") in {"hidden_route", "internal_api"} for f in findings)
+    if has_js_routes and has_auth_surface:
+        source = [f for f in findings if (f.category or "") in {"hidden_route", "internal_api", "auth_surface"}]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: JS Routes + Auth Surface",
+            "JavaScript-discovered route intelligence intersects with authentication surfaces, indicating possible undocumented auth flows.",
+            severity="high",
+            confidence="medium",
+            metadata={"tags": ["attack_chain"], "chain": ["js_routes", "auth_surface"]},
+            source_findings=source,
+        ):
+            created += 1
+
     if created:
         db.session.commit()
     return created
