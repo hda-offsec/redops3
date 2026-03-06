@@ -34,6 +34,21 @@ class AttackGraphTests(unittest.TestCase):
         self.assertIn("leads_to_attack", edge_types)
         self.assertIn("reachable_from", edge_types)
 
+    def test_attack_graph_node_ids_normalized(self):
+        graph = AttackGraphBuilder().build(
+            {
+                "target": "EXAMPLE.com",
+                "findings": [
+                    {"id_stable": "f1", "category": "asset_discovery", "endpoint": "API.Example.com", "metadata": {"discovered_asset": "API.Example.com"}},
+                    {"id_stable": "f2", "category": "asset_discovery", "endpoint": "api.example.com", "metadata": {"discovered_asset": "api.example.com"}},
+                ],
+                "phases": {"recon": {"open_ports": []}, "enum": {}, "vuln": {}},
+            }
+        )
+        ids = {n.get("id") for n in graph["nodes"]}
+        self.assertIn("target:example.com", ids)
+        self.assertIn("asset:api.example.com", ids)
+
 
 if __name__ == "__main__":
     unittest.main()

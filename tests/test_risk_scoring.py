@@ -21,8 +21,11 @@ class RiskScoringTests(unittest.TestCase):
         score_1 = RiskScoringEngine.score_finding(finding, {"finding:db:risk-1"})
         score_2 = RiskScoringEngine.score_finding(finding, {"finding:db:risk-1"})
         self.assertEqual(score_1, score_2)
-        exploit_score, risk_level, attack_priority = score_1
+        exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk = score_1
         self.assertGreaterEqual(exploit_score, 70)
+        self.assertEqual(chain_length, 3)
+        self.assertEqual(signal_count, 4)
+        self.assertGreaterEqual(dependency_risk, 0.0)
         self.assertIn(risk_level, {"high", "critical"})
         self.assertIn(attack_priority, {"high", "critical"})
 

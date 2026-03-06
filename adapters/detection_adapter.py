@@ -2,6 +2,8 @@ import json
 import hashlib
 import re
 
+from scan_engine.helpers.finding_schema import normalize_finding_shape, merge_signal_ids
+
 
 class DetectionAdapter:
     """
@@ -44,19 +46,14 @@ class DetectionAdapter:
             return
 
         title = title.strip()
-
         clean_title = re.sub(
             r"^(critical|high|medium|low|info|warn|warning):\s*",
             "",
             title,
             flags=re.IGNORECASE,
         ).strip()
-
         clean_title_lower = clean_title.lower()
-
         severity = (severity or "info").lower()
-
-        # Governance rules
 
         if any(x in clean_title_lower for x in ["data leak", "data exposure"]):
             if any(x in clean_title_lower for x in ["email", "ip address"]):
@@ -75,10 +72,21 @@ class DetectionAdapter:
             severity = "medium"
 
         if fid in normalized:
+            existing = normalized[fid]
+            merged_metadata = dict(existing.get("metadata") or {})
+            incoming_metadata = extra.get("metadata", {}) if isinstance(extra.get("metadata", {}), dict) else {}
+            merged_metadata.update(incoming_metadata)
+            existing["signal_ids"] = merge_signal_ids(existing.get("signal_ids"), extra.get("signal_ids"))
+            existing["metadata"] = merged_metadata
+            existing["signal_count"] = len(existing["signal_ids"])
+            existing["chain_length"] = len(merged_metadata.get("chain", [])) if isinstance(merged_metadata.get("chain"), list) else existing.get("chain_length", 0)
+            if not existing.get("raw_output"):
+                existing["raw_output"] = extra.get("raw_output", "")
+            if not existing.get("evidence"):
+                existing["evidence"] = extra.get("evidence", "")
             return
 
-        metadata = extra.get("metadata", {}) if isinstance(extra.get("metadata", {}), dict) else {}
-        normalized[fid] = {
+        payload = {
             "id": str(extra.get("id", "")),
             "id_stable": fid,
             "title": title,
@@ -86,6 +94,7 @@ class DetectionAdapter:
             "confidence": confidence,
             "description": description,
             "tool_source": tool_source or "unknown",
+            "tool": extra.get("tool", tool_source or "unknown"),
             "target": extra.get("target", ""),
             "endpoint": extra.get("endpoint", ""),
             "parameter": extra.get("parameter", ""),
@@ -93,28 +102,18 @@ class DetectionAdapter:
             "request": extra.get("request", ""),
             "response": extra.get("response", ""),
             "repro_command": extra.get("repro_command", ""),
-            "screenshot_path": extra.get("screenshot_path", ""),
             "raw_output": extra.get("raw_output", ""),
+            "screenshot_path": extra.get("screenshot_path", ""),
             "signal_ids": extra.get("signal_ids", []),
             "category": extra.get("category", ""),
             "evidence": extra.get("evidence", ""),
             "reproduction": extra.get("reproduction", ""),
             "module": extra.get("module", tool_source),
-            "metadata": metadata,
-            "exploit_score": metadata.get("exploit_score"),
-            "risk_level": metadata.get("risk_level"),
-            "attack_priority": metadata.get("attack_priority"),
-            "chain_length": metadata.get("chain_length"),
-            "attack_complexity": metadata.get("attack_complexity"),
-            "provider": metadata.get("provider"),
-            "component": metadata.get("component"),
-            "version": metadata.get("version"),
-            "action_priority": metadata.get("action_priority"),
-            "action_type": metadata.get("action_type"),
-            "estimated_value": metadata.get("estimated_value"),
-            "estimated_complexity": metadata.get("estimated_complexity"),
+            "metadata": extra.get("metadata", {}),
+            "source": extra.get("source", tool_source or "unknown"),
+            "created_at": extra.get("created_at", ""),
         }
-
+        normalized[fid] = normalize_finding_shape(payload, source=tool_source)
     # ------------------------------------------------------------------
     # SYNTHESIZERS
     # ------------------------------------------------------------------

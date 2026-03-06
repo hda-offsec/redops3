@@ -3,6 +3,8 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qsl
 import ipaddress
 
+from scan_engine.helpers.finding_schema import normalize_finding_shape
+
 
 class AssetDiscoveryEngine:
     """Extract asset intelligence from existing telemetry only."""
@@ -98,11 +100,12 @@ class AssetDiscoveryEngine:
             }
             if finding_category == "cloud_asset":
                 metadata["provider"] = cls._provider_for_host(discovered_asset)
-            findings.append({
+            findings.append(normalize_finding_shape({
                 "title": f"Discovered Asset: {discovered_asset}",
                 "severity": severity,
                 "confidence": confidence,
                 "tool_source": "passive_intel",
+                "tool": "passive_intel",
                 "module": "passive_intel",
                 "category": finding_category,
                 "target": target,
@@ -112,7 +115,8 @@ class AssetDiscoveryEngine:
                 "signal_ids": [],
                 "description": f"Asset discovery extracted {discovered_asset} from {source} telemetry.",
                 "metadata": metadata,
-            })
+                "source": source,
+            }, source=source))
 
         for blob in cls._iter_strings(results):
             for host in cls._extract_hosts(blob):
@@ -299,11 +303,12 @@ class PassiveIntelligenceEngine:
             md.setdefault("source", source)
             md.setdefault("confidence", confidence)
             md.setdefault("timestamp", datetime.utcnow().isoformat() + "Z")
-            findings.append({
+            findings.append(normalize_finding_shape({
                 "title": title,
                 "severity": severity,
                 "confidence": confidence,
                 "tool_source": "passive_intel",
+                "tool": "passive_intel",
                 "module": "passive_intel",
                 "category": category,
                 "target": target,
@@ -314,7 +319,8 @@ class PassiveIntelligenceEngine:
                 "raw_output": evidence or description,
                 "signal_ids": [],
                 "metadata": md,
-            })
+                "source": source,
+            }, source=source))
 
         endpoints = list(cls._iter_endpoints(results))
         for endpoint in endpoints:
