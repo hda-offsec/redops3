@@ -474,6 +474,36 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             except Exception as corr_e:
                 _log_and_emit(scan_id, f"Signal correlation/Cortex reasoning skipped: {corr_e}", "WARN")
 
+            try:
+                from core.analysis import apply_risk_scores
+                from core.models import Finding
+                from scan_engine.helpers.attack_graph import AttackGraphBuilder
+
+                graph_builder = AttackGraphBuilder(options=scan_options)
+                risk_graph_payload = dict(orchestrator.results or {})
+                db_findings = Finding.query.filter_by(scan_id=scan_id).all()
+                risk_graph_payload["findings"] = [
+                    {
+                        "id_stable": f.id_stable,
+                        "title": f.title,
+                        "severity": f.severity,
+                        "confidence": f.confidence,
+                        "category": f.category,
+                        "target": f.target,
+                        "endpoint": f.endpoint,
+                        "parameter": f.parameter,
+                        "payload": f.payload,
+                        "metadata": f.metadata_json if isinstance(f.metadata_json, dict) else {},
+                    }
+                    for f in db_findings
+                ]
+                graph = graph_builder.build(risk_graph_payload)
+                scored = apply_risk_scores(scan_id, graph=graph)
+                if scored:
+                    _log_and_emit(scan_id, f"Risk scoring computed exploitability metadata for {scored} findings.", "INFO")
+            except Exception as score_err:
+                _log_and_emit(scan_id, f"Risk scoring skipped: {score_err}", "WARN")
+
             # Re-fetch scan logic to avoid ObjectDeletedError / Stale Session
             scan = Scan.query.get(scan_id)
             if scan:
