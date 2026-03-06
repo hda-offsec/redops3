@@ -159,6 +159,7 @@ class Signal(db.Model):
     )
 
     tool = db.Column(db.String(64), nullable=False, default="unknown")
+    module = db.Column(db.String(128), nullable=True)
     type = db.Column(db.String(64), nullable=False, default="generic")
 
     target = db.Column(db.String(1024), nullable=True)
@@ -166,6 +167,11 @@ class Signal(db.Model):
     parameter = db.Column(db.String(255), nullable=True)
 
     payload = db.Column(db.Text, nullable=True)
+    status_code = db.Column(db.Integer, nullable=True)
+
+    response_headers_json = db.Column("response_headers", db.JSON, nullable=True)
+
+    response_evidence = db.Column(db.Text, nullable=True)
 
     raw_output = db.Column(db.Text, nullable=True)
 

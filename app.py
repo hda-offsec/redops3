@@ -47,6 +47,17 @@ def run_runtime_migrations(app):
                 for col, ddl in alter_map.items():
                     if col not in columns:
                         conn.execute(db.text(ddl))
+
+                signal_cols = {row[1] for row in conn.execute(db.text("PRAGMA table_info(signals);")).fetchall()}
+                signal_alter = {
+                    "module": "ALTER TABLE signals ADD COLUMN module TEXT;",
+                    "status_code": "ALTER TABLE signals ADD COLUMN status_code INTEGER;",
+                    "response_headers": "ALTER TABLE signals ADD COLUMN response_headers JSON;",
+                    "response_evidence": "ALTER TABLE signals ADD COLUMN response_evidence TEXT;",
+                }
+                for col, ddl in signal_alter.items():
+                    if col not in signal_cols:
+                        conn.execute(db.text(ddl))
     except Exception as e:
         app.logger.warning(f"Runtime migration check failed: {e}")
 
@@ -188,8 +199,20 @@ if __name__ == "__main__":
                         print("Migration successful.")
 
                     # Signal table bootstrap
-                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS signals (id INTEGER PRIMARY KEY, scan_id INTEGER NOT NULL, tool TEXT DEFAULT 'unknown', type TEXT DEFAULT 'generic', target TEXT, endpoint TEXT, parameter TEXT, payload TEXT, raw_output TEXT, metadata JSON, timestamp DATETIME);"))
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS signals (id INTEGER PRIMARY KEY, scan_id INTEGER NOT NULL, tool TEXT DEFAULT 'unknown', module TEXT, type TEXT DEFAULT 'generic', target TEXT, endpoint TEXT, parameter TEXT, payload TEXT, status_code INTEGER, response_headers JSON, response_evidence TEXT, raw_output TEXT, metadata JSON, timestamp DATETIME);"))
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_signals_scan_id ON signals(scan_id);"))
+
+                    signal_columns = [row[1] for row in conn.execute(db.text("PRAGMA table_info(signals);")).fetchall()]
+                    required_signal_columns = {
+                        "module": "ALTER TABLE signals ADD COLUMN module TEXT;",
+                        "status_code": "ALTER TABLE signals ADD COLUMN status_code INTEGER;",
+                        "response_headers": "ALTER TABLE signals ADD COLUMN response_headers JSON;",
+                        "response_evidence": "ALTER TABLE signals ADD COLUMN response_evidence TEXT;",
+                    }
+                    for col_name, ddl in required_signal_columns.items():
+                        if col_name not in signal_columns:
+                            print(f"Migrating database: adding {col_name} to signals table...")
+                            conn.execute(db.text(ddl))
 
                     # Ensure hardened finding columns exist
                     required_finding_columns = {
