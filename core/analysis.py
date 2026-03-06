@@ -161,6 +161,100 @@ class CortexEngine:
         return paths
 
 
+class RiskScoringEngine:
+    """Deterministic exploit prioritization based on existing finding evidence."""
+
+    SEVERITY_WEIGHT = {
+        "critical": 1.0,
+        "high": 0.8,
+        "medium": 0.6,
+        "low": 0.3,
+        "info": 0.1,
+    }
+    CONFIDENCE_WEIGHT = {
+        "high": 1.0,
+        "medium": 0.65,
+        "low": 0.35,
+    }
+
+    @classmethod
+    def score_finding(cls, finding, attack_graph_node_ids=None):
+        attack_graph_node_ids = attack_graph_node_ids or set()
+        severity = cls.SEVERITY_WEIGHT.get((finding.severity or "info").lower(), 0.1)
+        confidence = cls.CONFIDENCE_WEIGHT.get((finding.confidence or "medium").lower(), 0.65)
+
+        surface_exposure = 1.0 if (finding.endpoint or finding.target) else 0.2
+        in_attack_graph = 1.0 if (finding.id_stable and f"finding:db:{finding.id_stable}" in attack_graph_node_ids) else 0.0
+
+        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+        validated = 1.0 if (
+            metadata.get("exploit_validated") is True
+            or "exploit validation" in ((finding.title or "") + " " + (finding.description or "")).lower()
+            or (finding.tool_source or "") == "exploit_validation_engine"
+        ) else 0.0
+
+        exploit_score = (
+            (severity * 0.35)
+            + (confidence * 0.25)
+            + (surface_exposure * 0.15)
+            + (in_attack_graph * 0.15)
+            + (validated * 0.10)
+        ) * 100
+        exploit_score = round(max(0.0, min(100.0, exploit_score)), 2)
+
+        if exploit_score >= 80:
+            risk_level = "critical"
+        elif exploit_score >= 65:
+            risk_level = "high"
+        elif exploit_score >= 40:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        return exploit_score, risk_level
+
+
+def apply_risk_scores(scan_id, graph=None):
+    findings = Finding.query.filter_by(scan_id=scan_id).all()
+    if not findings:
+        return 0
+
+    node_ids = set()
+    if isinstance(graph, dict):
+        node_ids = {n.get("id") for n in graph.get("nodes", []) if isinstance(n, dict) and n.get("id")}
+
+    updated = 0
+    for finding in findings:
+        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+        exploit_score, risk_level = RiskScoringEngine.score_finding(finding, node_ids)
+        chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
+        category = (finding.category or "").lower()
+
+        if category == "attack_path":
+            chain_length = len(chain)
+            if chain_length >= 3 or risk_level == "critical":
+                attack_priority = "critical"
+            elif chain_length == 2 or risk_level == "high":
+                attack_priority = "high"
+            elif chain_length == 1 or risk_level == "medium":
+                attack_priority = "medium"
+            else:
+                attack_priority = "low"
+            attack_complexity = "high" if chain_length >= 4 else "medium" if chain_length >= 2 else "low"
+            metadata["attack_priority"] = attack_priority
+            metadata["chain_length"] = chain_length
+            metadata["attack_complexity"] = attack_complexity
+
+        metadata["exploit_score"] = exploit_score
+        metadata["risk_level"] = risk_level
+        finding.metadata_json = metadata
+        updated += 1
+
+    if updated:
+        db.session.commit()
+    return updated
+
+
 def run_cortex_attack_reasoning(scan_id, add_finding_cb):
     findings = Finding.query.filter_by(scan_id=scan_id).all()
     if not findings:

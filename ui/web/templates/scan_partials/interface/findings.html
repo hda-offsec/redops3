@@ -181,6 +181,11 @@
                 ${f.payload ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Payload:</span> <span class="text-danger">${escapeHtml(f.payload)}</span></div>` : ''}
                 ${f.evidence ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Evidence:</span> <span class="text-info">${escapeHtml(String(f.evidence).slice(0, 500))}</span></div>` : ''}
                 ${f.reproduction ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Reproduction:</span> <span class="text-warning">${escapeHtml(String(f.reproduction).slice(0, 500))}</span></div>` : ''}
+                ${f.exploit_score !== null && f.exploit_score !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Exploit Score:</span> <span class="text-danger">${escapeHtml(String(f.exploit_score))}</span></div>` : ''}
+                ${f.risk_level ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Risk Level:</span> <span class="text-danger text-uppercase">${escapeHtml(String(f.risk_level))}</span></div>` : ''}
+                ${f.attack_priority ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Attack Priority:</span> <span class="text-warning text-uppercase">${escapeHtml(String(f.attack_priority))}</span></div>` : ''}
+                ${f.chain_length !== null && f.chain_length !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain Length:</span> <span class="text-info">${escapeHtml(String(f.chain_length))}</span></div>` : ''}
+                ${f.attack_complexity ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Attack Complexity:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.attack_complexity))}</span></div>` : ''}
                 ${f.signal_ids && f.signal_ids.length ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Signals:</span> <span class="text-info font-monospace">${escapeHtml(f.signal_ids.join(', '))}</span></div>` : ''}
                 ${f.category === 'attack_chain' && f.metadata && f.metadata.chain ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain:</span> <span class="text-danger">${escapeHtml((f.metadata.chain || []).join(' -> '))}</span></div>` : ''}
             </div>

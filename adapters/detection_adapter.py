@@ -77,6 +77,7 @@ class DetectionAdapter:
         if fid in normalized:
             return
 
+        metadata = extra.get("metadata", {}) if isinstance(extra.get("metadata", {}), dict) else {}
         normalized[fid] = {
             "id": str(extra.get("id", "")),
             "id_stable": fid,
@@ -99,7 +100,12 @@ class DetectionAdapter:
             "evidence": extra.get("evidence", ""),
             "reproduction": extra.get("reproduction", ""),
             "module": extra.get("module", tool_source),
-            "metadata": extra.get("metadata", {}),
+            "metadata": metadata,
+            "exploit_score": metadata.get("exploit_score"),
+            "risk_level": metadata.get("risk_level"),
+            "attack_priority": metadata.get("attack_priority"),
+            "chain_length": metadata.get("chain_length"),
+            "attack_complexity": metadata.get("attack_complexity"),
         }
 
     # ------------------------------------------------------------------

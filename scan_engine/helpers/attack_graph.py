@@ -173,6 +173,26 @@ class AttackGraphBuilder:
                     self.nodes.append({"type": "vulnerability", "id": link_id, "label": str(link), "data": {"name": link}})
                     self._add_edge(chain_id, link_id, "depends_on")
 
+            if category in {"asset_discovery", "cloud_asset"}:
+                meta = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+                discovered = meta.get("discovered_asset") or endpoint or finding.get("target") or finding.get("title")
+                if discovered:
+                    asset_node_type = "cloud_resource" if category == "cloud_asset" else "asset"
+                    asset_id = f"{asset_node_type}:{discovered}"
+                    self.nodes.append({"type": asset_node_type, "id": asset_id, "label": str(discovered), "data": finding})
+                    self._add_edge(target_node_id, asset_id, "exposes_asset")
+                    if endpoint:
+                        self._add_edge(asset_id, f"endpoint:derived:{endpoint}", "depends_on")
+
+            if category == "secret_exposure":
+                secret_meta = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+                secret_type = secret_meta.get("secret_type") or finding.get("title") or "secret"
+                secret_id = f"secret:{secret_type}:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "secret", "id": secret_id, "label": str(secret_type), "data": finding})
+                self._add_edge(target_node_id, secret_id, "leaks_secret")
+                if endpoint:
+                    self._add_edge(secret_id, f"endpoint:derived:{endpoint}", "leads_to_attack")
+
             if category == "attack_path":
                 path_id = f"attack_path:{finding.get('id_stable') or idx}"
                 self.nodes.append({"type": "attack_path", "id": path_id, "label": finding.get("title", "Attack Path"), "data": finding})
