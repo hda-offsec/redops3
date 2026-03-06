@@ -73,10 +73,13 @@ class IntelligenceEngineTests(unittest.TestCase):
             description="Exploit validation succeeded",
             tool_source="exploit_validation_engine",
         )
-        score, level, priority = RiskScoringEngine.score_finding(finding, {"finding:db:abc"})
+        score, level, priority, chain_length, signal_count, dependency_risk = RiskScoringEngine.score_finding(finding, {"finding:db:abc"})
         self.assertGreaterEqual(score, 80)
         self.assertEqual(level, "critical")
         self.assertEqual(priority, "critical")
+        self.assertEqual(chain_length, 0)
+        self.assertEqual(signal_count, 0)
+        self.assertGreaterEqual(dependency_risk, 0.0)
 
     def test_attack_path_prioritization_fields_in_adapter(self):
         finding = SimpleNamespace(
@@ -115,6 +118,7 @@ class IntelligenceEngineTests(unittest.TestCase):
         self.assertEqual(item.get("exploit_score"), 91.2)
         self.assertEqual(item.get("attack_priority"), "critical")
         self.assertEqual(item.get("chain_length"), 3)
+        self.assertEqual(item.get("signal_count"), 2)
 
     def test_passive_engine_contains_git_exposure(self):
         local = dict(self.results)

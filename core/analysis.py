@@ -1,4 +1,5 @@
 from core.models import db, Finding, Suggestion, Signal
+from scan_engine.helpers.finding_schema import deep_merge_metadata
 
 
 class AnalysisEngine:
@@ -221,7 +222,7 @@ class RiskScoringEngine:
         attack_graph_node_ids = attack_graph_node_ids or set()
         severity = cls.SEVERITY_WEIGHT.get((finding.severity or "info").lower(), 0.1)
         confidence = cls.CONFIDENCE_WEIGHT.get((finding.confidence or "medium").lower(), 0.65)
-        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+        metadata = dict(finding.metadata_json) if isinstance(finding.metadata_json, dict) else {}
 
         signal_count = len(finding.signal_ids) if isinstance(finding.signal_ids, list) else 0
         chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
@@ -274,7 +275,7 @@ class RiskScoringEngine:
         else:
             attack_priority = "low"
 
-        return exploit_score, risk_level, attack_priority
+        return exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk
 
 
 def apply_risk_scores(scan_id, graph=None):
@@ -288,15 +289,13 @@ def apply_risk_scores(scan_id, graph=None):
 
     updated = 0
     for finding in findings:
-        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
-        exploit_score, risk_level, attack_priority = RiskScoringEngine.score_finding(finding, node_ids)
+        metadata = dict(finding.metadata_json) if isinstance(finding.metadata_json, dict) else {}
+        exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk = RiskScoringEngine.score_finding(finding, node_ids)
         chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
         category = (finding.category or "").lower()
 
         if category in {"attack_path", "attack_chain"}:
-            chain_length = len(chain)
             attack_complexity = "high" if chain_length >= 4 else "medium" if chain_length >= 2 else "low"
-            metadata["chain_length"] = chain_length
             metadata["attack_complexity"] = attack_complexity
 
         metadata["attack_priority"] = attack_priority
@@ -306,7 +305,10 @@ def apply_risk_scores(scan_id, graph=None):
         metadata["estimated_complexity"] = "high" if exploit_score >= 80 else "medium" if exploit_score >= 45 else "low"
         metadata["exploit_score"] = exploit_score
         metadata["risk_level"] = risk_level
-        metadata["signal_count"] = len(finding.signal_ids) if isinstance(finding.signal_ids, list) else 0
+        metadata["signal_count"] = signal_count
+        metadata["chain_length"] = chain_length
+        metadata["dependency_risk"] = dependency_risk
+        metadata = deep_merge_metadata(finding.metadata_json if isinstance(finding.metadata_json, dict) else {}, metadata)
         finding.metadata_json = metadata
         updated += 1
 
