@@ -4,7 +4,15 @@ class AttackGraphBuilder:
         self.nodes = []
         self.edges = []
         self._edge_keys = set()
+        self._node_ids = set()
         self._actions = []
+
+    def _add_node(self, node):
+        node_id = node.get("id")
+        if not node_id or node_id in self._node_ids:
+            return
+        self._node_ids.add(node_id)
+        self.nodes.append(node)
 
     def _add_edge(self, from_id, to_id, edge_type):
         key = (from_id, to_id, edge_type)
@@ -17,7 +25,11 @@ class AttackGraphBuilder:
         self.nodes = []
         self.edges = []
         self._edge_keys = set()
+        self._node_ids = set()
         self._actions = []
+
+    def _endpoint_node_id(self, endpoint):
+        return f"endpoint:derived:{endpoint}"
 
     def build(self, results):
         self._reset()
@@ -27,209 +39,130 @@ class AttackGraphBuilder:
         vuln = phases.get("vuln", {})
         target_name = results.get("target", "unknown")
         target_node_id = f"target:{target_name}"
-        
-        # Ensure Target Node exists
-        self.nodes.append({"type": "target", "id": target_node_id, "label": target_name, "data": {"target": target_name}})
+        self._add_node({"type": "target", "id": target_node_id, "label": target_name, "data": {"target": target_name}})
 
-        # DNS Subdomains
-        subdomains = phases.get("dns", {}).get("subdomains", [])
-        for sub in subdomains:
+        for sub in phases.get("dns", {}).get("subdomains", []) or []:
             node_id = f"subdomain:{sub}"
-            self.nodes.append({"type": "subdomain", "id": node_id, "label": sub, "data": {"domain": sub}})
+            self._add_node({"type": "subdomain", "id": node_id, "label": sub, "data": {"domain": sub}})
             self._add_edge(target_node_id, node_id, "subdomain_of")
 
-        # Cloud Assets
-        cloud_assets = phases.get("osint", {}).get("cloud", [])
-        for asset in cloud_assets:
-            provider = asset.get("provider", "Cloud")
+        for asset in phases.get("osint", {}).get("cloud", []) or []:
+            provider = asset.get("provider", "cloud")
             bucket = asset.get("bucket") or asset.get("account") or "unknown"
             node_id = f"cloud:{provider}:{bucket}"
-            self.nodes.append({"type": "cloud_asset", "id": node_id, "label": f"{provider}: {bucket}", "data": asset})
-            self._add_edge(target_node_id, node_id, "associated_asset")
+            self._add_node({"type": "cloud_resource", "id": node_id, "label": f"{provider}: {bucket}", "data": asset})
+            self._add_edge(target_node_id, node_id, "exposes_asset")
 
         endpoint_ids_by_port = {}
         for p in recon_ports:
             port = str(p.get("port"))
             service_id = f"service:{port}"
-            self.nodes.append({"type": "service", "id": service_id, "data": p})
+            self._add_node({"type": "service", "id": service_id, "data": p})
             self._add_edge(target_node_id, service_id, "exposes_port")
 
-            for ep in enum.get("targets", {}).get(port, []):
+            for ep in enum.get("targets", {}).get(port, []) or []:
                 endpoint_id = f"endpoint:{port}:{ep}"
                 endpoint_ids_by_port.setdefault(port, set()).add(endpoint_id)
-                self.nodes.append({"type": "endpoint", "id": endpoint_id, "data": {"url": ep}})
+                self._add_node({"type": "endpoint", "id": endpoint_id, "data": {"url": ep}})
                 self._add_edge(service_id, endpoint_id, "exposes")
 
-            for injection in enum.get("injection_points", {}).get(port, []):
+            for injection in enum.get("injection_points", {}).get(port, []) or []:
                 injection_id = f"injection:{port}:{injection}"
-                self.nodes.append({"type": "injection_point", "id": injection_id, "data": {"value": injection}})
+                self._add_node({"type": "parameter", "id": injection_id, "data": {"value": injection}})
                 self._add_edge(service_id, injection_id, "has_param")
                 for endpoint_id in endpoint_ids_by_port.get(port, []):
-                    self._add_edge(endpoint_id, injection_id, "has_param")
+                    self._add_edge(endpoint_id, injection_id, "reachable_from")
 
-            attack_profile = enum.get("attack_profile", {}).get(port)
-            mutation_strategy = enum.get("mutation_strategy", {}).get(port)
-            if attack_profile or mutation_strategy:
-                tech_profile_id = f"tech_profile:{port}"
-                self.nodes.append({
-                    "type": "tech_profile",
-                    "id": tech_profile_id,
-                    "data": {
-                        "attack_profile": attack_profile or {},
-                        "mutation_strategy": mutation_strategy or {},
-                    },
-                })
-                self._add_edge(service_id, tech_profile_id, "runs_stack")
-                for endpoint_id in endpoint_ids_by_port.get(port, []):
-                    self._add_edge(tech_profile_id, endpoint_id, "influences")
-
-        waf_map = enum.get("waf", {}) if isinstance(enum.get("waf", {}), dict) else {}
-        for port, waf in waf_map.items():
-            self.nodes.append({"type": "waf", "id": f"waf:{port}", "data": {"name": waf}})
-            self._add_edge(f"service:{port}", f"waf:{port}", "protected_by")
-
-        nuclei_findings = vuln.get("nuclei", {}).get("findings", [])
-        for idx, finding in enumerate(nuclei_findings, 1):
-            fid = f"finding:nuclei:{idx}"
-            self.nodes.append({"type": "finding", "id": fid, "data": finding})
-            port = str(finding.get("port", "0"))
-            self._add_edge(f"service:{port}", fid, "has_finding")
-
-        for idx, xss_finding in enumerate(vuln.get("xss", []), 1):
-            fid = f"finding:xss:{idx}"
-            self.nodes.append({"type": "finding", "id": fid, "data": xss_finding})
-            port = str(xss_finding.get("port", "0")) if isinstance(xss_finding, dict) else "0"
-            self._add_edge(f"service:{port}", fid, "has_finding")
-            for endpoint_id in endpoint_ids_by_port.get(port, []):
-                self._add_edge(endpoint_id, fid, "vulnerable_to")
-
-
-        # DB-normalized findings (if attached by UI/API layer)
         for idx, finding in enumerate(results.get("findings", []) or [], 1):
             if not isinstance(finding, dict):
                 continue
             fid = f"finding:db:{finding.get('id_stable') or idx}"
-            self.nodes.append({"type": "vulnerability", "id": fid, "label": finding.get("title", "Finding"), "data": finding})
+            self._add_node({"type": "vulnerability", "id": fid, "label": finding.get("title", "Finding"), "data": finding})
             endpoint = finding.get("endpoint") or finding.get("target")
-            param = finding.get("parameter")
+            parameter = finding.get("parameter")
+            category = (finding.get("category") or "").lower()
+            metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+
+            endpoint_id = None
             if endpoint:
-                endpoint_id = f"endpoint:derived:{endpoint}"
-                self.nodes.append({"type": "endpoint", "id": endpoint_id, "label": endpoint, "data": {"url": endpoint}})
-                self._add_edge(target_node_id, endpoint_id, "exposes")
-                self._add_edge(endpoint_id, fid, "exploitable")
+                endpoint_id = self._endpoint_node_id(endpoint)
+                self._add_node({"type": "endpoint", "id": endpoint_id, "label": endpoint, "data": {"url": endpoint}})
+                self._add_edge(target_node_id, endpoint_id, "reachable_from")
+                self._add_edge(endpoint_id, fid, "leads_to_attack")
             else:
                 self._add_edge(target_node_id, fid, "contains")
-            if param:
-                param_id = f"parameter:{param}"
-                self.nodes.append({"type": "parameter", "id": param_id, "label": param, "data": {"parameter": param}})
-                self._add_edge(fid, param_id, "leads_to")
-            payload = finding.get("payload")
-            if payload:
-                payload_id = f"payload:{abs(hash(str(payload))) % (10 ** 10)}"
-                self.nodes.append({"type": "payload", "id": payload_id, "label": str(payload)[:120], "data": {"payload": payload}})
-                self._add_edge(fid, payload_id, "depends_on")
-            category = (finding.get("category") or "").lower()
-            if "secret" in category or any(k in (finding.get("title") or "").lower() for k in ["secret", "token", "api key", "credential"]):
-                secret_id = f"secret:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "secret", "id": secret_id, "label": finding.get("title", "Secret"), "data": finding})
-                self._add_edge(target_node_id, secret_id, "contains")
-                if endpoint:
-                    endpoint_id = f"endpoint:derived:{endpoint}"
-                    self._add_edge(endpoint_id, secret_id, "exposes")
+
+            if parameter:
+                param_id = f"parameter:{parameter}"
+                self._add_node({"type": "parameter", "id": param_id, "label": parameter, "data": {"parameter": parameter}})
+                self._add_edge(fid, param_id, "depends_on")
+                if endpoint_id:
+                    self._add_edge(endpoint_id, param_id, "reachable_from")
+
             if category in {"auth_surface", "authentication_surface"}:
                 auth_id = f"auth_surface:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "auth_surface", "id": auth_id, "label": finding.get("title", "Auth Surface"), "data": finding})
-                self._add_edge(target_node_id, auth_id, "contains")
-                if endpoint:
-                    self._add_edge(auth_id, f"endpoint:derived:{endpoint}", "auth_exposes")
-                    self._add_edge(auth_id, f"endpoint:derived:{endpoint}", "auth_protects")
+                self._add_node({"type": "auth_surface", "id": auth_id, "label": finding.get("title", "Auth Surface"), "data": finding})
+                self._add_edge(target_node_id, auth_id, "exposes_asset")
+                if endpoint_id:
+                    self._add_edge(auth_id, endpoint_id, "auth_exposes")
 
-            if category == "api_surface":
-                api_id = f"api_surface:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "api_endpoint", "id": api_id, "label": finding.get("title", "API Surface"), "data": finding})
-                self._add_edge(target_node_id, api_id, "contains")
-                if endpoint:
-                    self._add_edge(api_id, f"endpoint:derived:{endpoint}", "auth_exposes")
-                    self._add_edge(api_id, f"endpoint:derived:{endpoint}", "api_exposes")
+            if category in {"api_surface"}:
+                api_id = f"api_endpoint:{finding.get('id_stable') or idx}"
+                self._add_node({"type": "api_endpoint", "id": api_id, "label": finding.get("title", "API Endpoint"), "data": finding})
+                self._add_edge(target_node_id, api_id, "exposes_asset")
+                if endpoint_id:
+                    self._add_edge(api_id, endpoint_id, "reachable_from")
 
             if category in {"jwt_exposure", "token_leakage", "api_key_exposure"}:
                 token_id = f"token:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "token", "id": token_id, "label": finding.get("title", "Token"), "data": finding})
+                self._add_node({"type": "token", "id": token_id, "label": finding.get("title", "Token"), "data": finding})
                 self._add_edge(target_node_id, token_id, "contains")
-                if endpoint:
-                    self._add_edge(token_id, f"endpoint:derived:{endpoint}", "token_authenticates")
-                    self._add_edge(token_id, f"endpoint:derived:{endpoint}", "token_grants_access")
+                if endpoint_id:
+                    self._add_edge(token_id, endpoint_id, "token_authenticates")
 
-            if category == "attack_chain":
-                chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "attack_chain", "id": chain_id, "label": finding.get("title", "Attack Chain"), "data": finding})
-                self._add_edge(target_node_id, chain_id, "contains")
-                if endpoint:
-                    self._add_edge(chain_id, f"endpoint:derived:{endpoint}", "leads_to")
-                    self._add_edge(chain_id, f"endpoint:derived:{endpoint}", "path_leads_to_exploit")
-                chain_meta = (finding.get("metadata") or {}).get("chain", []) if isinstance(finding.get("metadata"), dict) else []
-                for link in chain_meta:
-                    link_id = f"vulnerability:chain_link:{link}"
-                    self.nodes.append({"type": "vulnerability", "id": link_id, "label": str(link), "data": {"name": link}})
-                    self._add_edge(chain_id, link_id, "depends_on")
+            if category in {"parameter_surface"} and parameter:
+                ps_id = f"parameter_surface:{finding.get('id_stable') or idx}:{parameter}"
+                self._add_node({"type": "parameter", "id": ps_id, "label": parameter, "data": finding})
+                if endpoint_id:
+                    self._add_edge(endpoint_id, ps_id, "depends_on")
 
             if category in {"asset_discovery", "cloud_asset"}:
-                meta = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
-                discovered = meta.get("discovered_asset") or endpoint or finding.get("target") or finding.get("title")
+                discovered = metadata.get("discovered_asset") or endpoint or finding.get("target")
                 if discovered:
-                    asset_node_type = "cloud_resource" if category == "cloud_asset" else "asset"
-                    asset_id = f"{asset_node_type}:{discovered}"
-                    self.nodes.append({"type": asset_node_type, "id": asset_id, "label": str(discovered), "data": finding})
+                    node_type = "cloud_resource" if category == "cloud_asset" else "asset"
+                    asset_id = f"{node_type}:{discovered}"
+                    self._add_node({"type": node_type, "id": asset_id, "label": str(discovered), "data": finding})
                     self._add_edge(target_node_id, asset_id, "exposes_asset")
-                    if endpoint:
-                        self._add_edge(asset_id, f"endpoint:derived:{endpoint}", "depends_on")
+                    if endpoint_id:
+                        self._add_edge(asset_id, endpoint_id, "depends_on")
 
             if category == "secret_exposure":
-                secret_meta = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
-                secret_type = secret_meta.get("secret_type") or finding.get("title") or "secret"
+                secret_type = metadata.get("secret_type") or finding.get("title") or "secret"
                 secret_id = f"secret:{secret_type}:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "secret", "id": secret_id, "label": str(secret_type), "data": finding})
+                self._add_node({"type": "secret", "id": secret_id, "label": str(secret_type), "data": finding})
                 self._add_edge(target_node_id, secret_id, "leaks_secret")
-                if endpoint:
-                    self._add_edge(secret_id, f"endpoint:derived:{endpoint}", "leads_to_attack")
+                if endpoint_id:
+                    self._add_edge(endpoint_id, secret_id, "leads_to_attack")
 
-            if category == "attack_path":
-                path_id = f"attack_path:{finding.get('id_stable') or idx}"
-                self.nodes.append({"type": "attack_path", "id": path_id, "label": finding.get("title", "Attack Path"), "data": finding})
-                self._add_edge(target_node_id, path_id, "contains")
-                if endpoint:
-                    self._add_edge(path_id, f"endpoint:derived:{endpoint}", "path_leads_to_exploit")
-                chain_meta = (finding.get("metadata") or {}).get("chain", []) if isinstance(finding.get("metadata"), dict) else []
-                for link in chain_meta:
-                    link_id = f"attack_path_link:{link}"
-                    self.nodes.append({"type": "attack_path_link", "id": link_id, "label": str(link), "data": {"name": link}})
-                    self._add_edge(path_id, link_id, "depends_on")
-        # --- PHASE 4.5: BACKEND SURFACE EXPOSURE (ARCHITECTURE DRIVEN) ---
+            if category in {"attack_chain", "attack_path"}:
+                chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
+                self._add_node({"type": "attack_chain", "id": chain_id, "label": finding.get("title", "Attack Chain"), "data": finding})
+                self._add_edge(target_node_id, chain_id, "leads_to_attack")
+                if endpoint_id:
+                    self._add_edge(chain_id, endpoint_id, "leads_to")
+                chain = metadata.get("chain", []) if isinstance(metadata.get("chain"), list) else []
+                for link in chain:
+                    link_id = f"attack_chain_link:{link}"
+                    self._add_node({"type": "attack_path_link", "id": link_id, "label": str(link), "data": {"name": link}})
+                    self._add_edge(chain_id, link_id, "depends_on")
+
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():
-            for root, items in data.get("tree", {}).items():
+            for _, items in data.get("tree", {}).items():
                 for item in items:
                     node_id = f"surface:{port}:{item['path']}"
-                    # Add Route Node
-                    self.nodes.append({
-                        "type": "backend_endpoint",
-                        "id": node_id,
-                        "data": item
-                    })
+                    self._add_node({"type": "backend_endpoint", "id": node_id, "data": item})
                     self._add_edge(f"service:{port}", node_id, "exposes_surface")
-                    
-                    # Link to Risks
-                    for risk in item.get("risks", []):
-                        if risk in ["mutation_surface", "object_lookup", "admin_surface"]:
-                            risk_node_id = f"risk:{port}:{risk}"
-                            # Add Risk Node if not exists
-                            if not any(n["id"] == risk_node_id for n in self.nodes):
-                                self.nodes.append({
-                                    "type": "risk_surface",
-                                    "id": risk_node_id,
-                                    "data": {"category": risk}
-                                })
-                            self._add_edge(node_id, risk_node_id, "contributes_to_risk")
 
         self._actions = self._derive_actions(results)
         return {"nodes": self.nodes, "edges": self.edges}
@@ -240,17 +173,7 @@ class AttackGraphBuilder:
         vuln = results.get("phases", {}).get("vuln", {})
         for port, targets in enum.get("targets", {}).items():
             if targets:
-                injection_points = enum.get("injection_points", {}).get(port, [])
-                waf_present = bool(enum.get("waf", {}).get(port)) if isinstance(enum.get("waf", {}), dict) else False
-                attack_profile = enum.get("attack_profile", {}).get(port, {})
-                profile_text = " ".join(str(v).lower() for v in attack_profile.values()) if isinstance(attack_profile, dict) else str(attack_profile).lower()
-                modern_frontend = any(token in profile_text for token in ["spa", "angular", "react"])
-                priority = 60 + (len(injection_points) * 0.2)
-                if waf_present:
-                    priority += 10
-                if modern_frontend:
-                    priority += 5
-                priority = max(0, min(priority, 100))
+                priority = max(0, min(100, 60 + (len(enum.get("injection_points", {}).get(port, [])) * 0.2)))
                 actions.append({
                     "id": f"action-enum-{port}",
                     "title": f"Deep endpoint testing on port {port}",
@@ -260,7 +183,7 @@ class AttackGraphBuilder:
                     "effort": "M",
                     "noise": "low",
                     "justification": [f"{len(targets)} targets discovered"],
-                    "suggested_tasks": [f"vuln_{port}"]
+                    "suggested_tasks": [f"vuln_{port}"],
                 })
         nuclei_findings = vuln.get("nuclei", {}).get("findings", [])
         if nuclei_findings:
@@ -273,19 +196,14 @@ class AttackGraphBuilder:
                 "effort": "S",
                 "noise": "low",
                 "justification": [f"{len(nuclei_findings)} nuclei findings"],
-                "suggested_tasks": ["global_vuln"]
+                "suggested_tasks": ["global_vuln"],
             })
         return actions
 
     def rank_actions(self):
         def score(action):
-            justification = action.get("justification", [])
-            if isinstance(justification, list):
-                just_len = len(justification)
-            elif isinstance(justification, str):
-                just_len = 1 if justification.strip() else 0
-            else:
-                just_len = 0
+            just = action.get("justification", [])
+            just_len = len(just) if isinstance(just, list) else 1 if isinstance(just, str) and just.strip() else 0
             return (action.get("priority", 0) * 0.5) + (action.get("confidence", 0) * 0.3) + (just_len * 5)
 
         return sorted(self._actions, key=score, reverse=True)

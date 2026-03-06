@@ -182,11 +182,15 @@ class RiskScoringEngine:
         attack_graph_node_ids = attack_graph_node_ids or set()
         severity = cls.SEVERITY_WEIGHT.get((finding.severity or "info").lower(), 0.1)
         confidence = cls.CONFIDENCE_WEIGHT.get((finding.confidence or "medium").lower(), 0.65)
+        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
 
-        surface_exposure = 1.0 if (finding.endpoint or finding.target) else 0.2
+        signal_count = len(finding.signal_ids) if isinstance(finding.signal_ids, list) else 0
+        chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
+        chain_length = len(chain)
+        signal_weight = min(1.0, signal_count / 5.0)
+        attack_path_weight = min(1.0, chain_length / 4.0)
         in_attack_graph = 1.0 if (finding.id_stable and f"finding:db:{finding.id_stable}" in attack_graph_node_ids) else 0.0
 
-        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
         validated = 1.0 if (
             metadata.get("exploit_validated") is True
             or "exploit validation" in ((finding.title or "") + " " + (finding.description or "")).lower()
@@ -195,10 +199,11 @@ class RiskScoringEngine:
 
         exploit_score = (
             (severity * 0.35)
-            + (confidence * 0.25)
-            + (surface_exposure * 0.15)
-            + (in_attack_graph * 0.15)
+            + (confidence * 0.20)
+            + (signal_weight * 0.15)
+            + (attack_path_weight * 0.15)
             + (validated * 0.10)
+            + (in_attack_graph * 0.05)
         ) * 100
         exploit_score = round(max(0.0, min(100.0, exploit_score)), 2)
 
@@ -211,7 +216,16 @@ class RiskScoringEngine:
         else:
             risk_level = "low"
 
-        return exploit_score, risk_level
+        if exploit_score >= 85 or chain_length >= 4:
+            attack_priority = "critical"
+        elif exploit_score >= 70 or chain_length >= 3:
+            attack_priority = "high"
+        elif exploit_score >= 45 or chain_length >= 2:
+            attack_priority = "medium"
+        else:
+            attack_priority = "low"
+
+        return exploit_score, risk_level, attack_priority
 
 
 def apply_risk_scores(scan_id, graph=None):
@@ -226,27 +240,20 @@ def apply_risk_scores(scan_id, graph=None):
     updated = 0
     for finding in findings:
         metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
-        exploit_score, risk_level = RiskScoringEngine.score_finding(finding, node_ids)
+        exploit_score, risk_level, attack_priority = RiskScoringEngine.score_finding(finding, node_ids)
         chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
         category = (finding.category or "").lower()
 
-        if category == "attack_path":
+        if category in {"attack_path", "attack_chain"}:
             chain_length = len(chain)
-            if chain_length >= 3 or risk_level == "critical":
-                attack_priority = "critical"
-            elif chain_length == 2 or risk_level == "high":
-                attack_priority = "high"
-            elif chain_length == 1 or risk_level == "medium":
-                attack_priority = "medium"
-            else:
-                attack_priority = "low"
             attack_complexity = "high" if chain_length >= 4 else "medium" if chain_length >= 2 else "low"
-            metadata["attack_priority"] = attack_priority
             metadata["chain_length"] = chain_length
             metadata["attack_complexity"] = attack_complexity
 
+        metadata["attack_priority"] = attack_priority
         metadata["exploit_score"] = exploit_score
         metadata["risk_level"] = risk_level
+        metadata["signal_count"] = len(finding.signal_ids) if isinstance(finding.signal_ids, list) else 0
         finding.metadata_json = metadata
         updated += 1
 

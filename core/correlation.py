@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from core.extensions import db
 from core.models import Finding
 
@@ -21,6 +23,9 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
     signal_ids = _collect_signal_ids(source_findings)
     endpoint = next((f.endpoint for f in source_findings if getattr(f, "endpoint", None)), None)
     target = next((f.target for f in source_findings if getattr(f, "target", None)), None)
+    parameter = next((f.parameter for f in source_findings if getattr(f, "parameter", None)), None)
+    combined_evidence = "\n".join([f.evidence for f in source_findings if isinstance(getattr(f, "evidence", None), str)])[:2000]
+    combined_raw = "\n".join([f.raw_output for f in source_findings if isinstance(getattr(f, "raw_output", None), str)])[:3000]
     finding = Finding(
         scan_id=scan_id,
         title=title,
@@ -32,9 +37,11 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         category="attack_chain",
         target=target,
         endpoint=endpoint,
-        metadata_json=metadata or {"tags": ["attack_chain"]},
-        evidence=description,
-        signal_ids=signal_ids or None,
+        metadata_json={**(metadata or {"tags": ["attack_chain"]}), "timestamp": datetime.utcnow().isoformat() + "Z"},
+        evidence=combined_evidence or description,
+        raw_output=combined_raw or description,
+        signal_ids=signal_ids or [],
+        parameter=parameter,
         reproduction="Validate each source finding and pivot through the listed chain links.",
     )
     db.session.add(finding)
@@ -239,6 +246,39 @@ def run_attack_chain_correlation(scan_id):
             severity="high",
             confidence="medium",
             metadata={"tags": ["attack_chain"], "chain": ["js_routes", "auth_surface"]},
+            source_findings=source,
+        ):
+            created += 1
+
+
+    has_git = any((f.category or "") == "git_exposure" or ".git" in t for f, t in zip(findings, titles))
+    has_source = any("source" in t or "repository" in t for t in titles)
+    has_secrets = any((f.category or "") == "secret_exposure" or "secret" in t or "token" in t for f, t in zip(findings, titles))
+    if has_git and has_source and has_secrets:
+        source = [f for f, t in zip(findings, titles) if (f.category or "") in {"git_exposure", "secret_exposure"} or ".git" in t or "source" in t or "repository" in t]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: Git Exposure + Source + Secrets",
+            "Detected git exposure correlated with source artifacts and secret material. This chain indicates critical credential compromise potential.",
+            severity="critical",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["git_exposure", "source_code", "secrets"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_js_api = any((f.category or "") in {"api_surface", "internal_api", "hidden_route"} or "javascript" in t for f, t in zip(findings, titles))
+    has_auth_param = any((f.category or "") in {"parameter_surface", "auth_surface", "authentication_surface"} or "auth" in t or "login" in t for f, t in zip(findings, titles))
+    has_token = any((f.category or "") in {"token_leakage", "jwt_exposure", "api_key_exposure", "secret_exposure"} or "token" in t or "jwt" in t for f, t in zip(findings, titles))
+    if has_js_api and has_auth_param and has_token:
+        source = [f for f, t in zip(findings, titles) if (f.category or "") in {"api_surface", "internal_api", "hidden_route", "parameter_surface", "auth_surface", "authentication_surface", "token_leakage", "jwt_exposure", "api_key_exposure", "secret_exposure"} or "javascript" in t or "token" in t]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: JS API + Auth Parameter + Token",
+            "Correlated JavaScript/API discovery with authentication parameters and token evidence, indicating a likely authenticated abuse chain.",
+            severity="critical",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["js_api", "auth_parameter", "token"]},
             source_findings=source,
         ):
             created += 1
