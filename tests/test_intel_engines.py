@@ -73,9 +73,10 @@ class IntelligenceEngineTests(unittest.TestCase):
             description="Exploit validation succeeded",
             tool_source="exploit_validation_engine",
         )
-        score, level = RiskScoringEngine.score_finding(finding, {"finding:db:abc"})
+        score, level, priority = RiskScoringEngine.score_finding(finding, {"finding:db:abc"})
         self.assertGreaterEqual(score, 80)
         self.assertEqual(level, "critical")
+        self.assertEqual(priority, "critical")
 
     def test_attack_path_prioritization_fields_in_adapter(self):
         finding = SimpleNamespace(

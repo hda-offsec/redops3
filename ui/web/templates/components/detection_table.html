@@ -15,7 +15,7 @@
             {% for f in findings %}
             <tr class="finding-row cursor-pointer" onclick="showFindingDetail('{{ f.id_stable or f.id }}')"
                 data-title="{{ f.title|lower }}" data-sev="{{ f.severity|lower }}"
-                data-tool="{{ f.tool_source|lower }}">
+                data-tool="{{ f.tool_source|lower }}" data-category="{{ f.category|default('')|lower }}" data-exploit="{{ f.exploit_score|default('') }}">
                 <td class="ps-3 align-middle">
                     <span class="badge-severity bg-{{ f.severity|default('info')|lower }} w-100 text-center d-block">
                         {{ f.severity|upper }}

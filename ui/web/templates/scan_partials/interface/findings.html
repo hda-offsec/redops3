@@ -5,11 +5,25 @@
     <div
         class="d-flex justify-content-between align-items-center  bg-opacity-20 p-3 rounded border border-secondary border-opacity-10">
         <h5 class="mb-0 text-light fw-bold"><i class="fas fa-biohazard me-2 text-danger"></i>Detection Vault</h5>
-        <div class="input-group input-group-sm" style="max-width: 350px;">
-            <span class="input-group-text bg-transparent border-secondary text-muted"><i
-                    class="fas fa-search"></i></span>
-            <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
-                placeholder="Filter detections (title, severity, tool)..." onkeyup="filterFindings()">
+        <div class="d-flex gap-2 flex-wrap justify-content-end">
+            <div class="input-group input-group-sm" style="max-width: 320px;">
+                <span class="input-group-text bg-transparent border-secondary text-muted"><i
+                        class="fas fa-search"></i></span>
+                <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
+                    placeholder="Filter detections (title, severity, tool)..." onkeyup="filterFindings()">
+            </div>
+            <select id="findings-category-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;" onchange="filterFindings()">
+                <option value="">All Categories</option>
+            </select>
+            <select id="findings-severity-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 140px;" onchange="filterFindings()">
+                <option value="">All Severity</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="info">Info</option>
+            </select>
+            <input id="findings-exploit-filter" type="number" min="0" max="100" step="1" class="form-control form-control-sm bg-transparent border-secondary text-light" style="max-width: 150px;" placeholder="Min exploit" oninput="filterFindings()" />
         </div>
     </div>
 </div>
@@ -58,28 +72,54 @@
 
     function filterFindings() {
         const query = document.getElementById('findings-search').value.toLowerCase().trim();
+        const severityFilter = (document.getElementById('findings-severity-filter')?.value || '').toLowerCase();
+        const categoryFilter = (document.getElementById('findings-category-filter')?.value || '').toLowerCase();
+        const minExploitValue = document.getElementById('findings-exploit-filter')?.value;
+        const minExploit = minExploitValue === '' ? null : Number(minExploitValue);
         const rows = document.querySelectorAll('.finding-row');
 
         rows.forEach(row => {
             const t = row.getAttribute('data-title') || '';
-            const s = row.getAttribute('data-sev') || '';
+            const s = (row.getAttribute('data-sev') || '').toLowerCase();
             const tool = row.getAttribute('data-tool') || '';
-            const confidence = row.innerText.toLowerCase(); // Heuristic for confidence text
+            const category = (row.getAttribute('data-category') || '').toLowerCase();
+            const exploitRaw = row.getAttribute('data-exploit');
+            const exploitScore = exploitRaw === '' || exploitRaw === null ? null : Number(exploitRaw);
+            const confidence = row.innerText.toLowerCase();
 
-            let match = false;
+            let textMatch = false;
             if (query === '') {
-                match = true;
+                textMatch = true;
             } else if (query === 'high-risk') {
-                match = (s === 'high' || s === 'critical');
+                textMatch = (s === 'high' || s === 'critical');
             } else if (query === 'certain' || query === 'high-confidence') {
-                match = confidence.includes('certain') || confidence.includes('high');
+                textMatch = confidence.includes('certain') || confidence.includes('high');
             } else {
-                match = t.includes(query) || s.includes(query) || tool.includes(query);
+                textMatch = t.includes(query) || s.includes(query) || tool.includes(query) || category.includes(query);
             }
 
-            row.style.display = match ? '' : 'none';
+            const severityMatch = !severityFilter || s === severityFilter;
+            const categoryMatch = !categoryFilter || category === categoryFilter;
+            const exploitMatch = minExploit === null || (!Number.isNaN(exploitScore) && exploitScore !== null && exploitScore >= minExploit);
+
+            row.style.display = (textMatch && severityMatch && categoryMatch && exploitMatch) ? '' : 'none';
         });
     }
+
+
+    function populateCategoryFilter() {
+        const el = document.getElementById('findings-category-filter');
+        if (!el) return;
+        const categories = [...new Set(findingsList.map(f => (f.category || '').toLowerCase()).filter(Boolean))].sort();
+        categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = cat;
+            el.appendChild(opt);
+        });
+    }
+
+    populateCategoryFilter();
 
     function showFindingDetail(findId) {
         const f = rawFindingsData[findId];
