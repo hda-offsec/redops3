@@ -126,13 +126,25 @@ class AttackGraphBuilder:
                 if endpoint_id:
                     self._add_edge(endpoint_id, ps_id, "depends_on")
 
-            if category in {"asset_discovery", "cloud_asset"}:
+            if category in {"asset_discovery", "cloud_asset", "infra_discovery"}:
                 discovered = metadata.get("discovered_asset") or endpoint or finding.get("target")
+                provider = metadata.get("provider") if isinstance(metadata, dict) else None
                 if discovered:
-                    node_type = "cloud_resource" if category == "cloud_asset" else "asset"
+                    if category == "cloud_asset":
+                        node_type = "cloud_resource"
+                    elif category == "infra_discovery" and provider == "internal":
+                        node_type = "internal_host"
+                    elif category == "infra_discovery":
+                        node_type = "asset"
+                    else:
+                        node_type = "asset"
                     asset_id = f"{node_type}:{discovered}"
                     self._add_node({"type": node_type, "id": asset_id, "label": str(discovered), "data": finding})
                     self._add_edge(target_node_id, asset_id, "exposes_asset")
+                    if provider:
+                        provider_id = f"provider:{provider}"
+                        self._add_node({"type": "provider", "id": provider_id, "label": str(provider), "data": {"provider": provider}})
+                        self._add_edge(asset_id, provider_id, "hosted_by")
                     if endpoint_id:
                         self._add_edge(asset_id, endpoint_id, "depends_on")
 
@@ -155,6 +167,31 @@ class AttackGraphBuilder:
                     link_id = f"attack_chain_link:{link}"
                     self._add_node({"type": "attack_path_link", "id": link_id, "label": str(link), "data": {"name": link}})
                     self._add_edge(chain_id, link_id, "depends_on")
+
+            if category in {"tech_fingerprint", "dependency_surface", "cve_candidate"}:
+                component = metadata.get("component") or finding.get("title")
+                version = metadata.get("version")
+                if component:
+                    comp_id = f"component:{component}"
+                    self._add_node({"type": "component", "id": comp_id, "label": str(component), "data": finding})
+                    self._add_edge(target_node_id, comp_id, "runs_component")
+                    if version:
+                        ver_id = f"version:{component}:{version}"
+                        self._add_node({"type": "version", "id": ver_id, "label": str(version), "data": {"component": component, "version": version}})
+                        self._add_edge(comp_id, ver_id, "uses_version")
+                    cve_id = metadata.get("cve_id")
+                    if cve_id:
+                        cve_node = f"cve_candidate:{cve_id}"
+                        self._add_node({"type": "cve_candidate", "id": cve_node, "label": str(cve_id), "data": finding})
+                        self._add_edge(comp_id, cve_node, "depends_on")
+
+            if category in {"attack_plan", "next_step"}:
+                plan_type = "attack_plan" if category == "attack_plan" else "next_step"
+                plan_id = f"{plan_type}:{finding.get('id_stable') or idx}"
+                self._add_node({"type": plan_type, "id": plan_id, "label": finding.get("title", plan_type), "data": finding})
+                self._add_edge(target_node_id, plan_id, "prioritizes")
+                if endpoint_id:
+                    self._add_edge(plan_id, endpoint_id, "suggests")
 
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():

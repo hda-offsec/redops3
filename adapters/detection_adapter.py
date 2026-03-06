@@ -106,6 +106,13 @@ class DetectionAdapter:
             "attack_priority": metadata.get("attack_priority"),
             "chain_length": metadata.get("chain_length"),
             "attack_complexity": metadata.get("attack_complexity"),
+            "provider": metadata.get("provider"),
+            "component": metadata.get("component"),
+            "version": metadata.get("version"),
+            "action_priority": metadata.get("action_priority"),
+            "action_type": metadata.get("action_type"),
+            "estimated_value": metadata.get("estimated_value"),
+            "estimated_complexity": metadata.get("estimated_complexity"),
         }
 
     # ------------------------------------------------------------------

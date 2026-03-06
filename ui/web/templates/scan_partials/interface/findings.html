@@ -24,6 +24,19 @@
                 <option value="info">Info</option>
             </select>
             <input id="findings-exploit-filter" type="number" min="0" max="100" step="1" class="form-control form-control-sm bg-transparent border-secondary text-light" style="max-width: 150px;" placeholder="Min exploit" oninput="filterFindings()" />
+            <select id="findings-attack-priority-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 150px;" onchange="filterFindings()">
+                <option value="">Attack Priority</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+            </select>
+            <select id="findings-component-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;" onchange="filterFindings()">
+                <option value="">All Components</option>
+            </select>
+            <select id="findings-provider-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;" onchange="filterFindings()">
+                <option value="">All Providers</option>
+            </select>
         </div>
     </div>
 </div>
@@ -76,6 +89,9 @@
         const categoryFilter = (document.getElementById('findings-category-filter')?.value || '').toLowerCase();
         const minExploitValue = document.getElementById('findings-exploit-filter')?.value;
         const minExploit = minExploitValue === '' ? null : Number(minExploitValue);
+        const attackPriorityFilter = (document.getElementById('findings-attack-priority-filter')?.value || '').toLowerCase();
+        const componentFilter = (document.getElementById('findings-component-filter')?.value || '').toLowerCase();
+        const providerFilter = (document.getElementById('findings-provider-filter')?.value || '').toLowerCase();
         const rows = document.querySelectorAll('.finding-row');
 
         rows.forEach(row => {
@@ -86,6 +102,9 @@
             const exploitRaw = row.getAttribute('data-exploit');
             const exploitScore = exploitRaw === '' || exploitRaw === null ? null : Number(exploitRaw);
             const confidence = row.innerText.toLowerCase();
+            const attackPriority = (row.getAttribute('data-attack-priority') || '').toLowerCase();
+            const component = (row.getAttribute('data-component') || '').toLowerCase();
+            const provider = (row.getAttribute('data-provider') || '').toLowerCase();
 
             let textMatch = false;
             if (query === '') {
@@ -101,8 +120,11 @@
             const severityMatch = !severityFilter || s === severityFilter;
             const categoryMatch = !categoryFilter || category === categoryFilter;
             const exploitMatch = minExploit === null || (!Number.isNaN(exploitScore) && exploitScore !== null && exploitScore >= minExploit);
+            const attackPriorityMatch = !attackPriorityFilter || attackPriority === attackPriorityFilter;
+            const componentMatch = !componentFilter || component === componentFilter;
+            const providerMatch = !providerFilter || provider === providerFilter;
 
-            row.style.display = (textMatch && severityMatch && categoryMatch && exploitMatch) ? '' : 'none';
+            row.style.display = (textMatch && severityMatch && categoryMatch && exploitMatch && attackPriorityMatch && componentMatch && providerMatch) ? '' : 'none';
         });
     }
 
@@ -117,6 +139,29 @@
             opt.textContent = cat;
             el.appendChild(opt);
         });
+
+        const componentEl = document.getElementById('findings-component-filter');
+        const providerEl = document.getElementById('findings-provider-filter');
+        const components = [...new Set(findingsList.map(f => (f.component || (f.metadata && f.metadata.component) || '').toLowerCase()).filter(Boolean))].sort();
+        const providers = [...new Set(findingsList.map(f => (f.provider || (f.metadata && f.metadata.provider) || '').toLowerCase()).filter(Boolean))].sort();
+
+        if (componentEl) {
+            components.forEach(comp => {
+                const opt = document.createElement('option');
+                opt.value = comp;
+                opt.textContent = comp;
+                componentEl.appendChild(opt);
+            });
+        }
+
+        if (providerEl) {
+            providers.forEach(provider => {
+                const opt = document.createElement('option');
+                opt.value = provider;
+                opt.textContent = provider;
+                providerEl.appendChild(opt);
+            });
+        }
     }
 
     populateCategoryFilter();
@@ -224,6 +269,13 @@
                 ${f.exploit_score !== null && f.exploit_score !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Exploit Score:</span> <span class="text-danger">${escapeHtml(String(f.exploit_score))}</span></div>` : ''}
                 ${f.risk_level ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Risk Level:</span> <span class="text-danger text-uppercase">${escapeHtml(String(f.risk_level))}</span></div>` : ''}
                 ${f.attack_priority ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Attack Priority:</span> <span class="text-warning text-uppercase">${escapeHtml(String(f.attack_priority))}</span></div>` : ''}
+                ${(f.component || (f.metadata && f.metadata.component)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Component:</span> <span class="text-info">${escapeHtml(String(f.component || f.metadata.component))}</span></div>` : ''}
+                ${(f.version || (f.metadata && f.metadata.version)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Version:</span> <span class="text-warning">${escapeHtml(String(f.version || f.metadata.version))}</span></div>` : ''}
+                ${(f.provider || (f.metadata && f.metadata.provider)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Provider:</span> <span class="text-info">${escapeHtml(String(f.provider || f.metadata.provider))}</span></div>` : ''}
+                ${f.action_priority !== null && f.action_priority !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Action Priority:</span> <span class="text-danger">${escapeHtml(String(f.action_priority))}</span></div>` : ''}
+                ${f.action_type ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Action Type:</span> <span class="text-warning text-uppercase">${escapeHtml(String(f.action_type))}</span></div>` : ''}
+                ${f.estimated_value ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Estimated Value:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.estimated_value))}</span></div>` : ''}
+                ${f.estimated_complexity ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Estimated Complexity:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.estimated_complexity))}</span></div>` : ''}
                 ${f.chain_length !== null && f.chain_length !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain Length:</span> <span class="text-info">${escapeHtml(String(f.chain_length))}</span></div>` : ''}
                 ${f.attack_complexity ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Attack Complexity:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.attack_complexity))}</span></div>` : ''}
                 ${f.signal_ids && f.signal_ids.length ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Signals:</span> <span class="text-info font-monospace">${escapeHtml(f.signal_ids.join(', '))}</span></div>` : ''}

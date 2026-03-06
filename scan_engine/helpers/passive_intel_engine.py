@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from urllib.parse import urlparse, parse_qsl
+import ipaddress
 
 
 class AssetDiscoveryEngine:
@@ -209,6 +210,22 @@ class PassiveIntelligenceEngine:
     SUBDOMAIN_RE = re.compile(r"\b([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\b")
     API_RE = re.compile(r"(?:fetch\(|axios\.|XMLHttpRequest|['\"])(/[^'\"\s]+)")
     PARAM_RE = re.compile(r"[?&]([A-Za-z0-9_\-\.]+)=")
+    TECH_VERSION_RE = re.compile(r"([A-Za-z0-9._+-]+)[\/-]v?(\d+(?:\.\d+){1,3})", re.IGNORECASE)
+    JS_LIB_RE = re.compile(r"\b(jquery|bootstrap|react|vue|angular|next|lodash)[-.]v?(\d+(?:\.\d+){1,3})", re.IGNORECASE)
+    IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+
+    IP_PROVIDER_HINTS = [
+        (ipaddress.ip_network("34.0.0.0/8"), "gcp"),
+        (ipaddress.ip_network("35.0.0.0/8"), "gcp"),
+        (ipaddress.ip_network("52.0.0.0/8"), "aws"),
+        (ipaddress.ip_network("54.0.0.0/8"), "aws"),
+        (ipaddress.ip_network("13.64.0.0/11"), "azure"),
+        (ipaddress.ip_network("20.0.0.0/11"), "azure"),
+        (ipaddress.ip_network("104.16.0.0/12"), "cloudflare"),
+        (ipaddress.ip_network("172.64.0.0/13"), "cloudflare"),
+    ]
+
+    LOCAL_CVE_RULES = {}
 
     @staticmethod
     def _iter_telemetry_strings(payload):
@@ -420,8 +437,151 @@ class PassiveIntelligenceEngine:
                 add("Cloud Storage Reference Observed", "info", "medium", "", "cloud_storage_reference", "Passive telemetry references cloud object storage endpoint patterns.", blob[:200])
             if "token" in text and any(marker in text for marker in ["=", ":"]):
                 add("Potential Token Leakage in Telemetry", "medium", "medium", "", "token_leakage", "Raw collected telemetry contains token marker patterns.", blob[:200])
-            if cls._looks_like_jwt(blob) or re.search(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", blob):
+            if cls._looks_like_jwt(blob) or re.search(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", blob):
                 add("JWT Token Observed in Telemetry", "medium", "medium", "", "jwt_exposure", "Telemetry includes token matching JWT structure.", blob[:200])
+
+            for host in AssetDiscoveryEngine._extract_hosts(blob):
+                provider = AssetDiscoveryEngine._provider_for_host(host)
+                if provider != "unknown":
+                    infra_category = "cloud_asset" if provider in {"aws", "gcp", "azure"} else "infra_discovery"
+                    add(
+                        title=f"Infrastructure Provider Hint: {host}",
+                        severity="info",
+                        confidence="medium",
+                        endpoint=host,
+                        category=infra_category,
+                        description="Provider/CDN inference from passive host telemetry.",
+                        evidence=blob[:220],
+                        metadata={"target": target, "discovered_asset": host, "provider": provider, "source": "passive_telemetry", "confidence": "medium"},
+                        source="infra_provider_inference",
+                    )
+                if host.endswith(".local") or ".internal" in host or host.endswith(".corp"):
+                    add(
+                        title=f"Internal Hostname Referenced: {host}",
+                        severity="medium",
+                        confidence="high",
+                        endpoint=host,
+                        category="infra_discovery",
+                        description="Internal hostname referenced in collected telemetry.",
+                        evidence=blob[:220],
+                        metadata={"target": target, "discovered_asset": host, "provider": "internal", "source": "passive_telemetry", "confidence": "high"},
+                        source="infra_internal_host",
+                    )
+
+            for ip_raw in cls.IP_RE.findall(blob):
+                try:
+                    ip_obj = ipaddress.ip_address(ip_raw)
+                except ValueError:
+                    continue
+                provider = "unknown"
+                for network, hint in cls.IP_PROVIDER_HINTS:
+                    if ip_obj in network:
+                        provider = hint
+                        break
+                if provider != "unknown":
+                    add(
+                        title=f"IP Range Provider Hint: {ip_raw}",
+                        severity="info",
+                        confidence="low",
+                        endpoint=ip_raw,
+                        category="infra_discovery",
+                        description="Cloud/provider ASN hint inferred from observed IP range.",
+                        evidence=blob[:220],
+                        metadata={"target": target, "discovered_asset": ip_raw, "provider": provider, "source": "ip_range_mapping", "confidence": "low"},
+                        source="infra_ip_hint",
+                    )
+
+            for match in cls.JS_LIB_RE.finditer(blob):
+                component, version = match.group(1).lower(), match.group(2)
+                add(
+                    title=f"Technology Fingerprint: {component}",
+                    severity="info",
+                    confidence="high",
+                    endpoint="",
+                    category="tech_fingerprint",
+                    description="Component and version extracted from static asset naming pattern.",
+                    evidence=match.group(0),
+                    metadata={"component": component, "version": version, "source": "js_asset_path", "confidence": "high"},
+                    source="tech_js_pattern",
+                )
+                add(
+                    title=f"Dependency Surface: {component} {version}",
+                    severity="low",
+                    confidence="high",
+                    endpoint="",
+                    category="dependency_surface",
+                    description="Dependency version evidence extracted from telemetry artifacts.",
+                    evidence=match.group(0),
+                    metadata={"component": component, "version": version, "source": "js_asset_path", "confidence": "high"},
+                    source="dependency_surface",
+                )
+
+            for match in cls.TECH_VERSION_RE.finditer(blob):
+                component, version = match.group(1).lower(), match.group(2)
+                if component in {"http", "https"} or len(component) < 3:
+                    continue
+                if component in {"apache", "nginx", "express", "next.js", "wordpress"}:
+                    add(
+                        title=f"Technology Fingerprint: {component}",
+                        severity="info",
+                        confidence="medium",
+                        endpoint="",
+                        category="tech_fingerprint",
+                        description="Version clue extracted from banner/header/path telemetry.",
+                        evidence=match.group(0),
+                        metadata={"component": component, "version": version, "source": "banner_or_path", "confidence": "medium"},
+                        source="tech_banner_pattern",
+                    )
+
+        tech_findings = [f for f in findings if f.get("category") in {"tech_fingerprint", "dependency_surface"}]
+        if not cls.LOCAL_CVE_RULES and tech_findings:
+            add(
+                title="CVE Intelligence Hook Active (No Local Rules)",
+                severity="info",
+                confidence="high",
+                endpoint="",
+                category="next_step",
+                description="No deterministic local CVE map is configured; CVE candidate generation is safely disabled.",
+                evidence="local_cve_rules=empty",
+                metadata={
+                    "title": "Build local CVE mapping dataset",
+                    "description": "Add deterministic local CVE rules to enable cve_candidate correlation.",
+                    "rationale": "Telemetry has component/version clues but repository has no CVE mapping source.",
+                    "related_signal_ids": [],
+                    "related_finding_ids": [],
+                    "attack_priority": "low",
+                    "action_priority": 20,
+                    "action_type": "intel_gap",
+                    "estimated_value": "medium",
+                    "estimated_complexity": "low",
+                },
+                source="cve_intelligence_hook",
+            )
+
+        high_signal = len([f for f in findings if f.get("severity") in {"medium", "high", "critical"}])
+        if high_signal:
+            add(
+                title="Cortex Next Step: Prioritize Highest-Confidence Attack Paths",
+                severity="info",
+                confidence="high",
+                endpoint="",
+                category="attack_plan",
+                description="Deterministic planning recommends exploiting top evidence-backed chains before low-confidence probes.",
+                evidence=f"signal_strength={high_signal}",
+                metadata={
+                    "title": "Prioritize evidence-backed routes",
+                    "description": "Investigate SSRF metadata paths, JS-derived admin routes, and authenticated API vectors if present.",
+                    "rationale": "Plan derived from correlated findings, telemetry evidence, and deterministic severity/confidence ordering.",
+                    "related_signal_ids": [],
+                    "related_finding_ids": [],
+                    "attack_priority": "high" if high_signal >= 8 else "medium",
+                    "action_priority": 80 if high_signal >= 8 else 60,
+                    "action_type": "guided_probe",
+                    "estimated_value": "high",
+                    "estimated_complexity": "medium",
+                },
+                source="cortex_planner",
+            )
 
         findings.extend(AssetDiscoveryEngine.derive_findings(results, target))
         findings.extend(SecretsIntelligenceEngine.derive_findings(results, target))
