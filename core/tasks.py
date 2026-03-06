@@ -119,6 +119,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             try:
                 from core.extensions import socketio
                 from core.utils import sanitize_evidence, cap_text
+                import json
                 
                 severity = kwargs.get('severity', 'info')
                 title = kwargs.get('title', 'Untitled Finding')
@@ -131,11 +132,27 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 cleaned_request = cap_text(sanitize_evidence(raw_request))
                 cleaned_response = cap_text(sanitize_evidence(raw_response))
                 cleaned_repro = cap_text(sanitize_evidence(raw_repro))
+                cleaned_reproduction = cap_text(sanitize_evidence(kwargs.get('reproduction') or cleaned_repro))
+
+                evidence_value = kwargs.get('evidence')
+                if isinstance(evidence_value, (dict, list)):
+                    evidence_value = cap_text(sanitize_evidence(json.dumps(evidence_value, default=str)))
+                elif isinstance(evidence_value, str):
+                    evidence_value = cap_text(sanitize_evidence(evidence_value))
+                else:
+                    evidence_value = cap_text(sanitize_evidence(kwargs.get('description')))
 
                 id_stable = kwargs.get('id_stable')
                 if not id_stable:
                     import hashlib
-                    id_str = f"{title}|{kwargs.get('tool_source', 'orchestrator')}|{kwargs.get('description', '')[:50]}"
+                    id_str = "|".join([
+                        str(title),
+                        str(kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url') or ''),
+                        str(kwargs.get('parameter') or kwargs.get('param') or ''),
+                        str(kwargs.get('payload') or kwargs.get('poison') or ''),
+                        str(kwargs.get('severity', 'info')),
+                        str(kwargs.get('tool_source', kwargs.get('tool', 'orchestrator'))),
+                    ])
                     id_stable = hashlib.sha256(id_str.encode()).hexdigest()
 
                 finding = Finding(
@@ -154,8 +171,8 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     endpoint=kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url'),
                     parameter=kwargs.get('parameter') or kwargs.get('param'),
                     payload=kwargs.get('payload') or kwargs.get('poison'),
-                    evidence=kwargs.get('evidence') if isinstance(kwargs.get('evidence'), str) else None,
-                    reproduction=cleaned_repro,
+                    evidence=evidence_value,
+                    reproduction=cleaned_reproduction,
                     raw_output=cap_text(sanitize_evidence(kwargs.get('raw_output') or kwargs.get('response'))),
                     metadata_json=kwargs.get('metadata') if isinstance(kwargs.get('metadata'), dict) else None,
                     screenshot_path=kwargs.get('screenshot_path'),
@@ -182,7 +199,8 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     'endpoint': kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url'),
                     'parameter': kwargs.get('parameter') or kwargs.get('param'),
                     'payload': kwargs.get('payload') or kwargs.get('poison'),
-                    'evidence': kwargs.get('evidence'),
+                    'evidence': evidence_value,
+                    'reproduction': cleaned_reproduction,
                     'screenshot_path': kwargs.get('screenshot_path'),
                     'signal_ids': kwargs.get('signal_ids', []),
                     'request': cleaned_request,
@@ -406,6 +424,16 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             # Force use of DB source of truth for scan_type as well
             scan_profile = scan.scan_type # Cache this
             success = orchestrator.run_pipeline(profile=scan_profile)
+
+            try:
+                from scan_engine.helpers.passive_intel_engine import PassiveIntelligenceEngine
+                passive_findings = PassiveIntelligenceEngine.derive_findings(orchestrator.results, scan.target.identifier)
+                for pf in passive_findings:
+                    add_finding_cb(**pf)
+                if passive_findings:
+                    _log_and_emit(scan_id, f"Passive intelligence synthesized {len(passive_findings)} findings from existing telemetry.", "INFO")
+            except Exception as p_err:
+                _log_and_emit(scan_id, f"Passive intelligence skipped: {p_err}", "WARN")
 
             try:
                 from core.analysis import run_signal_correlation

@@ -19,6 +19,8 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         return None
     source_findings = source_findings or []
     signal_ids = _collect_signal_ids(source_findings)
+    endpoint = next((f.endpoint for f in source_findings if getattr(f, "endpoint", None)), None)
+    target = next((f.target for f in source_findings if getattr(f, "target", None)), None)
     finding = Finding(
         scan_id=scan_id,
         title=title,
@@ -28,6 +30,8 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         tool_source="correlation_engine",
         module="correlation",
         category="attack_chain",
+        target=target,
+        endpoint=endpoint,
         metadata_json=metadata or {"tags": ["attack_chain"]},
         evidence=description,
         signal_ids=signal_ids or None,
@@ -131,6 +135,37 @@ def run_attack_chain_correlation(scan_id):
             severity="critical",
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["secret_exposure", "internal_api_surface"]},
+            source_findings=source,
+        ):
+            created += 1
+
+
+    has_api_key = any("api key" in t or "token" in t for t in titles)
+    has_privileged = any("admin" in t or "privileged" in t or "auth" in t for t in titles)
+    if has_api_key and has_privileged:
+        source = [f for f, t in zip(findings, titles) if ("api key" in t or "token" in t or "admin" in t or "privileged" in t or "auth" in t)]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: API Key Exposure + Privileged Surface",
+            "Detected leaked token/API key indicators alongside privileged endpoints. Validate direct authenticated access and role escalation pathways.",
+            severity="critical",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["api_key_exposure", "privileged_surface"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_auth_surface = any("login" in t or "signin" in t or "authentication" in t for t in titles)
+    has_js_route = any("javascript" in t or "js" in (f.tool_source or "").lower() or "hidden route" in t for f, t in zip(findings, titles))
+    if has_auth_surface and has_js_route:
+        source = [f for f, t in zip(findings, titles) if ("login" in t or "signin" in t or "authentication" in t or "javascript" in t or "hidden route" in t or "js" in (f.tool_source or "").lower())]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: JavaScript Routes + Authentication Surface",
+            "JavaScript-mined routes overlap with authentication endpoints, increasing risk of bypass vectors and undocumented auth flows.",
+            severity="high",
+            confidence="medium",
+            metadata={"tags": ["attack_chain"], "chain": ["js_routes", "authentication_surface"]},
             source_findings=source,
         ):
             created += 1
