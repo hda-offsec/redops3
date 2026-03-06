@@ -306,6 +306,10 @@ class DetectionAdapter:
                         signal_ids=item.get("signal_ids", []),
                         module=item.get("module", tool),
                         reproduction=item.get("reproduction", item.get("repro_command", "")),
+                        request=item.get("request", ""),
+                        response=item.get("response", ""),
+                        repro_command=item.get("repro_command", ""),
+                        screenshot_path=item.get("screenshot_path", ""),
                         metadata=item.get("metadata", {}),
                     )
 

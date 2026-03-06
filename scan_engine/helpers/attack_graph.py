@@ -136,6 +136,27 @@ class AttackGraphBuilder:
                 if endpoint:
                     endpoint_id = f"endpoint:derived:{endpoint}"
                     self._add_edge(endpoint_id, secret_id, "exposes")
+            if category in {"auth_surface", "authentication_surface"}:
+                auth_id = f"auth_surface:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "auth_surface", "id": auth_id, "label": finding.get("title", "Auth Surface"), "data": finding})
+                self._add_edge(target_node_id, auth_id, "contains")
+                if endpoint:
+                    self._add_edge(auth_id, f"endpoint:derived:{endpoint}", "auth_exposes")
+
+            if category == "api_surface":
+                api_id = f"api_surface:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "api_endpoint", "id": api_id, "label": finding.get("title", "API Surface"), "data": finding})
+                self._add_edge(target_node_id, api_id, "contains")
+                if endpoint:
+                    self._add_edge(api_id, f"endpoint:derived:{endpoint}", "auth_exposes")
+
+            if category in {"jwt_exposure", "token_leakage", "api_key_exposure"}:
+                token_id = f"token:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "token", "id": token_id, "label": finding.get("title", "Token"), "data": finding})
+                self._add_edge(target_node_id, token_id, "contains")
+                if endpoint:
+                    self._add_edge(token_id, f"endpoint:derived:{endpoint}", "token_authenticates")
+
             if category == "attack_chain":
                 chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
                 self.nodes.append({"type": "attack_chain", "id": chain_id, "label": finding.get("title", "Attack Chain"), "data": finding})
