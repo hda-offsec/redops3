@@ -89,14 +89,28 @@ class DetectionPipelineTests(unittest.TestCase):
         self.assertTrue(out[0]["raw_output"])
 
     def test_correlation_creates_attack_chain_finding(self):
-        db.session.add(Finding(scan_id=self.scan.id, title="Directory Listing Enabled", severity="medium", tool_source="nuclei"))
-        db.session.add(Finding(scan_id=self.scan.id, title="Backup file found: backup.zip", severity="high", tool_source="ffuf"))
+        db.session.add(Finding(scan_id=self.scan.id, title="Directory Listing Enabled", severity="medium", tool_source="nuclei", signal_ids=[11]))
+        db.session.add(Finding(scan_id=self.scan.id, title="Backup file found: backup.zip", severity="high", tool_source="ffuf", signal_ids=[12]))
         db.session.commit()
 
         created = run_attack_chain_correlation(self.scan.id)
         self.assertGreaterEqual(created, 1)
         chain = Finding.query.filter_by(scan_id=self.scan.id, category="attack_chain").all()
         self.assertTrue(chain)
+        self.assertIn(11, chain[0].signal_ids)
+
+    def test_correlation_detects_secret_internal_chain(self):
+        db.session.add(Finding(scan_id=self.scan.id, title="Secret Found: API token", severity="high", tool_source="secret_scanner", signal_ids=[31]))
+        db.session.add(Finding(scan_id=self.scan.id, title="Internal API endpoint exposed via swagger", severity="medium", tool_source="api_scanner", signal_ids=[32]))
+        db.session.commit()
+
+        created = run_attack_chain_correlation(self.scan.id)
+        self.assertGreaterEqual(created, 1)
+        chain = Finding.query.filter_by(scan_id=self.scan.id, title="Attack Chain: Secret Exposure + Internal API Surface").first()
+        self.assertIsNotNone(chain)
+        self.assertEqual(chain.confidence, "high")
+        self.assertIn(31, chain.signal_ids)
+        self.assertIn(32, chain.signal_ids)
 
 
 if __name__ == "__main__":

@@ -123,6 +123,25 @@ class AttackGraphBuilder:
                 param_id = f"parameter:{param}"
                 self.nodes.append({"type": "parameter", "id": param_id, "label": param, "data": {"parameter": param}})
                 self._add_edge(fid, param_id, "leads_to")
+            payload = finding.get("payload")
+            if payload:
+                payload_id = f"payload:{abs(hash(str(payload))) % (10 ** 10)}"
+                self.nodes.append({"type": "payload", "id": payload_id, "label": str(payload)[:120], "data": {"payload": payload}})
+                self._add_edge(fid, payload_id, "depends_on")
+            category = (finding.get("category") or "").lower()
+            if "secret" in category or any(k in (finding.get("title") or "").lower() for k in ["secret", "token", "api key", "credential"]):
+                secret_id = f"secret:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "secret", "id": secret_id, "label": finding.get("title", "Secret"), "data": finding})
+                self._add_edge(target_node_id, secret_id, "contains")
+                if endpoint:
+                    endpoint_id = f"endpoint:derived:{endpoint}"
+                    self._add_edge(endpoint_id, secret_id, "exposes")
+            if category == "attack_chain":
+                chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "attack_chain", "id": chain_id, "label": finding.get("title", "Attack Chain"), "data": finding})
+                self._add_edge(target_node_id, chain_id, "contains")
+                if endpoint:
+                    self._add_edge(chain_id, f"endpoint:derived:{endpoint}", "leads_to")
         # --- PHASE 4.5: BACKEND SURFACE EXPOSURE (ARCHITECTURE DRIVEN) ---
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():

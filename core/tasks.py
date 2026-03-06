@@ -95,11 +95,15 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 signal = Signal(
                     scan_id=scan_id,
                     tool=kwargs.get("tool", "orchestrator"),
+                    module=kwargs.get("module"),
                     type=kwargs.get("type", "finding"),
                     target=kwargs.get("target"),
                     endpoint=kwargs.get("endpoint"),
                     parameter=kwargs.get("parameter"),
                     payload=kwargs.get("payload"),
+                    status_code=kwargs.get("status_code") if isinstance(kwargs.get("status_code"), int) else None,
+                    response_headers_json=kwargs.get("response_headers") if isinstance(kwargs.get("response_headers"), dict) else None,
+                    response_evidence=kwargs.get("response_evidence"),
                     raw_output=kwargs.get("raw_output"),
                     metadata_json=kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {"raw_metadata": kwargs.get("metadata")} if kwargs.get("metadata") else None
                 )

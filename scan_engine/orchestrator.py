@@ -209,11 +209,15 @@ class ScanOrchestrator:
 
         signal_payload = {
             "tool": kwargs.get("tool_source") or kwargs.get("tool") or "orchestrator",
+            "module": kwargs.get("module") or kwargs.get("tool_source") or kwargs.get("tool") or "orchestrator",
             "type": kwargs.get("category") or kwargs.get("type") or "finding",
             "target": kwargs.get("target") or kwargs.get("url") or self.target,
             "endpoint": kwargs.get("endpoint") or kwargs.get("url"),
             "parameter": kwargs.get("parameter"),
             "payload": kwargs.get("payload"),
+            "status_code": kwargs.get("status_code"),
+            "response_headers": kwargs.get("response_headers") or kwargs.get("headers"),
+            "response_evidence": kwargs.get("evidence") if isinstance(kwargs.get("evidence"), str) else None,
             "raw_output": kwargs.get("raw_output")
             or kwargs.get("response")
             or kwargs.get("description"),

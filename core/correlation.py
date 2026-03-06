@@ -6,9 +6,19 @@ def _exists(scan_id, title):
     return Finding.query.filter_by(scan_id=scan_id, title=title, tool_source="correlation_engine").first() is not None
 
 
-def _add_chain(scan_id, title, description, severity="medium", confidence="medium", metadata=None):
+def _collect_signal_ids(items):
+    ids = []
+    for f in items:
+        if isinstance(f.signal_ids, list):
+            ids.extend([x for x in f.signal_ids if isinstance(x, int)])
+    return sorted(set(ids))
+
+
+def _add_chain(scan_id, title, description, severity="medium", confidence="medium", metadata=None, source_findings=None):
     if _exists(scan_id, title):
         return None
+    source_findings = source_findings or []
+    signal_ids = _collect_signal_ids(source_findings)
     finding = Finding(
         scan_id=scan_id,
         title=title,
@@ -20,6 +30,8 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         category="attack_chain",
         metadata_json=metadata or {"tags": ["attack_chain"]},
         evidence=description,
+        signal_ids=signal_ids or None,
+        reproduction="Validate each source finding and pivot through the listed chain links.",
     )
     db.session.add(finding)
     return finding
@@ -36,6 +48,7 @@ def run_attack_chain_correlation(scan_id):
     has_dir_exposure = any("directory listing" in t or ".git" in t for t in titles)
     has_backup = any("backup" in t or ".zip" in t or ".tar" in t for t in titles)
     if has_dir_exposure and has_backup:
+        source = [f for f, t in zip(findings, titles) if ("directory listing" in t or ".git" in t or "backup" in t or ".zip" in t or ".tar" in t)]
         if _add_chain(
             scan_id,
             "Attack Chain: Directory Exposure + Backup Archive",
@@ -43,12 +56,14 @@ def run_attack_chain_correlation(scan_id):
             severity="high",
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["directory_exposure", "backup_archive"]},
+            source_findings=source,
         ):
             created += 1
 
     has_version_leak = any("version" in t and ("server" in t or "header" in t or "technology" in t) for t in titles)
     has_nuclei_or_cve = any("cve" in t or "nuclei" in (f.tool_source or "").lower() for f, t in zip(findings, titles))
     if has_version_leak and has_nuclei_or_cve:
+        source = [f for f, t in zip(findings, titles) if ("version" in t or "cve" in t or "nuclei" in (f.tool_source or "").lower())]
         if _add_chain(
             scan_id,
             "Attack Chain: Version Leak + Known CVE Signal",
@@ -56,12 +71,14 @@ def run_attack_chain_correlation(scan_id):
             severity="high",
             confidence="medium",
             metadata={"tags": ["attack_chain"], "chain": ["version_leak", "cve_signal"]},
+            source_findings=source,
         ):
             created += 1
 
     has_upload = any("upload" in t for t in titles)
     has_put = any("put" in t and "method" in t for t in titles)
     if has_upload and has_put:
+        source = [f for f, t in zip(findings, titles) if ("upload" in t or ("put" in t and "method" in t))]
         if _add_chain(
             scan_id,
             "Attack Chain: Upload Endpoint + PUT Allowed",
@@ -69,12 +86,14 @@ def run_attack_chain_correlation(scan_id):
             severity="critical",
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["upload_endpoint", "put_allowed"]},
+            source_findings=source,
         ):
             created += 1
 
     has_js_endpoint = any("javascript" in t or "js" in (f.tool_source or "").lower() for f, t in zip(findings, titles))
     has_hidden_api = any("hidden endpoint" in t or "internal api" in t for t in titles)
     if has_js_endpoint and has_hidden_api:
+        source = [f for f, t in zip(findings, titles) if ("javascript" in t or "hidden endpoint" in t or "internal api" in t or "js" in (f.tool_source or "").lower())]
         if _add_chain(
             scan_id,
             "Attack Chain: JS Discovery + Hidden API",
@@ -82,6 +101,37 @@ def run_attack_chain_correlation(scan_id):
             severity="medium",
             confidence="medium",
             metadata={"tags": ["attack_chain"], "chain": ["js_discovery", "hidden_api"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_admin = any("admin" in t and ("panel" in t or "endpoint" in t or "login" in t) for t in titles)
+    has_cors = any("cors" in t and ("misconfig" in t or "allow-origin" in t or "wildcard" in t) for t in titles)
+    if has_admin and has_cors:
+        source = [f for f, t in zip(findings, titles) if ("admin" in t or "cors" in t)]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: Admin Surface + CORS Misconfiguration",
+            "Correlation detected exposed admin functionality combined with permissive CORS. This can enable credentialed cross-origin abuse and token exfiltration.",
+            severity="high",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["admin_surface", "cors_misconfiguration"]},
+            source_findings=source,
+        ):
+            created += 1
+
+    has_secret = any("secret" in t or "token" in t or "api key" in t or "credential" in t for t in titles)
+    has_internal = any("internal" in t or "swagger" in t or "graphql" in t or "debug" in t for t in titles)
+    if has_secret and has_internal:
+        source = [f for f, t in zip(findings, titles) if ("secret" in t or "token" in t or "internal" in t or "swagger" in t or "graphql" in t or "debug" in t)]
+        if _add_chain(
+            scan_id,
+            "Attack Chain: Secret Exposure + Internal API Surface",
+            "Correlation linked secret leakage and internal API exposure. This often leads to immediate authenticated access against hidden services.",
+            severity="critical",
+            confidence="high",
+            metadata={"tags": ["attack_chain"], "chain": ["secret_exposure", "internal_api_surface"]},
+            source_findings=source,
         ):
             created += 1
 
