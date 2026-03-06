@@ -62,14 +62,23 @@ def run_dirbusting(orchestrator):
 
                         try:
                             import json
+                            import base64
                             data = json.loads(line)
                             url = data.get('url')
                             if not url: continue
                             
                             status = data.get('status', 200)
+                            
+                            fuzz_val = data.get('input', {}).get('FUZZ', '')
+                            try:
+                                decoded = base64.b64decode(fuzz_val).decode('utf-8')
+                                fuzz_val = decoded if decoded else fuzz_val
+                            except Exception:
+                                pass # fallback to raw value
+                                
                             log(f"DirBust Found: {url} [Status: {status}]", "SUCCESS")
 
-                            item = {"url": url, "path": data.get('input', {}).get('FUZZ', ''), "status": status, "size": data.get('length', 0)}
+                            item = {"url": url, "path": fuzz_val, "status": status, "size": data.get('length', 0)}
 
                             def _append_endpoint():
                                 results['phases'].setdefault('dirbusting', {})
