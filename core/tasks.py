@@ -425,21 +425,54 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
             scan_profile = scan.scan_type # Cache this
             success = orchestrator.run_pipeline(profile=scan_profile)
 
+            all_synth_findings = []
             try:
                 from scan_engine.helpers.passive_intel_engine import PassiveIntelligenceEngine
                 passive_findings = PassiveIntelligenceEngine.derive_findings(orchestrator.results, scan.target.identifier)
                 for pf in passive_findings:
                     add_finding_cb(**pf)
+                all_synth_findings.extend(passive_findings)
                 if passive_findings:
                     _log_and_emit(scan_id, f"Passive intelligence synthesized {len(passive_findings)} findings from existing telemetry.", "INFO")
             except Exception as p_err:
                 _log_and_emit(scan_id, f"Passive intelligence skipped: {p_err}", "WARN")
 
             try:
-                from core.analysis import run_signal_correlation
+                from scan_engine.helpers.context_attack_engine import APIIntelligenceEngine
+                api_findings, api_inventory = APIIntelligenceEngine.derive_surface(orchestrator.results, scan.target.identifier)
+                for af in api_findings:
+                    add_finding_cb(**af)
+                all_synth_findings.extend(api_findings)
+                if api_findings:
+                    _log_and_emit(scan_id, f"API intelligence discovered {len(api_findings)} API surface findings.", "INFO")
+
+                api_fuzz_findings = APIIntelligenceEngine.fuzz_surface(api_inventory, options=scan_options)
+                for ff in api_fuzz_findings:
+                    add_finding_cb(**ff)
+                all_synth_findings.extend(api_fuzz_findings)
+                if api_fuzz_findings:
+                    _log_and_emit(scan_id, f"API fuzzing generated {len(api_fuzz_findings)} high-signal findings.", "INFO")
+            except Exception as api_err:
+                _log_and_emit(scan_id, f"API intelligence/fuzzing skipped: {api_err}", "WARN")
+
+            try:
+                from scan_engine.helpers.context_attack_engine import ExploitValidationEngine
+                validation_findings = ExploitValidationEngine.validate(all_synth_findings, options=scan_options)
+                for vf in validation_findings:
+                    add_finding_cb(**vf)
+                if validation_findings:
+                    _log_and_emit(scan_id, f"Exploit validation confirmed {len(validation_findings)} findings.", "INFO")
+            except Exception as val_err:
+                _log_and_emit(scan_id, f"Exploit validation skipped: {val_err}", "WARN")
+
+            try:
+                from core.analysis import run_signal_correlation, run_cortex_attack_reasoning
                 run_signal_correlation(scan_id, add_finding_cb)
+                cortex_created = run_cortex_attack_reasoning(scan_id, add_finding_cb)
+                if cortex_created:
+                    _log_and_emit(scan_id, f"Cortex reasoning generated {cortex_created} attack path findings.", "INFO")
             except Exception as corr_e:
-                _log_and_emit(scan_id, f"Signal correlation skipped: {corr_e}", "WARN")
+                _log_and_emit(scan_id, f"Signal correlation/Cortex reasoning skipped: {corr_e}", "WARN")
 
             # Re-fetch scan logic to avoid ObjectDeletedError / Stale Session
             scan = Scan.query.get(scan_id)

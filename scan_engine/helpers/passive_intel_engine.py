@@ -6,7 +6,7 @@ class PassiveIntelligenceEngine:
     """Derive passive findings from already collected scan telemetry."""
 
     ADMIN_HINTS = ("admin", "administrator", "signin", "login", "manage", "wp-admin")
-    DEBUG_HINTS = ("debug", "trace", "console", "actuator", "profiler")
+    DEBUG_HINTS = ("debug", "trace", "console", "actuator", "profiler", "/test", "/dev")
     DOC_HINTS = ("swagger", "openapi", "api-doc", "redoc", "graphql", "graphiql")
     BACKUP_HINTS = (".zip", ".tar", ".bak", ".old", "backup", "dump")
     SENSITIVE_HEADERS = ("x-powered-by", "server", "x-aspnet-version", "x-runtime")
@@ -16,6 +16,7 @@ class PassiveIntelligenceEngine:
     SSRF_PARAM_HINTS = ("url", "uri", "target", "dest", "redirect")
     CLOUD_REF_HINTS = ("s3.amazonaws.com", "storage.googleapis.com", "blob.core.windows.net")
     INTERNAL_HOST_HINTS = ("internal", ".cluster.local", ".svc", ".corp")
+    SENSITIVE_FILE_HINTS = ("/.env", "/.git/config", "/backup.zip", "/db.sql")
 
     @staticmethod
     def _iter_telemetry_strings(payload):
@@ -159,6 +160,16 @@ class PassiveIntelligenceEngine:
                     category="backup_exposure",
                     description="Endpoint naming indicates potentially downloadable backup artifact.",
                     metadata={"surface": "backup"},
+                )
+            if any(h in low for h in cls.SENSITIVE_FILE_HINTS):
+                add(
+                    "Sensitive File Exposure Surface",
+                    severity="high",
+                    confidence="medium",
+                    endpoint=endpoint,
+                    category="sensitive_file_exposure",
+                    description="Discovered endpoint path matches common sensitive-file disclosure patterns (.env/.git/config/backup.zip/db.sql).",
+                    metadata={"surface": "sensitive_file"},
                 )
             if "/internal" in low or "/private" in low:
                 add(

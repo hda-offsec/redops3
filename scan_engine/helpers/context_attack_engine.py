@@ -1,4 +1,8 @@
-from urllib.parse import urlparse
+import json
+import re
+from urllib.parse import parse_qs, quote_plus, urlparse
+
+from scan_engine.helpers.http_client import get_session
 
 class ContextAttackEngine:
     """
@@ -111,3 +115,317 @@ class ContextAttackEngine:
             self.log(f"Mutation Strategy Enabled: {strategy}", "INFO")
             
         return strategy
+
+
+class APIIntelligenceEngine:
+    """Derive API surface intelligence from existing telemetry and execute bounded active checks."""
+
+    API_HINTS = ("/api/", "/v1", "/v2", "/rest", "/graphql")
+    AUTH_HINTS = ("/auth", "/login", "/signin", "/session", "/oauth")
+    ADMIN_HINTS = ("/admin", "/internal", "/manage")
+    TOKEN_HINTS = ("token", "jwt", "apikey", "api_key")
+
+    @staticmethod
+    def _iter_endpoint_candidates(results):
+        phases = results.get("phases", {}) if isinstance(results, dict) else {}
+        enum = phases.get("enum", {}) if isinstance(phases, dict) else {}
+
+        for _, endpoints in (enum.get("targets", {}) or {}).items():
+            if isinstance(endpoints, list):
+                for endpoint in endpoints:
+                    if isinstance(endpoint, str):
+                        yield endpoint, "enum.targets"
+
+        discovered_api = enum.get("api", {}).get("discovered_endpoints", [])
+        if isinstance(discovered_api, list):
+            for endpoint in discovered_api:
+                if isinstance(endpoint, str):
+                    yield endpoint, "api_scanner"
+
+        for _, data in (enum.get("js_deep_mining", {}) or {}).items():
+            if not isinstance(data, dict):
+                continue
+            for endpoint in data.get("discovered_endpoints", []) or []:
+                if isinstance(endpoint, str):
+                    yield endpoint, "js_deep_mining"
+
+    @classmethod
+    def derive_surface(cls, results, target):
+        findings = []
+        api_inventory = []
+        seen = set()
+        injection_points = results.get("phases", {}).get("enum", {}).get("injection_points", {})
+
+        for endpoint, source in cls._iter_endpoint_candidates(results):
+            low = endpoint.lower()
+            if not any(h in low for h in cls.API_HINTS + cls.AUTH_HINTS + cls.ADMIN_HINTS):
+                continue
+
+            parsed = urlparse(endpoint)
+            params = sorted(parse_qs(parsed.query).keys())
+            if isinstance(injection_points, dict):
+                port = str(parsed.port) if parsed.port else ""
+                params.extend([p for p in (injection_points.get(port) or []) if isinstance(p, str)])
+            params = sorted(set(params))
+            method = "GET"
+
+            key = (endpoint, method, ",".join(params), source)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            tags = []
+            if any(h in low for h in cls.AUTH_HINTS):
+                tags.append("auth")
+            if any(h in low for h in cls.ADMIN_HINTS):
+                tags.append("admin")
+            if any(h in low for h in cls.TOKEN_HINTS):
+                tags.append("token")
+
+            findings.append({
+                "title": "API Surface Endpoint Discovered",
+                "severity": "info" if not tags else "medium",
+                "confidence": "high" if source in {"api_scanner", "enum.targets"} else "medium",
+                "tool_source": "api_intelligence_engine",
+                "module": "api_intelligence",
+                "category": "api_surface",
+                "target": target,
+                "endpoint": endpoint,
+                "parameter": ",".join(params[:12]),
+                "description": "Discovered API-like endpoint with extracted parameter and route semantics.",
+                "evidence": json.dumps({"method": method, "parameters": params[:20], "source": source, "tags": tags}, default=str),
+                "metadata": {"method": method, "parameters": params[:20], "source": source, "tags": tags},
+            })
+
+            api_inventory.append({"endpoint": endpoint, "method": method, "parameters": params[:20], "source": source, "tags": tags})
+
+        return findings, api_inventory
+
+    @staticmethod
+    def fuzz_surface(api_inventory, options=None):
+        options = options or {}
+        max_requests = int(options.get("api_fuzz_max_requests", 40) or 40)
+        timeout = float(options.get("timeout", 6) or 6)
+
+        if max_requests <= 0:
+            return []
+
+        checks = {
+            "idor": ["1", "2"],
+            "ssrf": ["http://127.0.0.1", "http://localhost"],
+            "command_injection": ["test;id", "test&&whoami"],
+            "sqli": ["1' OR '1'='1", "1 UNION SELECT NULL"],
+            "path_traversal": ["../../../../etc/passwd", "..\\..\\..\\..\\windows\\win.ini"],
+        }
+        default_params = ["id", "url", "path", "q"]
+        findings = []
+        used = 0
+        session = get_session(options)
+
+        try:
+            for item in api_inventory:
+                endpoint = item.get("endpoint")
+                if not endpoint:
+                    continue
+                params = [p for p in (item.get("parameters") or []) if isinstance(p, str)] or default_params
+                for param in params[:3]:
+                    for test_type, payloads in checks.items():
+                        for payload in payloads[:2]:
+                            if used >= max_requests:
+                                return findings
+                            used += 1
+                            encoded = quote_plus(payload)
+                            separator = "&" if "?" in endpoint else "?"
+                            url = f"{endpoint}{separator}{param}={encoded}"
+                            try:
+                                resp = session.get(url, timeout=timeout, allow_redirects=False)
+                                body = (resp.text or "")[:1200]
+                            except Exception:
+                                continue
+
+                            body_low = body.lower()
+                            is_hit = False
+                            evidence = ""
+                            if test_type == "idor" and resp.status_code == 200 and param.lower() == "id":
+                                is_hit = True
+                                evidence = f"ID parameter accepted with status={resp.status_code}."
+                            elif test_type == "ssrf" and any(x in body_low for x in ["localhost", "127.0.0.1", "metadata"]):
+                                is_hit = True
+                                evidence = "Response contains internal-host indicators after remote URL parameter injection."
+                            elif test_type == "command_injection" and re.search(r"(uid=\d+|gid=\d+|root:x:)", body_low):
+                                is_hit = True
+                                evidence = "Response includes command execution indicators."
+                            elif test_type == "sqli" and any(x in body_low for x in ["sql syntax", "mysql", "postgres", "sqlite", "odbc"]):
+                                is_hit = True
+                                evidence = "Response contains SQL error patterns."
+                            elif test_type == "path_traversal" and any(x in body_low for x in ["root:x:0:0", "[extensions]"]):
+                                is_hit = True
+                                evidence = "Traversal payload returned sensitive file signature."
+
+                            if not is_hit:
+                                continue
+
+                            findings.append({
+                                "title": f"API Fuzzing Signal: {test_type.replace('_', ' ').title()}",
+                                "severity": "high" if test_type in {"command_injection", "sqli", "path_traversal"} else "medium",
+                                "confidence": "medium",
+                                "tool_source": "api_fuzz_engine",
+                                "module": "api_fuzzing",
+                                "category": test_type,
+                                "endpoint": endpoint,
+                                "parameter": param,
+                                "payload": payload,
+                                "response": body,
+                                "evidence": evidence,
+                                "repro_command": f"curl -isk '{url}'",
+                                "metadata": {"status_code": resp.status_code, "test_type": test_type},
+                            })
+        finally:
+            session.close()
+
+        return findings
+
+
+class ExploitValidationEngine:
+    """Optional safe validation for high-risk findings with deterministic payloads."""
+
+    @staticmethod
+    def _is_candidate(finding):
+        title = str(finding.get("title", "")).lower()
+        category = str(finding.get("category", "")).lower()
+        combined = f"{title} {category}"
+        markers = ["ssrf", "lfi", "rce", "open redirect", "cors", "http method", "upload"]
+        return any(m in combined for m in markers)
+
+    @classmethod
+    def validate(cls, findings, options=None):
+        options = options or {}
+        if not options.get("enable_exploit_validation", False):
+            return []
+
+        max_requests = int(options.get("validation_max_requests", 20) or 20)
+        timeout = float(options.get("timeout", 6) or 6)
+        if max_requests <= 0:
+            return []
+
+        session = get_session(options)
+        out = []
+        used = 0
+
+        try:
+            for item in findings:
+                if not isinstance(item, dict) or not cls._is_candidate(item):
+                    continue
+
+                endpoint = item.get("endpoint") or item.get("target")
+                if not endpoint or not str(endpoint).startswith(("http://", "https://")):
+                    continue
+
+                title_low = str(item.get("title", "")).lower()
+                cat_low = str(item.get("category", "")).lower()
+                target = f"{title_low} {cat_low}"
+
+                tests = []
+                if "ssrf" in target:
+                    tests.append(("url", "http://169.254.169.254/latest/meta-data/"))
+                    tests.append(("url", "http://127.0.0.1/"))
+                if "lfi" in target:
+                    tests.append(("file", "../../../../etc/passwd"))
+                    tests.append(("file", "../../../../windows/win.ini"))
+                if "open redirect" in target or "redirect" in target:
+                    tests.append(("next", "https://example.com"))
+
+                for param, payload in tests:
+                    if used >= max_requests:
+                        return out
+                    used += 1
+                    encoded = quote_plus(payload)
+                    sep = "&" if "?" in endpoint else "?"
+                    url = f"{endpoint}{sep}{param}={encoded}"
+                    try:
+                        resp = session.get(url, timeout=timeout, allow_redirects=False, headers={"Origin": "https://evil.example"})
+                        body = (resp.text or "")[:1500]
+                    except Exception:
+                        continue
+
+                    body_low = body.lower()
+                    valid = False
+                    validation_type = "safe_probe"
+                    evidence = ""
+                    if "ssrf" in target and any(x in body_low for x in ["meta-data", "localhost", "127.0.0.1"]):
+                        valid = True
+                        validation_type = "ssrf"
+                        evidence = "Internal resource markers observed in response after URL parameter probe."
+                    elif "lfi" in target and ("root:x:0:0" in body_low or "[extensions]" in body_low):
+                        valid = True
+                        validation_type = "lfi"
+                        evidence = "Sensitive file signature returned by path payload."
+                    elif ("open redirect" in target or "redirect" in target) and resp.status_code in {301, 302, 303, 307, 308}:
+                        location = resp.headers.get("Location", "")
+                        if "example.com" in location:
+                            valid = True
+                            validation_type = "open_redirect"
+                            evidence = f"Server redirected to attacker-controlled host: {location}"
+
+                    if valid:
+                        out.append({
+                            "title": f"Exploit Validation Confirmed: {validation_type.upper()}",
+                            "severity": "high",
+                            "confidence": "high",
+                            "tool_source": "exploit_validation_engine",
+                            "module": "exploit_validation",
+                            "category": "exploit_validation",
+                            "endpoint": endpoint,
+                            "parameter": param,
+                            "payload": payload,
+                            "request": f"GET {url} HTTP/1.1",
+                            "response": body,
+                            "evidence": evidence,
+                            "repro_command": f"curl -isk '{url}'",
+                            "metadata": {"source_finding": item.get("id_stable"), "status_code": resp.status_code, "validation_type": validation_type},
+                        })
+
+                if used < max_requests and ("cors" in target or "http method" in target or "upload" in target):
+                    used += 1
+                    try:
+                        options_resp = session.options(endpoint, timeout=timeout, allow_redirects=False, headers={"Origin": "https://evil.example"})
+                    except Exception:
+                        continue
+
+                    allow = options_resp.headers.get("Allow", "")
+                    acao = options_resp.headers.get("Access-Control-Allow-Origin", "")
+                    acac = options_resp.headers.get("Access-Control-Allow-Credentials", "")
+                    if "cors" in target and acao == "*" and str(acac).lower() == "true":
+                        out.append({
+                            "title": "Exploit Validation Confirmed: CORS Abuse",
+                            "severity": "high",
+                            "confidence": "high",
+                            "tool_source": "exploit_validation_engine",
+                            "module": "exploit_validation",
+                            "category": "exploit_validation",
+                            "endpoint": endpoint,
+                            "request": f"OPTIONS {endpoint} HTTP/1.1",
+                            "response": str(dict(options_resp.headers)),
+                            "evidence": "ACAO=* and ACAC=true observed in validation response.",
+                            "repro_command": f"curl -isk -X OPTIONS -H 'Origin: https://evil.example' '{endpoint}'",
+                            "metadata": {"validation_type": "cors", "allow": allow},
+                        })
+                    if "http method" in target and any(m in allow.upper() for m in ["PUT", "DELETE", "TRACE", "CONNECT"]):
+                        out.append({
+                            "title": "Exploit Validation Confirmed: Dangerous HTTP Methods",
+                            "severity": "high",
+                            "confidence": "high",
+                            "tool_source": "exploit_validation_engine",
+                            "module": "exploit_validation",
+                            "category": "exploit_validation",
+                            "endpoint": endpoint,
+                            "response": str(dict(options_resp.headers)),
+                            "evidence": f"Server allows unsafe methods via Allow header: {allow}",
+                            "repro_command": f"curl -isk -X OPTIONS '{endpoint}'",
+                            "metadata": {"validation_type": "http_methods", "allow": allow},
+                        })
+
+        finally:
+            session.close()
+
+        return out
