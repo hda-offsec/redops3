@@ -158,6 +158,45 @@ class CortexEngine:
                 chain=['ssrf_surface', 'metadata_service', 'credential_theft'],
             )
 
+        has_js_route = has(lambda f, t: 'javascript' in t or 'hidden route' in t or (getattr(f, 'category', '') or '') == 'api_surface')
+        if has_js_route:
+            paths.append({
+                'title': 'Cortex Attack Plan: Investigate JS-Derived Routes',
+                'description': 'Planning layer recommends focused validation of JavaScript-derived routes, especially admin/auth paths already present in telemetry.',
+                'severity': 'medium',
+                'confidence': 'high',
+                'tool_source': 'cortex_engine',
+                'module': 'cortex_planner',
+                'category': 'attack_plan',
+                'metadata': {
+                    'title': 'Inspect JS-derived admin route',
+                    'description': 'Validate authorization and hidden-route accessibility for JS-mined endpoints.',
+                    'rationale': 'Deterministic route intelligence from passive telemetry and API surface findings.',
+                    'related_signal_ids': [],
+                    'related_finding_ids': [],
+                    'attack_priority': 'medium',
+                },
+            })
+
+        if has_ssrf:
+            paths.append({
+                'title': 'Cortex Next Step: Probe SSRF Metadata Path',
+                'description': 'Recommended bounded probe: validate SSRF controls against metadata service patterns using non-destructive request variants.',
+                'severity': 'medium',
+                'confidence': 'medium',
+                'tool_source': 'cortex_engine',
+                'module': 'cortex_planner',
+                'category': 'next_step',
+                'metadata': {
+                    'title': 'Investigate SSRF against metadata service',
+                    'description': 'Replay safe SSRF patterns to metadata endpoints only where existing evidence indicates input control.',
+                    'rationale': 'SSRF and metadata-service indicators appear in findings telemetry.',
+                    'related_signal_ids': [],
+                    'related_finding_ids': [],
+                    'attack_priority': 'high',
+                },
+            })
+
         return paths
 
 
@@ -191,6 +230,15 @@ class RiskScoringEngine:
         attack_path_weight = min(1.0, chain_length / 4.0)
         in_attack_graph = 1.0 if (finding.id_stable and f"finding:db:{finding.id_stable}" in attack_graph_node_ids) else 0.0
 
+        component = str(metadata.get("component") or "").lower()
+        dependency_risk = 0.0
+        if (finding.category or "").lower() in {"dependency_surface", "cve_candidate"}:
+            dependency_risk = 0.8
+        elif (finding.category or "").lower() == "tech_fingerprint":
+            dependency_risk = 0.5
+        if component in {"jquery", "wordpress", "apache", "nginx"}:
+            dependency_risk = max(dependency_risk, 0.6)
+
         validated = 1.0 if (
             metadata.get("exploit_validated") is True
             or "exploit validation" in ((finding.title or "") + " " + (finding.description or "")).lower()
@@ -203,6 +251,7 @@ class RiskScoringEngine:
             + (signal_weight * 0.15)
             + (attack_path_weight * 0.15)
             + (validated * 0.10)
+            + (dependency_risk * 0.03)
             + (in_attack_graph * 0.05)
         ) * 100
         exploit_score = round(max(0.0, min(100.0, exploit_score)), 2)
@@ -251,6 +300,10 @@ def apply_risk_scores(scan_id, graph=None):
             metadata["attack_complexity"] = attack_complexity
 
         metadata["attack_priority"] = attack_priority
+        metadata["action_priority"] = int(exploit_score)
+        metadata["action_type"] = "guided_probe" if category in {"attack_plan", "next_step", "attack_path", "attack_chain"} else "triage"
+        metadata["estimated_value"] = "high" if exploit_score >= 70 else "medium" if exploit_score >= 40 else "low"
+        metadata["estimated_complexity"] = "high" if exploit_score >= 80 else "medium" if exploit_score >= 45 else "low"
         metadata["exploit_score"] = exploit_score
         metadata["risk_level"] = risk_level
         metadata["signal_count"] = len(finding.signal_ids) if isinstance(finding.signal_ids, list) else 0
