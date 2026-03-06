@@ -99,6 +99,7 @@ class DetectionAdapter:
             "evidence": extra.get("evidence", ""),
             "reproduction": extra.get("reproduction", ""),
             "module": extra.get("module", tool_source),
+            "metadata": extra.get("metadata", {}),
         }
 
     # ------------------------------------------------------------------
@@ -249,7 +250,10 @@ class DetectionAdapter:
                 raw_output=getattr(f, "raw_output", ""),
                 signal_ids=getattr(f, "signal_ids", []),
                 category=getattr(f, "category", ""),
+                evidence=getattr(f, "evidence", ""),
+                reproduction=getattr(f, "reproduction", ""),
                 module=getattr(f, "module", f.tool_source),
+                metadata=getattr(f, "metadata_json", {}) or {},
             )
 
         # -------------------------
@@ -297,6 +301,12 @@ class DetectionAdapter:
                         parameter=item.get("parameter", ""),
                         evidence=item.get("evidence", ""),
                         category=item.get("category", ""),
+                        target=item.get("target", ""),
+                        raw_output=item.get("raw_output", item.get("description", "")),
+                        signal_ids=item.get("signal_ids", []),
+                        module=item.get("module", tool),
+                        reproduction=item.get("reproduction", item.get("repro_command", "")),
+                        metadata=item.get("metadata", {}),
                     )
 
         # -------------------------

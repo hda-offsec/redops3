@@ -179,6 +179,9 @@
                 ${f.parameter ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Parameter:</span> <span class="text-warning">${escapeHtml(f.parameter)}</span></div>` : ''}
                 ${f.payload ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Payload:</span> <span class="text-danger">${escapeHtml(f.payload)}</span></div>` : ''}
                 ${f.evidence ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Evidence:</span> <span class="text-info">${escapeHtml(String(f.evidence).slice(0, 500))}</span></div>` : ''}
+                ${f.reproduction ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Reproduction:</span> <span class="text-warning">${escapeHtml(String(f.reproduction).slice(0, 500))}</span></div>` : ''}
+                ${f.signal_ids && f.signal_ids.length ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Signals:</span> <span class="text-info font-monospace">${escapeHtml(f.signal_ids.join(', '))}</span></div>` : ''}
+                ${f.category === 'attack_chain' && f.metadata && f.metadata.chain ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain:</span> <span class="text-danger">${escapeHtml((f.metadata.chain || []).join(' -> '))}</span></div>` : ''}
             </div>
         `;
 

@@ -207,21 +207,33 @@ class ScanOrchestrator:
 
         signal_id = None
 
+        evidence_value = kwargs.get("evidence")
+        if isinstance(evidence_value, (dict, list)):
+            try:
+                evidence_value = json.dumps(evidence_value, default=str)
+            except Exception:
+                evidence_value = str(evidence_value)
+
         signal_payload = {
             "tool": kwargs.get("tool_source") or kwargs.get("tool") or "orchestrator",
             "module": kwargs.get("module") or kwargs.get("tool_source") or kwargs.get("tool") or "orchestrator",
             "type": kwargs.get("category") or kwargs.get("type") or "finding",
             "target": kwargs.get("target") or kwargs.get("url") or self.target,
-            "endpoint": kwargs.get("endpoint") or kwargs.get("url"),
+            "endpoint": kwargs.get("endpoint") or kwargs.get("url") or kwargs.get("target") or self.target,
             "parameter": kwargs.get("parameter"),
             "payload": kwargs.get("payload"),
             "status_code": kwargs.get("status_code"),
             "response_headers": kwargs.get("response_headers") or kwargs.get("headers"),
-            "response_evidence": kwargs.get("evidence") if isinstance(kwargs.get("evidence"), str) else None,
+            "response_evidence": evidence_value,
             "raw_output": kwargs.get("raw_output")
             or kwargs.get("response")
-            or kwargs.get("description"),
-            "metadata": kwargs.get("metadata") or {}
+            or kwargs.get("description")
+            or kwargs.get("evidence"),
+            "metadata": {
+                **(kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}),
+                "timestamp": datetime.utcnow().isoformat(),
+                "finding_title": kwargs.get("title"),
+            }
         }
 
         try:
@@ -249,20 +261,20 @@ class ScanOrchestrator:
         import hashlib
         from urllib.parse import urlparse
 
+        endpoint_seed = kwargs.get("endpoint") or kwargs.get("target") or kwargs.get("url") or ""
         try:
-            url_raw = kwargs.get("target", kwargs.get("url", ""))
-            parsed = urlparse(str(url_raw))
-            url_path = parsed.path or "/"
+            parsed = urlparse(str(endpoint_seed))
+            endpoint_fingerprint = parsed.geturl() or parsed.path or "/"
         except Exception:
-            url_path = "/"
+            endpoint_fingerprint = str(endpoint_seed)
 
         fp_seed = (
             str(kwargs.get("title", "")) + "|"
-            + url_path + "|"
-            + str(kwargs.get("severity", "")) + "|"
-            + str(kwargs.get("tool_source", "")) + "|"
+            + endpoint_fingerprint + "|"
             + str(kwargs.get("parameter", "")) + "|"
-            + str(kwargs.get("payload", ""))
+            + str(kwargs.get("payload", "")) + "|"
+            + str(kwargs.get("severity", "")) + "|"
+            + str(kwargs.get("tool_source", kwargs.get("tool", "")))
         )
 
         fingerprint = hashlib.sha256(fp_seed.encode()).hexdigest()

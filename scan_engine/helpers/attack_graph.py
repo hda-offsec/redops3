@@ -142,6 +142,11 @@ class AttackGraphBuilder:
                 self._add_edge(target_node_id, chain_id, "contains")
                 if endpoint:
                     self._add_edge(chain_id, f"endpoint:derived:{endpoint}", "leads_to")
+                chain_meta = (finding.get("metadata") or {}).get("chain", []) if isinstance(finding.get("metadata"), dict) else []
+                for link in chain_meta:
+                    link_id = f"vulnerability:chain_link:{link}"
+                    self.nodes.append({"type": "vulnerability", "id": link_id, "label": str(link), "data": {"name": link}})
+                    self._add_edge(chain_id, link_id, "depends_on")
         # --- PHASE 4.5: BACKEND SURFACE EXPOSURE (ARCHITECTURE DRIVEN) ---
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():

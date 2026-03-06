@@ -12,6 +12,7 @@ from scan_engine.step02_enum.katana_scanner import KatanaScanner
 from scan_engine.helpers.process_manager import ProcessManager
 from scan_engine.helpers.enum_seed_factory import EnumSeedFactory
 from scan_engine.helpers.context_attack_engine import ContextAttackEngine
+from scan_engine.helpers.js_mining_expert import JSDeepMiningExpert
 
 # prioritization moved to EnumSeedFactory
 
@@ -151,6 +152,8 @@ def run_enum(orchestrator, port, proto):
         results['phases']['enum'].setdefault('targets', {})
         results['phases']['enum'].setdefault('injection_points', {})
         results['phases']['enum'].setdefault('seed_meta', {})
+        results['phases']['enum'].setdefault('js_deep_mining', {})
+        results['phases']['enum'].setdefault('http_methods', {})
         results['phases']['enum'].setdefault('normalized', {})
         results['phases']['enum'].setdefault('derived', {})
         results.setdefault('commands', [])
@@ -205,6 +208,16 @@ def run_enum(orchestrator, port, proto):
     try:
         header_analysis = analyze_security_headers(target, port, proto, log, options=orch.options)
         _ts(lambda: results['phases']['enum'].setdefault('headers', {}).__setitem__(str(port), header_analysis))
+
+        allow_methods = []
+        allow_entry = header_analysis.get('Allow') or header_analysis.get('allow')
+        if isinstance(allow_entry, dict):
+            allow_val = allow_entry.get('value')
+            if isinstance(allow_val, str):
+                allow_methods = [m.strip().upper() for m in allow_val.split(',') if m.strip()]
+        base_endpoint = f"{proto}://{target}:{port}/"
+        if allow_methods:
+            _ts(lambda: results['phases']['enum'].setdefault('http_methods', {}).__setitem__(base_endpoint, allow_methods))
         
         # V10: Surface missing headers as LOW findings (hardening, not vulnerability)
         missing = [k for k, v in header_analysis.items() if v.get('status') == 'missing']
@@ -263,6 +276,34 @@ def run_enum(orchestrator, port, proto):
                      severity="info",
                      tool_source="katana"
                  )
+
+             try:
+                 js_scanner = JSSecretScanner(target, options=orch.options)
+                 js_summary = js_scanner.scan_list(endpoints, logger=log)
+                 if js_summary.get("secrets"):
+                     _ts(lambda: results['phases']['enum'].setdefault('js_secrets', {}).__setitem__(str(port), [x for arr in js_summary['secrets'].values() for x in arr]))
+                 if js_summary.get("endpoints"):
+                     _ts(lambda: results['phases']['enum'].setdefault('api', {}).setdefault('discovered_endpoints', []).extend(js_summary.get('endpoints', [])))
+
+                 deep = JSDeepMiningExpert(target, options=orch.options).mine_endpoints([u for u in endpoints if isinstance(u, str) and u.endswith('.js')], timeout=45, logger=log)
+                 _ts(lambda: results['phases']['enum'].setdefault('js_deep_mining', {}).__setitem__(str(port), deep))
+
+                 if deep.get('discovered_endpoints'):
+                     sample = ", ".join(deep.get('discovered_endpoints', [])[:5])
+                     orch.add_finding(
+                         title=f"JavaScript Intelligence Discovery ({port})",
+                         description=f"JS mining extracted {len(deep.get('discovered_endpoints', []))} endpoints. Sample: {sample}",
+                         severity="info",
+                         tool_source="js_deep_scanner",
+                         module="js_mining",
+                         category="js_intelligence",
+                         endpoint=f"{proto}://{target}:{port}",
+                         evidence=sample,
+                         raw_output=str(deep)[:2000],
+                         metadata={"status": deep.get('status'), "js_files_scanned": deep.get('js_files_scanned')}
+                     )
+             except Exception as js_e:
+                 log(f"JavaScript mining failed: {js_e}", "DEBUG")
     except Exception as e:
         log(f"Katana scan failed: {e}", "DEBUG")
         orch.mark_module("katana", port, "failed", reason=str(e))
