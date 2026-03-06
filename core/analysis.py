@@ -96,3 +96,98 @@ def run_signal_correlation(scan_id, add_finding_cb):
     if created:
         db.session.commit()
     return created
+
+
+class CortexEngine:
+    """Reason over findings/signals to generate deterministic attack path intelligence."""
+
+    @staticmethod
+    def _mk_text(f):
+        return f"{(getattr(f, 'title', '') or '').lower()} {(getattr(f, 'description', '') or '').lower()} {(getattr(f, 'category', '') or '').lower()}"
+
+    @classmethod
+    def derive_attack_paths(cls, findings):
+        paths = []
+        texts = [cls._mk_text(f) for f in findings]
+
+        def has(pred):
+            return any(pred(f, t) for f, t in zip(findings, texts))
+
+        def add(title, description, severity='high', confidence='medium', chain=None):
+            paths.append({
+                'title': title,
+                'description': description,
+                'severity': severity,
+                'confidence': confidence,
+                'tool_source': 'cortex_engine',
+                'module': 'cortex_reasoning',
+                'category': 'attack_path',
+                'metadata': {'chain': chain or []},
+            })
+
+        has_auth_surface = has(lambda f, t: 'auth' in t or (getattr(f, 'category', '') or '') in {'authentication_surface', 'auth_surface'})
+        has_token = has(lambda f, t: 'token' in t or 'jwt' in t or (getattr(f, 'category', '') or '') in {'jwt_exposure', 'token_leakage', 'api_key_exposure'})
+        if has_auth_surface and has_token:
+            add(
+                'Cortex Attack Path: Auth Surface + Token Material -> Authenticated API Access',
+                'Reasoning engine linked authentication surface with token leakage indicators, enabling probable authenticated API abuse path.',
+                severity='high',
+                confidence='high',
+                chain=['auth_surface', 'token_leakage', 'authenticated_api_access'],
+            )
+
+        has_upload = has(lambda f, t: 'upload' in t or (getattr(f, 'category', '') or '') == 'upload_surface')
+        has_methods = has(lambda f, t: 'dangerous http methods' in t or (getattr(f, 'category', '') or '') == 'http_method_exposure')
+        if has_upload and has_methods:
+            add(
+                'Cortex Attack Path: Upload Surface + Dangerous Methods -> Arbitrary File Write Risk',
+                'Reasoning engine correlated upload exposure and unsafe HTTP methods, producing a probable arbitrary file write/webshell route.',
+                severity='high',
+                confidence='high',
+                chain=['upload_surface', 'dangerous_http_methods', 'arbitrary_file_write'],
+            )
+
+        has_ssrf = has(lambda f, t: 'ssrf' in t or (getattr(f, 'category', '') or '') in {'ssrf_surface', 'metadata_service_exposure'})
+        has_metadata = has(lambda f, t: '169.254.169.254' in t or 'metadata service' in t or (getattr(f, 'category', '') or '') == 'metadata_service_exposure')
+        if has_ssrf and has_metadata:
+            add(
+                'Cortex Attack Path: SSRF Surface -> Cloud Metadata Credential Theft',
+                'Reasoning engine identified SSRF-capable input and metadata-service exposure signals, indicating probable cloud credential theft path.',
+                severity='high',
+                confidence='medium',
+                chain=['ssrf_surface', 'metadata_service', 'credential_theft'],
+            )
+
+        return paths
+
+
+def run_cortex_attack_reasoning(scan_id, add_finding_cb):
+    findings = Finding.query.filter_by(scan_id=scan_id).all()
+    if not findings:
+        return 0
+
+    paths = CortexEngine.derive_attack_paths(findings)
+    if not paths:
+        return 0
+
+    created = 0
+    existing_titles = {f.title for f in findings}
+    for item in paths:
+        if item['title'] in existing_titles:
+            continue
+        add_finding_cb(
+            scan_id=scan_id,
+            title=item['title'],
+            description=item['description'],
+            severity=item['severity'],
+            confidence=item['confidence'],
+            tool_source=item['tool_source'],
+            module=item['module'],
+            category=item['category'],
+            metadata=item.get('metadata') or {},
+            evidence=item['description'],
+            reproduction='Trace prerequisite findings and validate each hop using recorded evidence and endpoints.',
+        )
+        created += 1
+
+    return created

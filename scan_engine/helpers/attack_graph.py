@@ -142,6 +142,7 @@ class AttackGraphBuilder:
                 self._add_edge(target_node_id, auth_id, "contains")
                 if endpoint:
                     self._add_edge(auth_id, f"endpoint:derived:{endpoint}", "auth_exposes")
+                    self._add_edge(auth_id, f"endpoint:derived:{endpoint}", "auth_protects")
 
             if category == "api_surface":
                 api_id = f"api_surface:{finding.get('id_stable') or idx}"
@@ -149,6 +150,7 @@ class AttackGraphBuilder:
                 self._add_edge(target_node_id, api_id, "contains")
                 if endpoint:
                     self._add_edge(api_id, f"endpoint:derived:{endpoint}", "auth_exposes")
+                    self._add_edge(api_id, f"endpoint:derived:{endpoint}", "api_exposes")
 
             if category in {"jwt_exposure", "token_leakage", "api_key_exposure"}:
                 token_id = f"token:{finding.get('id_stable') or idx}"
@@ -156,6 +158,7 @@ class AttackGraphBuilder:
                 self._add_edge(target_node_id, token_id, "contains")
                 if endpoint:
                     self._add_edge(token_id, f"endpoint:derived:{endpoint}", "token_authenticates")
+                    self._add_edge(token_id, f"endpoint:derived:{endpoint}", "token_grants_access")
 
             if category == "attack_chain":
                 chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
@@ -163,11 +166,24 @@ class AttackGraphBuilder:
                 self._add_edge(target_node_id, chain_id, "contains")
                 if endpoint:
                     self._add_edge(chain_id, f"endpoint:derived:{endpoint}", "leads_to")
+                    self._add_edge(chain_id, f"endpoint:derived:{endpoint}", "path_leads_to_exploit")
                 chain_meta = (finding.get("metadata") or {}).get("chain", []) if isinstance(finding.get("metadata"), dict) else []
                 for link in chain_meta:
                     link_id = f"vulnerability:chain_link:{link}"
                     self.nodes.append({"type": "vulnerability", "id": link_id, "label": str(link), "data": {"name": link}})
                     self._add_edge(chain_id, link_id, "depends_on")
+
+            if category == "attack_path":
+                path_id = f"attack_path:{finding.get('id_stable') or idx}"
+                self.nodes.append({"type": "attack_path", "id": path_id, "label": finding.get("title", "Attack Path"), "data": finding})
+                self._add_edge(target_node_id, path_id, "contains")
+                if endpoint:
+                    self._add_edge(path_id, f"endpoint:derived:{endpoint}", "path_leads_to_exploit")
+                chain_meta = (finding.get("metadata") or {}).get("chain", []) if isinstance(finding.get("metadata"), dict) else []
+                for link in chain_meta:
+                    link_id = f"attack_path_link:{link}"
+                    self.nodes.append({"type": "attack_path_link", "id": link_id, "label": str(link), "data": {"name": link}})
+                    self._add_edge(path_id, link_id, "depends_on")
         # --- PHASE 4.5: BACKEND SURFACE EXPOSURE (ARCHITECTURE DRIVEN) ---
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():
