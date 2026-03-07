@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from sqlalchemy.orm import joinedload
-from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, KnowledgeNode, KnowledgeEdge, db
+from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, KnowledgeNode, KnowledgeEdge, Asset, AssetTargetLink, db
 from sqlalchemy import func
 from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report, generate_html_report
@@ -19,6 +19,7 @@ from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
 from core.tasks import run_scan_task
+from core.mission_intelligence import aggregate_mission_intelligence, ensure_asset_for_target, link_asset_target, OBJECTIVE_TYPES
 
 main_bp = Blueprint("main", __name__)
 
@@ -643,6 +644,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
 @login_required
 def new_scan():
     target_input = request.form.get("target")
+    mission_id = request.form.get("mission_id", type=int)
+    asset_id = request.form.get("asset_id", type=int)
     scan_type = request.form.get("scan_type", "pipeline")
     confirm_auth = request.form.get("confirm_auth")
     recursive = request.form.get("recursive") == "on"
@@ -665,9 +668,21 @@ def new_scan():
 
     target = Target.query.filter_by(identifier=target_input).first()
     if not target:
-        target = Target(identifier=target_input)
+        target = Target(identifier=target_input, mission_id=mission_id)
         db.session.add(target)
         db.session.commit()
+    elif mission_id and not target.mission_id:
+        target.mission_id = mission_id
+        db.session.commit()
+
+    if mission_id:
+        ensure_asset_for_target(mission_id, target, source="scan_form")
+
+    if asset_id:
+        asset = Asset.query.get(asset_id)
+        if asset and asset.mission_id == (mission_id or target.mission_id):
+            link_asset_target(asset, target, source="scan_form", metadata={"linked_via": "new_scan"})
+            db.session.commit()
 
     scan_params = {"recursive": recursive}
     scan = Scan(target_id=target.id, scan_type=scan_type, status="pending", params=json.dumps(scan_params))
@@ -757,16 +772,113 @@ def scan_report(scan_id):
         duration=duration
     )
 
+@main_bp.route("/api/missions/<int:mission_id>/overview")
+def mission_overview_api(mission_id):
+    payload = aggregate_mission_intelligence(mission_id)
+    return jsonify(payload)
+
+
+@main_bp.route("/api/missions/<int:mission_id>/assets", methods=["GET", "POST"])
+def mission_assets_api(mission_id):
+    Mission.query.get_or_404(mission_id)
+    if request.method == "GET":
+        assets = Asset.query.filter_by(mission_id=mission_id).order_by(Asset.created_at.desc()).all()
+        return jsonify({
+            "mission_id": mission_id,
+            "assets": [
+                {
+                    "id": a.id,
+                    "type": a.type,
+                    "identifier": a.identifier,
+                    "label": a.label,
+                    "confidence": a.confidence,
+                    "source": a.source,
+                    "provenance": a.provenance,
+                    "tags": a.tags or [],
+                    "target_ids": sorted({l.target_id for l in a.target_links}),
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                }
+                for a in assets
+            ]
+        })
+
+    data = request.get_json(silent=True) or request.form
+    identifier = (data.get("identifier") or "").strip()
+    if not identifier:
+        return jsonify({"error": "identifier is required"}), 400
+
+    asset = Asset.query.filter_by(mission_id=mission_id, identifier=identifier.lower()).first()
+    created = False
+    if not asset:
+        asset = Asset(
+            mission_id=mission_id,
+            type=(data.get("type") or "domain").strip().lower(),
+            identifier=identifier.lower(),
+            label=data.get("label") or identifier,
+            confidence=(data.get("confidence") or "medium").strip().lower(),
+            source=data.get("source") or "operator",
+            provenance=data.get("provenance") if isinstance(data.get("provenance"), dict) else None,
+            tags=data.get("tags") if isinstance(data.get("tags"), list) else [],
+        )
+        db.session.add(asset)
+        db.session.flush()
+        created = True
+
+    target_ids = data.get("target_ids") if isinstance(data.get("target_ids"), list) else []
+    for tid in target_ids:
+        target = Target.query.get(tid)
+        if target and target.mission_id == mission_id:
+            link_asset_target(asset, target, source="asset_api", metadata={"linked_via": "api"})
+
+    db.session.commit()
+    return jsonify({
+        "status": "created" if created else "updated",
+        "asset_id": asset.id,
+    }), 201 if created else 200
+
+
+@main_bp.route("/api/missions/<int:mission_id>/objectives", methods=["GET", "POST"])
+def mission_objectives_api(mission_id):
+    mission = Mission.query.get_or_404(mission_id)
+    if request.method == "GET":
+        return jsonify({
+            "mission_id": mission.id,
+            "objectives": mission.objectives_json or [],
+            "allowed_objectives": sorted(OBJECTIVE_TYPES),
+        })
+
+    data = request.get_json(silent=True) or request.form
+    objectives = data.get("objectives")
+    if isinstance(objectives, str):
+        objectives = [o.strip() for o in objectives.split(",") if o.strip()]
+    if not isinstance(objectives, list):
+        return jsonify({"error": "objectives must be a list"}), 400
+
+    invalid = [o for o in objectives if o not in OBJECTIVE_TYPES]
+    if invalid:
+        return jsonify({"error": "unsupported objectives", "invalid": invalid}), 400
+
+    mission.objectives_json = sorted(set(objectives))
+    db.session.commit()
+    return jsonify({"mission_id": mission.id, "objectives": mission.objectives_json})
+
+
 @main_bp.route("/mission/<int:mission_id>/map")
 def mission_map(mission_id):
     mission = Mission.query.get_or_404(mission_id)
     targets = Target.query.filter_by(mission_id=mission_id).all()
-    
+    assets = Asset.query.filter_by(mission_id=mission_id).all()
+    intelligence = aggregate_mission_intelligence(mission_id)
+
     # Bundle all relevant scan data for these targets
     graph_data = {"nodes": [], "edges": []}
-    
+
     # Mission node
     graph_data["nodes"].append({"id": f"m{mission.id}", "label": mission.name, "group": "mission", "level": 0})
+    for a in assets:
+        aid = f"a{a.id}"
+        graph_data["nodes"].append({"id": aid, "label": a.label or a.identifier, "group": "asset", "level": 1, "title": f"{a.type} | confidence={a.confidence}"})
+        graph_data["edges"].append({"from": f"m{mission.id}", "to": aid})
     
     # Optimization: Fetch all latest scans for targets in one go
     scan_map = {}
@@ -788,8 +900,13 @@ def mission_map(mission_id):
         if scan and scan.geolocation_data:
             label += f"\n({scan.geolocation_data.get('country', '??')})"
             
-        graph_data["nodes"].append({"id": f"t{t.id}", "label": label, "group": "target", "level": 1, "title": f"ISP: {scan.geolocation_data.get('isp')}" if scan and scan.geolocation_data else ""})
-        graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
+        graph_data["nodes"].append({"id": f"t{t.id}", "label": label, "group": "target", "level": 2, "title": f"ISP: {scan.geolocation_data.get('isp')}" if scan and scan.geolocation_data else ""})
+        linked_assets = [l.asset_id for l in t.asset_links]
+        if linked_assets:
+            for asset_id in linked_assets:
+                graph_data["edges"].append({"from": f"a{asset_id}", "to": f"t{t.id}"})
+        else:
+            graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
         
         # Add icons for critical findings on this target
         if scan:
@@ -805,7 +922,7 @@ def mission_map(mission_id):
                 })
                 graph_data["edges"].append({"from": f"t{t.id}", "to": f_id})
 
-    return render_template("missions/map.html", mission=mission, graph_data=graph_data)
+    return render_template("missions/map.html", mission=mission, graph_data=graph_data, intelligence=intelligence)
 
 @main_bp.route("/missions")
 def mission_list():
@@ -842,7 +959,10 @@ def gallery():
 def mission_new():
     name = request.form.get("name")
     desc = request.form.get("description")
-    mission = Mission(name=name, description=desc)
+    objectives_input = request.form.get("objectives", "")
+    objectives = [o.strip() for o in objectives_input.split(",") if o.strip()]
+    objectives = [o for o in objectives if o in OBJECTIVE_TYPES]
+    mission = Mission(name=name, description=desc, objectives_json=sorted(set(objectives)) or None)
     db.session.add(mission)
     db.session.commit()
     flash(f"Mission '{name}' created successfully.", "success")
@@ -943,6 +1063,8 @@ def clear_logs():
         db.session.query(ScanLog).delete()
         db.session.query(Loot).delete()
         db.session.query(Scan).delete()
+        db.session.query(AssetTargetLink).delete()
+        db.session.query(Asset).delete()
         db.session.query(Target).delete()
         db.session.query(Mission).delete()
         

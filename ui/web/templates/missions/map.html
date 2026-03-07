@@ -3,6 +3,12 @@
 {% block title %}Strategic Map: {{ mission.name }}{% endblock %}
 
 {% block content %}
+<div class="row mb-3">
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Assets</small><div class="h4 mb-0">{{ intelligence.assets|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Targets</small><div class="h4 mb-0">{{ intelligence.targets|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Findings</small><div class="h4 mb-0">{{ intelligence.findings_total }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Cross-Asset Paths</small><div class="h4 mb-0">{{ intelligence.cross_asset_paths|length }}</div></div></div></div>
+</div>
 <div class="row">
     <div class="col-12">
         <div class="card  border-secondary shadow-lg" style="height: 80vh;">
@@ -54,6 +60,7 @@
         let size = 15;
 
         if (n.group === "mission") { color = "#ff2a2a"; shape = "hexagon"; size = 40; }
+        if (n.group === "asset") { color = "#6f42c1"; shape = "box"; size = 22; }
         if (n.group === "target") { color = "#00f3ff"; shape = "dot"; size = 25; }
         if (n.group === "critical") { color = "#ff2a2a"; shape = "star"; size = 20; }
         if (n.group === "high") { color = "#ff9d00"; shape = "triangle"; size = 18; }

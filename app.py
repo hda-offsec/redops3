@@ -58,6 +58,18 @@ def run_runtime_migrations(app):
                 for col, ddl in signal_alter.items():
                     if col not in signal_cols:
                         conn.execute(db.text(ddl))
+
+                mission_cols = {row[1] for row in conn.execute(db.text("PRAGMA table_info(missions);")).fetchall()}
+                if "objectives" not in mission_cols:
+                    conn.execute(db.text("ALTER TABLE missions ADD COLUMN objectives JSON;"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS assets (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), type TEXT NOT NULL DEFAULT 'domain', identifier TEXT NOT NULL, label TEXT, confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, provenance JSON, tags JSON, created_at DATETIME);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_mission_id ON assets(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_identifier ON assets(identifier);"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS asset_target_links (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), target_id INTEGER NOT NULL REFERENCES targets(id), link_type TEXT NOT NULL DEFAULT 'observed', confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, metadata JSON, created_at DATETIME, CONSTRAINT uq_asset_target_link UNIQUE (asset_id, target_id));"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_asset_id ON asset_target_links(asset_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_target_id ON asset_target_links(target_id);"))
     except Exception as e:
         app.logger.warning(f"Runtime migration check failed: {e}")
 
@@ -235,6 +247,20 @@ if __name__ == "__main__":
                         if col_name not in columns:
                             print(f"Migrating database: adding {col_name} to findings table...")
                             conn.execute(db.text(ddl))
+
+
+                    mission_columns = [row[1] for row in conn.execute(db.text("PRAGMA table_info(missions);")).fetchall()]
+                    if "objectives" not in mission_columns:
+                        print("Migrating database: adding objectives to missions table...")
+                        conn.execute(db.text("ALTER TABLE missions ADD COLUMN objectives JSON;"))
+
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS assets (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), type TEXT NOT NULL DEFAULT 'domain', identifier TEXT NOT NULL, label TEXT, confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, provenance JSON, tags JSON, created_at DATETIME);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_mission_id ON assets(mission_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_identifier ON assets(identifier);"))
+
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS asset_target_links (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), target_id INTEGER NOT NULL REFERENCES targets(id), link_type TEXT NOT NULL DEFAULT 'observed', confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, metadata JSON, created_at DATETIME, CONSTRAINT uq_asset_target_link UNIQUE (asset_id, target_id));"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_asset_id ON asset_target_links(asset_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_target_id ON asset_target_links(target_id);"))
             except Exception as e:
                 print(f"Migration check failed: {e}")
 
