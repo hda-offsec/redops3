@@ -2,6 +2,7 @@ from datetime import datetime
 
 from core.extensions import db
 from core.models import Finding
+from scan_engine.helpers.finding_schema import merge_chain_explanation, merge_field_sources
 
 
 def _exists(scan_id, title):
@@ -26,6 +27,27 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
     parameter = next((f.parameter for f in source_findings if getattr(f, "parameter", None)), None)
     combined_evidence = "\n".join([f.evidence for f in source_findings if isinstance(getattr(f, "evidence", None), str)])[:2000]
     combined_raw = "\n".join([f.raw_output for f in source_findings if isinstance(getattr(f, "raw_output", None), str)])[:3000]
+    source_categories = sorted({(f.category or "general") for f in source_findings})
+    related_finding_ids = [f.id for f in source_findings if getattr(f, "id", None) is not None]
+    chain_explanation = merge_chain_explanation(
+        (metadata or {}).get("chain_explanation"),
+        {
+            "reason": description,
+            "source_categories": source_categories,
+            "related_signal_ids": signal_ids,
+            "related_finding_ids": related_finding_ids,
+            "combined_evidence_summary": (combined_evidence or description)[:400],
+            "likely_next_action": "Validate each prerequisite finding and safely replay the chain in sequence.",
+        },
+    )
+    metadata_payload = dict(metadata or {"tags": ["attack_chain"]})
+    metadata_payload["chain_explanation"] = chain_explanation
+    metadata_payload["related_finding_ids"] = related_finding_ids
+    metadata_payload["field_sources"] = merge_field_sources(
+        metadata_payload.get("field_sources"),
+        {"evidence": "correlation_engine", "raw_output": "correlation_engine"},
+    )
+
     finding = Finding(
         scan_id=scan_id,
         title=title,
@@ -37,7 +59,7 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         category="attack_chain",
         target=target,
         endpoint=endpoint,
-        metadata_json={**(metadata or {"tags": ["attack_chain"]}), "timestamp": datetime.utcnow().isoformat() + "Z"},
+        metadata_json={**metadata_payload, "timestamp": datetime.utcnow().isoformat() + "Z"},
         evidence=combined_evidence or description,
         raw_output=combined_raw or description,
         signal_ids=signal_ids or [],

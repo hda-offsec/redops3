@@ -200,6 +200,15 @@ class AttackGraphBuilder:
                 if endpoint_id:
                     self._add_edge(plan_id, endpoint_id, "suggests")
 
+            if category in {"mission_prep", "objective_path"}:
+                objective_type = metadata.get("objective_type") or "objective"
+                objective_id = self._node_id(category, objective_type, finding.get('id_stable') or idx)
+                self._add_node({"type": category, "id": objective_id, "label": finding.get("title", objective_type), "data": finding})
+                self._add_edge(target_node_id, objective_id, "supports_objective")
+                for related in metadata.get("supporting_findings", []) if isinstance(metadata.get("supporting_findings"), list) else []:
+                    related_id = f"finding:db:{related}"
+                    self._add_edge(objective_id, related_id, "requires")
+
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():
             for _, items in data.get("tree", {}).items():

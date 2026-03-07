@@ -303,6 +303,21 @@ class PassiveIntelligenceEngine:
             md.setdefault("source", source)
             md.setdefault("confidence", confidence)
             md.setdefault("timestamp", datetime.utcnow().isoformat() + "Z")
+            field_sources = md.get("field_sources") if isinstance(md.get("field_sources"), dict) else {}
+            if endpoint:
+                field_sources.setdefault("endpoint", source)
+            if parameter:
+                field_sources.setdefault("parameter", source)
+            if evidence:
+                field_sources.setdefault("evidence", source)
+            if md.get("provider"):
+                field_sources.setdefault("provider", source)
+            if md.get("component"):
+                field_sources.setdefault("component", source)
+            if md.get("version"):
+                field_sources.setdefault("version", source)
+            if field_sources:
+                md["field_sources"] = field_sources
             findings.append(normalize_finding_shape({
                 "title": title,
                 "severity": severity,
@@ -541,6 +556,11 @@ class PassiveIntelligenceEngine:
 
         tech_findings = [f for f in findings if f.get("category") in {"tech_fingerprint", "dependency_surface"}]
         if not cls.LOCAL_CVE_RULES and tech_findings:
+            related_components = sorted({
+                (f.get("metadata") or {}).get("component")
+                for f in tech_findings
+                if isinstance(f.get("metadata"), dict) and (f.get("metadata") or {}).get("component")
+            })
             add(
                 title="CVE Intelligence Hook Active (No Local Rules)",
                 severity="info",
@@ -555,6 +575,7 @@ class PassiveIntelligenceEngine:
                     "rationale": "Telemetry has component/version clues but repository has no CVE mapping source.",
                     "related_signal_ids": [],
                     "related_finding_ids": [],
+                    "component": ", ".join(related_components[:3]) if related_components else "dependency_surface",
                     "attack_priority": "low",
                     "action_priority": 20,
                     "action_type": "intel_gap",
@@ -580,6 +601,7 @@ class PassiveIntelligenceEngine:
                     "rationale": "Plan derived from correlated findings, telemetry evidence, and deterministic severity/confidence ordering.",
                     "related_signal_ids": [],
                     "related_finding_ids": [],
+                    "attack_chain": "evidence_backed_chain",
                     "attack_priority": "high" if high_signal >= 8 else "medium",
                     "action_priority": 80 if high_signal >= 8 else 60,
                     "action_type": "guided_probe",
@@ -591,6 +613,84 @@ class PassiveIntelligenceEngine:
 
         findings.extend(AssetDiscoveryEngine.derive_findings(results, target))
         findings.extend(SecretsIntelligenceEngine.derive_findings(results, target))
+
+        existing_categories = {(f.get("category") or "") for f in findings}
+        mission_catalog = [
+            {
+                "objective_type": "authenticated_api_path",
+                "required_categories": ["auth_surface", "api_surface"],
+                "title": "Mission Prep: Authenticated API Path",
+                "description": "Authentication and API telemetry overlap; prepare authenticated endpoint abuse workflow.",
+                "required_conditions": ["authentication surface", "api surface"],
+                "recommended_next_steps": ["validate auth flow tokens", "test role boundaries on discovered APIs"],
+            },
+            {
+                "objective_type": "cloud_credential_path",
+                "required_categories": ["secret_exposure", "cloud_asset"],
+                "title": "Mission Prep: Cloud Credential Path",
+                "description": "Cloud assets and credential artifacts overlap; prioritize containment-safe credential validation.",
+                "required_conditions": ["cloud asset telemetry", "credential/token evidence"],
+                "recommended_next_steps": ["scope token permissions", "validate least-privilege gaps"],
+            },
+            {
+                "objective_type": "source_code_leak_path",
+                "required_categories": ["git_exposure", "secret_exposure"],
+                "title": "Mission Prep: Source Code Leak Path",
+                "description": "Source-recovery indicators and secret telemetry overlap; prepare controlled source triage.",
+                "required_conditions": ["repository exposure", "secret evidence"],
+                "recommended_next_steps": ["verify repository exposure", "map leaked secrets to active services"],
+            },
+        ]
+
+        for mission in mission_catalog:
+            if not all(req in existing_categories for req in mission["required_categories"]):
+                continue
+            support = [
+                f for f in findings
+                if (f.get("category") or "") in set(mission["required_categories"])
+            ]
+            related_finding_ids = [f.get("id_stable") for f in support if f.get("id_stable")]
+            supporting_signals = []
+            for finding in support:
+                supporting_signals.extend(finding.get("signal_ids") if isinstance(finding.get("signal_ids"), list) else [])
+            add(
+                title=mission["title"],
+                severity="medium",
+                confidence="high" if len(support) >= 2 else "medium",
+                endpoint=target,
+                category="mission_prep",
+                description=mission["description"],
+                evidence="; ".join(sorted({f.get("title", "") for f in support if f.get("title")}))[:500],
+                metadata={
+                    "objective_type": mission["objective_type"],
+                    "required_conditions": mission["required_conditions"],
+                    "supporting_findings": related_finding_ids,
+                    "supporting_signals": sorted({sid for sid in supporting_signals if sid is not None}),
+                    "recommended_next_steps": mission["recommended_next_steps"],
+                    "confidence": "high" if len(support) >= 2 else "medium",
+                    "attack_priority": "high",
+                },
+                source="mission_planner",
+            )
+            add(
+                title=f"Objective Path: {mission['objective_type']}",
+                severity="info",
+                confidence="medium",
+                endpoint=target,
+                category="objective_path",
+                description="Objective path derived from mission prep prerequisites and deterministic category correlation.",
+                evidence=mission["description"],
+                metadata={
+                    "objective_type": mission["objective_type"],
+                    "required_conditions": mission["required_conditions"],
+                    "supporting_findings": related_finding_ids,
+                    "supporting_signals": sorted({sid for sid in supporting_signals if sid is not None}),
+                    "recommended_next_steps": mission["recommended_next_steps"],
+                    "confidence": "medium",
+                    "attack_priority": "medium",
+                },
+                source="mission_planner",
+            )
 
         deduped = []
         final_seen = set()

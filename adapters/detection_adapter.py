@@ -2,7 +2,12 @@ import json
 import hashlib
 import re
 
-from scan_engine.helpers.finding_schema import normalize_finding_shape, merge_signal_ids
+from scan_engine.helpers.finding_schema import (
+    normalize_finding_shape,
+    merge_signal_ids,
+    deep_merge_metadata,
+    merge_field_sources,
+)
 
 
 class DetectionAdapter:
@@ -75,15 +80,21 @@ class DetectionAdapter:
             existing = normalized[fid]
             merged_metadata = dict(existing.get("metadata") or {})
             incoming_metadata = extra.get("metadata", {}) if isinstance(extra.get("metadata", {}), dict) else {}
-            merged_metadata.update(incoming_metadata)
+            merged_metadata = deep_merge_metadata(merged_metadata, incoming_metadata)
+            merged_metadata["field_sources"] = merge_field_sources(
+                merged_metadata.get("field_sources"),
+                incoming_metadata.get("field_sources") if isinstance(incoming_metadata.get("field_sources"), dict) else {},
+            )
             existing["signal_ids"] = merge_signal_ids(existing.get("signal_ids"), extra.get("signal_ids"))
             existing["metadata"] = merged_metadata
             existing["signal_count"] = len(existing["signal_ids"])
             existing["chain_length"] = len(merged_metadata.get("chain", [])) if isinstance(merged_metadata.get("chain"), list) else existing.get("chain_length", 0)
-            if not existing.get("raw_output"):
-                existing["raw_output"] = extra.get("raw_output", "")
-            if not existing.get("evidence"):
-                existing["evidence"] = extra.get("evidence", "")
+            incoming_raw_output = extra.get("raw_output", "")
+            if incoming_raw_output and incoming_raw_output not in str(existing.get("raw_output") or ""):
+                existing["raw_output"] = "\n".join(x for x in [existing.get("raw_output"), incoming_raw_output] if x)[:3000]
+            incoming_evidence = extra.get("evidence", "")
+            if incoming_evidence and incoming_evidence not in str(existing.get("evidence") or ""):
+                existing["evidence"] = "\n".join(x for x in [existing.get("evidence"), incoming_evidence] if x)[:3000]
             return
 
         payload = {
