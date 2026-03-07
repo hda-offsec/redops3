@@ -10,7 +10,22 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from sqlalchemy.orm import joinedload
-from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, KnowledgeNode, KnowledgeEdge, Asset, AssetTargetLink, db
+from core.models import (
+    Target,
+    Scan,
+    Finding,
+    Suggestion,
+    ScanLog,
+    Mission,
+    Loot,
+    KnowledgeNode,
+    KnowledgeEdge,
+    Asset,
+    AssetTargetLink,
+    ReplayVaultEntry,
+    AuthIdentityMap,
+    db,
+)
 from sqlalchemy import func
 from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report, generate_html_report
@@ -19,6 +34,11 @@ from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
 from core.tasks import run_scan_task
+from core.replay_vault import (
+    compare_replay_artifacts,
+    extract_auth_identity_observations,
+    normalize_replay_artifact,
+)
 from core.mission_intelligence import (
     MISSION_STATES,
     OBJECTIVE_TYPES,
@@ -32,6 +52,55 @@ from core.mission_intelligence import (
 )
 
 main_bp = Blueprint("main", __name__)
+
+
+def _serialize_replay_entry(entry):
+    return {
+        "id": entry.id,
+        "scan_id": entry.scan_id,
+        "finding_id": entry.finding_id,
+        "mission_id": entry.mission_id,
+        "target_id": entry.target_id,
+        "source": entry.source,
+        "method": entry.method,
+        "url": entry.url,
+        "endpoint": entry.endpoint,
+        "query_params": entry.query_params_json or {},
+        "request_headers": entry.request_headers_json or {},
+        "request_cookies": entry.request_cookies_json or {},
+        "request_body_summary": entry.request_body_summary_json or {},
+        "status_code": entry.status_code,
+        "response_headers": entry.response_headers_json or {},
+        "response_body_summary": entry.response_body_summary_json or {},
+        "content_type": entry.content_type,
+        "redirect_chain": entry.redirect_chain_json or [],
+        "identity_context": entry.identity_context_json or {},
+        "provenance": entry.provenance_json or {},
+        "observed_at": entry.observed_at.isoformat() if entry.observed_at else None,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+def _serialize_auth_identity_map(entry):
+    return {
+        "id": entry.id,
+        "replay_id": entry.replay_id,
+        "scan_id": entry.scan_id,
+        "mission_id": entry.mission_id,
+        "target_id": entry.target_id,
+        "route": entry.route,
+        "route_auth_hints": entry.route_auth_hints_json or [],
+        "session_cookie_names": entry.session_cookie_names_json or [],
+        "bearer_token_present": bool(entry.bearer_token_present),
+        "bearer_token_preview": entry.bearer_token_preview,
+        "jwt_like_token": bool(entry.jwt_like_token),
+        "response_session_cookie_hint": bool(entry.response_session_cookie_hint),
+        "role_scope_claim_hints": entry.role_scope_claim_hints_json or [],
+        "observation_only": bool(entry.observation_only),
+        "notes": entry.notes,
+        "source": entry.source,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
 
 
 @main_bp.route("/terminal")
@@ -139,6 +208,121 @@ def get_scan_graph(scan_id):
             "type": e.relationship,
             "data": e.metadata_json
         } for e in edges]
+    })
+
+
+@main_bp.route("/api/replay-vault", methods=["GET", "POST"])
+def replay_vault_collection():
+    if request.method == "GET":
+        limit = min(request.args.get("limit", 100, type=int), 500)
+        offset = request.args.get("offset", 0, type=int)
+        scan_id = request.args.get("scan_id", type=int)
+        mission_id = request.args.get("mission_id", type=int)
+
+        q = ReplayVaultEntry.query.order_by(ReplayVaultEntry.id.desc())
+        if scan_id is not None:
+            q = q.filter(ReplayVaultEntry.scan_id == scan_id)
+        if mission_id is not None:
+            q = q.filter(ReplayVaultEntry.mission_id == mission_id)
+
+        total = q.count()
+        items = q.limit(limit).offset(offset).all()
+        return jsonify({
+            "total": total,
+            "items": [_serialize_replay_entry(item) for item in items],
+        })
+
+    payload = request.get_json(silent=True) or {}
+    normalized = normalize_replay_artifact(payload)
+    auth_obs = extract_auth_identity_observations(payload)
+
+    entry = ReplayVaultEntry(
+        scan_id=payload.get("scan_id"),
+        finding_id=payload.get("finding_id"),
+        mission_id=payload.get("mission_id"),
+        target_id=payload.get("target_id"),
+        source=payload.get("source") or (normalized.get("provenance") or {}).get("source"),
+        method=normalized.get("method"),
+        url=normalized.get("url"),
+        endpoint=normalized.get("endpoint"),
+        query_params_json=normalized.get("query_params"),
+        request_headers_json=normalized.get("request_headers"),
+        request_cookies_json=normalized.get("request_cookies"),
+        request_body_summary_json=normalized.get("request_body_summary"),
+        status_code=normalized.get("status_code"),
+        response_headers_json=normalized.get("response_headers"),
+        response_body_summary_json=normalized.get("response_body_summary"),
+        content_type=normalized.get("content_type"),
+        redirect_chain_json=normalized.get("redirect_chain"),
+        identity_context_json=normalized.get("identity_context"),
+        provenance_json=normalized.get("provenance"),
+        observed_at=normalized.get("observed_at"),
+    )
+    db.session.add(entry)
+    db.session.flush()
+
+    identity_map = AuthIdentityMap(
+        replay_id=entry.id,
+        scan_id=entry.scan_id,
+        mission_id=entry.mission_id,
+        target_id=entry.target_id,
+        route=entry.endpoint,
+        route_auth_hints_json=auth_obs.get("route_auth_hints") or [],
+        session_cookie_names_json=auth_obs.get("session_cookie_names") or [],
+        bearer_token_present=bool(auth_obs.get("bearer_token_present")),
+        bearer_token_preview=auth_obs.get("bearer_token_preview"),
+        jwt_like_token=bool(auth_obs.get("jwt_like_token")),
+        response_session_cookie_hint=bool(auth_obs.get("response_session_cookie_hint")),
+        role_scope_claim_hints_json=auth_obs.get("role_scope_claim_hints") or [],
+        observation_only=bool(auth_obs.get("observation_only", True)),
+        notes=auth_obs.get("notes"),
+        source=entry.source,
+    )
+    db.session.add(identity_map)
+    db.session.commit()
+
+    return jsonify({
+        "replay": _serialize_replay_entry(entry),
+        "auth_identity": _serialize_auth_identity_map(identity_map),
+    }), 201
+
+
+@main_bp.route("/api/replay-vault/<int:replay_id>", methods=["GET"])
+def replay_vault_item(replay_id):
+    entry = ReplayVaultEntry.query.get_or_404(replay_id)
+    return jsonify(_serialize_replay_entry(entry))
+
+
+@main_bp.route("/api/replay-vault/<int:left_id>/diff/<int:right_id>", methods=["GET"])
+def replay_vault_diff(left_id, right_id):
+    left = ReplayVaultEntry.query.get_or_404(left_id)
+    right = ReplayVaultEntry.query.get_or_404(right_id)
+    diff = compare_replay_artifacts(_serialize_replay_entry(left), _serialize_replay_entry(right))
+    return jsonify({
+        "left_id": left_id,
+        "right_id": right_id,
+        "diff": diff,
+    })
+
+
+@main_bp.route("/api/auth-identity-map", methods=["GET"])
+def auth_identity_map_collection():
+    limit = min(request.args.get("limit", 100, type=int), 500)
+    offset = request.args.get("offset", 0, type=int)
+    scan_id = request.args.get("scan_id", type=int)
+    mission_id = request.args.get("mission_id", type=int)
+
+    q = AuthIdentityMap.query.order_by(AuthIdentityMap.id.desc())
+    if scan_id is not None:
+        q = q.filter(AuthIdentityMap.scan_id == scan_id)
+    if mission_id is not None:
+        q = q.filter(AuthIdentityMap.mission_id == mission_id)
+
+    total = q.count()
+    items = q.limit(limit).offset(offset).all()
+    return jsonify({
+        "total": total,
+        "items": [_serialize_auth_identity_map(item) for item in items],
     })
 
 
