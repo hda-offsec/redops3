@@ -1,5 +1,5 @@
 from core.models import db, Finding, Suggestion, Signal
-from scan_engine.helpers.finding_schema import deep_merge_metadata
+from scan_engine.helpers.finding_schema import deep_merge_metadata, merge_field_sources, merge_score_factors
 
 
 class AnalysisEngine:
@@ -175,7 +175,12 @@ class CortexEngine:
                     'rationale': 'Deterministic route intelligence from passive telemetry and API surface findings.',
                     'related_signal_ids': [],
                     'related_finding_ids': [],
+                    'attack_chain': 'js_routes_auth_surface',
                     'attack_priority': 'medium',
+                    'action_priority': 65,
+                    'action_type': 'guided_probe',
+                    'estimated_value': 'high',
+                    'estimated_complexity': 'medium',
                 },
             })
 
@@ -194,7 +199,13 @@ class CortexEngine:
                     'rationale': 'SSRF and metadata-service indicators appear in findings telemetry.',
                     'related_signal_ids': [],
                     'related_finding_ids': [],
+                    'endpoint': 'metadata_service',
+                    'attack_chain': 'ssrf_to_metadata',
                     'attack_priority': 'high',
+                    'action_priority': 85,
+                    'action_type': 'guided_probe',
+                    'estimated_value': 'high',
+                    'estimated_complexity': 'medium',
                 },
             })
 
@@ -246,15 +257,17 @@ class RiskScoringEngine:
             or (finding.tool_source or "") == "exploit_validation_engine"
         ) else 0.0
 
-        exploit_score = (
-            (severity * 0.35)
-            + (confidence * 0.20)
-            + (signal_weight * 0.15)
-            + (attack_path_weight * 0.15)
-            + (validated * 0.10)
-            + (dependency_risk * 0.03)
-            + (in_attack_graph * 0.05)
-        ) * 100
+        score_factors = {
+            "severity_weight": round(severity * 0.35, 5),
+            "confidence_weight": round(confidence * 0.20, 5),
+            "signal_count_bonus": round(signal_weight * 0.15, 5),
+            "chain_length_bonus": round(attack_path_weight * 0.15, 5),
+            "validation_bonus": round(validated * 0.10, 5),
+            "dependency_risk_bonus": round(dependency_risk * 0.03, 5),
+            "attack_graph_bonus": round(in_attack_graph * 0.05, 5),
+        }
+
+        exploit_score = sum(score_factors.values()) * 100
         exploit_score = round(max(0.0, min(100.0, exploit_score)), 2)
 
         if exploit_score >= 80:
@@ -275,7 +288,7 @@ class RiskScoringEngine:
         else:
             attack_priority = "low"
 
-        return exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk
+        return exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk, score_factors
 
 
 def apply_risk_scores(scan_id, graph=None):
@@ -290,7 +303,7 @@ def apply_risk_scores(scan_id, graph=None):
     updated = 0
     for finding in findings:
         metadata = dict(finding.metadata_json) if isinstance(finding.metadata_json, dict) else {}
-        exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk = RiskScoringEngine.score_finding(finding, node_ids)
+        exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk, score_factors = RiskScoringEngine.score_finding(finding, node_ids)
         chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
         category = (finding.category or "").lower()
 
@@ -308,6 +321,14 @@ def apply_risk_scores(scan_id, graph=None):
         metadata["signal_count"] = signal_count
         metadata["chain_length"] = chain_length
         metadata["dependency_risk"] = dependency_risk
+        metadata["score_factors"] = merge_score_factors(metadata.get("score_factors"), score_factors)
+        metadata["field_sources"] = merge_field_sources(
+            metadata.get("field_sources"),
+            {
+                "exploit_score": "risk_scoring_engine",
+                "attack_priority": "risk_scoring_engine",
+            },
+        )
         metadata = deep_merge_metadata(finding.metadata_json if isinstance(finding.metadata_json, dict) else {}, metadata)
         finding.metadata_json = metadata
         updated += 1

@@ -93,6 +93,53 @@ def deep_merge_metadata(base, overlay):
     return merged
 
 
+def merge_field_sources(base, overlay):
+    """Merge metadata.field_sources deterministically without clobbering existing attribution."""
+    out = dict(base) if isinstance(base, dict) else {}
+    incoming = overlay if isinstance(overlay, dict) else {}
+    for field_name, source_name in incoming.items():
+        if not field_name:
+            continue
+        if not source_name:
+            continue
+        if field_name not in out:
+            out[field_name] = str(source_name)
+    return out
+
+
+def merge_score_factors(base, overlay):
+    """Merge score factors with deterministic numeric overwrite from newer calculation."""
+    out = dict(base) if isinstance(base, dict) else {}
+    incoming = overlay if isinstance(overlay, dict) else {}
+    for key, value in incoming.items():
+        if value is None:
+            continue
+        out[key] = value
+    return out
+
+
+def merge_chain_explanation(base, overlay):
+    """Merge chain explanation while preserving list uniqueness and deterministic order."""
+    current = dict(base) if isinstance(base, dict) else {}
+    incoming = overlay if isinstance(overlay, dict) else {}
+
+    for key, value in incoming.items():
+        if key in {"source_categories", "related_signal_ids", "related_finding_ids"}:
+            merged_list = []
+            existing_items = current.get(key) if isinstance(current.get(key), list) else []
+            new_items = value if isinstance(value, list) else []
+            for item in [*existing_items, *new_items]:
+                if item is None:
+                    continue
+                if item not in merged_list:
+                    merged_list.append(item)
+            current[key] = merged_list
+            continue
+        if value not in (None, ""):
+            current[key] = value
+    return current
+
+
 def generate_stable_id(finding):
     endpoint = finding.get("endpoint") or finding.get("target") or ""
     parameter = finding.get("parameter") or ""
@@ -139,6 +186,19 @@ def normalize_finding_shape(payload, *, source=None):
         "source": normalized["source"],
         "confidence": normalized["confidence"],
     })
+    metadata["field_sources"] = merge_field_sources(
+        metadata.get("field_sources"),
+        {
+            "endpoint": metadata.get("source") if normalized.get("endpoint") else None,
+            "parameter": metadata.get("source") if normalized.get("parameter") else None,
+            "payload": metadata.get("source") if normalized.get("payload") else None,
+            "evidence": metadata.get("source") if normalized.get("evidence") else None,
+            "raw_output": metadata.get("source") if normalized.get("raw_output") else None,
+            "provider": metadata.get("source") if (normalized.get("provider") or metadata.get("provider")) else None,
+            "component": metadata.get("source") if (normalized.get("component") or metadata.get("component")) else None,
+            "version": metadata.get("source") if (normalized.get("version") or metadata.get("version")) else None,
+        },
+    )
 
     normalized["signal_count"] = len(normalized["signal_ids"])
     normalized["chain_length"] = len(metadata.get("chain", [])) if isinstance(metadata.get("chain"), list) else int(normalized.get("chain_length") or 0)
