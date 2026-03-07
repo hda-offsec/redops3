@@ -6,13 +6,74 @@ from core.extensions import db
 from core.models import Asset, AssetTargetLink, Finding, Mission, Scan, Target
 
 
+MISSION_STATES = {
+    "draft",
+    "recon",
+    "mapping",
+    "exploitation_prep",
+    "objective_tracking",
+    "completed",
+    "archived",
+    "active",  # legacy compatibility
+}
+
 OBJECTIVE_TYPES = {
     "admin_access",
     "authenticated_api_access",
-    "source_code_leak",
+    "source_code_access",
     "cloud_credential_access",
     "internal_pivot",
     "external_recon",
+    "sensitive_data_access",
+}
+
+LEGACY_OBJECTIVE_TYPE_MAP = {
+    "source_code_leak": "source_code_access",
+}
+
+OBJECTIVE_RULES = {
+    "admin_access": {
+        "categories": {"auth_surface", "auth_bypass", "access_control"},
+        "keywords": {"admin", "dashboard", "privilege", "rbac", "auth"},
+        "required_conditions": ["validated admin or privileged route", "auth entry point identified"],
+        "recommended_probe": "Review privileged routes and session/token handling on linked targets.",
+    },
+    "authenticated_api_access": {
+        "categories": {"api_surface", "auth_surface", "jwt_exposure", "token_leakage"},
+        "keywords": {"api", "bearer", "token", "jwt", "oauth", "graphql"},
+        "required_conditions": ["token or auth surface evidence", "reachable API endpoint"],
+        "recommended_probe": "Validate token-authenticated API requests on discovered endpoints.",
+    },
+    "source_code_access": {
+        "categories": {"git_exposure", "source_exposure", "backup_exposure"},
+        "keywords": {"git", ".env", "source", "repository", "backup"},
+        "required_conditions": ["source artifact exposed", "retrievable source path"],
+        "recommended_probe": "Inspect exposed source artifacts and map credential/material reuse paths.",
+    },
+    "cloud_credential_access": {
+        "categories": {"cloud_asset", "cloud_exposure", "cloud_storage_exposure", "ssrf", "metadata_exposure"},
+        "keywords": {"s3", "metadata", "iam", "aws", "gcp", "azure", "cloud"},
+        "required_conditions": ["cloud reference or metadata surface", "cross-system cloud dependency"],
+        "recommended_probe": "Review metadata-accessible parameters and cloud identity references.",
+    },
+    "internal_pivot": {
+        "categories": {"network_exposure", "internal_service_exposure", "ssrf", "lfi"},
+        "keywords": {"internal", "pivot", "rfc1918", "localhost", "intranet"},
+        "required_conditions": ["pivot-capable surface", "internal addressability evidence"],
+        "recommended_probe": "Inspect SSRF/LFI-influenced paths for internal network reachability.",
+    },
+    "external_recon": {
+        "categories": {"subdomain_takeover", "surface_discovery", "api_surface", "js_route_discovery"},
+        "keywords": {"subdomain", "endpoint", "surface", "external", "js"},
+        "required_conditions": ["externally reachable target", "surface discovery evidence"],
+        "recommended_probe": "Expand endpoint and service mapping on externally exposed assets.",
+    },
+    "sensitive_data_access": {
+        "categories": {"token_leakage", "api_key_exposure", "jwt_exposure", "secret_exposure", "data_exposure"},
+        "keywords": {"secret", "credential", "password", "key", "token", "pii"},
+        "required_conditions": ["sensitive data indicator", "retrievable sensitive context"],
+        "recommended_probe": "Review data leakage findings and validate exposure scope.",
+    },
 }
 
 
@@ -26,6 +87,40 @@ def _latest_scan_ids_for_targets(target_ids):
         .all()
     )
     return [row[0] for row in rows if row and row[0] is not None]
+
+
+def normalize_mission_status(status):
+    incoming = (status or "").strip().lower()
+    if incoming in MISSION_STATES:
+        return incoming
+    if incoming == "":
+        return "draft"
+    return "active"
+
+
+def normalize_objective_type(objective_type):
+    incoming = (objective_type or "").strip().lower()
+    incoming = LEGACY_OBJECTIVE_TYPE_MAP.get(incoming, incoming)
+    return incoming if incoming in OBJECTIVE_TYPES else None
+
+
+def _severity_weight(severity):
+    return {
+        "critical": 4,
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+        "info": 0,
+    }.get((severity or "info").lower(), 0)
+
+
+def _priority_weight(priority):
+    return {
+        "critical": 4,
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+    }.get((priority or "low").lower(), 1)
 
 
 def link_asset_target(asset, target, link_type="observed", confidence="medium", source=None, metadata=None):
@@ -88,97 +183,365 @@ def _serialize_finding(f):
     }
 
 
+def _finding_text(finding):
+    return " ".join([
+        finding.title or "",
+        finding.description or "",
+        finding.category or "",
+        finding.endpoint or "",
+        finding.target or "",
+    ]).lower()
+
+
+def _objective_matches_finding(objective_type, finding):
+    rule = OBJECTIVE_RULES.get(objective_type)
+    if not rule:
+        return False
+    category = (finding.category or "").lower()
+    if category in rule["categories"]:
+        return True
+    text = _finding_text(finding)
+    return any(keyword in text for keyword in rule["keywords"])
+
+
+def _parse_objective_entries(mission):
+    payload = mission.objectives_json
+    if not payload:
+        return []
+
+    parsed = []
+    if isinstance(payload, list):
+        entries = payload
+    else:
+        entries = [payload]
+
+    for item in entries:
+        if isinstance(item, str):
+            objective_type = normalize_objective_type(item)
+            if objective_type:
+                parsed.append({"objective_type": objective_type, "priority": "medium"})
+            continue
+        if not isinstance(item, dict):
+            continue
+        objective_type = normalize_objective_type(item.get("objective_type") or item.get("type"))
+        if not objective_type:
+            continue
+        parsed.append({
+            "objective_type": objective_type,
+            "priority": (item.get("priority") or "medium").lower(),
+            "status": (item.get("status") or "draft").lower(),
+            "confidence": item.get("confidence") if isinstance(item.get("confidence"), (int, float)) else None,
+            "required_conditions": item.get("required_conditions") if isinstance(item.get("required_conditions"), list) else None,
+            "recommended_next_steps": item.get("recommended_next_steps") if isinstance(item.get("recommended_next_steps"), list) else None,
+        })
+
+    dedup = {}
+    for entry in parsed:
+        dedup[entry["objective_type"]] = entry
+    return [dedup[k] for k in sorted(dedup.keys())]
+
+
+def _objective_evidence(findings, objective_type):
+    supporting = [f for f in findings if _objective_matches_finding(objective_type, f)]
+    related_asset_ids = sorted({link.asset_id for f in supporting for link in (f.scan.target.asset_links if f.scan and f.scan.target else [])})
+    related_target_ids = sorted({f.scan.target_id for f in supporting if f.scan and f.scan.target_id is not None})
+    related_finding_ids = sorted({f.id for f in supporting if f.id is not None})
+    related_signal_ids = sorted({sid for f in supporting for sid in ((f.signal_ids or []) if isinstance(f.signal_ids, list) else []) if isinstance(sid, int)})
+    return supporting, related_asset_ids, related_target_ids, related_finding_ids, related_signal_ids
+
+
+def build_objective_statuses(mission, findings):
+    entries = _parse_objective_entries(mission)
+    configured_types = {entry["objective_type"] for entry in entries}
+
+    # Auto-discover only when evidence exists to avoid speculative objective creation.
+    for objective_type in sorted(OBJECTIVE_TYPES):
+        supporting, *_ = _objective_evidence(findings, objective_type)
+        if supporting and objective_type not in configured_types:
+            entries.append({"objective_type": objective_type, "priority": "medium", "status": "derived"})
+
+    objectives = []
+    for entry in sorted(entries, key=lambda x: (x.get("priority") or "medium", x["objective_type"])):
+        objective_type = entry["objective_type"]
+        supporting, related_asset_ids, related_target_ids, related_finding_ids, related_signal_ids = _objective_evidence(findings, objective_type)
+        if not supporting and entry.get("status") == "derived":
+            continue
+        readiness_score = min(100, len(related_finding_ids) * 20 + len(related_asset_ids) * 10)
+        confidence = round(min(1.0, 0.25 + len(related_signal_ids) * 0.05 + len(related_asset_ids) * 0.1), 2)
+        objectives.append({
+            "objective_type": objective_type,
+            "priority": entry.get("priority") or "medium",
+            "status": "ready" if readiness_score >= 70 else "in_progress" if readiness_score > 0 else (entry.get("status") or "draft"),
+            "confidence": entry.get("confidence") if isinstance(entry.get("confidence"), (int, float)) else confidence,
+            "required_conditions": entry.get("required_conditions") or OBJECTIVE_RULES[objective_type]["required_conditions"],
+            "supporting_assets": related_asset_ids,
+            "supporting_findings": related_finding_ids,
+            "supporting_signals": related_signal_ids,
+            "supporting_targets": related_target_ids,
+            "recommended_next_steps": entry.get("recommended_next_steps") or [OBJECTIVE_RULES[objective_type]["recommended_probe"]],
+            "readiness_score": readiness_score,
+            "field_sources": {
+                "supporting_findings": "finding.category/title/description",
+                "supporting_signals": "finding.signal_ids",
+                "supporting_assets": "asset_target_links",
+            },
+        })
+    return sorted(objectives, key=lambda o: (_priority_weight(o["priority"]) * -1, o["objective_type"]))
+
+
+def build_objective_next_steps(objectives, findings):
+    next_steps = []
+    finding_lookup = {f.id: f for f in findings if f.id is not None}
+    for objective in objectives:
+        objective_findings = [finding_lookup[fid] for fid in objective["supporting_findings"] if fid in finding_lookup]
+        if not objective_findings:
+            continue
+        objective_findings = sorted(objective_findings, key=lambda f: (_severity_weight(f.severity), f.id), reverse=True)
+        top = objective_findings[:3]
+        combined_score = []
+        for finding in top:
+            metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+            combined_score.append(metadata.get("exploit_score", 0))
+        estimated_value_score = round(sum(combined_score) / max(1, len(combined_score)), 2)
+        attack_priority = "critical" if estimated_value_score >= 85 else "high" if estimated_value_score >= 65 else "medium" if estimated_value_score >= 40 else "low"
+        related_assets = sorted({link.asset_id for finding in top for link in (finding.scan.target.asset_links if finding.scan and finding.scan.target else [])})
+        related_targets = sorted({finding.scan.target_id for finding in top if finding.scan and finding.scan.target_id is not None})
+        related_findings = sorted({finding.id for finding in top if finding.id is not None})
+        related_signals = sorted({sid for finding in top for sid in ((finding.signal_ids or []) if isinstance(finding.signal_ids, list) else []) if isinstance(sid, int)})
+        next_steps.append({
+            "objective_type": objective["objective_type"],
+            "related_asset_ids": related_assets,
+            "related_target_ids": related_targets,
+            "related_finding_ids": related_findings,
+            "related_signal_ids": related_signals,
+            "rationale": f"Evidence for {objective['objective_type']} is concentrated in high-priority findings on related assets/targets.",
+            "action_type": "probe_validation",
+            "action_priority": attack_priority,
+            "estimated_value": "high" if estimated_value_score >= 70 else "medium" if estimated_value_score >= 40 else "low",
+            "estimated_complexity": "high" if len(related_assets) > 3 else "medium" if len(related_assets) > 1 else "low",
+            "confidence": objective["confidence"],
+            "recommended_probe": OBJECTIVE_RULES[objective["objective_type"]]["recommended_probe"],
+            "why_priority": {
+                "objective_priority": objective["priority"],
+                "readiness_score": objective["readiness_score"],
+                "supporting_signal_count": len(related_signals),
+            },
+            "field_sources": {
+                "related_finding_ids": "findings.id",
+                "related_signal_ids": "findings.signal_ids",
+                "action_priority": "finding.metadata.exploit_score + severity",
+            },
+        })
+    return sorted(next_steps, key=lambda s: (_priority_weight(s["action_priority"]), len(s["related_signal_ids"])), reverse=True)
+
+
 def synthesize_cross_asset_paths(mission_id):
     mission = Mission.query.get(mission_id)
     if not mission:
         return []
-    paths = []
     target_ids = [t.id for t in mission.targets]
     latest_ids = _latest_scan_ids_for_targets(target_ids)
     if not latest_ids:
         return []
+
     findings = Finding.query.filter(Finding.scan_id.in_(latest_ids)).all()
+    objective_statuses = build_objective_statuses(mission, findings)
+    next_steps = build_objective_next_steps(objective_statuses, findings)
 
-    by_scan = defaultdict(list)
-    for f in findings:
-        by_scan[f.scan_id].append(f)
+    prep_artifacts = []
+    for objective in objective_statuses:
+        if len(objective["supporting_assets"]) < 2:
+            continue
+        blockers = []
+        if not objective["supporting_signals"]:
+            blockers.append("no_signal_lineage")
+        prep_artifacts.append({
+            "category": "mission_prep",
+            "objective_type": objective["objective_type"],
+            "supporting_assets": objective["supporting_assets"],
+            "supporting_targets": objective["supporting_targets"],
+            "supporting_findings": objective["supporting_findings"],
+            "supporting_signals": objective["supporting_signals"],
+            "required_conditions": objective["required_conditions"],
+            "blockers": blockers,
+            "recommended_next_steps": objective["recommended_next_steps"],
+            "confidence": objective["confidence"],
+            "attack_priority": objective["priority"],
+            "chain_explanation": f"Cross-asset evidence supports {objective['objective_type']} preparation.",
+        })
 
-    all_findings = findings
+    objective_paths = []
+    for objective in objective_statuses:
+        if len(objective["supporting_assets"]) < 2:
+            continue
+        objective_paths.append({
+            "category": "objective_path",
+            "objective_type": objective["objective_type"],
+            "title": f"Objective Path: {objective['objective_type']}",
+            "severity": "high" if objective["readiness_score"] >= 70 else "medium",
+            "confidence": objective["confidence"],
+            "rationale": f"{len(objective['supporting_findings'])} findings and {len(objective['supporting_assets'])} assets support this objective.",
+            "attack_priority": objective["priority"],
+            "related_asset_ids": objective["supporting_assets"],
+            "related_target_ids": objective["supporting_targets"],
+            "related_finding_ids": objective["supporting_findings"],
+            "related_signal_ids": objective["supporting_signals"],
+            "field_sources": objective["field_sources"],
+        })
 
-    def build(category, title, rationale, related):
-        related_asset_ids = sorted(
-            {
-                link.asset_id
-                for f in related
-                for link in (f.scan.target.asset_links if f.scan and f.scan.target else [])
-            }
-        )
-        related_target_ids = sorted(
-            {f.scan.target_id for f in related if f.scan and f.scan.target_id is not None}
-        )
-        related_finding_ids = sorted({f.id for f in related if f.id is not None})
-        related_signal_ids = sorted(
-            {
-                sid
-                for f in related
-                for sid in ((f.signal_ids or []) if isinstance(f.signal_ids, list) else [])
-                if isinstance(sid, int)
-            }
-        )
-        if len(related_asset_ids) < 2:
-            return None
-        return {
-            "category": category,
-            "title": title,
-            "severity": "high",
-            "confidence": "medium",
-            "rationale": rationale,
-            "attack_priority": "high",
-            "related_asset_ids": related_asset_ids,
-            "related_target_ids": related_target_ids,
-            "related_finding_ids": related_finding_ids,
-            "related_signal_ids": related_signal_ids,
-            "supporting_findings": [_serialize_finding(f) for f in related],
+    combined = objective_paths + prep_artifacts + [dict(step, category="next_step") for step in next_steps]
+    return combined
+
+
+def _mission_coverage(assets, targets, findings, latest_scan_ids, objective_statuses, cross_asset_paths):
+    scanned_target_ids = sorted({scan.target_id for scan in Scan.query.filter(Scan.id.in_(latest_scan_ids)).all()}) if latest_scan_ids else []
+    scanned_asset_ids = sorted({link.asset_id for target in targets if target.id in scanned_target_ids for link in target.asset_links})
+    asset_ids_with_findings = sorted({link.asset_id for finding in findings for link in (finding.scan.target.asset_links if finding.scan and finding.scan.target else [])})
+
+    auth_surfaces = [f for f in findings if _objective_matches_finding("authenticated_api_access", f)]
+    api_surfaces = [f for f in findings if (f.category or "") == "api_surface" or "api" in _finding_text(f)]
+    admin_surfaces = [f for f in findings if "admin" in _finding_text(f)]
+    secrets_detected = [f for f in findings if _objective_matches_finding("sensitive_data_access", f)]
+
+    top_assets = []
+    by_asset = defaultdict(list)
+    for finding in findings:
+        if not finding.scan or not finding.scan.target:
+            continue
+        for link in finding.scan.target.asset_links:
+            by_asset[link.asset_id].append(finding)
+    for asset_id, asset_findings in by_asset.items():
+        avg_exploit_score = []
+        for finding in asset_findings:
+            metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+            avg_exploit_score.append(metadata.get("exploit_score", 0))
+        top_assets.append({
+            "asset_id": asset_id,
+            "findings": len(asset_findings),
+            "avg_exploit_score": round(sum(avg_exploit_score) / max(1, len(avg_exploit_score)), 2),
+        })
+    top_assets = sorted(top_assets, key=lambda x: (x["avg_exploit_score"], x["findings"], x["asset_id"]), reverse=True)
+
+    readiness = {
+        objective["objective_type"]: {
+            "readiness_score": objective["readiness_score"],
+            "status": objective["status"],
+            "blocker_count": 0 if objective["supporting_signals"] else 1,
         }
+        for objective in objective_statuses
+    }
 
-    secret_findings = [f for f in all_findings if (f.category or "") in {"token_leakage", "jwt_exposure", "api_key_exposure"} or "token" in ((f.title or "") + " " + (f.description or "")).lower()]
-    api_surface = [f for f in all_findings if (f.category or "") in {"api_surface", "auth_surface"}]
-    if secret_findings and api_surface:
-        combined = secret_findings + api_surface
-        item = build(
-            "objective_path",
-            "Objective Path: Cross-Asset Token Reuse Toward API Access",
-            "Token or secret leakage on one asset and API/authentication surface on a separate asset indicate a mission-level authenticated access path.",
-            combined,
+    coverage_ratio = round(len(scanned_asset_ids) / max(1, len(assets)), 3)
+
+    return {
+        "assets_total": len(assets),
+        "targets_total": len(targets),
+        "scanned_assets": len(scanned_asset_ids),
+        "assets_with_findings": len(asset_ids_with_findings),
+        "auth_surfaces_discovered": len(auth_surfaces),
+        "api_surfaces_discovered": len(api_surfaces),
+        "admin_surfaces_discovered": len(admin_surfaces),
+        "secrets_detected": len(secrets_detected),
+        "top_attack_chains": [p for p in cross_asset_paths if p.get("category") == "objective_path"][:5],
+        "top_objective_paths": [p for p in cross_asset_paths if p.get("category") == "objective_path"][:5],
+        "assets_highest_exploit_score": top_assets[:5],
+        "coverage_ratio": coverage_ratio,
+        "objective_readiness": readiness,
+        "exploitability_summary": {
+            "high_value_assets": len([a for a in top_assets if a["avg_exploit_score"] >= 65]),
+            "critical_objectives": len([o for o in objective_statuses if o["priority"] == "critical"]),
+        },
+        "attack_surface_distribution": {
+            "asset": len(assets),
+            "target": len(targets),
+            "finding": len(findings),
+        },
+    }
+
+
+def _prioritize_mission(objectives, next_steps, findings):
+    objective_priority = []
+    for objective in objectives:
+        score = round(
+            (objective["readiness_score"] * 0.4)
+            + (_priority_weight(objective["priority"]) * 15)
+            + (len(objective["supporting_signals"]) * 2),
+            2,
         )
-        if item:
-            paths.append(item)
+        objective_priority.append({
+            "objective_type": objective["objective_type"],
+            "objective_priority": score,
+            "readiness_score": objective["readiness_score"],
+            "blocker_count": 0 if objective["supporting_signals"] else 1,
+        })
 
-    js_endpoint = [f for f in all_findings if (f.category or "") in {"js_route_discovery", "api_surface"} or "javascript" in ((f.title or "") + " " + (f.description or "")).lower()]
-    admin_surface = [f for f in all_findings if "admin" in ((f.title or "") + " " + (f.description or "")).lower() or (f.category or "") == "auth_surface"]
-    if js_endpoint and admin_surface:
-        combined = js_endpoint + admin_surface
-        item = build(
-            "attack_chain",
-            "Attack Chain: JS Recon to Cross-Asset Admin Surface",
-            "Evidence links JavaScript or API route discovery to privileged/admin interfaces across multiple assets.",
-            combined,
-        )
-        if item:
-            paths.append(item)
+    mission_priority_score = round(sum(item["objective_priority"] for item in objective_priority) / max(1, len(objective_priority)), 2)
+    clustered_findings = defaultdict(list)
+    for finding in findings:
+        clustered_findings[(finding.category or "uncategorized").lower()].append(finding.id)
 
-    cloud_refs = [f for f in all_findings if (f.category or "") in {"cloud_asset", "cloud_exposure", "cloud_storage_exposure"} or "s3" in ((f.title or "") + " " + (f.description or "")).lower()]
-    if cloud_refs and len({f.scan.target_id for f in cloud_refs if f.scan}) > 1:
-        item = build(
-            "mission_prep",
-            "Mission Prep: Cloud Reference Expands Perimeter",
-            "Multiple assets reference cloud resources, indicating expanded mission perimeter and cross-asset pivot opportunities.",
-            cloud_refs,
-        )
-        if item:
-            paths.append(item)
+    return {
+        "mission_priority_score": mission_priority_score,
+        "objective_priority": sorted(objective_priority, key=lambda x: x["objective_priority"], reverse=True),
+        "next_step_priority": next_steps[:10],
+        "finding_clusters": [
+            {"category": category, "finding_ids": sorted(ids), "count": len(ids)}
+            for category, ids in sorted(clustered_findings.items(), key=lambda item: (-len(item[1]), item[0]))
+        ],
+    }
 
-    return paths
+
+def _build_graph_v5(mission, assets, targets, findings, objectives, cross_asset_paths, next_steps):
+    nodes = [{"id": f"mission:{mission.id}", "type": "mission", "label": mission.name}]
+    edges = []
+
+    for objective in objectives:
+        oid = f"objective:{objective['objective_type']}"
+        nodes.append({"id": oid, "type": "objective", "label": objective["objective_type"], "metadata": {"readiness_score": objective["readiness_score"]}})
+        edges.append({"from": f"mission:{mission.id}", "to": oid, "relation": "contains"})
+
+    for asset in assets:
+        aid = f"asset:{asset.id}"
+        nodes.append({"id": aid, "type": "asset", "label": asset.label or asset.identifier})
+        edges.append({"from": f"mission:{mission.id}", "to": aid, "relation": "contains"})
+
+    for target in targets:
+        tid = f"target:{target.id}"
+        nodes.append({"id": tid, "type": "target", "label": target.identifier})
+        edges.append({"from": f"mission:{mission.id}", "to": tid, "relation": "contains"})
+        for link in target.asset_links:
+            edges.append({"from": f"asset:{link.asset_id}", "to": tid, "relation": "belongs_to"})
+
+    for finding in findings:
+        fid = f"finding:{finding.id}"
+        nodes.append({"id": fid, "type": "attack_chain", "label": finding.title})
+        if finding.scan and finding.scan.target_id is not None:
+            edges.append({"from": f"target:{finding.scan.target_id}", "to": fid, "relation": "leads_to_attack"})
+
+    for index, path in enumerate(cross_asset_paths):
+        pid = f"path:{index}:{path.get('category', 'path')}"
+        nodes.append({"id": pid, "type": path.get("category", "objective_path"), "label": path.get("title") or path.get("objective_type") or "path"})
+        for objective in objectives:
+            if objective["objective_type"] == path.get("objective_type"):
+                edges.append({"from": f"objective:{objective['objective_type']}", "to": pid, "relation": "supports_objective"})
+        for asset_id in path.get("related_asset_ids", path.get("supporting_assets", [])):
+            edges.append({"from": f"asset:{asset_id}", "to": pid, "relation": "suggests"})
+
+    for index, step in enumerate(next_steps):
+        sid = f"next_step:{index}:{step['objective_type']}"
+        nodes.append({"id": sid, "type": "next_step", "label": step["recommended_probe"]})
+        edges.append({"from": f"objective:{step['objective_type']}", "to": sid, "relation": "prioritizes"})
+        for aid in step["related_asset_ids"]:
+            edges.append({"from": sid, "to": f"asset:{aid}", "relation": "depends_on"})
+
+    dedup_nodes = {node["id"]: node for node in nodes}
+    dedup_edges = {(edge["from"], edge["to"], edge["relation"]): edge for edge in edges}
+    return {
+        "nodes": list(dedup_nodes.values()),
+        "edges": list(dedup_edges.values()),
+        "node_count": len(dedup_nodes),
+        "edge_count": len(dedup_edges),
+    }
 
 
 def aggregate_mission_intelligence(mission_id, limit=10):
@@ -189,31 +552,33 @@ def aggregate_mission_intelligence(mission_id, limit=10):
     scans = Scan.query.filter(Scan.id.in_(latest_scan_ids)).all() if latest_scan_ids else []
 
     findings = Finding.query.filter(Finding.scan_id.in_(latest_scan_ids)).all() if latest_scan_ids else []
-    severity_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
     top_findings = sorted(
         findings,
-        key=lambda f: (severity_rank.get((f.severity or "info").lower(), 0), f.id or 0),
+        key=lambda f: (_severity_weight(f.severity), f.id or 0),
         reverse=True,
     )[:limit]
 
-    objective_paths = [
-        _serialize_finding(f)
-        for f in findings
-        if (f.category or "") in {"objective_path", "mission_prep", "attack_chain", "next_step"}
-    ]
-
     cross_asset_paths = synthesize_cross_asset_paths(mission.id)
-
     assets = Asset.query.filter_by(mission_id=mission.id).order_by(Asset.created_at.asc()).all()
+
+    objective_statuses = build_objective_statuses(mission, findings)
+    next_steps = build_objective_next_steps(objective_statuses, findings)[:limit]
+    coverage = _mission_coverage(assets, targets, findings, latest_scan_ids, objective_statuses, cross_asset_paths)
+    prioritization = _prioritize_mission(objective_statuses, next_steps, findings)
+    graph_v5 = _build_graph_v5(mission, assets, targets, findings, objective_statuses, cross_asset_paths, next_steps)
 
     return {
         "mission": {
             "id": mission.id,
             "name": mission.name,
             "description": mission.description,
-            "status": mission.status,
+            "status": normalize_mission_status(mission.status),
+            "scope_summary": mission.scope_summary,
+            "priority": mission.priority or "medium",
+            "tags": mission.tags_json or [],
             "objectives": mission.objectives_json or [],
             "created_at": mission.created_at.isoformat() if mission.created_at else None,
+            "updated_at": mission.updated_at.isoformat() if mission.updated_at else None,
         },
         "assets": [
             {
@@ -242,15 +607,15 @@ def aggregate_mission_intelligence(mission_id, limit=10):
         "latest_scan_ids": latest_scan_ids,
         "findings_total": len(findings),
         "top_findings": [_serialize_finding(f) for f in top_findings],
-        "objective_paths": objective_paths[:limit],
+        "objective_paths": [p for p in cross_asset_paths if p.get("category") == "objective_path"][:limit],
         "cross_asset_paths": cross_asset_paths,
-        "next_steps": [
-            p
-            for p in cross_asset_paths
-            if p.get("category") in {"mission_prep", "objective_path", "attack_chain"}
-        ][:limit],
+        "objectives": objective_statuses,
+        "next_steps": next_steps,
+        "mission_coverage": coverage,
+        "mission_prioritization": prioritization,
         "graph_summary": {
             "node_count": len(scans) + len(assets) + len(targets) + len(findings),
             "edge_count": len(targets) + sum(len(a.target_links) for a in assets),
         },
+        "mission_graph_v5": graph_v5,
     }
