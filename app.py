@@ -78,6 +78,9 @@ def run_runtime_migrations(app):
                 conn.execute(db.text("CREATE TABLE IF NOT EXISTS asset_target_links (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), target_id INTEGER NOT NULL REFERENCES targets(id), link_type TEXT NOT NULL DEFAULT 'observed', confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, metadata JSON, created_at DATETIME, CONSTRAINT uq_asset_target_link UNIQUE (asset_id, target_id));"))
                 conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_asset_id ON asset_target_links(asset_id);"))
                 conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_target_id ON asset_target_links(target_id);"))
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS operator_actions (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), action_key TEXT NOT NULL, related_asset_ids JSON, related_target_ids JSON, related_finding_ids JSON, related_signal_ids JSON, objective_type TEXT NOT NULL, action_type TEXT NOT NULL DEFAULT 'review', title TEXT NOT NULL, description TEXT, rationale TEXT, confidence FLOAT DEFAULT 0, attack_priority TEXT DEFAULT 'medium', estimated_value TEXT DEFAULT 'medium', estimated_complexity TEXT DEFAULT 'low', status TEXT NOT NULL DEFAULT 'suggested', blocker_summary JSON, required_conditions JSON, evidence_summary TEXT, metadata JSON, created_at DATETIME, updated_at DATETIME, CONSTRAINT uq_operator_action_mission_key UNIQUE (mission_id, action_key));"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_mission_id ON operator_actions(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_status ON operator_actions(status);"))
     except Exception as e:
         app.logger.warning(f"Runtime migration check failed: {e}")
 
@@ -277,6 +280,9 @@ if __name__ == "__main__":
                     conn.execute(db.text("CREATE TABLE IF NOT EXISTS asset_target_links (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), target_id INTEGER NOT NULL REFERENCES targets(id), link_type TEXT NOT NULL DEFAULT 'observed', confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, metadata JSON, created_at DATETIME, CONSTRAINT uq_asset_target_link UNIQUE (asset_id, target_id));"))
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_asset_id ON asset_target_links(asset_id);"))
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_target_id ON asset_target_links(target_id);"))
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS operator_actions (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), action_key TEXT NOT NULL, related_asset_ids JSON, related_target_ids JSON, related_finding_ids JSON, related_signal_ids JSON, objective_type TEXT NOT NULL, action_type TEXT NOT NULL DEFAULT 'review', title TEXT NOT NULL, description TEXT, rationale TEXT, confidence FLOAT DEFAULT 0, attack_priority TEXT DEFAULT 'medium', estimated_value TEXT DEFAULT 'medium', estimated_complexity TEXT DEFAULT 'low', status TEXT NOT NULL DEFAULT 'suggested', blocker_summary JSON, required_conditions JSON, evidence_summary TEXT, metadata JSON, created_at DATETIME, updated_at DATETIME, CONSTRAINT uq_operator_action_mission_key UNIQUE (mission_id, action_key));"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_mission_id ON operator_actions(mission_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_status ON operator_actions(status);"))
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

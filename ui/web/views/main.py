@@ -22,11 +22,13 @@ from core.tasks import run_scan_task
 from core.mission_intelligence import (
     MISSION_STATES,
     OBJECTIVE_TYPES,
+    ACTION_STATUSES,
     aggregate_mission_intelligence,
     ensure_asset_for_target,
     link_asset_target,
     normalize_mission_status,
     normalize_objective_type,
+    update_operator_action_status,
 )
 
 main_bp = Blueprint("main", __name__)
@@ -784,6 +786,41 @@ def scan_report(scan_id):
 def mission_overview_api(mission_id):
     payload = aggregate_mission_intelligence(mission_id)
     return jsonify(payload)
+
+
+@main_bp.route("/api/missions/<int:mission_id>/actions", methods=["GET"])
+def mission_operator_actions_api(mission_id):
+    payload = aggregate_mission_intelligence(mission_id)
+    return jsonify({
+        "mission_id": mission_id,
+        "actions": payload.get("operator_actions", []),
+        "status_model": {
+            "allowed_statuses": sorted(ACTION_STATUSES),
+            "transitions": {
+                "suggested": ["reviewed", "blocked", "invalidated", "skipped"],
+                "reviewed": ["queued", "blocked", "invalidated", "skipped"],
+                "queued": ["executed", "blocked", "invalidated", "skipped"],
+                "blocked": ["reviewed", "queued", "invalidated", "skipped"],
+                "skipped": ["reviewed", "invalidated"],
+                "invalidated": ["reviewed"],
+                "executed": [],
+            },
+        },
+    })
+
+
+@main_bp.route("/api/missions/<int:mission_id>/actions/<int:action_id>/status", methods=["POST"])
+def mission_operator_action_status_api(mission_id, action_id):
+    data = request.get_json(silent=True) or request.form
+    next_status = (data.get("status") or "").strip().lower()
+    if not next_status:
+        return jsonify({"error": "status is required"}), 400
+    updated, err = update_operator_action_status(mission_id, action_id, next_status)
+    if err == "not_found":
+        return jsonify({"error": "operator action not found"}), 404
+    if err == "invalid_transition":
+        return jsonify({"error": "invalid status transition", "allowed_statuses": sorted(ACTION_STATUSES)}), 400
+    return jsonify({"status": "updated", "action": updated})
 
 
 @main_bp.route("/api/missions/<int:mission_id>/assets", methods=["GET", "POST"])
