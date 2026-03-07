@@ -115,6 +115,43 @@ class AssetTargetLink(db.Model):
     )
 
 
+class OperatorAction(db.Model):
+    __tablename__ = "operator_actions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False, index=True)
+    action_key = db.Column(db.String(128), nullable=False, index=True)
+
+    related_asset_ids = db.Column(db.JSON, nullable=True)
+    related_target_ids = db.Column(db.JSON, nullable=True)
+    related_finding_ids = db.Column(db.JSON, nullable=True)
+    related_signal_ids = db.Column(db.JSON, nullable=True)
+
+    objective_type = db.Column(db.String(64), nullable=False)
+    action_type = db.Column(db.String(64), nullable=False, default="review")
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    rationale = db.Column(db.Text, nullable=True)
+
+    confidence = db.Column(db.Float, nullable=False, default=0.0)
+    attack_priority = db.Column(db.String(20), nullable=False, default="medium")
+    estimated_value = db.Column(db.String(20), nullable=False, default="medium")
+    estimated_complexity = db.Column(db.String(20), nullable=False, default="low")
+
+    status = db.Column(db.String(32), nullable=False, default="suggested", index=True)
+    blocker_summary = db.Column(db.JSON, nullable=True)
+    required_conditions = db.Column(db.JSON, nullable=True)
+    evidence_summary = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("mission_id", "action_key", name="uq_operator_action_mission_key"),
+    )
+
+
 # ------------------------------------------------------------------
 # SCANS
 # ------------------------------------------------------------------

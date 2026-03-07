@@ -1,9 +1,10 @@
 from collections import defaultdict
+import hashlib
 
 from sqlalchemy import func
 
 from core.extensions import db
-from core.models import Asset, AssetTargetLink, Finding, Mission, Scan, Target
+from core.models import Asset, AssetTargetLink, Finding, Mission, OperatorAction, Scan, Target
 
 
 MISSION_STATES = {
@@ -29,6 +30,72 @@ OBJECTIVE_TYPES = {
 
 LEGACY_OBJECTIVE_TYPE_MAP = {
     "source_code_leak": "source_code_access",
+}
+
+
+
+ACTION_STATUSES = {
+    "suggested",
+    "reviewed",
+    "queued",
+    "executed",
+    "skipped",
+    "blocked",
+    "invalidated",
+}
+
+ACTION_STATUS_TRANSITIONS = {
+    "suggested": {"reviewed", "blocked", "invalidated", "skipped"},
+    "reviewed": {"queued", "blocked", "invalidated", "skipped"},
+    "queued": {"executed", "blocked", "invalidated", "skipped"},
+    "executed": set(),
+    "blocked": {"reviewed", "queued", "invalidated", "skipped"},
+    "skipped": {"reviewed", "invalidated"},
+    "invalidated": {"reviewed"},
+}
+
+OBJECTIVE_VALIDATION_GUIDANCE = {
+    "admin_access": [
+        "Inspect auth, token, and admin-route relationships before testing privileged paths.",
+        "Validate upload and admin endpoints using non-destructive request variants.",
+        "Review privileged API routes and method-level access controls.",
+    ],
+    "authenticated_api_access": [
+        "Inspect token-bearing flows and where credentials are accepted.",
+        "Validate auth parameters and token transport behavior safely.",
+        "Review API endpoints/methods for object-level authorization gaps.",
+    ],
+    "cloud_credential_access": [
+        "Inspect SSRF-like parameters and URL fetch behaviors with bounded inputs.",
+        "Review metadata service clues and provider-linked hosts in evidence.",
+        "Validate cloud-facing surfaces with non-destructive metadata path checks.",
+    ],
+    "source_code_access": [
+        "Inspect git exposure and retrievable repository artifacts.",
+        "Review backup/source artifacts for safe retrieval opportunities.",
+        "Correlate discovered secrets and internal hostnames across assets.",
+    ],
+}
+
+OBJECTIVE_ACTION_RECIPES = {
+    "admin_access": [
+        ("review_auth_flow", "Review auth flow consistency"),
+        ("inspect_admin_route", "Review hidden admin path"),
+        ("validate_upload_surface", "Validate upload route behavior safely"),
+    ],
+    "authenticated_api_access": [
+        ("inspect_token_usage", "Review token usage across API routes"),
+        ("validate_auth_parameters", "Validate auth parameter behavior"),
+        ("review_api_methods", "Review privileged API methods"),
+    ],
+    "cloud_credential_access": [
+        ("safe_ssrf_validation", "Attempt safe SSRF validation"),
+        ("review_provider_clues", "Review cloud provider metadata clues"),
+    ],
+    "source_code_access": [
+        ("inspect_git_exposure", "Inspect git exposure"),
+        ("review_source_artifacts", "Review backup/source artifacts"),
+    ],
 }
 
 OBJECTIVE_RULES = {
@@ -121,6 +188,169 @@ def _priority_weight(priority):
         "medium": 2,
         "low": 1,
     }.get((priority or "low").lower(), 1)
+
+
+def _to_id_list(values):
+    if not isinstance(values, list):
+        return []
+    return sorted({int(v) for v in values if isinstance(v, int)})
+
+
+def _normalize_action_status(status):
+    incoming = (status or "suggested").strip().lower()
+    return incoming if incoming in ACTION_STATUSES else "suggested"
+
+
+def is_valid_action_transition(current_status, next_status):
+    current = _normalize_action_status(current_status)
+    target = _normalize_action_status(next_status)
+    if current == target:
+        return True
+    return target in ACTION_STATUS_TRANSITIONS.get(current, set())
+
+
+def _action_key(action):
+    key_material = "|".join([
+        str(action.get("objective_type") or ""),
+        str(action.get("action_type") or ""),
+        ",".join(str(x) for x in action.get("related_asset_ids", [])),
+        ",".join(str(x) for x in action.get("related_target_ids", [])),
+        ",".join(str(x) for x in action.get("related_finding_ids", [])),
+    ])
+    digest = hashlib.sha1(key_material.encode("utf-8")).hexdigest()
+    return f"oa:{digest[:20]}"
+
+
+def _severity_hint(findings):
+    if any((f.severity or "").lower() == "critical" for f in findings):
+        return "critical"
+    if any((f.severity or "").lower() == "high" for f in findings):
+        return "high"
+    if any((f.severity or "").lower() == "medium" for f in findings):
+        return "medium"
+    return "low"
+
+
+def _value_from_findings(findings):
+    scores = []
+    for finding in findings:
+        metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+        scores.append(float(metadata.get("exploit_score", 0) or 0))
+    average = round(sum(scores) / max(1, len(scores)), 2)
+    if average >= 75:
+        return "high"
+    if average >= 40:
+        return "medium"
+    return "low"
+
+
+def _build_action_blockers(objective, supporting_findings):
+    blockers = []
+    missing_evidence = []
+    if not objective.get("supporting_signals"):
+        blockers.append("no_signal_lineage")
+        missing_evidence.append("signal lineage linking findings to raw detections")
+
+    has_auth = any("auth" in _finding_text(f) for f in supporting_findings)
+    has_token = any("token" in _finding_text(f) or "jwt" in _finding_text(f) for f in supporting_findings)
+    has_upload = any("upload" in _finding_text(f) for f in supporting_findings)
+    has_retrieval = any("download" in _finding_text(f) or "retriev" in _finding_text(f) for f in supporting_findings)
+    has_ssrf = any("ssrf" in _finding_text(f) for f in supporting_findings)
+    has_provider = any(any(k in _finding_text(f) for k in ("aws", "gcp", "azure", "metadata")) for f in supporting_findings)
+    has_component = any("component" in _finding_text(f) or "version" in _finding_text(f) for f in supporting_findings)
+
+    objective_type = objective.get("objective_type")
+    if objective_type in {"admin_access", "authenticated_api_access"} and has_token and not has_auth:
+        blockers.append("token_without_auth_endpoint")
+        missing_evidence.append("confirmed auth endpoint using discovered token material")
+    if objective_type == "admin_access" and has_upload and not has_retrieval:
+        blockers.append("upload_without_retrieval_proof")
+        missing_evidence.append("evidence of upload retrieval or execution path")
+    if objective_type == "cloud_credential_access" and has_ssrf and not has_provider:
+        blockers.append("ssrf_without_provider_clue")
+        missing_evidence.append("provider-specific metadata clue")
+    if objective_type == "source_code_access" and not has_component:
+        blockers.append("component_without_version_evidence")
+        missing_evidence.append("component or version evidence for prioritization")
+
+    return {
+        "blocker_count": len(blockers),
+        "reasons": blockers,
+        "missing_evidence": missing_evidence,
+    }
+
+
+def _serialize_operator_action(action):
+    metadata = action.metadata_json if isinstance(action.metadata_json, dict) else {}
+    blocker_summary = action.blocker_summary if isinstance(action.blocker_summary, dict) else {"blocker_count": 0, "reasons": [], "missing_evidence": []}
+    return {
+        "id": action.id,
+        "mission_id": action.mission_id,
+        "action_key": action.action_key,
+        "related_asset_ids": _to_id_list(action.related_asset_ids),
+        "related_target_ids": _to_id_list(action.related_target_ids),
+        "related_finding_ids": _to_id_list(action.related_finding_ids),
+        "related_signal_ids": _to_id_list(action.related_signal_ids),
+        "objective_type": action.objective_type,
+        "action_type": action.action_type,
+        "title": action.title,
+        "description": action.description,
+        "rationale": action.rationale,
+        "confidence": round(float(action.confidence or 0), 2),
+        "attack_priority": action.attack_priority,
+        "estimated_value": action.estimated_value,
+        "estimated_complexity": action.estimated_complexity,
+        "status": _normalize_action_status(action.status),
+        "blocker_summary": blocker_summary,
+        "required_conditions": action.required_conditions if isinstance(action.required_conditions, list) else [],
+        "evidence_summary": action.evidence_summary,
+        "metadata": metadata,
+        "created_at": action.created_at.isoformat() if action.created_at else None,
+        "updated_at": action.updated_at.isoformat() if action.updated_at else None,
+    }
+
+
+def _execution_dashboard(objectives, objective_paths, operator_actions, next_steps):
+    status_counts = {status: 0 for status in sorted(ACTION_STATUSES)}
+    for action in operator_actions:
+        status = _normalize_action_status(action.get("status"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    blocked_actions = [a for a in operator_actions if _normalize_action_status(a.get("status")) == "blocked"]
+    reviewed_or_executed = [a for a in operator_actions if _normalize_action_status(a.get("status")) in {"reviewed", "executed"}]
+
+    most_valuable = sorted(operator_actions, key=lambda a: (a.get("estimated_value") == "high", a.get("attack_priority") == "critical", a.get("confidence", 0)), reverse=True)
+    highest_confidence = sorted(operator_actions, key=lambda a: (a.get("confidence", 0), a.get("attack_priority") == "critical"), reverse=True)
+    highest_path = sorted(objective_paths, key=lambda p: ((p.get("metadata") or {}).get("exploit_score", 0), p.get("confidence", 0)), reverse=True)
+
+    objective_readiness = {
+        objective["objective_type"]: {
+            "status": objective["status"],
+            "readiness_score": objective["readiness_score"],
+            "required_conditions": objective.get("required_conditions", []),
+        }
+        for objective in objectives
+    }
+
+    return {
+        "objective_list": [{"objective_type": o["objective_type"], "status": o["status"], "priority": o["priority"]} for o in objectives],
+        "top_objective_paths": objective_paths[:5],
+        "recommended_actions": operator_actions[:10],
+        "blocked_actions": blocked_actions[:10],
+        "reviewed_or_executed_actions": reviewed_or_executed[:10],
+        "action_counts_by_status": status_counts,
+        "mission_readiness_summary": {
+            "ready_objectives": len([o for o in objectives if o["status"] == "ready"]),
+            "objectives_total": len(objectives),
+            "actions_total": len(operator_actions),
+            "blocked_actions": len(blocked_actions),
+        },
+        "objective_readiness_summary": objective_readiness,
+        "most_valuable_next_action": most_valuable[0] if most_valuable else None,
+        "highest_confidence_next_action": highest_confidence[0] if highest_confidence else None,
+        "highest_exploit_score_path": highest_path[0] if highest_path else (objective_paths[0] if objective_paths else None),
+        "next_step_candidates": next_steps[:5],
+    }
 
 
 def link_asset_target(asset, target, link_type="observed", confidence="medium", source=None, metadata=None):
@@ -335,6 +565,152 @@ def build_objective_next_steps(objectives, findings):
     return sorted(next_steps, key=lambda s: (_priority_weight(s["action_priority"]), len(s["related_signal_ids"])), reverse=True)
 
 
+def derive_operator_actions(objectives, findings):
+    actions = []
+    finding_lookup = {f.id: f for f in findings if f.id is not None}
+
+    for objective in objectives:
+        objective_findings = [finding_lookup[fid] for fid in objective.get("supporting_findings", []) if fid in finding_lookup]
+        if not objective_findings:
+            continue
+
+        blockers = _build_action_blockers(objective, objective_findings)
+        objective_guidance = OBJECTIVE_VALIDATION_GUIDANCE.get(
+            objective["objective_type"],
+            [OBJECTIVE_RULES[objective["objective_type"]]["recommended_probe"]],
+        )
+        recipes = OBJECTIVE_ACTION_RECIPES.get(
+            objective["objective_type"],
+            [("probe_validation", OBJECTIVE_RULES[objective["objective_type"]]["recommended_probe"])],
+        )
+
+        top_findings = sorted(
+            objective_findings,
+            key=lambda f: (_severity_weight(f.severity), (f.id or 0)),
+            reverse=True,
+        )[:3]
+
+        related_asset_ids = sorted({link.asset_id for finding in top_findings for link in (finding.scan.target.asset_links if finding.scan and finding.scan.target else [])})
+        related_target_ids = sorted({finding.scan.target_id for finding in top_findings if finding.scan and finding.scan.target_id is not None})
+        related_finding_ids = sorted({finding.id for finding in top_findings if finding.id is not None})
+        related_signal_ids = sorted({sid for finding in top_findings for sid in ((finding.signal_ids or []) if isinstance(finding.signal_ids, list) else []) if isinstance(sid, int)})
+
+        attack_priority = objective["priority"]
+        if blockers["blocker_count"]:
+            action_status = "blocked"
+        else:
+            action_status = "suggested"
+
+        for idx, (action_type, title) in enumerate(recipes):
+            evidence_summary = "; ".join([f"finding#{finding.id}: {finding.title}" for finding in top_findings])
+            confidence = round(min(1.0, float(objective.get("confidence") or 0) + (0.05 * idx)), 2)
+            estimated_complexity = "high" if len(related_assets := related_asset_ids) > 3 else "medium" if len(related_assets) > 1 else "low"
+            action = {
+                "mission_id": None,
+                "related_asset_ids": related_asset_ids,
+                "related_target_ids": related_target_ids,
+                "related_finding_ids": related_finding_ids,
+                "related_signal_ids": related_signal_ids,
+                "objective_type": objective["objective_type"],
+                "action_type": action_type,
+                "title": title,
+                "description": objective_guidance[min(idx, len(objective_guidance) - 1)],
+                "rationale": f"Supports objective {objective['objective_type']} using evidence-backed findings and linked signal lineage.",
+                "confidence": confidence,
+                "attack_priority": attack_priority,
+                "estimated_value": _value_from_findings(top_findings),
+                "estimated_complexity": estimated_complexity,
+                "status": action_status,
+                "blocker_summary": blockers,
+                "required_conditions": objective.get("required_conditions", []),
+                "evidence_summary": evidence_summary,
+                "metadata": {
+                    "field_sources": {
+                        "related_finding_ids": "objective.supporting_findings",
+                        "related_signal_ids": "objective.supporting_signals",
+                        "attack_priority": "mission objective priority",
+                        "blocker_summary": "objective + finding evidence checks",
+                    },
+                    "score_factors": {
+                        "severity_hint": _severity_hint(top_findings),
+                        "supporting_findings": len(related_finding_ids),
+                        "supporting_signals": len(related_signal_ids),
+                    },
+                    "chain_explanation": f"{len(related_finding_ids)} findings across {len(related_asset_ids)} assets reinforce {objective['objective_type']}",
+                    "objective_rationale": objective.get("recommended_next_steps", []),
+                    "recommended_precursor_actions": [
+                        "collect additional signal lineage" if "no_signal_lineage" in blockers["reasons"] else None,
+                        "validate auth endpoint existence" if "token_without_auth_endpoint" in blockers["reasons"] else None,
+                        "confirm upload retrieval path" if "upload_without_retrieval_proof" in blockers["reasons"] else None,
+                    ],
+                },
+            }
+            action["metadata"]["recommended_precursor_actions"] = [x for x in action["metadata"]["recommended_precursor_actions"] if x]
+            action["action_key"] = _action_key(action)
+            actions.append(action)
+
+    # deterministic ordering
+    return sorted(actions, key=lambda a: (_priority_weight(a["attack_priority"]) * -1, -a["confidence"], a["action_key"]))
+
+
+def sync_operator_actions(mission_id, derived_actions):
+    existing = OperatorAction.query.filter_by(mission_id=mission_id).all()
+    existing_by_key = {item.action_key: item for item in existing}
+
+    for action in derived_actions:
+        action["mission_id"] = mission_id
+        record = existing_by_key.get(action["action_key"])
+        if not record:
+            record = OperatorAction(mission_id=mission_id, action_key=action["action_key"])
+            db.session.add(record)
+
+        preserve_status = _normalize_action_status(record.status if record.status else action.get("status"))
+        if preserve_status in {"executed", "skipped", "invalidated", "queued", "reviewed"}:
+            effective_status = preserve_status
+        elif action.get("blocker_summary", {}).get("blocker_count", 0) > 0:
+            effective_status = "blocked"
+        else:
+            effective_status = "suggested"
+
+        record.related_asset_ids = action.get("related_asset_ids", [])
+        record.related_target_ids = action.get("related_target_ids", [])
+        record.related_finding_ids = action.get("related_finding_ids", [])
+        record.related_signal_ids = action.get("related_signal_ids", [])
+        record.objective_type = action["objective_type"]
+        record.action_type = action["action_type"]
+        record.title = action["title"]
+        record.description = action.get("description")
+        record.rationale = action.get("rationale")
+        record.confidence = float(action.get("confidence") or 0.0)
+        record.attack_priority = action.get("attack_priority") or "medium"
+        record.estimated_value = action.get("estimated_value") or "medium"
+        record.estimated_complexity = action.get("estimated_complexity") or "low"
+        record.status = effective_status
+        record.blocker_summary = action.get("blocker_summary")
+        record.required_conditions = action.get("required_conditions")
+        record.evidence_summary = action.get("evidence_summary")
+        record.metadata_json = action.get("metadata")
+
+    db.session.flush()
+    rows = OperatorAction.query.filter_by(mission_id=mission_id).order_by(OperatorAction.created_at.asc(), OperatorAction.id.asc()).all()
+    return [_serialize_operator_action(item) for item in rows]
+
+
+def update_operator_action_status(mission_id, action_id, next_status):
+    action = OperatorAction.query.filter_by(mission_id=mission_id, id=action_id).first()
+    if not action:
+        return None, "not_found"
+
+    normalized = _normalize_action_status(next_status)
+    current = _normalize_action_status(action.status)
+    if not is_valid_action_transition(current, normalized):
+        return None, "invalid_transition"
+
+    action.status = normalized
+    db.session.commit()
+    return _serialize_operator_action(action), None
+
+
 def synthesize_cross_asset_paths(mission_id):
     mission = Mission.query.get(mission_id)
     if not mission:
@@ -389,7 +765,8 @@ def synthesize_cross_asset_paths(mission_id):
             "field_sources": objective["field_sources"],
         })
 
-    combined = objective_paths + prep_artifacts + [dict(step, category="next_step") for step in next_steps]
+    operator_actions = [dict(action, category="operator_action") for action in derive_operator_actions(objective_statuses, findings)]
+    combined = objective_paths + prep_artifacts + [dict(step, category="next_step") for step in next_steps] + operator_actions
     return combined
 
 
@@ -491,7 +868,7 @@ def _prioritize_mission(objectives, next_steps, findings):
     }
 
 
-def _build_graph_v5(mission, assets, targets, findings, objectives, cross_asset_paths, next_steps):
+def _build_graph_v5(mission, assets, targets, findings, objectives, cross_asset_paths, next_steps, operator_actions):
     nodes = [{"id": f"mission:{mission.id}", "type": "mission", "label": mission.name}]
     edges = []
 
@@ -534,6 +911,13 @@ def _build_graph_v5(mission, assets, targets, findings, objectives, cross_asset_
         for aid in step["related_asset_ids"]:
             edges.append({"from": sid, "to": f"asset:{aid}", "relation": "depends_on"})
 
+    for action in operator_actions:
+        oid = f"operator_action:{action.get('action_key') or action.get('id')}"
+        nodes.append({"id": oid, "type": "operator_action", "label": action.get("title") or "operator action"})
+        edges.append({"from": f"objective:{action.get('objective_type')}", "to": oid, "relation": "operator_guidance"})
+        for aid in action.get("related_asset_ids", []):
+            edges.append({"from": oid, "to": f"asset:{aid}", "relation": "depends_on"})
+
     dedup_nodes = {node["id"]: node for node in nodes}
     dedup_edges = {(edge["from"], edge["to"], edge["relation"]): edge for edge in edges}
     return {
@@ -563,9 +947,24 @@ def aggregate_mission_intelligence(mission_id, limit=10):
 
     objective_statuses = build_objective_statuses(mission, findings)
     next_steps = build_objective_next_steps(objective_statuses, findings)[:limit]
+    derived_actions = derive_operator_actions(objective_statuses, findings)
+    operator_actions = sync_operator_actions(mission.id, derived_actions)
     coverage = _mission_coverage(assets, targets, findings, latest_scan_ids, objective_statuses, cross_asset_paths)
     prioritization = _prioritize_mission(objective_statuses, next_steps, findings)
-    graph_v5 = _build_graph_v5(mission, assets, targets, findings, objective_statuses, cross_asset_paths, next_steps)
+    objective_paths = [p for p in cross_asset_paths if p.get("category") == "objective_path"][:limit]
+    graph_v5 = _build_graph_v5(mission, assets, targets, findings, objective_statuses, cross_asset_paths, next_steps, operator_actions)
+    execution_dashboard = _execution_dashboard(objective_statuses, objective_paths, operator_actions, next_steps)
+    validation_guidance = {
+        "objective_guidance": {
+            objective["objective_type"]: OBJECTIVE_VALIDATION_GUIDANCE.get(
+                objective["objective_type"],
+                [OBJECTIVE_RULES[objective["objective_type"]]["recommended_probe"]],
+            )
+            for objective in objective_statuses
+        }
+    }
+
+    db.session.commit()
 
     return {
         "mission": {
@@ -607,10 +1006,13 @@ def aggregate_mission_intelligence(mission_id, limit=10):
         "latest_scan_ids": latest_scan_ids,
         "findings_total": len(findings),
         "top_findings": [_serialize_finding(f) for f in top_findings],
-        "objective_paths": [p for p in cross_asset_paths if p.get("category") == "objective_path"][:limit],
+        "objective_paths": objective_paths,
         "cross_asset_paths": cross_asset_paths,
         "objectives": objective_statuses,
         "next_steps": next_steps,
+        "operator_actions": operator_actions[:limit],
+        "mission_execution": execution_dashboard,
+        "validation_guidance": validation_guidance,
         "mission_coverage": coverage,
         "mission_prioritization": prioritization,
         "graph_summary": {
