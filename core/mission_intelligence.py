@@ -5,6 +5,7 @@ from sqlalchemy import func
 
 from core.extensions import db
 from core.models import Asset, AssetTargetLink, Finding, Mission, OperatorAction, Scan, Target
+from core.quality_metrics import build_quality_metrics
 
 
 MISSION_STATES = {
@@ -928,6 +929,27 @@ def _build_graph_v5(mission, assets, targets, findings, objectives, cross_asset_
     }
 
 
+def aggregate_mission_quality_metrics(mission_id, limit=100):
+    mission = Mission.query.get_or_404(mission_id)
+    targets = Target.query.filter_by(mission_id=mission.id).all()
+    target_ids = [t.id for t in targets]
+    latest_scan_ids = _latest_scan_ids_for_targets(target_ids)
+
+    findings = Finding.query.filter(Finding.scan_id.in_(latest_scan_ids)).all() if latest_scan_ids else []
+    objective_statuses = build_objective_statuses(mission, findings)
+    next_steps = build_objective_next_steps(objective_statuses, findings)[:limit]
+    objective_paths = [p for p in synthesize_cross_asset_paths(mission.id) if p.get("category") == "objective_path"][:limit]
+    derived_actions = derive_operator_actions(objective_statuses, findings)[:limit]
+
+    return build_quality_metrics(
+        findings=[_serialize_finding(f) for f in findings],
+        operator_actions=derived_actions,
+        objectives=objective_statuses,
+        objective_paths=objective_paths,
+        next_steps=next_steps,
+    )
+
+
 def aggregate_mission_intelligence(mission_id, limit=10):
     mission = Mission.query.get_or_404(mission_id)
     targets = Target.query.filter_by(mission_id=mission.id).all()
@@ -1015,6 +1037,13 @@ def aggregate_mission_intelligence(mission_id, limit=10):
         "validation_guidance": validation_guidance,
         "mission_coverage": coverage,
         "mission_prioritization": prioritization,
+        "quality_metrics": build_quality_metrics(
+            findings=[_serialize_finding(f) for f in findings],
+            operator_actions=operator_actions,
+            objectives=objective_statuses,
+            objective_paths=objective_paths,
+            next_steps=next_steps,
+        ),
         "graph_summary": {
             "node_count": len(scans) + len(assets) + len(targets) + len(findings),
             "edge_count": len(targets) + sum(len(a.target_links) for a in assets),

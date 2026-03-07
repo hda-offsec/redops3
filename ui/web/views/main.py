@@ -49,6 +49,7 @@ from core.mission_intelligence import (
     normalize_mission_status,
     normalize_objective_type,
     update_operator_action_status,
+    aggregate_mission_quality_metrics,
 )
 
 main_bp = Blueprint("main", __name__)
@@ -1409,3 +1410,15 @@ def delete_scan(scan_id):
         flash(f"Failed to delete scan: {str(e)}", "error")
         
     return redirect(url_for("main.index"))
+
+
+@main_bp.route("/api/missions/<int:mission_id>/quality-metrics", methods=["GET"])
+def mission_quality_metrics(mission_id):
+    limit = min(request.args.get("limit", 100, type=int), 500)
+    payload = aggregate_mission_quality_metrics(mission_id, limit=limit)
+    return jsonify({
+        "mission_id": mission_id,
+        "quality_metrics": payload,
+    })
+
+
