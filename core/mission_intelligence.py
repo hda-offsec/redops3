@@ -4,7 +4,13 @@ import hashlib
 from sqlalchemy import func
 
 from core.extensions import db
-from core.models import Asset, AssetTargetLink, Finding, Mission, OperatorAction, Scan, Target
+from core.lot5_intelligence import (
+    analyze_business_logic_heuristics,
+    analyze_graphql_surface,
+    apply_feedback_to_operator_actions,
+    build_feedback_profile,
+)
+from core.models import Asset, AssetTargetLink, Finding, Mission, OperatorAction, OperatorFeedback, ReplayVaultEntry, Scan, Target
 
 
 MISSION_STATES = {
@@ -949,6 +955,48 @@ def aggregate_mission_intelligence(mission_id, limit=10):
     next_steps = build_objective_next_steps(objective_statuses, findings)[:limit]
     derived_actions = derive_operator_actions(objective_statuses, findings)
     operator_actions = sync_operator_actions(mission.id, derived_actions)
+
+    replay_rows = ReplayVaultEntry.query.filter_by(mission_id=mission.id).order_by(ReplayVaultEntry.id.desc()).limit(500).all()
+    replay_payload = []
+    for row in replay_rows:
+        replay_payload.append({
+            "id": row.id,
+            "method": row.method,
+            "url": row.url,
+            "endpoint": row.endpoint,
+            "request_body_summary": row.request_body_summary_json or {},
+            "response_body_summary": row.response_body_summary_json or {},
+            "status_code": row.status_code,
+            "content_type": row.content_type,
+            "identity_context": row.identity_context_json or {},
+            "graphql_summary": row.graphql_summary_json or {},
+            "provenance": row.provenance_json or {},
+        })
+
+    business_logic_intelligence = analyze_business_logic_heuristics(replay_payload)
+    graphql_intelligence = analyze_graphql_surface(replay_payload)
+
+    feedback_rows = OperatorFeedback.query.filter_by(mission_id=mission.id).order_by(OperatorFeedback.id.desc()).limit(500).all()
+    feedback_payload = [
+        {
+            "id": f.id,
+            "mission_id": f.mission_id,
+            "action_id": f.action_id,
+            "finding_id": f.finding_id,
+            "replay_id": f.replay_id,
+            "feedback_type": f.feedback_type,
+            "signal_family": f.signal_family,
+            "subject_type": f.subject_type,
+            "subject_key": f.subject_key,
+            "sentiment": f.sentiment,
+            "notes": f.notes,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+        }
+        for f in feedback_rows
+    ]
+    feedback_profile = build_feedback_profile(feedback_payload)
+    operator_actions = apply_feedback_to_operator_actions(operator_actions, feedback_profile)
+
     coverage = _mission_coverage(assets, targets, findings, latest_scan_ids, objective_statuses, cross_asset_paths)
     prioritization = _prioritize_mission(objective_statuses, next_steps, findings)
     objective_paths = [p for p in cross_asset_paths if p.get("category") == "objective_path"][:limit]
@@ -1011,6 +1059,13 @@ def aggregate_mission_intelligence(mission_id, limit=10):
         "objectives": objective_statuses,
         "next_steps": next_steps,
         "operator_actions": operator_actions[:limit],
+        "business_logic_intelligence": business_logic_intelligence,
+        "graphql_intelligence": graphql_intelligence,
+        "operator_feedback": {
+            "items": feedback_payload[:limit],
+            "profile": feedback_profile,
+            "total": len(feedback_payload),
+        },
         "mission_execution": execution_dashboard,
         "validation_guidance": validation_guidance,
         "mission_coverage": coverage,
