@@ -60,8 +60,16 @@ def run_runtime_migrations(app):
                         conn.execute(db.text(ddl))
 
                 mission_cols = {row[1] for row in conn.execute(db.text("PRAGMA table_info(missions);")).fetchall()}
-                if "objectives" not in mission_cols:
-                    conn.execute(db.text("ALTER TABLE missions ADD COLUMN objectives JSON;"))
+                mission_alter = {
+                    "objectives": "ALTER TABLE missions ADD COLUMN objectives JSON;",
+                    "scope_summary": "ALTER TABLE missions ADD COLUMN scope_summary TEXT;",
+                    "priority": "ALTER TABLE missions ADD COLUMN priority TEXT DEFAULT 'medium';",
+                    "tags": "ALTER TABLE missions ADD COLUMN tags JSON;",
+                    "updated_at": "ALTER TABLE missions ADD COLUMN updated_at DATETIME;",
+                }
+                for col, ddl in mission_alter.items():
+                    if col not in mission_cols:
+                        conn.execute(db.text(ddl))
 
                 conn.execute(db.text("CREATE TABLE IF NOT EXISTS assets (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), type TEXT NOT NULL DEFAULT 'domain', identifier TEXT NOT NULL, label TEXT, confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, provenance JSON, tags JSON, created_at DATETIME);"))
                 conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_mission_id ON assets(mission_id);"))
@@ -250,9 +258,17 @@ if __name__ == "__main__":
 
 
                     mission_columns = [row[1] for row in conn.execute(db.text("PRAGMA table_info(missions);")).fetchall()]
-                    if "objectives" not in mission_columns:
-                        print("Migrating database: adding objectives to missions table...")
-                        conn.execute(db.text("ALTER TABLE missions ADD COLUMN objectives JSON;"))
+                    required_mission_columns = {
+                        "objectives": "ALTER TABLE missions ADD COLUMN objectives JSON;",
+                        "scope_summary": "ALTER TABLE missions ADD COLUMN scope_summary TEXT;",
+                        "priority": "ALTER TABLE missions ADD COLUMN priority TEXT DEFAULT 'medium';",
+                        "tags": "ALTER TABLE missions ADD COLUMN tags JSON;",
+                        "updated_at": "ALTER TABLE missions ADD COLUMN updated_at DATETIME;",
+                    }
+                    for col_name, ddl in required_mission_columns.items():
+                        if col_name not in mission_columns:
+                            print(f"Migrating database: adding {col_name} to missions table...")
+                            conn.execute(db.text(ddl))
 
                     conn.execute(db.text("CREATE TABLE IF NOT EXISTS assets (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), type TEXT NOT NULL DEFAULT 'domain', identifier TEXT NOT NULL, label TEXT, confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, provenance JSON, tags JSON, created_at DATETIME);"))
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_mission_id ON assets(mission_id);"))

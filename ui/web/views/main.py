@@ -19,7 +19,15 @@ from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
 from core.tasks import run_scan_task
-from core.mission_intelligence import aggregate_mission_intelligence, ensure_asset_for_target, link_asset_target, OBJECTIVE_TYPES
+from core.mission_intelligence import (
+    MISSION_STATES,
+    OBJECTIVE_TYPES,
+    aggregate_mission_intelligence,
+    ensure_asset_for_target,
+    link_asset_target,
+    normalize_mission_status,
+    normalize_objective_type,
+)
 
 main_bp = Blueprint("main", __name__)
 
@@ -843,8 +851,10 @@ def mission_objectives_api(mission_id):
     if request.method == "GET":
         return jsonify({
             "mission_id": mission.id,
+            "mission_status": normalize_mission_status(mission.status),
             "objectives": mission.objectives_json or [],
             "allowed_objectives": sorted(OBJECTIVE_TYPES),
+            "allowed_statuses": sorted(MISSION_STATES),
         })
 
     data = request.get_json(silent=True) or request.form
@@ -854,13 +864,52 @@ def mission_objectives_api(mission_id):
     if not isinstance(objectives, list):
         return jsonify({"error": "objectives must be a list"}), 400
 
-    invalid = [o for o in objectives if o not in OBJECTIVE_TYPES]
+    normalized_objectives = []
+    invalid = []
+    for item in objectives:
+        if isinstance(item, str):
+            objective_type = normalize_objective_type(item)
+            if not objective_type:
+                invalid.append(item)
+                continue
+            normalized_objectives.append({"objective_type": objective_type, "priority": "medium", "status": "draft"})
+            continue
+        if not isinstance(item, dict):
+            invalid.append(item)
+            continue
+        objective_type = normalize_objective_type(item.get("objective_type") or item.get("type"))
+        if not objective_type:
+            invalid.append(item)
+            continue
+        normalized_objectives.append({
+            "objective_type": objective_type,
+            "priority": (item.get("priority") or "medium").lower(),
+            "status": (item.get("status") or "draft").lower(),
+            "confidence": item.get("confidence") if isinstance(item.get("confidence"), (int, float)) else None,
+            "required_conditions": item.get("required_conditions") if isinstance(item.get("required_conditions"), list) else [],
+            "recommended_next_steps": item.get("recommended_next_steps") if isinstance(item.get("recommended_next_steps"), list) else [],
+        })
+
     if invalid:
         return jsonify({"error": "unsupported objectives", "invalid": invalid}), 400
 
-    mission.objectives_json = sorted(set(objectives))
+    status = normalize_mission_status(data.get("status") or mission.status)
+    mission.status = status
+    mission.scope_summary = (data.get("scope_summary") or mission.scope_summary)
+    mission.priority = (data.get("priority") or mission.priority or "medium").lower()
+
+    tags = data.get("tags")
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    if isinstance(tags, list):
+        mission.tags_json = sorted(set(str(t).strip().lower() for t in tags if str(t).strip()))
+
+    dedup = {}
+    for objective in normalized_objectives:
+        dedup[objective["objective_type"]] = objective
+    mission.objectives_json = [dedup[key] for key in sorted(dedup.keys())]
     db.session.commit()
-    return jsonify({"mission_id": mission.id, "objectives": mission.objectives_json})
+    return jsonify({"mission_id": mission.id, "status": mission.status, "objectives": mission.objectives_json})
 
 
 @main_bp.route("/mission/<int:mission_id>/map")
@@ -961,8 +1010,24 @@ def mission_new():
     desc = request.form.get("description")
     objectives_input = request.form.get("objectives", "")
     objectives = [o.strip() for o in objectives_input.split(",") if o.strip()]
-    objectives = [o for o in objectives if o in OBJECTIVE_TYPES]
-    mission = Mission(name=name, description=desc, objectives_json=sorted(set(objectives)) or None)
+    normalized_objectives = []
+    for objective in objectives:
+        objective_type = normalize_objective_type(objective)
+        if objective_type:
+            normalized_objectives.append({"objective_type": objective_type, "priority": "medium", "status": "draft"})
+
+    tags_input = request.form.get("tags", "")
+    tags = sorted(set(tag.strip().lower() for tag in tags_input.split(",") if tag.strip()))
+
+    mission = Mission(
+        name=name,
+        description=desc,
+        status=normalize_mission_status(request.form.get("status") or "draft"),
+        objectives_json=normalized_objectives or None,
+        scope_summary=request.form.get("scope_summary") or None,
+        priority=(request.form.get("priority") or "medium").lower(),
+        tags_json=tags or None,
+    )
     db.session.add(mission)
     db.session.commit()
     flash(f"Mission '{name}' created successfully.", "success")

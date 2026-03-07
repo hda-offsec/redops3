@@ -33,8 +33,7 @@
                                 <td class="p-3">{{ mission.assets|length }}</td>
                                 <td class="p-3">{{ mission.targets|length }}</td>
                                 <td class="p-3">
-                                    <span
-                                        class="badge bg-success-subtle text-success border border-success-subtle">ACTIVE</span>
+                                    <span class="badge bg-info-subtle text-info border border-info-subtle">{{ (mission.status or 'draft')|upper }}</span><br><small class="text-muted">{{ (mission.priority or 'medium')|upper }}</small>
                                 </td>
                                 <td class="p-3 text-muted small">{{ mission.created_at.strftime('%Y-%m-%d') }}</td>
                                 <td class="p-3 text-end">
@@ -82,6 +81,35 @@
                     <div class="mb-3">
                         <label class="form-label small text-muted text-uppercase">Objectives (comma-separated)</label>
                         <input type="text" name="objectives" class="form-control bg-dark text-light border-secondary" placeholder="external_recon,authenticated_api_access">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase">Scope Summary</label>
+                        <input type="text" name="scope_summary" class="form-control bg-dark text-light border-secondary" placeholder="Primary exposed surface and key constraints">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase">Priority</label>
+                        <select name="priority" class="form-select bg-dark text-light border-secondary">
+                            <option value="low">low</option>
+                            <option value="medium" selected>medium</option>
+                            <option value="high">high</option>
+                            <option value="critical">critical</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase">Status</label>
+                        <select name="status" class="form-select bg-dark text-light border-secondary">
+                            <option value="draft" selected>draft</option>
+                            <option value="recon">recon</option>
+                            <option value="mapping">mapping</option>
+                            <option value="exploitation_prep">exploitation_prep</option>
+                            <option value="objective_tracking">objective_tracking</option>
+                            <option value="completed">completed</option>
+                            <option value="archived">archived</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase">Tags (comma-separated)</label>
+                        <input type="text" name="tags" class="form-control bg-dark text-light border-secondary" placeholder="external,api,cloud">
                     </div>
                     <button type="submit" class="btn btn-primary w-100">Initialize Mission</button>
                 </form>
