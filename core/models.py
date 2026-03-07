@@ -272,6 +272,66 @@ class Signal(db.Model):
     )
 
 
+class ReplayVaultEntry(db.Model):
+    __tablename__ = "replay_vault_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True, index=True)
+    finding_id = db.Column(db.Integer, db.ForeignKey("findings.id"), nullable=True, index=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=True, index=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=True, index=True)
+
+    source = db.Column(db.String(128), nullable=True)
+
+    method = db.Column(db.String(12), nullable=False, default="GET")
+    url = db.Column(db.String(2048), nullable=False)
+    endpoint = db.Column(db.String(2048), nullable=True)
+    query_params_json = db.Column("query_params", db.JSON, nullable=True)
+
+    request_headers_json = db.Column("request_headers", db.JSON, nullable=True)
+    request_cookies_json = db.Column("request_cookies", db.JSON, nullable=True)
+    request_body_summary_json = db.Column("request_body_summary", db.JSON, nullable=True)
+
+    status_code = db.Column(db.Integer, nullable=True)
+    response_headers_json = db.Column("response_headers", db.JSON, nullable=True)
+    response_body_summary_json = db.Column("response_body_summary", db.JSON, nullable=True)
+    content_type = db.Column(db.String(255), nullable=True)
+    redirect_chain_json = db.Column("redirect_chain", db.JSON, nullable=True)
+
+    identity_context_json = db.Column("identity_context", db.JSON, nullable=True)
+    provenance_json = db.Column("provenance", db.JSON, nullable=True)
+
+    observed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AuthIdentityMap(db.Model):
+    __tablename__ = "auth_identity_maps"
+
+    id = db.Column(db.Integer, primary_key=True)
+    replay_id = db.Column(db.Integer, db.ForeignKey("replay_vault_entries.id"), nullable=True, index=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True, index=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=True, index=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=True, index=True)
+
+    route = db.Column(db.String(2048), nullable=True)
+    route_auth_hints_json = db.Column("route_auth_hints", db.JSON, nullable=True)
+    session_cookie_names_json = db.Column("session_cookie_names", db.JSON, nullable=True)
+
+    bearer_token_present = db.Column(db.Boolean, nullable=False, default=False)
+    bearer_token_preview = db.Column(db.String(64), nullable=True)
+    jwt_like_token = db.Column(db.Boolean, nullable=False, default=False)
+    response_session_cookie_hint = db.Column(db.Boolean, nullable=False, default=False)
+
+    role_scope_claim_hints_json = db.Column("role_scope_claim_hints", db.JSON, nullable=True)
+    observation_only = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    source = db.Column(db.String(128), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
 # ------------------------------------------------------------------
 # FINDINGS (CORRELATED VULNERABILITIES)
 # ------------------------------------------------------------------
