@@ -36,10 +36,12 @@ class Mission(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default="active")
+    objectives_json = db.Column("objectives", db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     targets = db.relationship("Target", backref="mission", lazy=True)
     loots = db.relationship("Loot", backref="mission", lazy=True)
+    assets = db.relationship("Asset", backref="mission", lazy=True, cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Mission {self.name}>"
@@ -59,9 +61,54 @@ class Target(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     scans = db.relationship("Scan", backref="target", lazy=True)
+    asset_links = db.relationship(
+        "AssetTargetLink",
+        backref="target",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<Target {self.identifier}>"
+
+
+class Asset(db.Model):
+    __tablename__ = "assets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False, index=True)
+    type = db.Column(db.String(50), nullable=False, default="domain")
+    identifier = db.Column(db.String(255), nullable=False, index=True)
+    label = db.Column(db.String(255), nullable=True)
+    confidence = db.Column(db.String(20), nullable=False, default="medium")
+    source = db.Column(db.String(128), nullable=True)
+    provenance = db.Column(db.JSON, nullable=True)
+    tags = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    target_links = db.relationship(
+        "AssetTargetLink",
+        backref="asset",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+
+
+class AssetTargetLink(db.Model):
+    __tablename__ = "asset_target_links"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_id = db.Column(db.Integer, db.ForeignKey("assets.id"), nullable=False, index=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=False, index=True)
+    link_type = db.Column(db.String(64), nullable=False, default="observed")
+    confidence = db.Column(db.String(20), nullable=False, default="medium")
+    source = db.Column(db.String(128), nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("asset_id", "target_id", name="uq_asset_target_link"),
+    )
 
 
 # ------------------------------------------------------------------

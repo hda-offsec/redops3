@@ -16,6 +16,7 @@
                         <thead>
                             <tr class="text-muted small text-uppercase">
                                 <th class="p-3">Mission Name</th>
+                                <th class="p-3">Assets</th>
                                 <th class="p-3">Targets</th>
                                 <th class="p-3">Status</th>
                                 <th class="p-3">Created</th>
@@ -29,6 +30,7 @@
                                     <div class="fw-bold text-info">{{ mission.name }}</div>
                                     <small class="text-muted">{{ mission.description|truncate(50) }}</small>
                                 </td>
+                                <td class="p-3">{{ mission.assets|length }}</td>
                                 <td class="p-3">{{ mission.targets|length }}</td>
                                 <td class="p-3">
                                     <span
@@ -49,7 +51,7 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="5" class="p-5 text-center text-muted">
+                                <td colspan="6" class="p-5 text-center text-muted">
                                     <i class="fas fa-ghost fa-3x mb-3 opacity-20"></i>
                                     <p>No missions defined. Start by creating a project container.</p>
                                 </td>
@@ -76,6 +78,10 @@
                         <label class="form-label small text-muted text-uppercase">Objective / Scope</label>
                         <textarea name="description" class="form-control bg-dark text-light border-secondary" rows="3"
                             placeholder="Describe the mission scope..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase">Objectives (comma-separated)</label>
+                        <input type="text" name="objectives" class="form-control bg-dark text-light border-secondary" placeholder="external_recon,authenticated_api_access">
                     </div>
                     <button type="submit" class="btn btn-primary w-100">Initialize Mission</button>
                 </form>
