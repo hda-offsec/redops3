@@ -69,3 +69,6 @@ list_scans.py
 # Temporary & Auxiliary
 tmp/
 ui/web/templates/test_graph.html
+
+!tests/
+!tests/test_post_lot5_stabilization.py
