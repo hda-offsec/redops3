@@ -102,6 +102,19 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertIn("safe_probe", first["validation_profiles"])
         self.assertEqual(classify_finding_family(findings[1]), "upload_retrieval_assessments")
 
+    def test_quality_metrics_handles_malformed_empty_inputs(self):
+        payload = build_quality_metrics(
+            findings=None,
+            operator_actions=[{"status": None}, {"status": "SKIPPED"}],
+            objectives=None,
+            objective_paths=[{"objective_type": "identity_privilege_path"}, "bad-entry"],
+            next_steps=[{"objective_type": "identity_privilege_path"}],
+        )
+
+        self.assertEqual(payload["artifact_volume"]["findings"], 0)
+        self.assertEqual(payload["operator_feedback"]["false_positive_like_actions"], 1)
+        self.assertEqual(payload["coverage_hints"]["objectives_with_paths"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
