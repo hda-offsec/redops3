@@ -71,17 +71,29 @@ class ScanDashboard {
         this.checkInitialStatus();
         this.setupNotesPreview();
 
-        // Load persisted findings from DB
-        this.loadFindingsFromApi({ reset: true });
+        // Initialize renderedFindingIds from existing DOM elements (Jinja rendered)
+        document.querySelectorAll('.finding-row[id^="finding-row-"]').forEach(row => {
+            const fid = row.id.replace('finding-row-', '');
+            this.renderedFindingIds.add(fid);
+        });
+
+        // Load persisted findings from DB (background update, no reset)
+        this.loadFindingsFromApi({ reset: false });
 
         // Expose updateUI globally for initial load
         window.updateUI = (results) => this.updateUI(results);
         window.verifyFinding = (cmd) => this.verifyFinding(cmd);
-        window.filterFindings = () => this.filterFindings(); // For search input
+
+        // Define filterFindings globally only if not already defined (specialized tabs take precedence)
+        if (typeof window.filterFindings === 'undefined') {
+            window.filterFindings = () => this.filterFindings();
+        }
     }
 
     setupEventListeners() {
-        document.getElementById('findingSearch')?.addEventListener('input', () => this.filterFindings());
+        // Defensive: element might not exist on all page types
+        const searchInput = document.getElementById('findingSearch') || document.getElementById('findings-search');
+        searchInput?.addEventListener('input', () => window.filterFindings());
 
         // Delegate search and filter events
         document.addEventListener('change', (e) => {
@@ -349,73 +361,58 @@ class ScanDashboard {
 
             const tableBody = document.getElementById("findings-table-body");
             if (tableBody) {
-                const rowId = `finding-detail-${fid}`;
+                // Remove empty state if present
+                const emptyRow = document.getElementById("findings-empty-state");
+                if (emptyRow) emptyRow.remove();
+
+                const rowId = `finding-row-${fid}`;
                 if (document.getElementById(rowId)) return;
 
                 const tr = document.createElement("tr");
-                tr.className = "finding-row animate__animated animate__fadeIn";
-                tr.setAttribute("data-severity", data.severity.toLowerCase());
-                tr.setAttribute("data-content", `${escapedTitle.toLowerCase()} ${escapedTool.toLowerCase()} ${escapedDesc.toLowerCase()}`);
+                tr.id = rowId;
+                tr.className = "finding-row cursor-pointer animate__animated animate__fadeIn";
+                tr.setAttribute("data-sev", data.severity.toLowerCase());
+                tr.setAttribute("data-title", escapedTitle.toLowerCase());
+                tr.setAttribute("data-tool", escapedTool.toLowerCase());
+                tr.setAttribute("data-category", this.escapeHtml(data.category || "").toLowerCase());
+                tr.setAttribute("data-exploit", data.exploit_score || "");
+                tr.setAttribute("data-attack-priority", this.escapeHtml(data.attack_priority || "").toLowerCase());
+                tr.setAttribute("data-component", this.escapeHtml(data.component || "").toLowerCase());
+                tr.setAttribute("data-provider", this.escapeHtml(data.provider || "").toLowerCase());
 
-                // Human Readable Summary logic
-                const summary = data.impact || (escapedDesc || "").substring(0, 120) + "...";
+                // Set click handler for new UI
+                tr.onclick = () => {
+                    if (typeof showFindingDetail === 'function') {
+                        showFindingDetail(fid);
+                    }
+                };
+
+                const sev = data.severity.toLowerCase();
 
                 tr.innerHTML = `
-                    <td class="align-top"><span class="badge severity-badge ${data.severity.toLowerCase()} text-uppercase w-100">${data.severity}</span></td>
-                    <td>
-                        <div class="fw-bold text-light">${escapedTitle}</div>
-                        <div class="small text-muted mb-1">${summary}</div>
+                    <td class="ps-3 align-middle">
+                        <span class="badge-severity bg-${sev} w-100 text-center d-block">
+                            ${data.severity.toUpperCase()}
+                        </span>
                     </td>
-                    <td class="align-top"><span class="badge bg-dark border border-secondary text-muted">${escapedTool}</span></td>
-                    <td class="align-top text-end">
-                        <button class="btn btn-xs btn-outline-cyber" type="button" data-bs-toggle="collapse" data-bs-target="#${rowId}">
-                            <i class="fas fa-chevron-down"></i>
-                        </button>
+                    <td class="align-middle" style="max-width: 300px;">
+                        <div class="fw-bold text-light text-truncate lh-sm">${escapedTitle}</div>
+                        <div class="text-muted extra-small text-truncate mt-1 opacity-75">${escapedDesc}</div>
+                    </td>
+                    <td class="align-middle text-muted extra-small">
+                        <span class="badge bg-dark border border-secondary text-muted">${escapedTool}</span>
+                    </td>
+                    <td class="text-end pe-3 align-middle">
+                        <i class="fas fa-chevron-right text-muted opacity-25"></i>
                     </td>
                 `;
 
-                const detailTr = document.createElement("tr");
-                detailTr.className = "finding-detail-row collapse bg-black bg-opacity-40";
-                detailTr.id = rowId;
-
-                let evidenceHtml = "";
-                if (data.request || data.response || data.repro_command) {
-                    const fid_safe = fid.replace(/[^a-zA-Z0-9]/g, '');
-                    evidenceHtml = `
-                        <div class="evidence-container mt-3 p-3 bg-dark bg-opacity-50 border border-secondary border-opacity-25 rounded shadow-sm">
-                            <ul class="nav nav-pills gap-2 mb-3 x-small" role="tablist">
-                                ${data.request ? `<li class="nav-item"><button class="nav-link py-1 px-3 active border border-secondary border-opacity-25" data-bs-toggle="pill" data-bs-target="#req-${fid_safe}">Request</button></li>` : ''}
-                                ${data.response ? `<li class="nav-item"><button class="nav-link py-1 px-3 ${!data.request ? 'active' : ''} border border-secondary border-opacity-25" data-bs-toggle="pill" data-bs-target="#res-${fid_safe}">Response</button></li>` : ''}
-                                ${data.repro_command ? `<li class="nav-item"><button class="nav-link py-1 px-3 ${(!data.request && !data.response) ? 'active' : ''} border border-secondary border-opacity-25" data-bs-toggle="pill" data-bs-target="#repro-${fid_safe}">Proof</button></li>` : ''}
-                            </ul>
-                            <div class="tab-content">
-                                ${data.request ? `<div class="tab-pane fade show active" id="req-${fid_safe}"><pre class="x-small font-monospace text-info bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 300px;">${this.escapeHtml(data.request)}</pre></div>` : ''}
-                                ${data.response ? `<div class="tab-pane fade ${!data.request ? 'show active' : ''}" id="res-${fid_safe}"><pre class="x-small font-monospace text-success bg-black p-2 rounded border border-secondary border-opacity-10 overflow-auto" style="max-height: 300px;">${this.escapeHtml(data.response)}</pre></div>` : ''}
-                                ${data.repro_command ? `
-                                    <div class="tab-pane fade ${(!data.request && !data.response) ? 'show active' : ''}" id="repro-${fid_safe}">
-                                        <div class="d-flex gap-2">
-                                            <div class="flex-grow-1">
-                                                <pre class="x-small font-monospace text-warning bg-black p-2 rounded border border-secondary border-opacity-10 overflow-hidden text-truncate mb-0">${this.escapeHtml(data.repro_command)}</pre>
-                                            </div>
-                                            <button class="btn btn-xs btn-outline-warning copy-btn" title="Copy for Validation"><i class="fas fa-copy"></i></button>
-                                        </div>
-                                    </div>` : ''}
-                            </div>
-                        </div>
-                    `;
-                }
-
-                detailTr.innerHTML = `
-                    <td colspan="4" class="p-0">
-                        <div class="p-4 border-start border-cyber border-4">
-                            <h6 class="text-uppercase x-small text-muted mb-2 font-monospace"><i class="fas fa-info-circle me-1"></i>Vulnerability Intel</h6>
-                            <div class="text-light small lh-lg" style="white-space: pre-wrap;">${escapedDesc}</div>
-                            ${evidenceHtml}
-                        </div>
-                    </td>`;
-
-                tableBody.prepend(detailTr);
                 tableBody.prepend(tr);
+
+                // Update local memory if updateFindingsList is available (new UI)
+                if (typeof updateFindingsList === 'function') {
+                    updateFindingsList([data]);
+                }
             }
         }
     }
@@ -782,6 +779,9 @@ class ScanDashboard {
         if (typeof updateFindingsList === 'function' && results.findings) {
             updateFindingsList(results.findings);
         }
+
+        // Keep a global copy for other tab scripts (like attack_graph)
+        window.scanResults = results;
 
         // 0. Update Target Intelligence Dashboard
         this.updateCortexUI(results);
@@ -1316,6 +1316,13 @@ class ScanDashboard {
                         }
                     }
                 }
+            }
+        }
+
+        // Final Step: Global Graph Update if structural data changed
+        if (results.findings || results.phases) {
+            if (typeof initGraphData === 'function') {
+                setTimeout(() => initGraphData(), 200);
             }
         }
     }
@@ -1981,8 +1988,8 @@ window.applyTacticalFilter = function (targetTab, filterValue) {
             if (filterInput) {
                 filterInput.value = filterValue;
                 // Trigger the local filter function defined in attack_surface.html
-                if (typeof applySurfaceFilter === 'function') {
-                    applySurfaceFilter();
+                if (typeof window.applySurfaceFilter === 'function') {
+                    window.applySurfaceFilter();
                 }
             }
         }
