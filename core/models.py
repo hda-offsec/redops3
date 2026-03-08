@@ -296,6 +296,7 @@ class ReplayVaultEntry(db.Model):
     status_code = db.Column(db.Integer, nullable=True)
     response_headers_json = db.Column("response_headers", db.JSON, nullable=True)
     response_body_summary_json = db.Column("response_body_summary", db.JSON, nullable=True)
+    graphql_summary_json = db.Column("graphql_summary", db.JSON, nullable=True)
     content_type = db.Column(db.String(255), nullable=True)
     redirect_chain_json = db.Column("redirect_chain", db.JSON, nullable=True)
 
@@ -330,6 +331,27 @@ class AuthIdentityMap(db.Model):
 
     source = db.Column(db.String(128), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class OperatorFeedback(db.Model):
+    __tablename__ = "operator_feedback"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False, index=True)
+
+    action_id = db.Column(db.Integer, db.ForeignKey("operator_actions.id"), nullable=True, index=True)
+    finding_id = db.Column(db.Integer, db.ForeignKey("findings.id"), nullable=True, index=True)
+    replay_id = db.Column(db.Integer, db.ForeignKey("replay_vault_entries.id"), nullable=True, index=True)
+
+    feedback_type = db.Column(db.String(64), nullable=False, index=True)
+    signal_family = db.Column(db.String(64), nullable=True, index=True)
+    subject_type = db.Column(db.String(64), nullable=True)
+    subject_key = db.Column(db.String(128), nullable=True, index=True)
+    sentiment = db.Column(db.Integer, nullable=False, default=0)
+
+    notes = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 # ------------------------------------------------------------------

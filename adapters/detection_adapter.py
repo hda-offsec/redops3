@@ -79,22 +79,44 @@ class DetectionAdapter:
         if fid in normalized:
             existing = normalized[fid]
             merged_metadata = dict(existing.get("metadata") or {})
-            incoming_metadata = extra.get("metadata", {}) if isinstance(extra.get("metadata", {}), dict) else {}
+            incoming_metadata = (
+                extra.get("metadata", {})
+                if isinstance(extra.get("metadata", {}), dict)
+                else {}
+            )
+
             merged_metadata = deep_merge_metadata(merged_metadata, incoming_metadata)
             merged_metadata["field_sources"] = merge_field_sources(
                 merged_metadata.get("field_sources"),
-                incoming_metadata.get("field_sources") if isinstance(incoming_metadata.get("field_sources"), dict) else {},
+                incoming_metadata.get("field_sources")
+                if isinstance(incoming_metadata.get("field_sources"), dict)
+                else {},
             )
-            existing["signal_ids"] = merge_signal_ids(existing.get("signal_ids"), extra.get("signal_ids"))
+
+            existing["signal_ids"] = merge_signal_ids(
+                existing.get("signal_ids"),
+                extra.get("signal_ids"),
+            )
             existing["metadata"] = merged_metadata
             existing["signal_count"] = len(existing["signal_ids"])
-            existing["chain_length"] = len(merged_metadata.get("chain", [])) if isinstance(merged_metadata.get("chain"), list) else existing.get("chain_length", 0)
+            existing["chain_length"] = (
+                len(merged_metadata.get("chain", []))
+                if isinstance(merged_metadata.get("chain"), list)
+                else existing.get("chain_length", 0)
+            )
+
             incoming_raw_output = extra.get("raw_output", "")
             if incoming_raw_output and incoming_raw_output not in str(existing.get("raw_output") or ""):
-                existing["raw_output"] = "\n".join(x for x in [existing.get("raw_output"), incoming_raw_output] if x)[:3000]
+                existing["raw_output"] = "\n".join(
+                    x for x in [existing.get("raw_output"), incoming_raw_output] if x
+                )[:3000]
+
             incoming_evidence = extra.get("evidence", "")
             if incoming_evidence and incoming_evidence not in str(existing.get("evidence") or ""):
-                existing["evidence"] = "\n".join(x for x in [existing.get("evidence"), incoming_evidence] if x)[:3000]
+                existing["evidence"] = "\n".join(
+                    x for x in [existing.get("evidence"), incoming_evidence] if x
+                )[:3000]
+
             return
 
         payload = {
@@ -125,6 +147,7 @@ class DetectionAdapter:
             "created_at": extra.get("created_at", ""),
         }
         normalized[fid] = normalize_finding_shape(payload, source=tool_source)
+
     # ------------------------------------------------------------------
     # SYNTHESIZERS
     # ------------------------------------------------------------------
@@ -139,14 +162,12 @@ class DetectionAdapter:
         lines = []
 
         for p in ports:
-
             if isinstance(p, dict):
                 lines.append(
-                    f"{p.get('port')}/{p.get('protocol','tcp')} "
-                    f"{p.get('service','?')} "
-                    f"{p.get('version','')}"
+                    f"{p.get('port')}/{p.get('protocol', 'tcp')} "
+                    f"{p.get('service', '?')} "
+                    f"{p.get('version', '')}"
                 )
-
             else:
                 lines.append(str(p))
 
@@ -164,18 +185,15 @@ class DetectionAdapter:
 
     @staticmethod
     def _synth_headers(enum_data, normalized):
-
         headers = enum_data.get("headers", {})
 
         for port, header_data in headers.items():
-
             if not isinstance(header_data, dict):
                 continue
 
             missing = []
 
             for name, info in header_data.items():
-
                 if isinstance(info, dict) and info.get("status") == "missing":
                     missing.append(name)
 
@@ -196,21 +214,17 @@ class DetectionAdapter:
 
     @staticmethod
     def _synth_js_secrets(enum_data, normalized):
-
         js = enum_data.get("js_secrets", {})
 
         for port, secrets in js.items():
-
             if not isinstance(secrets, list):
                 continue
 
             for s in secrets:
-
                 if not isinstance(s, dict):
                     continue
 
                 typ = s.get("type", "Secret")
-
                 match = s.get("match", "")
 
                 fid = DetectionAdapter._make_id(
@@ -221,7 +235,6 @@ class DetectionAdapter:
                 )
 
                 severity = "medium"
-
                 if typ.lower() in ["ipv4 address", "url"]:
                     severity = "info"
 
@@ -242,7 +255,6 @@ class DetectionAdapter:
 
     @staticmethod
     def normalize_findings(db_findings, json_results):
-
         normalized = {}
 
         # -------------------------
@@ -250,7 +262,6 @@ class DetectionAdapter:
         # -------------------------
 
         for f in db_findings:
-
             fid = f.id_stable or str(f.id)
 
             DetectionAdapter._add(
@@ -286,24 +297,20 @@ class DetectionAdapter:
         phases = json_results.get("phases", {}) if isinstance(json_results, dict) else {}
 
         for phase_name in ["vuln", "enum"]:
-
             phase = phases.get(phase_name, {})
 
             if not isinstance(phase, dict):
                 continue
 
             for tool, findings in phase.items():
-
                 if not isinstance(findings, list):
                     continue
 
                 for item in findings:
-
                     if not isinstance(item, dict):
                         continue
 
                     fid = item.get("id_stable")
-
                     if not fid:
                         fid = DetectionAdapter._make_id(
                             tool,
@@ -328,7 +335,10 @@ class DetectionAdapter:
                         raw_output=item.get("raw_output", item.get("description", "")),
                         signal_ids=item.get("signal_ids", []),
                         module=item.get("module", tool),
-                        reproduction=item.get("reproduction", item.get("repro_command", "")),
+                        reproduction=item.get(
+                            "reproduction",
+                            item.get("repro_command", ""),
+                        ),
                         request=item.get("request", ""),
                         response=item.get("response", ""),
                         repro_command=item.get("repro_command", ""),

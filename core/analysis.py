@@ -1,5 +1,9 @@
 from core.models import db, Finding, Suggestion, Signal
-from scan_engine.helpers.finding_schema import deep_merge_metadata, merge_field_sources, merge_score_factors
+from scan_engine.helpers.finding_schema import (
+    deep_merge_metadata,
+    merge_field_sources,
+    merge_score_factors,
+)
 
 
 class AnalysisEngine:
@@ -21,15 +25,35 @@ class AnalysisEngine:
         db.session.add(finding)
 
         for service in open_ports:
-            port = service['port']
-            name = service['service_name']
-            if port in [80, 443, 8080, 8443] or 'http' in name:
-                SuggestionEngine.create(scan_id, "whatweb", f"whatweb http://<target>:{port}", "Web service detected. Fingerprint technologies.")
-                SuggestionEngine.create(scan_id, "gobuster", f"gobuster dir -u http://<target>:{port} -w common.txt", "Web service detected. Enumerate directories.")
-            if port == 445 or 'smb' in name:
-                SuggestionEngine.create(scan_id, "enum4linux", f"enum4linux -a <target>", "SMB detected. Enumerate shares and users.")
+            port = service["port"]
+            name = service["service_name"]
+            if port in [80, 443, 8080, 8443] or "http" in name:
+                SuggestionEngine.create(
+                    scan_id,
+                    "whatweb",
+                    f"whatweb http://<target>:{port}",
+                    "Web service detected. Fingerprint technologies.",
+                )
+                SuggestionEngine.create(
+                    scan_id,
+                    "gobuster",
+                    f"gobuster dir -u http://<target>:{port} -w common.txt",
+                    "Web service detected. Enumerate directories.",
+                )
+            if port == 445 or "smb" in name:
+                SuggestionEngine.create(
+                    scan_id,
+                    "enum4linux",
+                    "enum4linux -a <target>",
+                    "SMB detected. Enumerate shares and users.",
+                )
             if port == 22:
-                SuggestionEngine.create(scan_id, "hydra", f"hydra -l root -P rockyou.txt ssh://<target>", "SSH detected. Check for weak credentials (careful).")
+                SuggestionEngine.create(
+                    scan_id,
+                    "hydra",
+                    "hydra -l root -P rockyou.txt ssh://<target>",
+                    "SSH detected. Check for weak credentials (careful).",
+                )
 
         db.session.commit()
 
@@ -41,7 +65,7 @@ class SuggestionEngine:
             scan_id=scan_id,
             tool_name=tool,
             command_suggestion=command,
-            reason=reason
+            reason=reason,
         )
         db.session.add(s)
 
@@ -58,7 +82,9 @@ def run_signal_correlation(scan_id, add_finding_cb):
 
     created = 0
 
-    backup_like = grouped.get(("backup_expert", "finding"), []) + grouped.get(("backup_scanner", "finding"), [])
+    backup_like = grouped.get(("backup_expert", "finding"), []) + grouped.get(
+        ("backup_scanner", "finding"), []
+    )
     git_like = grouped.get(("git_scanner", "finding"), [])
     if backup_like and git_like:
         signal_ids = [x.id for x in backup_like[:2] + git_like[:2]]
@@ -72,12 +98,16 @@ def run_signal_correlation(scan_id, add_finding_cb):
             category="attack_chain",
             module="correlation",
             signal_ids=signal_ids,
-            evidence="Cross-signal correlation: git exposure + backup archive exposure."
+            evidence="Cross-signal correlation: git exposure + backup archive exposure.",
         )
         created += 1
 
-    js_like = grouped.get(("js_scanner", "finding"), []) + grouped.get(("js_deep_scanner", "finding"), [])
-    api_like = grouped.get(("api_expert", "finding"), []) + grouped.get(("api_scanner", "finding"), [])
+    js_like = grouped.get(("js_scanner", "finding"), []) + grouped.get(
+        ("js_deep_scanner", "finding"), []
+    )
+    api_like = grouped.get(("api_expert", "finding"), []) + grouped.get(
+        ("api_scanner", "finding"), []
+    )
     if js_like and api_like:
         signal_ids = [x.id for x in js_like[:2] + api_like[:2]]
         add_finding_cb(
@@ -90,7 +120,7 @@ def run_signal_correlation(scan_id, add_finding_cb):
             category="attack_chain",
             module="correlation",
             signal_ids=signal_ids,
-            evidence="Cross-signal correlation: JavaScript endpoint extraction + API discovery."
+            evidence="Cross-signal correlation: JavaScript endpoint extraction + API discovery.",
         )
         created += 1
 
@@ -104,7 +134,11 @@ class CortexEngine:
 
     @staticmethod
     def _mk_text(f):
-        return f"{(getattr(f, 'title', '') or '').lower()} {(getattr(f, 'description', '') or '').lower()} {(getattr(f, 'category', '') or '').lower()}"
+        return (
+            f"{(getattr(f, 'title', '') or '').lower()} "
+            f"{(getattr(f, 'description', '') or '').lower()} "
+            f"{(getattr(f, 'category', '') or '').lower()}"
+        )
 
     @classmethod
     def derive_attack_paths(cls, findings):
@@ -114,100 +148,129 @@ class CortexEngine:
         def has(pred):
             return any(pred(f, t) for f, t in zip(findings, texts))
 
-        def add(title, description, severity='high', confidence='medium', chain=None):
-            paths.append({
-                'title': title,
-                'description': description,
-                'severity': severity,
-                'confidence': confidence,
-                'tool_source': 'cortex_engine',
-                'module': 'cortex_reasoning',
-                'category': 'attack_path',
-                'metadata': {'chain': chain or []},
-            })
+        def add(title, description, severity="high", confidence="medium", chain=None):
+            paths.append(
+                {
+                    "title": title,
+                    "description": description,
+                    "severity": severity,
+                    "confidence": confidence,
+                    "tool_source": "cortex_engine",
+                    "module": "cortex_reasoning",
+                    "category": "attack_path",
+                    "metadata": {"chain": chain or []},
+                }
+            )
 
-        has_auth_surface = has(lambda f, t: 'auth' in t or (getattr(f, 'category', '') or '') in {'authentication_surface', 'auth_surface'})
-        has_token = has(lambda f, t: 'token' in t or 'jwt' in t or (getattr(f, 'category', '') or '') in {'jwt_exposure', 'token_leakage', 'api_key_exposure'})
+        has_auth_surface = has(
+            lambda f, t: "auth" in t
+            or (getattr(f, "category", "") or "") in {"authentication_surface", "auth_surface"}
+        )
+        has_token = has(
+            lambda f, t: "token" in t
+            or "jwt" in t
+            or (getattr(f, "category", "") or "") in {"jwt_exposure", "token_leakage", "api_key_exposure"}
+        )
         if has_auth_surface and has_token:
             add(
-                'Cortex Attack Path: Auth Surface + Token Material -> Authenticated API Access',
-                'Reasoning engine linked authentication surface with token leakage indicators, enabling probable authenticated API abuse path.',
-                severity='high',
-                confidence='high',
-                chain=['auth_surface', 'token_leakage', 'authenticated_api_access'],
+                "Cortex Attack Path: Auth Surface + Token Material -> Authenticated API Access",
+                "Reasoning engine linked authentication surface with token leakage indicators, enabling probable authenticated API abuse path.",
+                severity="high",
+                confidence="high",
+                chain=["auth_surface", "token_leakage", "authenticated_api_access"],
             )
 
-        has_upload = has(lambda f, t: 'upload' in t or (getattr(f, 'category', '') or '') == 'upload_surface')
-        has_methods = has(lambda f, t: 'dangerous http methods' in t or (getattr(f, 'category', '') or '') == 'http_method_exposure')
+        has_upload = has(
+            lambda f, t: "upload" in t or (getattr(f, "category", "") or "") == "upload_surface"
+        )
+        has_methods = has(
+            lambda f, t: "dangerous http methods" in t
+            or (getattr(f, "category", "") or "") == "http_method_exposure"
+        )
         if has_upload and has_methods:
             add(
-                'Cortex Attack Path: Upload Surface + Dangerous Methods -> Arbitrary File Write Risk',
-                'Reasoning engine correlated upload exposure and unsafe HTTP methods, producing a probable arbitrary file write/webshell route.',
-                severity='high',
-                confidence='high',
-                chain=['upload_surface', 'dangerous_http_methods', 'arbitrary_file_write'],
+                "Cortex Attack Path: Upload Surface + Dangerous Methods -> Arbitrary File Write Risk",
+                "Reasoning engine correlated upload exposure and unsafe HTTP methods, producing a probable arbitrary file write/webshell route.",
+                severity="high",
+                confidence="high",
+                chain=["upload_surface", "dangerous_http_methods", "arbitrary_file_write"],
             )
 
-        has_ssrf = has(lambda f, t: 'ssrf' in t or (getattr(f, 'category', '') or '') in {'ssrf_surface', 'metadata_service_exposure'})
-        has_metadata = has(lambda f, t: '169.254.169.254' in t or 'metadata service' in t or (getattr(f, 'category', '') or '') == 'metadata_service_exposure')
+        has_ssrf = has(
+            lambda f, t: "ssrf" in t
+            or (getattr(f, "category", "") or "") in {"ssrf_surface", "metadata_service_exposure"}
+        )
+        has_metadata = has(
+            lambda f, t: "169.254.169.254" in t
+            or "metadata service" in t
+            or (getattr(f, "category", "") or "") == "metadata_service_exposure"
+        )
         if has_ssrf and has_metadata:
             add(
-                'Cortex Attack Path: SSRF Surface -> Cloud Metadata Credential Theft',
-                'Reasoning engine identified SSRF-capable input and metadata-service exposure signals, indicating probable cloud credential theft path.',
-                severity='high',
-                confidence='medium',
-                chain=['ssrf_surface', 'metadata_service', 'credential_theft'],
+                "Cortex Attack Path: SSRF Surface -> Cloud Metadata Credential Theft",
+                "Reasoning engine identified SSRF-capable input and metadata-service exposure signals, indicating probable cloud credential theft path.",
+                severity="high",
+                confidence="medium",
+                chain=["ssrf_surface", "metadata_service", "credential_theft"],
             )
 
-        has_js_route = has(lambda f, t: 'javascript' in t or 'hidden route' in t or (getattr(f, 'category', '') or '') == 'api_surface')
+        has_js_route = has(
+            lambda f, t: "javascript" in t
+            or "hidden route" in t
+            or (getattr(f, "category", "") or "") == "api_surface"
+        )
         if has_js_route:
-            paths.append({
-                'title': 'Cortex Attack Plan: Investigate JS-Derived Routes',
-                'description': 'Planning layer recommends focused validation of JavaScript-derived routes, especially admin/auth paths already present in telemetry.',
-                'severity': 'medium',
-                'confidence': 'high',
-                'tool_source': 'cortex_engine',
-                'module': 'cortex_planner',
-                'category': 'attack_plan',
-                'metadata': {
-                    'title': 'Inspect JS-derived admin route',
-                    'description': 'Validate authorization and hidden-route accessibility for JS-mined endpoints.',
-                    'rationale': 'Deterministic route intelligence from passive telemetry and API surface findings.',
-                    'related_signal_ids': [],
-                    'related_finding_ids': [],
-                    'attack_chain': 'js_routes_auth_surface',
-                    'attack_priority': 'medium',
-                    'action_priority': 65,
-                    'action_type': 'guided_probe',
-                    'estimated_value': 'high',
-                    'estimated_complexity': 'medium',
-                },
-            })
+            paths.append(
+                {
+                    "title": "Cortex Attack Plan: Investigate JS-Derived Routes",
+                    "description": "Planning layer recommends focused validation of JavaScript-derived routes, especially admin/auth paths already present in telemetry.",
+                    "severity": "medium",
+                    "confidence": "high",
+                    "tool_source": "cortex_engine",
+                    "module": "cortex_planner",
+                    "category": "attack_plan",
+                    "metadata": {
+                        "title": "Inspect JS-derived admin route",
+                        "description": "Validate authorization and hidden-route accessibility for JS-mined endpoints.",
+                        "rationale": "Deterministic route intelligence from passive telemetry and API surface findings.",
+                        "related_signal_ids": [],
+                        "related_finding_ids": [],
+                        "attack_chain": "js_routes_auth_surface",
+                        "attack_priority": "medium",
+                        "action_priority": 65,
+                        "action_type": "guided_probe",
+                        "estimated_value": "high",
+                        "estimated_complexity": "medium",
+                    },
+                }
+            )
 
         if has_ssrf:
-            paths.append({
-                'title': 'Cortex Next Step: Probe SSRF Metadata Path',
-                'description': 'Recommended bounded probe: validate SSRF controls against metadata service patterns using non-destructive request variants.',
-                'severity': 'medium',
-                'confidence': 'medium',
-                'tool_source': 'cortex_engine',
-                'module': 'cortex_planner',
-                'category': 'next_step',
-                'metadata': {
-                    'title': 'Investigate SSRF against metadata service',
-                    'description': 'Replay safe SSRF patterns to metadata endpoints only where existing evidence indicates input control.',
-                    'rationale': 'SSRF and metadata-service indicators appear in findings telemetry.',
-                    'related_signal_ids': [],
-                    'related_finding_ids': [],
-                    'endpoint': 'metadata_service',
-                    'attack_chain': 'ssrf_to_metadata',
-                    'attack_priority': 'high',
-                    'action_priority': 85,
-                    'action_type': 'guided_probe',
-                    'estimated_value': 'high',
-                    'estimated_complexity': 'medium',
-                },
-            })
+            paths.append(
+                {
+                    "title": "Cortex Next Step: Probe SSRF Metadata Path",
+                    "description": "Recommended bounded probe: validate SSRF controls against metadata service patterns using non-destructive request variants.",
+                    "severity": "medium",
+                    "confidence": "medium",
+                    "tool_source": "cortex_engine",
+                    "module": "cortex_planner",
+                    "category": "next_step",
+                    "metadata": {
+                        "title": "Investigate SSRF against metadata service",
+                        "description": "Replay safe SSRF patterns to metadata endpoints only where existing evidence indicates input control.",
+                        "rationale": "SSRF and metadata-service indicators appear in findings telemetry.",
+                        "related_signal_ids": [],
+                        "related_finding_ids": [],
+                        "endpoint": "metadata_service",
+                        "attack_chain": "ssrf_to_metadata",
+                        "attack_priority": "high",
+                        "action_priority": 85,
+                        "action_type": "guided_probe",
+                        "estimated_value": "high",
+                        "estimated_complexity": "medium",
+                    },
+                }
+            )
 
         return paths
 
@@ -240,7 +303,11 @@ class RiskScoringEngine:
         chain_length = len(chain)
         signal_weight = min(1.0, signal_count / 5.0)
         attack_path_weight = min(1.0, chain_length / 4.0)
-        in_attack_graph = 1.0 if (finding.id_stable and f"finding:db:{finding.id_stable}" in attack_graph_node_ids) else 0.0
+        in_attack_graph = (
+            1.0
+            if (finding.id_stable and f"finding:db:{finding.id_stable}" in attack_graph_node_ids)
+            else 0.0
+        )
 
         component = str(metadata.get("component") or "").lower()
         dependency_risk = 0.0
@@ -288,7 +355,15 @@ class RiskScoringEngine:
         else:
             attack_priority = "low"
 
-        return exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk, score_factors
+        return (
+            exploit_score,
+            risk_level,
+            attack_priority,
+            chain_length,
+            signal_count,
+            dependency_risk,
+            score_factors,
+        )
 
 
 def apply_risk_scores(scan_id, graph=None):
@@ -298,12 +373,26 @@ def apply_risk_scores(scan_id, graph=None):
 
     node_ids = set()
     if isinstance(graph, dict):
-        node_ids = {n.get("id") for n in graph.get("nodes", []) if isinstance(n, dict) and n.get("id")}
+        node_ids = {
+            n.get("id")
+            for n in graph.get("nodes", [])
+            if isinstance(n, dict) and n.get("id")
+        }
 
     updated = 0
     for finding in findings:
         metadata = dict(finding.metadata_json) if isinstance(finding.metadata_json, dict) else {}
-        exploit_score, risk_level, attack_priority, chain_length, signal_count, dependency_risk, score_factors = RiskScoringEngine.score_finding(finding, node_ids)
+
+        (
+            exploit_score,
+            risk_level,
+            attack_priority,
+            chain_length,
+            signal_count,
+            dependency_risk,
+            score_factors,
+        ) = RiskScoringEngine.score_finding(finding, node_ids)
+
         chain = metadata.get("chain") if isinstance(metadata.get("chain"), list) else []
         category = (finding.category or "").lower()
 
@@ -313,7 +402,11 @@ def apply_risk_scores(scan_id, graph=None):
 
         metadata["attack_priority"] = attack_priority
         metadata["action_priority"] = int(exploit_score)
-        metadata["action_type"] = "guided_probe" if category in {"attack_plan", "next_step", "attack_path", "attack_chain"} else "triage"
+        metadata["action_type"] = (
+            "guided_probe"
+            if category in {"attack_plan", "next_step", "attack_path", "attack_chain"}
+            else "triage"
+        )
         metadata["estimated_value"] = "high" if exploit_score >= 70 else "medium" if exploit_score >= 40 else "low"
         metadata["estimated_complexity"] = "high" if exploit_score >= 80 else "medium" if exploit_score >= 45 else "low"
         metadata["exploit_score"] = exploit_score
@@ -321,7 +414,10 @@ def apply_risk_scores(scan_id, graph=None):
         metadata["signal_count"] = signal_count
         metadata["chain_length"] = chain_length
         metadata["dependency_risk"] = dependency_risk
-        metadata["score_factors"] = merge_score_factors(metadata.get("score_factors"), score_factors)
+        metadata["score_factors"] = merge_score_factors(
+            metadata.get("score_factors"),
+            score_factors,
+        )
         metadata["field_sources"] = merge_field_sources(
             metadata.get("field_sources"),
             {
@@ -329,7 +425,11 @@ def apply_risk_scores(scan_id, graph=None):
                 "attack_priority": "risk_scoring_engine",
             },
         )
-        metadata = deep_merge_metadata(finding.metadata_json if isinstance(finding.metadata_json, dict) else {}, metadata)
+
+        metadata = deep_merge_metadata(
+            finding.metadata_json if isinstance(finding.metadata_json, dict) else {},
+            metadata,
+        )
         finding.metadata_json = metadata
         updated += 1
 
@@ -350,20 +450,20 @@ def run_cortex_attack_reasoning(scan_id, add_finding_cb):
     created = 0
     existing_titles = {f.title for f in findings}
     for item in paths:
-        if item['title'] in existing_titles:
+        if item["title"] in existing_titles:
             continue
         add_finding_cb(
             scan_id=scan_id,
-            title=item['title'],
-            description=item['description'],
-            severity=item['severity'],
-            confidence=item['confidence'],
-            tool_source=item['tool_source'],
-            module=item['module'],
-            category=item['category'],
-            metadata=item.get('metadata') or {},
-            evidence=item['description'],
-            reproduction='Trace prerequisite findings and validate each hop using recorded evidence and endpoints.',
+            title=item["title"],
+            description=item["description"],
+            severity=item["severity"],
+            confidence=item["confidence"],
+            tool_source=item["tool_source"],
+            module=item["module"],
+            category=item["category"],
+            metadata=item.get("metadata") or {},
+            evidence=item["description"],
+            reproduction="Trace prerequisite findings and validate each hop using recorded evidence and endpoints.",
         )
         created += 1
 

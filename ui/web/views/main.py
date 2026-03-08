@@ -24,6 +24,7 @@ from core.models import (
     AssetTargetLink,
     ReplayVaultEntry,
     AuthIdentityMap,
+    OperatorFeedback,
     db,
 )
 from sqlalchemy import func
@@ -38,6 +39,11 @@ from core.replay_vault import (
     compare_replay_artifacts,
     extract_auth_identity_observations,
     normalize_replay_artifact,
+)
+from core.lot5_intelligence import (
+    analyze_graphql_surface,
+    build_feedback_profile,
+    extract_graphql_observation,
 )
 from core.mission_intelligence import (
     MISSION_STATES,
@@ -73,11 +79,30 @@ def _serialize_replay_entry(entry):
         "status_code": entry.status_code,
         "response_headers": entry.response_headers_json or {},
         "response_body_summary": entry.response_body_summary_json or {},
+        "graphql_summary": entry.graphql_summary_json or {},
         "content_type": entry.content_type,
         "redirect_chain": entry.redirect_chain_json or [],
         "identity_context": entry.identity_context_json or {},
         "provenance": entry.provenance_json or {},
         "observed_at": entry.observed_at.isoformat() if entry.observed_at else None,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+def _serialize_operator_feedback(entry):
+    return {
+        "id": entry.id,
+        "mission_id": entry.mission_id,
+        "action_id": entry.action_id,
+        "finding_id": entry.finding_id,
+        "replay_id": entry.replay_id,
+        "feedback_type": entry.feedback_type,
+        "signal_family": entry.signal_family,
+        "subject_type": entry.subject_type,
+        "subject_key": entry.subject_key,
+        "sentiment": entry.sentiment,
+        "notes": entry.notes,
+        "metadata": entry.metadata_json or {},
         "created_at": entry.created_at.isoformat() if entry.created_at else None,
     }
 
@@ -235,6 +260,7 @@ def replay_vault_collection():
 
     payload = request.get_json(silent=True) or {}
     normalized = normalize_replay_artifact(payload)
+    graphql_obs = extract_graphql_observation(normalized)
     auth_obs = extract_auth_identity_observations(payload)
 
     entry = ReplayVaultEntry(
@@ -253,6 +279,7 @@ def replay_vault_collection():
         status_code=normalized.get("status_code"),
         response_headers_json=normalized.get("response_headers"),
         response_body_summary_json=normalized.get("response_body_summary"),
+        graphql_summary_json=graphql_obs,
         content_type=normalized.get("content_type"),
         redirect_chain_json=normalized.get("redirect_chain"),
         identity_context_json=normalized.get("identity_context"),
@@ -284,6 +311,7 @@ def replay_vault_collection():
 
     return jsonify({
         "replay": _serialize_replay_entry(entry),
+        "graphql": graphql_obs,
         "auth_identity": _serialize_auth_identity_map(identity_map),
     }), 201
 
@@ -303,6 +331,28 @@ def replay_vault_diff(left_id, right_id):
         "left_id": left_id,
         "right_id": right_id,
         "diff": diff,
+    })
+
+
+@main_bp.route("/api/replay-vault/graphql-intelligence", methods=["GET"])
+def replay_vault_graphql_intelligence_api():
+    limit = min(request.args.get("limit", 500, type=int), 1000)
+    mission_id = request.args.get("mission_id", type=int)
+    scan_id = request.args.get("scan_id", type=int)
+
+    q = ReplayVaultEntry.query.order_by(ReplayVaultEntry.id.desc())
+    if mission_id is not None:
+        q = q.filter(ReplayVaultEntry.mission_id == mission_id)
+    if scan_id is not None:
+        q = q.filter(ReplayVaultEntry.scan_id == scan_id)
+
+    items = q.limit(limit).all()
+    payload = [_serialize_replay_entry(item) for item in items]
+    intelligence = analyze_graphql_surface(payload)
+
+    return jsonify({
+        "total_considered": len(payload),
+        "graphql_intelligence": intelligence,
     })
 
 
@@ -1006,6 +1056,69 @@ def mission_operator_action_status_api(mission_id, action_id):
     if err == "invalid_transition":
         return jsonify({"error": "invalid status transition", "allowed_statuses": sorted(ACTION_STATUSES)}), 400
     return jsonify({"status": "updated", "action": updated})
+
+
+@main_bp.route("/api/missions/<int:mission_id>/feedback", methods=["GET", "POST"])
+def mission_feedback_api(mission_id):
+    Mission.query.get_or_404(mission_id)
+
+    if request.method == "GET":
+        limit = min(request.args.get("limit", 100, type=int), 500)
+        offset = request.args.get("offset", 0, type=int)
+
+        q = OperatorFeedback.query.filter_by(mission_id=mission_id).order_by(OperatorFeedback.id.desc())
+        total = q.count()
+        items = q.limit(limit).offset(offset).all()
+
+        rows = [_serialize_operator_feedback(item) for item in items]
+        profile = build_feedback_profile(rows)
+        return jsonify({
+            "mission_id": mission_id,
+            "total": total,
+            "items": rows,
+            "profile": profile,
+        })
+
+    data = request.get_json(silent=True) or request.form
+    feedback_type = (data.get("feedback_type") or "").strip().lower()
+    if not feedback_type:
+        return jsonify({"error": "feedback_type is required"}), 400
+
+    sentiment = data.get("sentiment")
+    try:
+        sentiment = int(sentiment)
+    except (TypeError, ValueError):
+        sentiment = 0
+    sentiment = max(-1, min(1, sentiment))
+
+    row = OperatorFeedback(
+        mission_id=mission_id,
+        action_id=int(data.get("action_id")) if str(data.get("action_id") or "").isdigit() else None,
+        finding_id=int(data.get("finding_id")) if str(data.get("finding_id") or "").isdigit() else None,
+        replay_id=int(data.get("replay_id")) if str(data.get("replay_id") or "").isdigit() else None,
+        feedback_type=feedback_type,
+        signal_family=(data.get("signal_family") or "").strip().lower() or None,
+        subject_type=(data.get("subject_type") or "").strip().lower() or None,
+        subject_key=(data.get("subject_key") or "").strip().lower() or None,
+        sentiment=sentiment,
+        notes=data.get("notes"),
+        metadata_json=data.get("metadata") if isinstance(data.get("metadata"), dict) else None,
+    )
+    db.session.add(row)
+    db.session.commit()
+
+    return jsonify({
+        "status": "created",
+        "item": _serialize_operator_feedback(row),
+    }), 201
+
+
+@main_bp.route("/api/missions/<int:mission_id>/feedback/<int:feedback_id>", methods=["DELETE"])
+def mission_feedback_delete_api(mission_id, feedback_id):
+    row = OperatorFeedback.query.filter_by(mission_id=mission_id, id=feedback_id).first_or_404()
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"status": "deleted", "feedback_id": feedback_id})
 
 
 @main_bp.route("/api/missions/<int:mission_id>/assets", methods=["GET", "POST"])
