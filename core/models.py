@@ -35,11 +35,17 @@ class Mission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(20), default="active")
+    status = db.Column(db.String(32), default="draft")
+    objectives_json = db.Column("objectives", db.JSON, nullable=True)
+    scope_summary = db.Column(db.Text, nullable=True)
+    priority = db.Column(db.String(20), default="medium")
+    tags_json = db.Column("tags", db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     targets = db.relationship("Target", backref="mission", lazy=True)
     loots = db.relationship("Loot", backref="mission", lazy=True)
+    assets = db.relationship("Asset", backref="mission", lazy=True, cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Mission {self.name}>"
@@ -59,9 +65,91 @@ class Target(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     scans = db.relationship("Scan", backref="target", lazy=True)
+    asset_links = db.relationship(
+        "AssetTargetLink",
+        backref="target",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<Target {self.identifier}>"
+
+
+class Asset(db.Model):
+    __tablename__ = "assets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False, index=True)
+    type = db.Column(db.String(50), nullable=False, default="domain")
+    identifier = db.Column(db.String(255), nullable=False, index=True)
+    label = db.Column(db.String(255), nullable=True)
+    confidence = db.Column(db.String(20), nullable=False, default="medium")
+    source = db.Column(db.String(128), nullable=True)
+    provenance = db.Column(db.JSON, nullable=True)
+    tags = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    target_links = db.relationship(
+        "AssetTargetLink",
+        backref="asset",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+
+
+class AssetTargetLink(db.Model):
+    __tablename__ = "asset_target_links"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_id = db.Column(db.Integer, db.ForeignKey("assets.id"), nullable=False, index=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=False, index=True)
+    link_type = db.Column(db.String(64), nullable=False, default="observed")
+    confidence = db.Column(db.String(20), nullable=False, default="medium")
+    source = db.Column(db.String(128), nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("asset_id", "target_id", name="uq_asset_target_link"),
+    )
+
+
+class OperatorAction(db.Model):
+    __tablename__ = "operator_actions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False, index=True)
+    action_key = db.Column(db.String(128), nullable=False, index=True)
+
+    related_asset_ids = db.Column(db.JSON, nullable=True)
+    related_target_ids = db.Column(db.JSON, nullable=True)
+    related_finding_ids = db.Column(db.JSON, nullable=True)
+    related_signal_ids = db.Column(db.JSON, nullable=True)
+
+    objective_type = db.Column(db.String(64), nullable=False)
+    action_type = db.Column(db.String(64), nullable=False, default="review")
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    rationale = db.Column(db.Text, nullable=True)
+
+    confidence = db.Column(db.Float, nullable=False, default=0.0)
+    attack_priority = db.Column(db.String(20), nullable=False, default="medium")
+    estimated_value = db.Column(db.String(20), nullable=False, default="medium")
+    estimated_complexity = db.Column(db.String(20), nullable=False, default="low")
+
+    status = db.Column(db.String(32), nullable=False, default="suggested", index=True)
+    blocker_summary = db.Column(db.JSON, nullable=True)
+    required_conditions = db.Column(db.JSON, nullable=True)
+    evidence_summary = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("mission_id", "action_key", name="uq_operator_action_mission_key"),
+    )
 
 
 # ------------------------------------------------------------------
@@ -182,6 +270,88 @@ class Signal(db.Model):
         default=datetime.utcnow,
         index=True
     )
+
+
+class ReplayVaultEntry(db.Model):
+    __tablename__ = "replay_vault_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True, index=True)
+    finding_id = db.Column(db.Integer, db.ForeignKey("findings.id"), nullable=True, index=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=True, index=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=True, index=True)
+
+    source = db.Column(db.String(128), nullable=True)
+
+    method = db.Column(db.String(12), nullable=False, default="GET")
+    url = db.Column(db.String(2048), nullable=False)
+    endpoint = db.Column(db.String(2048), nullable=True)
+    query_params_json = db.Column("query_params", db.JSON, nullable=True)
+
+    request_headers_json = db.Column("request_headers", db.JSON, nullable=True)
+    request_cookies_json = db.Column("request_cookies", db.JSON, nullable=True)
+    request_body_summary_json = db.Column("request_body_summary", db.JSON, nullable=True)
+
+    status_code = db.Column(db.Integer, nullable=True)
+    response_headers_json = db.Column("response_headers", db.JSON, nullable=True)
+    response_body_summary_json = db.Column("response_body_summary", db.JSON, nullable=True)
+    graphql_summary_json = db.Column("graphql_summary", db.JSON, nullable=True)
+    content_type = db.Column(db.String(255), nullable=True)
+    redirect_chain_json = db.Column("redirect_chain", db.JSON, nullable=True)
+
+    identity_context_json = db.Column("identity_context", db.JSON, nullable=True)
+    provenance_json = db.Column("provenance", db.JSON, nullable=True)
+
+    observed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AuthIdentityMap(db.Model):
+    __tablename__ = "auth_identity_maps"
+
+    id = db.Column(db.Integer, primary_key=True)
+    replay_id = db.Column(db.Integer, db.ForeignKey("replay_vault_entries.id"), nullable=True, index=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey("scans.id"), nullable=True, index=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=True, index=True)
+    target_id = db.Column(db.Integer, db.ForeignKey("targets.id"), nullable=True, index=True)
+
+    route = db.Column(db.String(2048), nullable=True)
+    route_auth_hints_json = db.Column("route_auth_hints", db.JSON, nullable=True)
+    session_cookie_names_json = db.Column("session_cookie_names", db.JSON, nullable=True)
+
+    bearer_token_present = db.Column(db.Boolean, nullable=False, default=False)
+    bearer_token_preview = db.Column(db.String(64), nullable=True)
+    jwt_like_token = db.Column(db.Boolean, nullable=False, default=False)
+    response_session_cookie_hint = db.Column(db.Boolean, nullable=False, default=False)
+
+    role_scope_claim_hints_json = db.Column("role_scope_claim_hints", db.JSON, nullable=True)
+    observation_only = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    source = db.Column(db.String(128), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class OperatorFeedback(db.Model):
+    __tablename__ = "operator_feedback"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey("missions.id"), nullable=False, index=True)
+
+    action_id = db.Column(db.Integer, db.ForeignKey("operator_actions.id"), nullable=True, index=True)
+    finding_id = db.Column(db.Integer, db.ForeignKey("findings.id"), nullable=True, index=True)
+    replay_id = db.Column(db.Integer, db.ForeignKey("replay_vault_entries.id"), nullable=True, index=True)
+
+    feedback_type = db.Column(db.String(64), nullable=False, index=True)
+    signal_family = db.Column(db.String(64), nullable=True, index=True)
+    subject_type = db.Column(db.String(64), nullable=True)
+    subject_key = db.Column(db.String(128), nullable=True, index=True)
+    sentiment = db.Column(db.Integer, nullable=False, default=0)
+
+    notes = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 # ------------------------------------------------------------------

@@ -83,7 +83,15 @@ class AssetDiscoveryEngine:
         findings = []
         seen = set()
 
-        def add(category, discovered_asset, source, confidence, evidence, finding_category="asset_discovery", severity="info"):
+        def add(
+            category,
+            discovered_asset,
+            source,
+            confidence,
+            evidence,
+            finding_category="asset_discovery",
+            severity="info",
+        ):
             if not discovered_asset or not evidence:
                 return
             fp = f"{finding_category}|{discovered_asset}|{source}"
@@ -100,23 +108,28 @@ class AssetDiscoveryEngine:
             }
             if finding_category == "cloud_asset":
                 metadata["provider"] = cls._provider_for_host(discovered_asset)
-            findings.append(normalize_finding_shape({
-                "title": f"Discovered Asset: {discovered_asset}",
-                "severity": severity,
-                "confidence": confidence,
-                "tool_source": "passive_intel",
-                "tool": "passive_intel",
-                "module": "passive_intel",
-                "category": finding_category,
-                "target": target,
-                "endpoint": discovered_asset,
-                "evidence": evidence,
-                "raw_output": evidence,
-                "signal_ids": [],
-                "description": f"Asset discovery extracted {discovered_asset} from {source} telemetry.",
-                "metadata": metadata,
-                "source": source,
-            }, source=source))
+            findings.append(
+                normalize_finding_shape(
+                    {
+                        "title": f"Discovered Asset: {discovered_asset}",
+                        "severity": severity,
+                        "confidence": confidence,
+                        "tool_source": "passive_intel",
+                        "tool": "passive_intel",
+                        "module": "passive_intel",
+                        "category": finding_category,
+                        "target": target,
+                        "endpoint": discovered_asset,
+                        "evidence": evidence,
+                        "raw_output": evidence,
+                        "signal_ids": [],
+                        "description": f"Asset discovery extracted {discovered_asset} from {source} telemetry.",
+                        "metadata": metadata,
+                        "source": source,
+                    },
+                    source=source,
+                )
+            )
 
         for blob in cls._iter_strings(results):
             for host in cls._extract_hosts(blob):
@@ -125,7 +138,15 @@ class AssetDiscoveryEngine:
                 is_cloud = any(pat in host for pat in cls.CLOUD_PATTERNS)
                 finding_category = "cloud_asset" if is_cloud else "asset_discovery"
                 severity = "medium" if is_cloud else "info"
-                add(asset_type, host, source, conf, blob[:300], finding_category=finding_category, severity=severity)
+                add(
+                    asset_type,
+                    host,
+                    source,
+                    conf,
+                    blob[:300],
+                    finding_category=finding_category,
+                    severity=severity,
+                )
 
         return findings
 
@@ -170,27 +191,38 @@ class SecretsIntelligenceEngine:
                     if fp in seen:
                         continue
                     seen.add(fp)
-                    findings.append({
-                        "title": f"Potential Secret Exposure: {secret_type}",
-                        "severity": "high",
-                        "confidence": "high" if secret_type in {"private_key", "aws_access_key_id", "gcp_api_key", "github_token"} else "medium",
-                        "tool_source": "passive_intel",
-                        "module": "passive_intel",
-                        "category": "secret_exposure",
-                        "target": target,
-                        "endpoint": "",
-                        "evidence": evidence,
-                        "raw_output": blob[:500],
-                        "signal_ids": [],
-                        "description": f"Secret intelligence matched {secret_type} pattern in collected telemetry.",
-                        "metadata": {
+                    findings.append(
+                        {
+                            "title": f"Potential Secret Exposure: {secret_type}",
+                            "severity": "high",
+                            "confidence": (
+                                "high"
+                                if secret_type in {
+                                    "private_key",
+                                    "aws_access_key_id",
+                                    "gcp_api_key",
+                                    "github_token",
+                                }
+                                else "medium"
+                            ),
+                            "tool_source": "passive_intel",
+                            "module": "passive_intel",
+                            "category": "secret_exposure",
                             "target": target,
-                            "secret_type": secret_type,
-                            "source": "scan_telemetry",
-                            "location": "telemetry_blob",
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                        },
-                    })
+                            "endpoint": "",
+                            "evidence": evidence,
+                            "raw_output": blob[:500],
+                            "signal_ids": [],
+                            "description": f"Secret intelligence matched {secret_type} pattern in collected telemetry.",
+                            "metadata": {
+                                "target": target,
+                                "secret_type": secret_type,
+                                "source": "scan_telemetry",
+                                "location": "telemetry_blob",
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            },
+                        }
+                    )
 
         return findings
 
@@ -294,7 +326,18 @@ class PassiveIntelligenceEngine:
         seen = set()
         target_domain = (target or "").split(":")[0]
 
-        def add(title, severity="info", confidence="medium", endpoint="", category="passive_intel", description="", evidence="", metadata=None, source="passive_telemetry", parameter=""):
+        def add(
+            title,
+            severity="info",
+            confidence="medium",
+            endpoint="",
+            category="passive_intel",
+            description="",
+            evidence="",
+            metadata=None,
+            source="passive_telemetry",
+            parameter="",
+        ):
             fp = cls._mk_fingerprint(title, endpoint, severity, category, parameter)
             if fp in seen or not (evidence or description):
                 return
@@ -303,32 +346,70 @@ class PassiveIntelligenceEngine:
             md.setdefault("source", source)
             md.setdefault("confidence", confidence)
             md.setdefault("timestamp", datetime.utcnow().isoformat() + "Z")
-            findings.append(normalize_finding_shape({
-                "title": title,
-                "severity": severity,
-                "confidence": confidence,
-                "tool_source": "passive_intel",
-                "tool": "passive_intel",
-                "module": "passive_intel",
-                "category": category,
-                "target": target,
-                "endpoint": endpoint,
-                "parameter": parameter,
-                "evidence": evidence or description,
-                "description": description,
-                "raw_output": evidence or description,
-                "signal_ids": [],
-                "metadata": md,
-                "source": source,
-            }, source=source))
+
+            field_sources = md.get("field_sources") if isinstance(md.get("field_sources"), dict) else {}
+            if endpoint:
+                field_sources.setdefault("endpoint", source)
+            if parameter:
+                field_sources.setdefault("parameter", source)
+            if evidence:
+                field_sources.setdefault("evidence", source)
+            if md.get("provider"):
+                field_sources.setdefault("provider", source)
+            if md.get("component"):
+                field_sources.setdefault("component", source)
+            if md.get("version"):
+                field_sources.setdefault("version", source)
+            if field_sources:
+                md["field_sources"] = field_sources
+
+            findings.append(
+                normalize_finding_shape(
+                    {
+                        "title": title,
+                        "severity": severity,
+                        "confidence": confidence,
+                        "tool_source": "passive_intel",
+                        "tool": "passive_intel",
+                        "module": "passive_intel",
+                        "category": category,
+                        "target": target,
+                        "endpoint": endpoint,
+                        "parameter": parameter,
+                        "evidence": evidence or description,
+                        "description": description,
+                        "raw_output": evidence or description,
+                        "signal_ids": [],
+                        "metadata": md,
+                        "source": source,
+                    },
+                    source=source,
+                )
+            )
 
         endpoints = list(cls._iter_endpoints(results))
         for endpoint in endpoints:
             low = endpoint.lower()
             if any(h in low for h in cls.AUTH_HINTS):
-                add("Authentication Surface Exposed", "medium", "medium", endpoint, "auth_surface", "Authentication-related endpoint discovered in existing telemetry.", endpoint)
+                add(
+                    "Authentication Surface Exposed",
+                    "medium",
+                    "medium",
+                    endpoint,
+                    "auth_surface",
+                    "Authentication-related endpoint discovered in existing telemetry.",
+                    endpoint,
+                )
             if any(h in low for h in cls.API_DOC_PATTERNS):
-                add("Documented API Surface Exposed", "low", "high", endpoint, "api_surface", "Path pattern maps to API documentation or schema endpoint.", endpoint)
+                add(
+                    "Documented API Surface Exposed",
+                    "low",
+                    "high",
+                    endpoint,
+                    "api_surface",
+                    "Path pattern maps to API documentation or schema endpoint.",
+                    endpoint,
+                )
 
         phases = results.get("phases", {}) if isinstance(results, dict) else {}
         enum = phases.get("enum", {}) if isinstance(phases, dict) else {}
@@ -337,8 +418,16 @@ class PassiveIntelligenceEngine:
             for port, header_data in headers_map.items():
                 if not isinstance(header_data, dict):
                     continue
-                allow_origin = str(header_data.get("Access-Control-Allow-Origin") or header_data.get("access-control-allow-origin") or "").strip()
-                allow_credentials = str(header_data.get("Access-Control-Allow-Credentials") or header_data.get("access-control-allow-credentials") or "").strip().lower()
+                allow_origin = str(
+                    header_data.get("Access-Control-Allow-Origin")
+                    or header_data.get("access-control-allow-origin")
+                    or ""
+                ).strip()
+                allow_credentials = str(
+                    header_data.get("Access-Control-Allow-Credentials")
+                    or header_data.get("access-control-allow-credentials")
+                    or ""
+                ).strip().lower()
                 if allow_origin == "*" and allow_credentials == "true":
                     add(
                         "Dangerous CORS Configuration Detected",
@@ -391,7 +480,11 @@ class PassiveIntelligenceEngine:
                     category="asset_discovery",
                     description="Subdomain inferred from passive telemetry artifact.",
                     evidence=blob[:220],
-                    metadata={"discovered_asset": subdomain, "source": "passive_telemetry", "target": target},
+                    metadata={
+                        "discovered_asset": subdomain,
+                        "source": "passive_telemetry",
+                        "target": target,
+                    },
                     source="subdomain_inference",
                 )
 
@@ -404,7 +497,12 @@ class PassiveIntelligenceEngine:
                     category="api_surface",
                     description="API endpoint inferred from JavaScript/XHR/fetch/axios telemetry.",
                     evidence=blob[:220],
-                    metadata={"endpoint": api_ep, "method": "unknown", "source": "passive_telemetry", "target": target},
+                    metadata={
+                        "endpoint": api_ep,
+                        "method": "unknown",
+                        "source": "passive_telemetry",
+                        "target": target,
+                    },
                     source="api_inference",
                 )
 
@@ -418,7 +516,11 @@ class PassiveIntelligenceEngine:
                     parameter=param,
                     description="Parameter candidate discovered from query/body/json telemetry.",
                     evidence=blob[:220],
-                    metadata={"parameter": param, "source": "passive_telemetry", "target": target},
+                    metadata={
+                        "parameter": param,
+                        "source": "passive_telemetry",
+                        "target": target,
+                    },
                     source="parameter_inference",
                 )
 
@@ -433,18 +535,57 @@ class PassiveIntelligenceEngine:
                         parameter=key,
                         description="Parameter candidate discovered from URL query telemetry.",
                         evidence=blob[:220],
-                        metadata={"parameter": key, "source": "url_query", "target": target},
+                        metadata={
+                            "parameter": key,
+                            "source": "url_query",
+                            "target": target,
+                        },
                         source="parameter_inference",
                     )
 
             if "169.254.169.254" in text:
-                add("Metadata Service Endpoint Referenced", "medium", "medium", "", "metadata_service_exposure", "Collected telemetry references cloud metadata endpoint IP.", blob[:200])
+                add(
+                    "Metadata Service Endpoint Referenced",
+                    "medium",
+                    "medium",
+                    "",
+                    "metadata_service_exposure",
+                    "Collected telemetry references cloud metadata endpoint IP.",
+                    blob[:200],
+                )
             if any(h in text for h in cls.CLOUD_REF_HINTS):
-                add("Cloud Storage Reference Observed", "info", "medium", "", "cloud_storage_reference", "Passive telemetry references cloud object storage endpoint patterns.", blob[:200])
+                add(
+                    "Cloud Storage Reference Observed",
+                    "info",
+                    "medium",
+                    "",
+                    "cloud_storage_reference",
+                    "Passive telemetry references cloud object storage endpoint patterns.",
+                    blob[:200],
+                )
             if "token" in text and any(marker in text for marker in ["=", ":"]):
-                add("Potential Token Leakage in Telemetry", "medium", "medium", "", "token_leakage", "Raw collected telemetry contains token marker patterns.", blob[:200])
-            if cls._looks_like_jwt(blob) or re.search(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", blob):
-                add("JWT Token Observed in Telemetry", "medium", "medium", "", "jwt_exposure", "Telemetry includes token matching JWT structure.", blob[:200])
+                add(
+                    "Potential Token Leakage in Telemetry",
+                    "medium",
+                    "medium",
+                    "",
+                    "token_leakage",
+                    "Raw collected telemetry contains token marker patterns.",
+                    blob[:200],
+                )
+            if cls._looks_like_jwt(blob) or re.search(
+                r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+                blob,
+            ):
+                add(
+                    "JWT Token Observed in Telemetry",
+                    "medium",
+                    "medium",
+                    "",
+                    "jwt_exposure",
+                    "Telemetry includes token matching JWT structure.",
+                    blob[:200],
+                )
 
             for host in AssetDiscoveryEngine._extract_hosts(blob):
                 provider = AssetDiscoveryEngine._provider_for_host(host)
@@ -458,7 +599,13 @@ class PassiveIntelligenceEngine:
                         category=infra_category,
                         description="Provider/CDN inference from passive host telemetry.",
                         evidence=blob[:220],
-                        metadata={"target": target, "discovered_asset": host, "provider": provider, "source": "passive_telemetry", "confidence": "medium"},
+                        metadata={
+                            "target": target,
+                            "discovered_asset": host,
+                            "provider": provider,
+                            "source": "passive_telemetry",
+                            "confidence": "medium",
+                        },
                         source="infra_provider_inference",
                     )
                 if host.endswith(".local") or ".internal" in host or host.endswith(".corp"):
@@ -470,7 +617,13 @@ class PassiveIntelligenceEngine:
                         category="infra_discovery",
                         description="Internal hostname referenced in collected telemetry.",
                         evidence=blob[:220],
-                        metadata={"target": target, "discovered_asset": host, "provider": "internal", "source": "passive_telemetry", "confidence": "high"},
+                        metadata={
+                            "target": target,
+                            "discovered_asset": host,
+                            "provider": "internal",
+                            "source": "passive_telemetry",
+                            "confidence": "high",
+                        },
                         source="infra_internal_host",
                     )
 
@@ -493,7 +646,13 @@ class PassiveIntelligenceEngine:
                         category="infra_discovery",
                         description="Cloud/provider ASN hint inferred from observed IP range.",
                         evidence=blob[:220],
-                        metadata={"target": target, "discovered_asset": ip_raw, "provider": provider, "source": "ip_range_mapping", "confidence": "low"},
+                        metadata={
+                            "target": target,
+                            "discovered_asset": ip_raw,
+                            "provider": provider,
+                            "source": "ip_range_mapping",
+                            "confidence": "low",
+                        },
                         source="infra_ip_hint",
                     )
 
@@ -507,7 +666,12 @@ class PassiveIntelligenceEngine:
                     category="tech_fingerprint",
                     description="Component and version extracted from static asset naming pattern.",
                     evidence=match.group(0),
-                    metadata={"component": component, "version": version, "source": "js_asset_path", "confidence": "high"},
+                    metadata={
+                        "component": component,
+                        "version": version,
+                        "source": "js_asset_path",
+                        "confidence": "high",
+                    },
                     source="tech_js_pattern",
                 )
                 add(
@@ -518,7 +682,12 @@ class PassiveIntelligenceEngine:
                     category="dependency_surface",
                     description="Dependency version evidence extracted from telemetry artifacts.",
                     evidence=match.group(0),
-                    metadata={"component": component, "version": version, "source": "js_asset_path", "confidence": "high"},
+                    metadata={
+                        "component": component,
+                        "version": version,
+                        "source": "js_asset_path",
+                        "confidence": "high",
+                    },
                     source="dependency_surface",
                 )
 
@@ -535,12 +704,24 @@ class PassiveIntelligenceEngine:
                         category="tech_fingerprint",
                         description="Version clue extracted from banner/header/path telemetry.",
                         evidence=match.group(0),
-                        metadata={"component": component, "version": version, "source": "banner_or_path", "confidence": "medium"},
+                        metadata={
+                            "component": component,
+                            "version": version,
+                            "source": "banner_or_path",
+                            "confidence": "medium",
+                        },
                         source="tech_banner_pattern",
                     )
 
         tech_findings = [f for f in findings if f.get("category") in {"tech_fingerprint", "dependency_surface"}]
         if not cls.LOCAL_CVE_RULES and tech_findings:
+            related_components = sorted(
+                {
+                    (f.get("metadata") or {}).get("component")
+                    for f in tech_findings
+                    if isinstance(f.get("metadata"), dict) and (f.get("metadata") or {}).get("component")
+                }
+            )
             add(
                 title="CVE Intelligence Hook Active (No Local Rules)",
                 severity="info",
@@ -555,6 +736,7 @@ class PassiveIntelligenceEngine:
                     "rationale": "Telemetry has component/version clues but repository has no CVE mapping source.",
                     "related_signal_ids": [],
                     "related_finding_ids": [],
+                    "component": ", ".join(related_components[:3]) if related_components else "dependency_surface",
                     "attack_priority": "low",
                     "action_priority": 20,
                     "action_type": "intel_gap",
@@ -580,6 +762,7 @@ class PassiveIntelligenceEngine:
                     "rationale": "Plan derived from correlated findings, telemetry evidence, and deterministic severity/confidence ordering.",
                     "related_signal_ids": [],
                     "related_finding_ids": [],
+                    "attack_chain": "evidence_backed_chain",
                     "attack_priority": "high" if high_signal >= 8 else "medium",
                     "action_priority": 80 if high_signal >= 8 else 60,
                     "action_type": "guided_probe",
@@ -592,10 +775,98 @@ class PassiveIntelligenceEngine:
         findings.extend(AssetDiscoveryEngine.derive_findings(results, target))
         findings.extend(SecretsIntelligenceEngine.derive_findings(results, target))
 
+        existing_categories = {(f.get("category") or "") for f in findings}
+        mission_catalog = [
+            {
+                "objective_type": "authenticated_api_path",
+                "required_categories": ["auth_surface", "api_surface"],
+                "title": "Mission Prep: Authenticated API Path",
+                "description": "Authentication and API telemetry overlap; prepare authenticated endpoint abuse workflow.",
+                "required_conditions": ["authentication surface", "api surface"],
+                "recommended_next_steps": ["validate auth flow tokens", "test role boundaries on discovered APIs"],
+            },
+            {
+                "objective_type": "cloud_credential_path",
+                "required_categories": ["secret_exposure", "cloud_asset"],
+                "title": "Mission Prep: Cloud Credential Path",
+                "description": "Cloud assets and credential artifacts overlap; prioritize containment-safe credential validation.",
+                "required_conditions": ["cloud asset telemetry", "credential/token evidence"],
+                "recommended_next_steps": ["scope token permissions", "validate least-privilege gaps"],
+            },
+            {
+                "objective_type": "source_code_leak_path",
+                "required_categories": ["git_exposure", "secret_exposure"],
+                "title": "Mission Prep: Source Code Leak Path",
+                "description": "Source-recovery indicators and secret telemetry overlap; prepare controlled source triage.",
+                "required_conditions": ["repository exposure", "secret evidence"],
+                "recommended_next_steps": ["verify repository exposure", "map leaked secrets to active services"],
+            },
+        ]
+
+        for mission in mission_catalog:
+            if not all(req in existing_categories for req in mission["required_categories"]):
+                continue
+            support = [
+                f for f in findings
+                if (f.get("category") or "") in set(mission["required_categories"])
+            ]
+            related_finding_ids = [f.get("id_stable") for f in support if f.get("id_stable")]
+            supporting_signals = []
+            for finding in support:
+                supporting_signals.extend(
+                    finding.get("signal_ids") if isinstance(finding.get("signal_ids"), list) else []
+                )
+            add(
+                title=mission["title"],
+                severity="medium",
+                confidence="high" if len(support) >= 2 else "medium",
+                endpoint=target,
+                category="mission_prep",
+                description=mission["description"],
+                evidence="; ".join(
+                    sorted({f.get("title", "") for f in support if f.get("title")})
+                )[:500],
+                metadata={
+                    "objective_type": mission["objective_type"],
+                    "required_conditions": mission["required_conditions"],
+                    "supporting_findings": related_finding_ids,
+                    "supporting_signals": sorted({sid for sid in supporting_signals if sid is not None}),
+                    "recommended_next_steps": mission["recommended_next_steps"],
+                    "confidence": "high" if len(support) >= 2 else "medium",
+                    "attack_priority": "high",
+                },
+                source="mission_planner",
+            )
+            add(
+                title=f"Objective Path: {mission['objective_type']}",
+                severity="info",
+                confidence="medium",
+                endpoint=target,
+                category="objective_path",
+                description="Objective path derived from mission prep prerequisites and deterministic category correlation.",
+                evidence=mission["description"],
+                metadata={
+                    "objective_type": mission["objective_type"],
+                    "required_conditions": mission["required_conditions"],
+                    "supporting_findings": related_finding_ids,
+                    "supporting_signals": sorted({sid for sid in supporting_signals if sid is not None}),
+                    "recommended_next_steps": mission["recommended_next_steps"],
+                    "confidence": "medium",
+                    "attack_priority": "medium",
+                },
+                source="mission_planner",
+            )
+
         deduped = []
         final_seen = set()
         for item in findings:
-            fp = cls._mk_fingerprint(item.get("title"), item.get("endpoint"), item.get("category"), item.get("evidence"), item.get("parameter"))
+            fp = cls._mk_fingerprint(
+                item.get("title"),
+                item.get("endpoint"),
+                item.get("category"),
+                item.get("evidence"),
+                item.get("parameter"),
+            )
             if fp in final_seen:
                 continue
             final_seen.add(fp)

@@ -200,6 +200,15 @@ class AttackGraphBuilder:
                 if endpoint_id:
                     self._add_edge(plan_id, endpoint_id, "suggests")
 
+            if category in {"mission_prep", "objective_path"}:
+                objective_type = metadata.get("objective_type") or "objective"
+                objective_id = self._node_id(category, objective_type, finding.get('id_stable') or idx)
+                self._add_node({"type": category, "id": objective_id, "label": finding.get("title", objective_type), "data": finding})
+                self._add_edge(target_node_id, objective_id, "supports_objective")
+                for related in metadata.get("supporting_findings", []) if isinstance(metadata.get("supporting_findings"), list) else []:
+                    related_id = f"finding:db:{related}"
+                    self._add_edge(objective_id, related_id, "requires")
+
         surface_mapping = vuln.get("surface_mapping", {})
         for port, data in surface_mapping.items():
             for _, items in data.get("tree", {}).items():
@@ -251,3 +260,38 @@ class AttackGraphBuilder:
             return (action.get("priority", 0) * 0.5) + (action.get("confidence", 0) * 0.3) + (just_len * 5)
 
         return sorted(self._actions, key=score, reverse=True)
+
+
+    def build_mission_graph(self, mission_overview):
+        self._reset()
+        mission = mission_overview.get("mission", {}) if isinstance(mission_overview, dict) else {}
+        mission_id = mission.get("id", "unknown")
+        mission_node = self._node_id("mission", mission_id, mission.get("name", "mission"))
+        self._add_node({"type": "mission", "id": mission_node, "label": mission.get("name", "Mission"), "data": mission})
+
+        for asset in mission_overview.get("assets", []) if isinstance(mission_overview, dict) else []:
+            asset_node = self._node_id("asset", asset.get("id"), asset.get("type"), asset.get("identifier"))
+            self._add_node({"type": "asset", "id": asset_node, "label": asset.get("label") or asset.get("identifier"), "data": asset})
+            self._add_edge(mission_node, asset_node, "contains")
+            for target_id in asset.get("target_ids", []) if isinstance(asset.get("target_ids"), list) else []:
+                target_node = self._node_id("target", target_id)
+                self._add_node({"type": "target", "id": target_node, "label": f"target:{target_id}", "data": {"target_id": target_id}})
+                self._add_edge(asset_node, target_node, "belongs_to")
+
+        for finding in mission_overview.get("top_findings", []) if isinstance(mission_overview, dict) else []:
+            finding_node = self._node_id("finding", finding.get("id_stable") or finding.get("id"))
+            self._add_node({"type": "finding", "id": finding_node, "label": finding.get("title", "Finding"), "data": finding})
+            scan_node = self._node_id("scan", finding.get("scan_id"))
+            self._add_node({"type": "scan", "id": scan_node, "label": f"scan:{finding.get('scan_id')}", "data": {"scan_id": finding.get("scan_id")}})
+            self._add_edge(scan_node, finding_node, "contains")
+
+        for path in mission_overview.get("cross_asset_paths", []) if isinstance(mission_overview, dict) else []:
+            path_node = self._node_id(path.get("category") or "attack_chain", path.get("title"))
+            self._add_node({"type": path.get("category") or "attack_chain", "id": path_node, "label": path.get("title", "Path"), "data": path})
+            self._add_edge(mission_node, path_node, "supports_objective")
+            for aid in path.get("related_asset_ids", []) if isinstance(path.get("related_asset_ids"), list) else []:
+                asset_node = self._node_id("asset", aid)
+                self._add_node({"type": "asset", "id": asset_node, "label": f"asset:{aid}", "data": {"asset_id": aid}})
+                self._add_edge(path_node, asset_node, "references")
+
+        return {"nodes": self.nodes, "edges": self.edges}

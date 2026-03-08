@@ -58,6 +58,53 @@ def run_runtime_migrations(app):
                 for col, ddl in signal_alter.items():
                     if col not in signal_cols:
                         conn.execute(db.text(ddl))
+
+                mission_cols = {row[1] for row in conn.execute(db.text("PRAGMA table_info(missions);")).fetchall()}
+                mission_alter = {
+                    "objectives": "ALTER TABLE missions ADD COLUMN objectives JSON;",
+                    "scope_summary": "ALTER TABLE missions ADD COLUMN scope_summary TEXT;",
+                    "priority": "ALTER TABLE missions ADD COLUMN priority TEXT DEFAULT 'medium';",
+                    "tags": "ALTER TABLE missions ADD COLUMN tags JSON;",
+                    "updated_at": "ALTER TABLE missions ADD COLUMN updated_at DATETIME;",
+                }
+                for col, ddl in mission_alter.items():
+                    if col not in mission_cols:
+                        conn.execute(db.text(ddl))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS assets (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), type TEXT NOT NULL DEFAULT 'domain', identifier TEXT NOT NULL, label TEXT, confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, provenance JSON, tags JSON, created_at DATETIME);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_mission_id ON assets(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_identifier ON assets(identifier);"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS asset_target_links (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), target_id INTEGER NOT NULL REFERENCES targets(id), link_type TEXT NOT NULL DEFAULT 'observed', confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, metadata JSON, created_at DATETIME, CONSTRAINT uq_asset_target_link UNIQUE (asset_id, target_id));"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_asset_id ON asset_target_links(asset_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_target_id ON asset_target_links(target_id);"))
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS operator_actions (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), action_key TEXT NOT NULL, related_asset_ids JSON, related_target_ids JSON, related_finding_ids JSON, related_signal_ids JSON, objective_type TEXT NOT NULL, action_type TEXT NOT NULL DEFAULT 'review', title TEXT NOT NULL, description TEXT, rationale TEXT, confidence FLOAT DEFAULT 0, attack_priority TEXT DEFAULT 'medium', estimated_value TEXT DEFAULT 'medium', estimated_complexity TEXT DEFAULT 'low', status TEXT NOT NULL DEFAULT 'suggested', blocker_summary JSON, required_conditions JSON, evidence_summary TEXT, metadata JSON, created_at DATETIME, updated_at DATETIME, CONSTRAINT uq_operator_action_mission_key UNIQUE (mission_id, action_key));"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_mission_id ON operator_actions(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_status ON operator_actions(status);"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS replay_vault_entries (id INTEGER PRIMARY KEY, scan_id INTEGER REFERENCES scans(id), finding_id INTEGER REFERENCES findings(id), mission_id INTEGER REFERENCES missions(id), target_id INTEGER REFERENCES targets(id), source TEXT, method TEXT NOT NULL DEFAULT 'GET', url TEXT NOT NULL, endpoint TEXT, query_params JSON, request_headers JSON, request_cookies JSON, request_body_summary JSON, status_code INTEGER, response_headers JSON, response_body_summary JSON, content_type TEXT, redirect_chain JSON, identity_context JSON, provenance JSON, observed_at DATETIME, created_at DATETIME);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_replay_vault_entries_scan_id ON replay_vault_entries(scan_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_replay_vault_entries_finding_id ON replay_vault_entries(finding_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_replay_vault_entries_mission_id ON replay_vault_entries(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_replay_vault_entries_target_id ON replay_vault_entries(target_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_replay_vault_entries_observed_at ON replay_vault_entries(observed_at);"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS auth_identity_maps (id INTEGER PRIMARY KEY, replay_id INTEGER REFERENCES replay_vault_entries(id), scan_id INTEGER REFERENCES scans(id), mission_id INTEGER REFERENCES missions(id), target_id INTEGER REFERENCES targets(id), route TEXT, route_auth_hints JSON, session_cookie_names JSON, bearer_token_present BOOLEAN NOT NULL DEFAULT 0, bearer_token_preview TEXT, jwt_like_token BOOLEAN NOT NULL DEFAULT 0, response_session_cookie_hint BOOLEAN NOT NULL DEFAULT 0, role_scope_claim_hints JSON, observation_only BOOLEAN NOT NULL DEFAULT 1, notes TEXT, source TEXT, created_at DATETIME);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_auth_identity_maps_replay_id ON auth_identity_maps(replay_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_auth_identity_maps_scan_id ON auth_identity_maps(scan_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_auth_identity_maps_mission_id ON auth_identity_maps(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_auth_identity_maps_target_id ON auth_identity_maps(target_id);"))
+
+                replay_cols = {row[1] for row in conn.execute(db.text("PRAGMA table_info(replay_vault_entries);")).fetchall()}
+                if "graphql_summary" not in replay_cols:
+                    conn.execute(db.text("ALTER TABLE replay_vault_entries ADD COLUMN graphql_summary JSON;"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS operator_feedback (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), action_id INTEGER REFERENCES operator_actions(id), finding_id INTEGER REFERENCES findings(id), replay_id INTEGER REFERENCES replay_vault_entries(id), feedback_type TEXT NOT NULL, signal_family TEXT, subject_type TEXT, subject_key TEXT, sentiment INTEGER NOT NULL DEFAULT 0, notes TEXT, metadata JSON, created_at DATETIME);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_mission_id ON operator_feedback(mission_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_action_id ON operator_feedback(action_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_finding_id ON operator_feedback(finding_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_replay_id ON operator_feedback(replay_id);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_type ON operator_feedback(feedback_type);"))
     except Exception as e:
         app.logger.warning(f"Runtime migration check failed: {e}")
 
@@ -235,6 +282,43 @@ if __name__ == "__main__":
                         if col_name not in columns:
                             print(f"Migrating database: adding {col_name} to findings table...")
                             conn.execute(db.text(ddl))
+
+
+                    mission_columns = [row[1] for row in conn.execute(db.text("PRAGMA table_info(missions);")).fetchall()]
+                    required_mission_columns = {
+                        "objectives": "ALTER TABLE missions ADD COLUMN objectives JSON;",
+                        "scope_summary": "ALTER TABLE missions ADD COLUMN scope_summary TEXT;",
+                        "priority": "ALTER TABLE missions ADD COLUMN priority TEXT DEFAULT 'medium';",
+                        "tags": "ALTER TABLE missions ADD COLUMN tags JSON;",
+                        "updated_at": "ALTER TABLE missions ADD COLUMN updated_at DATETIME;",
+                    }
+                    for col_name, ddl in required_mission_columns.items():
+                        if col_name not in mission_columns:
+                            print(f"Migrating database: adding {col_name} to missions table...")
+                            conn.execute(db.text(ddl))
+
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS assets (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), type TEXT NOT NULL DEFAULT 'domain', identifier TEXT NOT NULL, label TEXT, confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, provenance JSON, tags JSON, created_at DATETIME);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_mission_id ON assets(mission_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_assets_identifier ON assets(identifier);"))
+
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS asset_target_links (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL REFERENCES assets(id), target_id INTEGER NOT NULL REFERENCES targets(id), link_type TEXT NOT NULL DEFAULT 'observed', confidence TEXT NOT NULL DEFAULT 'medium', source TEXT, metadata JSON, created_at DATETIME, CONSTRAINT uq_asset_target_link UNIQUE (asset_id, target_id));"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_asset_id ON asset_target_links(asset_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_asset_target_links_target_id ON asset_target_links(target_id);"))
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS operator_actions (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), action_key TEXT NOT NULL, related_asset_ids JSON, related_target_ids JSON, related_finding_ids JSON, related_signal_ids JSON, objective_type TEXT NOT NULL, action_type TEXT NOT NULL DEFAULT 'review', title TEXT NOT NULL, description TEXT, rationale TEXT, confidence FLOAT DEFAULT 0, attack_priority TEXT DEFAULT 'medium', estimated_value TEXT DEFAULT 'medium', estimated_complexity TEXT DEFAULT 'low', status TEXT NOT NULL DEFAULT 'suggested', blocker_summary JSON, required_conditions JSON, evidence_summary TEXT, metadata JSON, created_at DATETIME, updated_at DATETIME, CONSTRAINT uq_operator_action_mission_key UNIQUE (mission_id, action_key));"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_mission_id ON operator_actions(mission_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_actions_status ON operator_actions(status);"))
+
+                    replay_columns = [row[1] for row in conn.execute(db.text("PRAGMA table_info(replay_vault_entries);")).fetchall()]
+                    if "graphql_summary" not in replay_columns:
+                        print("Migrating database: adding graphql_summary to replay_vault_entries table...")
+                        conn.execute(db.text("ALTER TABLE replay_vault_entries ADD COLUMN graphql_summary JSON;"))
+
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS operator_feedback (id INTEGER PRIMARY KEY, mission_id INTEGER NOT NULL REFERENCES missions(id), action_id INTEGER REFERENCES operator_actions(id), finding_id INTEGER REFERENCES findings(id), replay_id INTEGER REFERENCES replay_vault_entries(id), feedback_type TEXT NOT NULL, signal_family TEXT, subject_type TEXT, subject_key TEXT, sentiment INTEGER NOT NULL DEFAULT 0, notes TEXT, metadata JSON, created_at DATETIME);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_mission_id ON operator_feedback(mission_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_action_id ON operator_feedback(action_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_finding_id ON operator_feedback(finding_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_replay_id ON operator_feedback(replay_id);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_type ON operator_feedback(feedback_type);"))
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

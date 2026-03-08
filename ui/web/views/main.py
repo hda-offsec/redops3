@@ -10,7 +10,23 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from sqlalchemy.orm import joinedload
-from core.models import Target, Scan, Finding, Suggestion, ScanLog, Mission, Loot, KnowledgeNode, KnowledgeEdge, db
+from core.models import (
+    Target,
+    Scan,
+    Finding,
+    Suggestion,
+    ScanLog,
+    Mission,
+    Loot,
+    KnowledgeNode,
+    KnowledgeEdge,
+    Asset,
+    AssetTargetLink,
+    ReplayVaultEntry,
+    AuthIdentityMap,
+    OperatorFeedback,
+    db,
+)
 from sqlalchemy import func
 from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report, generate_html_report
@@ -19,8 +35,97 @@ from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
 from core.tasks import run_scan_task
+from core.replay_vault import (
+    compare_replay_artifacts,
+    extract_auth_identity_observations,
+    normalize_replay_artifact,
+)
+from core.lot5_intelligence import (
+    analyze_graphql_surface,
+    build_feedback_profile,
+    extract_graphql_observation,
+)
+from core.mission_intelligence import (
+    MISSION_STATES,
+    OBJECTIVE_TYPES,
+    ACTION_STATUSES,
+    aggregate_mission_intelligence,
+    ensure_asset_for_target,
+    link_asset_target,
+    normalize_mission_status,
+    normalize_objective_type,
+    update_operator_action_status,
+)
 
 main_bp = Blueprint("main", __name__)
+
+
+def _serialize_replay_entry(entry):
+    return {
+        "id": entry.id,
+        "scan_id": entry.scan_id,
+        "finding_id": entry.finding_id,
+        "mission_id": entry.mission_id,
+        "target_id": entry.target_id,
+        "source": entry.source,
+        "method": entry.method,
+        "url": entry.url,
+        "endpoint": entry.endpoint,
+        "query_params": entry.query_params_json or {},
+        "request_headers": entry.request_headers_json or {},
+        "request_cookies": entry.request_cookies_json or {},
+        "request_body_summary": entry.request_body_summary_json or {},
+        "status_code": entry.status_code,
+        "response_headers": entry.response_headers_json or {},
+        "response_body_summary": entry.response_body_summary_json or {},
+        "graphql_summary": entry.graphql_summary_json or {},
+        "content_type": entry.content_type,
+        "redirect_chain": entry.redirect_chain_json or [],
+        "identity_context": entry.identity_context_json or {},
+        "provenance": entry.provenance_json or {},
+        "observed_at": entry.observed_at.isoformat() if entry.observed_at else None,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+def _serialize_operator_feedback(entry):
+    return {
+        "id": entry.id,
+        "mission_id": entry.mission_id,
+        "action_id": entry.action_id,
+        "finding_id": entry.finding_id,
+        "replay_id": entry.replay_id,
+        "feedback_type": entry.feedback_type,
+        "signal_family": entry.signal_family,
+        "subject_type": entry.subject_type,
+        "subject_key": entry.subject_key,
+        "sentiment": entry.sentiment,
+        "notes": entry.notes,
+        "metadata": entry.metadata_json or {},
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+def _serialize_auth_identity_map(entry):
+    return {
+        "id": entry.id,
+        "replay_id": entry.replay_id,
+        "scan_id": entry.scan_id,
+        "mission_id": entry.mission_id,
+        "target_id": entry.target_id,
+        "route": entry.route,
+        "route_auth_hints": entry.route_auth_hints_json or [],
+        "session_cookie_names": entry.session_cookie_names_json or [],
+        "bearer_token_present": bool(entry.bearer_token_present),
+        "bearer_token_preview": entry.bearer_token_preview,
+        "jwt_like_token": bool(entry.jwt_like_token),
+        "response_session_cookie_hint": bool(entry.response_session_cookie_hint),
+        "role_scope_claim_hints": entry.role_scope_claim_hints_json or [],
+        "observation_only": bool(entry.observation_only),
+        "notes": entry.notes,
+        "source": entry.source,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
 
 
 @main_bp.route("/terminal")
@@ -70,6 +175,17 @@ def get_scan_findings(scan_id):
         "scan_id": scan_id,
         "total": total,
         "items": [{
+            "exploit_score": (f.metadata_json or {}).get("exploit_score") if isinstance(f.metadata_json, dict) else None,
+            "risk_level": (f.metadata_json or {}).get("risk_level") if isinstance(f.metadata_json, dict) else None,
+            "attack_priority": (f.metadata_json or {}).get("attack_priority") if isinstance(f.metadata_json, dict) else None,
+            "action_priority": (f.metadata_json or {}).get("action_priority") if isinstance(f.metadata_json, dict) else None,
+            "action_type": (f.metadata_json or {}).get("action_type") if isinstance(f.metadata_json, dict) else None,
+            "estimated_value": (f.metadata_json or {}).get("estimated_value") if isinstance(f.metadata_json, dict) else None,
+            "estimated_complexity": (f.metadata_json or {}).get("estimated_complexity") if isinstance(f.metadata_json, dict) else None,
+            "provider": (f.metadata_json or {}).get("provider") if isinstance(f.metadata_json, dict) else None,
+            "component": (f.metadata_json or {}).get("component") if isinstance(f.metadata_json, dict) else None,
+            "version": (f.metadata_json or {}).get("version") if isinstance(f.metadata_json, dict) else None,
+            "objective_type": (f.metadata_json or {}).get("objective_type") if isinstance(f.metadata_json, dict) else None,
             "id": f.id,
             "id_stable": f.id_stable,
             "severity": f.severity,
@@ -117,6 +233,146 @@ def get_scan_graph(scan_id):
             "type": e.relationship,
             "data": e.metadata_json
         } for e in edges]
+    })
+
+
+@main_bp.route("/api/replay-vault", methods=["GET", "POST"])
+def replay_vault_collection():
+    if request.method == "GET":
+        limit = min(request.args.get("limit", 100, type=int), 500)
+        offset = request.args.get("offset", 0, type=int)
+        scan_id = request.args.get("scan_id", type=int)
+        mission_id = request.args.get("mission_id", type=int)
+
+        q = ReplayVaultEntry.query.order_by(ReplayVaultEntry.id.desc())
+        if scan_id is not None:
+            q = q.filter(ReplayVaultEntry.scan_id == scan_id)
+        if mission_id is not None:
+            q = q.filter(ReplayVaultEntry.mission_id == mission_id)
+
+        total = q.count()
+        items = q.limit(limit).offset(offset).all()
+        return jsonify({
+            "total": total,
+            "items": [_serialize_replay_entry(item) for item in items],
+        })
+
+    payload = request.get_json(silent=True) or {}
+    normalized = normalize_replay_artifact(payload)
+    graphql_obs = extract_graphql_observation(normalized)
+    auth_obs = extract_auth_identity_observations(payload)
+
+    entry = ReplayVaultEntry(
+        scan_id=payload.get("scan_id"),
+        finding_id=payload.get("finding_id"),
+        mission_id=payload.get("mission_id"),
+        target_id=payload.get("target_id"),
+        source=payload.get("source") or (normalized.get("provenance") or {}).get("source"),
+        method=normalized.get("method"),
+        url=normalized.get("url"),
+        endpoint=normalized.get("endpoint"),
+        query_params_json=normalized.get("query_params"),
+        request_headers_json=normalized.get("request_headers"),
+        request_cookies_json=normalized.get("request_cookies"),
+        request_body_summary_json=normalized.get("request_body_summary"),
+        status_code=normalized.get("status_code"),
+        response_headers_json=normalized.get("response_headers"),
+        response_body_summary_json=normalized.get("response_body_summary"),
+        graphql_summary_json=graphql_obs,
+        content_type=normalized.get("content_type"),
+        redirect_chain_json=normalized.get("redirect_chain"),
+        identity_context_json=normalized.get("identity_context"),
+        provenance_json=normalized.get("provenance"),
+        observed_at=normalized.get("observed_at"),
+    )
+    db.session.add(entry)
+    db.session.flush()
+
+    identity_map = AuthIdentityMap(
+        replay_id=entry.id,
+        scan_id=entry.scan_id,
+        mission_id=entry.mission_id,
+        target_id=entry.target_id,
+        route=entry.endpoint,
+        route_auth_hints_json=auth_obs.get("route_auth_hints") or [],
+        session_cookie_names_json=auth_obs.get("session_cookie_names") or [],
+        bearer_token_present=bool(auth_obs.get("bearer_token_present")),
+        bearer_token_preview=auth_obs.get("bearer_token_preview"),
+        jwt_like_token=bool(auth_obs.get("jwt_like_token")),
+        response_session_cookie_hint=bool(auth_obs.get("response_session_cookie_hint")),
+        role_scope_claim_hints_json=auth_obs.get("role_scope_claim_hints") or [],
+        observation_only=bool(auth_obs.get("observation_only", True)),
+        notes=auth_obs.get("notes"),
+        source=entry.source,
+    )
+    db.session.add(identity_map)
+    db.session.commit()
+
+    return jsonify({
+        "replay": _serialize_replay_entry(entry),
+        "graphql": graphql_obs,
+        "auth_identity": _serialize_auth_identity_map(identity_map),
+    }), 201
+
+
+@main_bp.route("/api/replay-vault/<int:replay_id>", methods=["GET"])
+def replay_vault_item(replay_id):
+    entry = ReplayVaultEntry.query.get_or_404(replay_id)
+    return jsonify(_serialize_replay_entry(entry))
+
+
+@main_bp.route("/api/replay-vault/<int:left_id>/diff/<int:right_id>", methods=["GET"])
+def replay_vault_diff(left_id, right_id):
+    left = ReplayVaultEntry.query.get_or_404(left_id)
+    right = ReplayVaultEntry.query.get_or_404(right_id)
+    diff = compare_replay_artifacts(_serialize_replay_entry(left), _serialize_replay_entry(right))
+    return jsonify({
+        "left_id": left_id,
+        "right_id": right_id,
+        "diff": diff,
+    })
+
+
+@main_bp.route("/api/replay-vault/graphql-intelligence", methods=["GET"])
+def replay_vault_graphql_intelligence_api():
+    limit = min(request.args.get("limit", 500, type=int), 1000)
+    mission_id = request.args.get("mission_id", type=int)
+    scan_id = request.args.get("scan_id", type=int)
+
+    q = ReplayVaultEntry.query.order_by(ReplayVaultEntry.id.desc())
+    if mission_id is not None:
+        q = q.filter(ReplayVaultEntry.mission_id == mission_id)
+    if scan_id is not None:
+        q = q.filter(ReplayVaultEntry.scan_id == scan_id)
+
+    items = q.limit(limit).all()
+    payload = [_serialize_replay_entry(item) for item in items]
+    intelligence = analyze_graphql_surface(payload)
+
+    return jsonify({
+        "total_considered": len(payload),
+        "graphql_intelligence": intelligence,
+    })
+
+
+@main_bp.route("/api/auth-identity-map", methods=["GET"])
+def auth_identity_map_collection():
+    limit = min(request.args.get("limit", 100, type=int), 500)
+    offset = request.args.get("offset", 0, type=int)
+    scan_id = request.args.get("scan_id", type=int)
+    mission_id = request.args.get("mission_id", type=int)
+
+    q = AuthIdentityMap.query.order_by(AuthIdentityMap.id.desc())
+    if scan_id is not None:
+        q = q.filter(AuthIdentityMap.scan_id == scan_id)
+    if mission_id is not None:
+        q = q.filter(AuthIdentityMap.mission_id == mission_id)
+
+    total = q.count()
+    items = q.limit(limit).offset(offset).all()
+    return jsonify({
+        "total": total,
+        "items": [_serialize_auth_identity_map(item) for item in items],
     })
 
 
@@ -632,6 +888,8 @@ def background_scan(scan_id, target_identifier, scan_type, app):
 @login_required
 def new_scan():
     target_input = request.form.get("target")
+    mission_id = request.form.get("mission_id", type=int)
+    asset_id = request.form.get("asset_id", type=int)
     scan_type = request.form.get("scan_type", "pipeline")
     confirm_auth = request.form.get("confirm_auth")
     recursive = request.form.get("recursive") == "on"
@@ -654,9 +912,21 @@ def new_scan():
 
     target = Target.query.filter_by(identifier=target_input).first()
     if not target:
-        target = Target(identifier=target_input)
+        target = Target(identifier=target_input, mission_id=mission_id)
         db.session.add(target)
         db.session.commit()
+    elif mission_id and not target.mission_id:
+        target.mission_id = mission_id
+        db.session.commit()
+
+    if mission_id:
+        ensure_asset_for_target(mission_id, target, source="scan_form")
+
+    if asset_id:
+        asset = Asset.query.get(asset_id)
+        if asset and asset.mission_id == (mission_id or target.mission_id):
+            link_asset_target(asset, target, source="scan_form", metadata={"linked_via": "new_scan"})
+            db.session.commit()
 
     scan_params = {"recursive": recursive}
     scan = Scan(target_id=target.id, scan_type=scan_type, status="pending", params=json.dumps(scan_params))
@@ -746,16 +1016,252 @@ def scan_report(scan_id):
         duration=duration
     )
 
+@main_bp.route("/api/missions/<int:mission_id>/overview")
+def mission_overview_api(mission_id):
+    payload = aggregate_mission_intelligence(mission_id)
+    return jsonify(payload)
+
+
+@main_bp.route("/api/missions/<int:mission_id>/actions", methods=["GET"])
+def mission_operator_actions_api(mission_id):
+    payload = aggregate_mission_intelligence(mission_id)
+    return jsonify({
+        "mission_id": mission_id,
+        "actions": payload.get("operator_actions", []),
+        "status_model": {
+            "allowed_statuses": sorted(ACTION_STATUSES),
+            "transitions": {
+                "suggested": ["reviewed", "blocked", "invalidated", "skipped"],
+                "reviewed": ["queued", "blocked", "invalidated", "skipped"],
+                "queued": ["executed", "blocked", "invalidated", "skipped"],
+                "blocked": ["reviewed", "queued", "invalidated", "skipped"],
+                "skipped": ["reviewed", "invalidated"],
+                "invalidated": ["reviewed"],
+                "executed": [],
+            },
+        },
+    })
+
+
+@main_bp.route("/api/missions/<int:mission_id>/actions/<int:action_id>/status", methods=["POST"])
+def mission_operator_action_status_api(mission_id, action_id):
+    data = request.get_json(silent=True) or request.form
+    next_status = (data.get("status") or "").strip().lower()
+    if not next_status:
+        return jsonify({"error": "status is required"}), 400
+    updated, err = update_operator_action_status(mission_id, action_id, next_status)
+    if err == "not_found":
+        return jsonify({"error": "operator action not found"}), 404
+    if err == "invalid_transition":
+        return jsonify({"error": "invalid status transition", "allowed_statuses": sorted(ACTION_STATUSES)}), 400
+    return jsonify({"status": "updated", "action": updated})
+
+
+@main_bp.route("/api/missions/<int:mission_id>/feedback", methods=["GET", "POST"])
+def mission_feedback_api(mission_id):
+    Mission.query.get_or_404(mission_id)
+
+    if request.method == "GET":
+        limit = min(request.args.get("limit", 100, type=int), 500)
+        offset = request.args.get("offset", 0, type=int)
+
+        q = OperatorFeedback.query.filter_by(mission_id=mission_id).order_by(OperatorFeedback.id.desc())
+        total = q.count()
+        items = q.limit(limit).offset(offset).all()
+
+        rows = [_serialize_operator_feedback(item) for item in items]
+        profile = build_feedback_profile(rows)
+        return jsonify({
+            "mission_id": mission_id,
+            "total": total,
+            "items": rows,
+            "profile": profile,
+        })
+
+    data = request.get_json(silent=True) or request.form
+    feedback_type = (data.get("feedback_type") or "").strip().lower()
+    if not feedback_type:
+        return jsonify({"error": "feedback_type is required"}), 400
+
+    sentiment = data.get("sentiment")
+    try:
+        sentiment = int(sentiment)
+    except (TypeError, ValueError):
+        sentiment = 0
+    sentiment = max(-1, min(1, sentiment))
+
+    row = OperatorFeedback(
+        mission_id=mission_id,
+        action_id=int(data.get("action_id")) if str(data.get("action_id") or "").isdigit() else None,
+        finding_id=int(data.get("finding_id")) if str(data.get("finding_id") or "").isdigit() else None,
+        replay_id=int(data.get("replay_id")) if str(data.get("replay_id") or "").isdigit() else None,
+        feedback_type=feedback_type,
+        signal_family=(data.get("signal_family") or "").strip().lower() or None,
+        subject_type=(data.get("subject_type") or "").strip().lower() or None,
+        subject_key=(data.get("subject_key") or "").strip().lower() or None,
+        sentiment=sentiment,
+        notes=data.get("notes"),
+        metadata_json=data.get("metadata") if isinstance(data.get("metadata"), dict) else None,
+    )
+    db.session.add(row)
+    db.session.commit()
+
+    return jsonify({
+        "status": "created",
+        "item": _serialize_operator_feedback(row),
+    }), 201
+
+
+@main_bp.route("/api/missions/<int:mission_id>/feedback/<int:feedback_id>", methods=["DELETE"])
+def mission_feedback_delete_api(mission_id, feedback_id):
+    row = OperatorFeedback.query.filter_by(mission_id=mission_id, id=feedback_id).first_or_404()
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({"status": "deleted", "feedback_id": feedback_id})
+
+
+@main_bp.route("/api/missions/<int:mission_id>/assets", methods=["GET", "POST"])
+def mission_assets_api(mission_id):
+    Mission.query.get_or_404(mission_id)
+    if request.method == "GET":
+        assets = Asset.query.filter_by(mission_id=mission_id).order_by(Asset.created_at.desc()).all()
+        return jsonify({
+            "mission_id": mission_id,
+            "assets": [
+                {
+                    "id": a.id,
+                    "type": a.type,
+                    "identifier": a.identifier,
+                    "label": a.label,
+                    "confidence": a.confidence,
+                    "source": a.source,
+                    "provenance": a.provenance,
+                    "tags": a.tags or [],
+                    "target_ids": sorted({l.target_id for l in a.target_links}),
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                }
+                for a in assets
+            ]
+        })
+
+    data = request.get_json(silent=True) or request.form
+    identifier = (data.get("identifier") or "").strip()
+    if not identifier:
+        return jsonify({"error": "identifier is required"}), 400
+
+    asset = Asset.query.filter_by(mission_id=mission_id, identifier=identifier.lower()).first()
+    created = False
+    if not asset:
+        asset = Asset(
+            mission_id=mission_id,
+            type=(data.get("type") or "domain").strip().lower(),
+            identifier=identifier.lower(),
+            label=data.get("label") or identifier,
+            confidence=(data.get("confidence") or "medium").strip().lower(),
+            source=data.get("source") or "operator",
+            provenance=data.get("provenance") if isinstance(data.get("provenance"), dict) else None,
+            tags=data.get("tags") if isinstance(data.get("tags"), list) else [],
+        )
+        db.session.add(asset)
+        db.session.flush()
+        created = True
+
+    target_ids = data.get("target_ids") if isinstance(data.get("target_ids"), list) else []
+    for tid in target_ids:
+        target = Target.query.get(tid)
+        if target and target.mission_id == mission_id:
+            link_asset_target(asset, target, source="asset_api", metadata={"linked_via": "api"})
+
+    db.session.commit()
+    return jsonify({
+        "status": "created" if created else "updated",
+        "asset_id": asset.id,
+    }), 201 if created else 200
+
+
+@main_bp.route("/api/missions/<int:mission_id>/objectives", methods=["GET", "POST"])
+def mission_objectives_api(mission_id):
+    mission = Mission.query.get_or_404(mission_id)
+    if request.method == "GET":
+        return jsonify({
+            "mission_id": mission.id,
+            "mission_status": normalize_mission_status(mission.status),
+            "objectives": mission.objectives_json or [],
+            "allowed_objectives": sorted(OBJECTIVE_TYPES),
+            "allowed_statuses": sorted(MISSION_STATES),
+        })
+
+    data = request.get_json(silent=True) or request.form
+    objectives = data.get("objectives")
+    if isinstance(objectives, str):
+        objectives = [o.strip() for o in objectives.split(",") if o.strip()]
+    if not isinstance(objectives, list):
+        return jsonify({"error": "objectives must be a list"}), 400
+
+    normalized_objectives = []
+    invalid = []
+    for item in objectives:
+        if isinstance(item, str):
+            objective_type = normalize_objective_type(item)
+            if not objective_type:
+                invalid.append(item)
+                continue
+            normalized_objectives.append({"objective_type": objective_type, "priority": "medium", "status": "draft"})
+            continue
+        if not isinstance(item, dict):
+            invalid.append(item)
+            continue
+        objective_type = normalize_objective_type(item.get("objective_type") or item.get("type"))
+        if not objective_type:
+            invalid.append(item)
+            continue
+        normalized_objectives.append({
+            "objective_type": objective_type,
+            "priority": (item.get("priority") or "medium").lower(),
+            "status": (item.get("status") or "draft").lower(),
+            "confidence": item.get("confidence") if isinstance(item.get("confidence"), (int, float)) else None,
+            "required_conditions": item.get("required_conditions") if isinstance(item.get("required_conditions"), list) else [],
+            "recommended_next_steps": item.get("recommended_next_steps") if isinstance(item.get("recommended_next_steps"), list) else [],
+        })
+
+    if invalid:
+        return jsonify({"error": "unsupported objectives", "invalid": invalid}), 400
+
+    status = normalize_mission_status(data.get("status") or mission.status)
+    mission.status = status
+    mission.scope_summary = (data.get("scope_summary") or mission.scope_summary)
+    mission.priority = (data.get("priority") or mission.priority or "medium").lower()
+
+    tags = data.get("tags")
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    if isinstance(tags, list):
+        mission.tags_json = sorted(set(str(t).strip().lower() for t in tags if str(t).strip()))
+
+    dedup = {}
+    for objective in normalized_objectives:
+        dedup[objective["objective_type"]] = objective
+    mission.objectives_json = [dedup[key] for key in sorted(dedup.keys())]
+    db.session.commit()
+    return jsonify({"mission_id": mission.id, "status": mission.status, "objectives": mission.objectives_json})
+
+
 @main_bp.route("/mission/<int:mission_id>/map")
 def mission_map(mission_id):
     mission = Mission.query.get_or_404(mission_id)
     targets = Target.query.filter_by(mission_id=mission_id).all()
-    
+    assets = Asset.query.filter_by(mission_id=mission_id).all()
+    intelligence = aggregate_mission_intelligence(mission_id)
+
     # Bundle all relevant scan data for these targets
     graph_data = {"nodes": [], "edges": []}
-    
+
     # Mission node
     graph_data["nodes"].append({"id": f"m{mission.id}", "label": mission.name, "group": "mission", "level": 0})
+    for a in assets:
+        aid = f"a{a.id}"
+        graph_data["nodes"].append({"id": aid, "label": a.label or a.identifier, "group": "asset", "level": 1, "title": f"{a.type} | confidence={a.confidence}"})
+        graph_data["edges"].append({"from": f"m{mission.id}", "to": aid})
     
     # Optimization: Fetch all latest scans for targets in one go
     scan_map = {}
@@ -777,8 +1283,13 @@ def mission_map(mission_id):
         if scan and scan.geolocation_data:
             label += f"\n({scan.geolocation_data.get('country', '??')})"
             
-        graph_data["nodes"].append({"id": f"t{t.id}", "label": label, "group": "target", "level": 1, "title": f"ISP: {scan.geolocation_data.get('isp')}" if scan and scan.geolocation_data else ""})
-        graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
+        graph_data["nodes"].append({"id": f"t{t.id}", "label": label, "group": "target", "level": 2, "title": f"ISP: {scan.geolocation_data.get('isp')}" if scan and scan.geolocation_data else ""})
+        linked_assets = [l.asset_id for l in t.asset_links]
+        if linked_assets:
+            for asset_id in linked_assets:
+                graph_data["edges"].append({"from": f"a{asset_id}", "to": f"t{t.id}"})
+        else:
+            graph_data["edges"].append({"from": f"m{mission.id}", "to": f"t{t.id}"})
         
         # Add icons for critical findings on this target
         if scan:
@@ -794,7 +1305,7 @@ def mission_map(mission_id):
                 })
                 graph_data["edges"].append({"from": f"t{t.id}", "to": f_id})
 
-    return render_template("missions/map.html", mission=mission, graph_data=graph_data)
+    return render_template("missions/map.html", mission=mission, graph_data=graph_data, intelligence=intelligence)
 
 @main_bp.route("/missions")
 def mission_list():
@@ -831,7 +1342,26 @@ def gallery():
 def mission_new():
     name = request.form.get("name")
     desc = request.form.get("description")
-    mission = Mission(name=name, description=desc)
+    objectives_input = request.form.get("objectives", "")
+    objectives = [o.strip() for o in objectives_input.split(",") if o.strip()]
+    normalized_objectives = []
+    for objective in objectives:
+        objective_type = normalize_objective_type(objective)
+        if objective_type:
+            normalized_objectives.append({"objective_type": objective_type, "priority": "medium", "status": "draft"})
+
+    tags_input = request.form.get("tags", "")
+    tags = sorted(set(tag.strip().lower() for tag in tags_input.split(",") if tag.strip()))
+
+    mission = Mission(
+        name=name,
+        description=desc,
+        status=normalize_mission_status(request.form.get("status") or "draft"),
+        objectives_json=normalized_objectives or None,
+        scope_summary=request.form.get("scope_summary") or None,
+        priority=(request.form.get("priority") or "medium").lower(),
+        tags_json=tags or None,
+    )
     db.session.add(mission)
     db.session.commit()
     flash(f"Mission '{name}' created successfully.", "success")
@@ -932,6 +1462,8 @@ def clear_logs():
         db.session.query(ScanLog).delete()
         db.session.query(Loot).delete()
         db.session.query(Scan).delete()
+        db.session.query(AssetTargetLink).delete()
+        db.session.query(Asset).delete()
         db.session.query(Target).delete()
         db.session.query(Mission).delete()
         

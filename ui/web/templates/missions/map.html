@@ -3,6 +3,60 @@
 {% block title %}Strategic Map: {{ mission.name }}{% endblock %}
 
 {% block content %}
+<div class="row mb-3">
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Assets</small><div class="h4 mb-0">{{ intelligence.assets|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Targets</small><div class="h4 mb-0">{{ intelligence.targets|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Findings</small><div class="h4 mb-0">{{ intelligence.findings_total }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Cross-Asset Paths</small><div class="h4 mb-0">{{ intelligence.cross_asset_paths|length }}</div></div></div></div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Recommended Actions</small><div class="h4 mb-0">{{ intelligence.mission_execution.recommended_actions|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Blocked Actions</small><div class="h4 mb-0">{{ intelligence.mission_execution.blocked_actions|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Reviewed/Executed</small><div class="h4 mb-0">{{ intelligence.mission_execution.reviewed_or_executed_actions|length }}</div></div></div></div>
+    <div class="col-md-3"><div class="card border-secondary"><div class="card-body"><small class="text-muted">Most Valuable Next Action</small><div class="small mb-0">{{ intelligence.mission_execution.most_valuable_next_action.title if intelligence.mission_execution.most_valuable_next_action else 'N/A' }}</div></div></div></div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card border-secondary shadow-lg">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-tasks me-2"></i>Operator-in-the-Loop Actions</span>
+                <span class="badge bg-secondary">{{ intelligence.operator_actions|length }} tracked</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-dark table-sm mb-0 align-middle">
+                    <thead><tr><th>Action</th><th>Objective</th><th>Priority</th><th>Confidence</th><th>Status</th><th>Blockers</th><th>Evidence</th></tr></thead>
+                    <tbody>
+                    {% for action in intelligence.operator_actions %}
+                    <tr>
+                        <td>
+                            <div class="fw-bold">{{ action.title }}</div>
+                            <div class="small text-muted">{{ action.description }}</div>
+                        </td>
+                        <td><span class="badge bg-info-subtle text-info border border-info-subtle">{{ action.objective_type }}</span></td>
+                        <td>{{ action.attack_priority|upper }} / {{ action.estimated_value }}</td>
+                        <td>{{ action.confidence }}</td>
+                        <td><span class="badge bg-secondary">{{ action.status }}</span></td>
+                        <td>
+                            {% if action.blocker_summary.blocker_count > 0 %}
+                                <div class="small text-warning">{{ action.blocker_summary.reasons|join(', ') }}</div>
+                            {% else %}
+                                <span class="text-success small">none</span>
+                            {% endif %}
+                        </td>
+                        <td><div class="small text-muted">{{ action.evidence_summary|truncate(90) }}</div></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-center text-muted p-3">No evidence-backed operator actions yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-12">
         <div class="card  border-secondary shadow-lg" style="height: 80vh;">
@@ -54,6 +108,7 @@
         let size = 15;
 
         if (n.group === "mission") { color = "#ff2a2a"; shape = "hexagon"; size = 40; }
+        if (n.group === "asset") { color = "#6f42c1"; shape = "box"; size = 22; }
         if (n.group === "target") { color = "#00f3ff"; shape = "dot"; size = 25; }
         if (n.group === "critical") { color = "#ff2a2a"; shape = "star"; size = 20; }
         if (n.group === "high") { color = "#ff9d00"; shape = "triangle"; size = 18; }
