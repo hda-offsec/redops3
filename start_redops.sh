@@ -79,6 +79,11 @@ else
     echo "[+] Dependencies up to date (cached)."
 fi
 
+# Pre-compile RedOps Python source code (catch syntax errors early)
+echo "[*] Pre-compiling source files..."
+./venv/bin/python3 -m compileall -q . -x "venv|tests|data" || echo "[!] Some compilation warnings occurred."
+
+
 echo "[+] Starting Celery Worker (Pool: solo)..."
 export PYTHONPATH=$PYTHONPATH:.
 # Solo pool is the most stable on Python 3.13 / Kali
