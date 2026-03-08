@@ -476,7 +476,6 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
 
             try:
                 from core.analysis import apply_risk_scores
-                from core.models import Finding
                 from scan_engine.helpers.attack_graph import AttackGraphBuilder
 
                 graph_builder = AttackGraphBuilder(options=scan_options)
