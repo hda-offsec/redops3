@@ -74,7 +74,7 @@
 {{ results | tojson }}
 </script>
 <script>
-    let rawSurfaceData = [];
+    window.rawSurfaceData = [];
     let filteredSurfaceData = [];
     let surfacePage = 1;
     const surfacePerPage = 50;
@@ -259,7 +259,7 @@
         }
     }
 
-    function applySurfaceFilter() {
+    window.applySurfaceFilter = function() {
         const query = document.getElementById('surface-filter').value.toLowerCase();
         let terms = {};
 
