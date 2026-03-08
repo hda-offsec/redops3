@@ -7,7 +7,7 @@
             <span class="input-group-text bg-transparent border-secondary text-muted"><i
                     class="fas fa-filter"></i></span>
             <input type="text" id="surface-filter" class="form-control bg-transparent border-secondary text-light"
-                placeholder="e.g. type:endpoint source:ffuf" onkeyup="applySurfaceFilter()">
+                placeholder="e.g. type:endpoint source:ffuf" onkeyup="window.applySurfaceFilter()">
         </div>
     </div>
 </div>
@@ -89,7 +89,7 @@
     window.updateSurfaceExplorer = function (newResults) {
         if (newResults) window.scanResults = newResults;
         buildSurfaceData();
-        applySurfaceFilter();
+        window.applySurfaceFilter();
     };
 
     function buildSurfaceData() {
