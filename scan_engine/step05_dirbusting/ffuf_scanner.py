@@ -30,7 +30,7 @@ class FfufScanner:
     def stream_scan(self):
         return self.stream_fuzz(port=None)
 
-    def get_command(self, port=None, protocol='http', wordlist=None, quick=False):
+    def get_command(self, port=None, protocol='http', wordlist=None, quick=False, fs=None, fw=None):
         wlist = wordlist or self.wordlist
 
         if self.target.startswith('http://') or self.target.startswith('https://'):
@@ -42,17 +42,21 @@ class FfufScanner:
         
         cmd = [
             "ffuf", 
-            "-s",
             "-u", url, 
             "-w", wlist,
             "-mc", "200,204,301,302,307,401,403,405",
             "-r",
-            "-ac", # Autocalibration
             "-t", "40" if not quick else "20",
             "-timeout", "5",
-            "-noninteractive",
-            "-json" # Use JSON for robust parsing
+            "-noninteractive"
         ]
+
+        if fs is not None:
+            cmd.extend(["-fs", str(fs)])
+        elif fw is not None:
+            cmd.extend(["-fw", str(fw)])
+        else:
+            cmd.append("-ac")  # Autocalibration as fallback
 
         if not quick:
             cmd.extend([
@@ -63,7 +67,7 @@ class FfufScanner:
         
         return cmd
 
-    def stream_fuzz(self, port=None, protocol='http', wordlist=None, quick=False):
+    def stream_fuzz(self, port=None, protocol='http', wordlist=None, quick=False, fs=None, fw=None):
         """Legacy/granular method"""
-        command = self.get_command(port, protocol, wordlist, quick=quick)
+        command = self.get_command(port, protocol, wordlist, quick=quick, fs=fs, fw=fw)
         return ProcessManager.stream_command(command)

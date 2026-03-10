@@ -145,15 +145,37 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 id_stable = kwargs.get('id_stable')
                 if not id_stable:
                     import hashlib
+                    from urllib.parse import urlparse
+                    
+                    endpoint_seed = str(kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url') or '')
+                    try:
+                        parsed = urlparse(endpoint_seed)
+                        # Normalize Host: ignore standard ports and scheme
+                        host = parsed.hostname or parsed.netloc.split(':')[0]
+                        endpoint_norm = f"{host}{parsed.path}?{parsed.query}"
+                    except Exception:
+                        endpoint_norm = endpoint_seed
+
                     id_str = "|".join([
                         str(title),
-                        str(kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url') or ''),
+                        str(endpoint_norm),
                         str(kwargs.get('parameter') or kwargs.get('param') or ''),
                         str(kwargs.get('payload') or kwargs.get('poison') or ''),
                         str(kwargs.get('severity', 'info')),
                         str(kwargs.get('tool_source', kwargs.get('tool', 'orchestrator'))),
                     ])
                     id_stable = hashlib.sha256(id_str.encode()).hexdigest()
+
+                # Deduplication Check: avoid duplicate findings in the same scan
+                existing = Finding.query.filter_by(scan_id=scan_id, id_stable=id_stable).first()
+                if existing:
+                    # Update potentially mission-critical fields if the new finding is on HTTPS while old was HTTP
+                    current_url = kwargs.get('target') or kwargs.get('url') or ""
+                    if current_url.startswith('https://') and not str(existing.target).startswith('https://'):
+                        existing.target = current_url
+                        existing.endpoint = kwargs.get('endpoint') or current_url
+                        db.session.commit()
+                    return
 
                 finding = Finding(
                     scan_id=scan_id,
@@ -457,11 +479,28 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
 
             try:
                 from scan_engine.helpers.context_attack_engine import ExploitValidationEngine
-                validation_findings = ExploitValidationEngine.validate(all_synth_findings, options=scan_options)
+                # Fetch all findings in DB so far to subject them to rigorous validation
+                db_findings_list = Finding.query.filter_by(scan_id=scan_id).all()
+                validation_candidates = []
+                for f in db_findings_list:
+                    validation_candidates.append({
+                        "id_stable": f.id_stable,
+                        "title": f.title,
+                        "category": f.category,
+                        "severity": f.severity,
+                        "endpoint": f.endpoint,
+                        "target": f.target,
+                        "confidence": f.confidence
+                    })
+                
+                # Merge with synthetic findings
+                validation_candidates.extend(all_synth_findings)
+                
+                validation_findings = ExploitValidationEngine.validate(validation_candidates, options=scan_options)
                 for vf in validation_findings:
                     add_finding_cb(**vf)
                 if validation_findings:
-                    _log_and_emit(scan_id, f"Exploit validation confirmed {len(validation_findings)} findings.", "INFO")
+                    _log_and_emit(scan_id, f"Rigorous Validation: Confirmed & badge-pinned {len(validation_findings)} findings via differential audit.", "SUCCESS")
             except Exception as val_err:
                 _log_and_emit(scan_id, f"Exploit validation skipped: {val_err}", "WARN")
 

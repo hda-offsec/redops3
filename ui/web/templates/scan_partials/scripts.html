@@ -3,88 +3,93 @@
 <script src="{{ url_for('static', filename='js/scan_dashboard.js') }}"></script>
 
 <script type="text/javascript">
+    // Global scan results available immediately
+    {% if results %}
+    window.scanResults = {{ results | tojson | safe }};
+    {% endif %}
+
     document.addEventListener("DOMContentLoaded", function () {
         // Initialize Dashboard Controller
         const dashboard = new ScanDashboard("{{ scan.id }}", "{{ scan.target.identifier }}");
 
         // Initial UI Update with server-side rendered data
-        {% if results %}
-        setTimeout(() => {
-            if (typeof updateUI === 'function') {
-                updateUI({{ results | tojson | safe }});
-            }
-        }, 500); // Slight delay to ensure DOM is fully ready
-        {% endif %}
-
-    // --- V4 PATCH: OBSERVABILITY HANDLERS ---
-    dashboard.socket.on("pipeline_event", (evt) => appendTimeline(evt));
-    dashboard.socket.on("module_status", (st) => updateModulesTable(st));
-
-    window.appendTimeline = function (evt) {
-        const container = document.getElementById("timeline-container");
-        const noRow = document.getElementById("no-timeline-row");
-        if (noRow) noRow.remove();
-
-        if (container) {
-            const timeStr = evt.ts.split('T')[1].split('.')[0];
-            const div = document.createElement("div");
-            div.className = "d-flex justify-content-between align-items-start border-bottom border-dark pb-1 animate__animated animate__fadeIn";
-            div.innerHTML = `
-                    <div>
-                        <span class="text-muted x-small ">${timeStr}</span>
-                        <span class="badge bg-dark border border-secondary text-light x-small ms-1">${evt.module}</span>
-                        <span class="text-secondary small ms-1">${evt.type}</span>
-                    </div>
-                    ${evt.level === 'ERROR' ? '<span class="text-danger x-small fw-bold">ERROR</span>' : ''}
-                `;
-            container.appendChild(div);
-            const feed = document.getElementById("timeline-feed");
-            if (feed) feed.scrollTop = feed.scrollHeight;
+        if (window.scanResults) {
+            setTimeout(() => {
+                if (typeof updateUI === 'function') {
+                    updateUI(window.scanResults);
+                }
+            }, 500); // Slight delay to ensure DOM is fully ready
         }
-    };
 
-    window.updateModulesTable = function (st) {
-        const noRow = document.getElementById("no-modules-row");
-        if (noRow) noRow.remove();
+        // --- V4 PATCH: OBSERVABILITY HANDLERS ---
+        dashboard.socket.on("pipeline_event", (evt) => appendTimeline(evt));
+        dashboard.socket.on("module_status", (st) => updateModulesTable(st));
 
-        const tbody = document.querySelector("#modules-table tbody");
-        const rowId = `mod-row-${st.module}-${st.port}`;
-        let row = document.getElementById(rowId);
+        window.appendTimeline = function (evt) {
+            const container = document.getElementById("timeline-container");
+            const noRow = document.getElementById("no-timeline-row");
+            if (noRow) noRow.remove();
 
-        // Badge Logic
-        let badge = `<span class="badge bg-dark border border-secondary text-muted x-small">${st.status.toUpperCase()}</span>`;
-        if (st.status === 'running') badge = `<span class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>`;
-        else if (st.status === 'executed') badge = `<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>`;
-        else if (st.status === 'skipped') badge = `<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>`;
-        else if (st.status === 'failed' || st.status === 'error') badge = `<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>`;
-
-        if (!row) {
-            row = document.createElement("tr");
-            row.id = rowId;
-            row.className = "animate__animated animate__fadeIn";
-            row.innerHTML = `
-                    <td class=" text-info small">${st.module}</td>
-                    <td class=" text-muted small">${st.port}</td>
-                    <td id="${rowId}-status">${badge}</td>
-                    <td id="${rowId}-art" class="text-end  small">${st.artifacts}</td>
-                    <td id="${rowId}-reason" class="text-muted x-small">${st.reason || '-'}</td>
-                `;
-            if (tbody) tbody.appendChild(row);
-
-            // Update count
-            const countBadge = document.getElementById("module-count");
-            if (countBadge) {
-                let count = tbody.querySelectorAll("tr").length;
-                countBadge.innerText = `${count} Active`;
+            if (container) {
+                const timeStr = evt.ts.split('T')[1].split('.')[0];
+                const div = document.createElement("div");
+                div.className = "d-flex justify-content-between align-items-start border-bottom border-dark pb-1 animate__animated animate__fadeIn";
+                div.innerHTML = `
+                        <div>
+                            <span class="text-muted x-small ">${timeStr}</span>
+                            <span class="badge bg-dark border border-secondary text-light x-small ms-1">${evt.module}</span>
+                            <span class="text-secondary small ms-1">${evt.type}</span>
+                        </div>
+                        ${evt.level === 'ERROR' ? '<span class="text-danger x-small fw-bold">ERROR</span>' : ''}
+                    `;
+                container.appendChild(div);
+                const feed = document.getElementById("timeline-feed");
+                if (feed) feed.scrollTop = feed.scrollHeight;
             }
-        } else {
-            const statusCell = document.getElementById(`${rowId}-status`);
-            const artCell = document.getElementById(`${rowId}-art`);
-            const reasonCell = document.getElementById(`${rowId}-reason`);
-            if (statusCell) statusCell.innerHTML = badge;
-            if (artCell) artCell.innerText = st.artifacts;
-            if (reasonCell) reasonCell.innerText = st.reason || "-";
-        }
-    };
+        };
+
+        window.updateModulesTable = function (st) {
+            const noRow = document.getElementById("no-modules-row");
+            if (noRow) noRow.remove();
+
+            const tbody = document.querySelector("#modules-table tbody");
+            const rowId = `mod-row-${st.module}-${st.port}`;
+            let row = document.getElementById(rowId);
+
+            // Badge Logic
+            let badge = `<span class="badge bg-dark border border-secondary text-muted x-small">${st.status.toUpperCase()}</span>`;
+            if (st.status === 'running') badge = `<span class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>`;
+            else if (st.status === 'executed') badge = `<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>`;
+            else if (st.status === 'skipped') badge = `<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>`;
+            else if (st.status === 'failed' || st.status === 'error') badge = `<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>`;
+
+            if (!row) {
+                row = document.createElement("tr");
+                row.id = rowId;
+                row.className = "animate__animated animate__fadeIn";
+                row.innerHTML = `
+                        <td class=" text-info small">${st.module}</td>
+                        <td class=" text-muted small">${st.port}</td>
+                        <td id="${rowId}-status">${badge}</td>
+                        <td id="${rowId}-art" class="text-end  small">${st.artifacts}</td>
+                        <td id="${rowId}-reason" class="text-muted x-small">${st.reason || '-'}</td>
+                    `;
+                if (tbody) tbody.appendChild(row);
+
+                // Update count
+                const countBadge = document.getElementById("module-count");
+                if (countBadge) {
+                    let count = tbody.querySelectorAll("tr").length;
+                    countBadge.innerText = `${count} Active`;
+                }
+            } else {
+                const statusCell = document.getElementById(`${rowId}-status`);
+                const artCell = document.getElementById(`${rowId}-art`);
+                const reasonCell = document.getElementById(`${rowId}-reason`);
+                if (statusCell) statusCell.innerHTML = badge;
+                if (artCell) artCell.innerText = st.artifacts;
+                if (reasonCell) reasonCell.innerText = st.reason || "-";
+            }
+        };
     });
 </script>

@@ -55,6 +55,8 @@ from scan_engine.step03_vuln.metadata_scanner import MetadataScanner
 from scan_engine.step03_vuln.waf_expert import WAFExpertScanner
 from scan_engine.step03_vuln.java_rce_scanner import JavaRCEScanner
 from scan_engine.step03_vuln.h2c_smuggler import H2CSmuggler
+from scan_engine.step03_vuln.bypass_expert import BypassExpertScanner
+from scan_engine.step03_vuln.auth_bruter import AuthBruteScanner
 from scan_engine.phases.utils import extract_wp_data, emit_progress
 from scan_engine.helpers.mutation_engine import MutationEngine
 from scan_engine.helpers.budget_manager import BudgetManager
@@ -234,7 +236,9 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                             title=f"WordPress Vulnerabilities Detected ({port})",
                             description=desc,
                             severity="high",
-                            tool_source="wpscan"
+                            tool_source="wpscan",
+                            endpoint=f"{proto}://{target}:{port}",
+                            repro_command=f"wpscan --url {proto}://{target}:{port} --enumerate vp,vt,tt,cb,dbe,u,m"
                         )
                     else:
                         # V10: Always surface WP detection even without vulns
@@ -247,11 +251,11 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                             title=f"WordPress Detected ({port})",
                             description=wp_desc,
                             severity="info",
-                            tool_source="wpscan"
+                            tool_source="wpscan",
+                            endpoint=f"{proto}://{target}:{port}"
                         )
                 
                 orch.mark_module("wpscan", port, "executed", artifacts=1)
-                orch.add_finding(title=f"Module Executed: wpscan", description=f"WPScan finished on port {port}", severity="info", tool_source="redops-core")
                 
         except Exception as e:
             log(f"WPScan failed: {e}", "ERROR")
@@ -273,7 +277,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
         
         orch.mark_module("git_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
-        orch.add_finding(title=f"Module Executed: git_scanner", description=f"Git exposure audit finished on port {port}", severity="info", tool_source="redops-core")
 
     except Exception as e:
         log(f"Git exposure audit failed on port {port}: {e}", "DEBUG")
@@ -301,7 +304,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
         
         orch.mark_module("backup_scanner", port, "executed", artifacts=len(bs_findings) if bs_findings else 0)
-        orch.add_finding(title=f"Module Executed: backup_scanner", description=f"Backup audit finished on port {port}", severity="info", tool_source="redops-core")
 
     except Exception as e:
         log(f"Backup audit failed on port {port}: {e}", "DEBUG")
@@ -330,7 +332,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
         
         orch.mark_module("graphql_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
-        orch.add_finding(title=f"Module Executed: graphql_scanner", description=f"GraphQL audit finished on port {port}", severity="info", tool_source="redops-core")
 
     except Exception as e:
         log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
@@ -703,7 +704,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         orch.mark_module("ssrf_expert", port, "executed", artifacts=len(discovered_endpoints))
         # SSRF is technically global for found endpoints, but we attribute to current port loop for visibility or mark it once?
         # Since it runs per port loop if new endpoints are found, marking it 'executed' per port is fine.
-        orch.add_finding(title=f"Module Executed: ssrf_expert", description=f"SSRF probe finished using endpoints from {port}", severity="info", tool_source="redops-core")
 
     except Exception as e:
         log(f"SSRF Expert probe failed: {e}", "DEBUG")
@@ -727,7 +727,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
         
         orch.mark_module("js_vuln_audit", port, "executed", artifacts=len(js_findings) if js_findings else 0)
-        orch.add_finding(title=f"Module Executed: js_vuln_audit", description=f"JS vulnerability audit finished on {port}", severity="info", tool_source="redops-core")
 
     except Exception as e:
          log(f"JS Vuln audit failed: {e}", "DEBUG")
@@ -851,7 +850,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 orch.save_results(orch.scan_id, results)
             
             orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found), reason=stop_reason)
-            orch.add_finding(title=f"Module Executed: dalfox", description=f"Dalfox XSS scan finished on {port}", severity="info", tool_source="redops-core")
             
     except Exception as e:
         log(f"Dalfox failed: {e}", "ERROR")
@@ -900,7 +898,6 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 orch.save_results(orch.scan_id, results)
         
         orch.mark_module("redirect_scanner", port, "executed", artifacts=len(endpoints)) # approximate artifacts
-        orch.add_finding(title=f"Module Executed: redirect_scanner", description=f"Open redirect check finished on {port}", severity="info", tool_source="redops-core")
 
     except Exception as e:
         log(f"Open Redirect audit failed: {e}", "DEBUG")
@@ -1068,6 +1065,18 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"WAF Bypass Error: {e}", "DEBUG")
 
+    # 6. 403 / Auth Bypass (BypassExpertScanner)
+    try:
+        _set_cortex_status(f"403/401 Auth Bypass Audit (Port {port})...")
+        bypass_expert = BypassExpertScanner(target, options=orch.options)
+        bypass_findings = bypass_expert.scan_403_bypass(port, proto, logger=log)
+        if bypass_findings:
+            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('403_bypass', bypass_findings)))
+            for f in bypass_findings:
+                orch.add_finding(**normalizer.normalize(f))
+            orch.save_results(orch.scan_id, results)
+    except Exception as e: log(f"403 Bypass Error: {e}", "DEBUG")
+
     # 8. Access Control (ACL)
     try:
         acl = AccessControlScanner(target)
@@ -1102,7 +1111,8 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                         title=f"Data Exposure: {ftype.upper()}",
                         description=f"Found {f['count']} matches in response. Sample: {', '.join(f['matches'])}",
                         severity=sev,
-                        tool_source="data_miner"
+                        tool_source="data_miner",
+                        endpoint=f"{proto}://{target}:{port}"
                     )
                 orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"Data Miner Error: {e}", "DEBUG")
@@ -1110,7 +1120,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     try:
         # Global Secret Scanning
         secret_scanner = SecretScanner()
-        secrets = secret_scanner.scan_text(fingerprint_data, source_info=f"Port {port}", target_domain=target)
+        secrets = secret_scanner.scan_text(fingerprint_data, source_info=f"{proto}://{target}:{port}", target_domain=target)
         if secrets:
             _ts(lambda: (results['phases'].setdefault('enum', {}), results['phases']['enum'].setdefault('js_secrets', {}), results['phases']['enum']['js_secrets'].__setitem__(str(port), secrets)))
             for s in secrets:
@@ -1212,7 +1222,6 @@ def run_global_vuln_scans(orchestrator):
                             log("external_tool_non_zero_exit_code", "DEBUG")
                 orch.save_results(orch.scan_id, results)
             orch.mark_module("takeover_scanner", 0, "executed", artifacts=len(subdomains))
-            orch.add_finding(title=f"Module Executed: takeover_scanner", description=f"Subdomain takeover check finished", severity="info", tool_source="redops-core")
         else:
             log("Subdomain takeover tool not found. Skipping.", "WARN")
             orch.mark_module("takeover_scanner", 0, "skipped")
@@ -1248,6 +1257,23 @@ def run_global_vuln_scans(orchestrator):
     except Exception as e:
         log(f"Firebase scan failed: {e}", "WARN")
         orch.mark_module("firebase_scanner", 0, "failed", reason=str(e))
+
+    # --- PHASE 3.7: Authentication Brute Force Audit ---
+    try:
+        open_ports = results.get('phases', {}).get('recon', {}).get('open_ports', [])
+        if open_ports:
+            log("Auth Expert: Auditing open network services for authentication bypass...", "INFO")
+            auth_bruter = AuthBruteScanner(target, options=orch.options)
+            auth_findings = auth_bruter.run_all(open_ports, logger=log)
+            if auth_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('auth_brute', []).extend(auth_findings)))
+                for f in auth_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("auth_bruter", 0, "executed", artifacts=len(auth_findings) if auth_findings else 0)
+    except Exception as e:
+        log(f"Auth Bruter scan failed: {e}", "WARN")
+        orch.mark_module("auth_bruter", 0, "failed", reason=str(e))
 
     # --- PHASE 5: Nuclei ---
     emit_progress(orch, 80, "Vulnerability Assessment (Nuclei)")
@@ -1342,7 +1368,8 @@ def run_global_vuln_scans(orchestrator):
                                         tool_source="nuclei",
                                         request=req,
                                         response=res,
-                                        repro_command=curl_cmd
+                                        repro_command=curl_cmd,
+                                        endpoint=matched_at
                                     )
                                     orch.save_results(orch.scan_id, results)
                                 except Exception as ej:
@@ -1357,7 +1384,6 @@ def run_global_vuln_scans(orchestrator):
                         log(f"No Nuclei findings on port {port}.", "SUCCESS")
                     
                     orch.mark_module("nuclei", port, "executed", artifacts=1 if found_any else 0)
-                    orch.add_finding(title=f"Module Executed: nuclei", description=f"Nuclei scan finished on port {port}", severity="info", tool_source="redops-core")
                         
                 except Exception as e:
                     log(f"Nuclei error on {port}: {e}", "ERROR")

@@ -64,8 +64,7 @@ class WPScanScanner:
             "--no-banner",
             "--random-user-agent",
             "--disable-tls-checks",
-            "--enumerate", enum_flags,
-            "--follow-redirection"
+            "--enumerate", enum_flags
         ]
 
         if stealth:

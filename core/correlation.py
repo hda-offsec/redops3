@@ -17,7 +17,7 @@ def _collect_signal_ids(items):
     return sorted(set(ids))
 
 
-def _add_chain(scan_id, title, description, severity="medium", confidence="medium", metadata=None, source_findings=None):
+def _add_chain(scan_id, title, description, severity="medium", confidence="medium", metadata=None, source_findings=None, reproduction=None):
     if _exists(scan_id, title):
         return None
     source_findings = source_findings or []
@@ -25,10 +25,42 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
     endpoint = next((f.endpoint for f in source_findings if getattr(f, "endpoint", None)), None)
     target = next((f.target for f in source_findings if getattr(f, "target", None)), None)
     parameter = next((f.parameter for f in source_findings if getattr(f, "parameter", None)), None)
-    combined_evidence = "\n".join([f.evidence for f in source_findings if isinstance(getattr(f, "evidence", None), str)])[:2000]
-    combined_raw = "\n".join([f.raw_output for f in source_findings if isinstance(getattr(f, "raw_output", None), str)])[:3000]
+    
+    evidence_parts = []
+    raw_parts = []
+    source_titles = []
+    import json
+    for f in source_findings:
+        source_titles.append(f"- **{getattr(f, 'title', 'Unknown')}** ({getattr(f, 'endpoint', 'No URL')})")
+        
+        ev = getattr(f, "evidence", None)
+        if isinstance(ev, dict):
+            try: ev = json.dumps(ev, indent=2)
+            except: ev = str(ev)
+        elif not isinstance(ev, str): ev = str(ev) if ev else ""
+        if ev: evidence_parts.append(f"[{f.tool_source}] {ev}")
+        
+        ro = getattr(f, "raw_output", None)
+        if isinstance(ro, dict):
+            try: ro = json.dumps(ro, indent=2)
+            except: ro = str(ro)
+        elif not isinstance(ro, str): ro = str(ro) if ro else ""
+        if ro: raw_parts.append(f"[{f.tool_source}] {ro}")
+        
+    combined_evidence = "\n\n".join(evidence_parts)[:4000]
+    combined_raw = "\n\n".join(raw_parts)[:4000]
+    
+    enriched_description = f"{description}\n\n**Linked Findings Leading to this Chain:**\n" + "\n".join(source_titles)
+    
     source_categories = sorted({(f.category or "general") for f in source_findings})
     related_finding_ids = [f.id for f in source_findings if getattr(f, "id", None) is not None]
+
+    repro_text = reproduction or "Validate each source finding and pivot through the listed chain links."
+    if endpoint:
+        repro_text = repro_text.replace("{{endpoint}}", endpoint)
+    if target:
+        repro_text = repro_text.replace("{{target}}", target)
+
     chain_explanation = merge_chain_explanation(
         (metadata or {}).get("chain_explanation"),
         {
@@ -37,7 +69,7 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
             "related_signal_ids": signal_ids,
             "related_finding_ids": related_finding_ids,
             "combined_evidence_summary": (combined_evidence or description)[:400],
-            "likely_next_action": "Validate each prerequisite finding and safely replay the chain in sequence.",
+            "likely_next_action": repro_text,
         },
     )
     metadata_payload = dict(metadata or {"tags": ["attack_chain"]})
@@ -51,7 +83,7 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
     finding = Finding(
         scan_id=scan_id,
         title=title,
-        description=description,
+        description=enriched_description,
         severity=severity,
         confidence=confidence,
         tool_source="correlation_engine",
@@ -64,7 +96,7 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         raw_output=combined_raw or description,
         signal_ids=signal_ids or [],
         parameter=parameter,
-        reproduction="Validate each source finding and pivot through the listed chain links.",
+        reproduction=repro_text,
     )
     db.session.add(finding)
     return finding
@@ -90,6 +122,11 @@ def run_attack_chain_correlation(scan_id):
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["directory_exposure", "backup_archive"]},
             source_findings=source,
+            reproduction=(
+                "1. Naviguer dans les répertoires exposés identifiés ({{endpoint}}).\n"
+                "2. Tenter de télécharger les archives de backup (.zip, .tar, .bak, etc.) détectées.\n"
+                "3. Analyser le contenu localement pour extraire des fichiers de configuration ou du code source."
+            )
         ):
             created += 1
 
@@ -120,6 +157,11 @@ def run_attack_chain_correlation(scan_id):
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["upload_endpoint", "put_allowed"]},
             source_findings=source,
+            reproduction=(
+                "1. Tester la méthode PUT sur l'endpoint d'upload ({{endpoint}}) avec un fichier bénin.\n"
+                "2. Si réussi, tenter de téléverser un fichier avec une extension exécutable ou un contenu contournant les filtres.\n"
+                "3. Vérifier si le fichier est accessible et exécuté par le serveur."
+            )
         ):
             created += 1
 
@@ -165,6 +207,11 @@ def run_attack_chain_correlation(scan_id):
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["secret_exposure", "internal_api_surface"]},
             source_findings=source,
+            reproduction=(
+                "1. Récupérer les jetons/clés mentionnés dans les découvertes sources (voir l'onglet Findings pour les détails de l'exposition de clé).\n"
+                "2. Tester manuellement si ces clés permettent d'interagir avec les APIs ou les interfaces identifiées ({{endpoint}}).\n"
+                "3. Vérifier si ces accès permettent une 'escalade de privilèges' (accéder à des données d'autres clients ou des fonctions système)."
+            )
         ):
             created += 1
 
@@ -181,6 +228,11 @@ def run_attack_chain_correlation(scan_id):
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["api_key_exposure", "privileged_surface"]},
             source_findings=source,
+            reproduction=(
+                "1. Récupérer les jetons/clés mentionnés dans les découvertes sources (voir l'onglet Findings pour les détails de l'exposition de clé).\n"
+                "2. Tester manuellement si ces clés permettent d'interagir avec les APIs ou les interfaces identifiées ({{endpoint}}).\n"
+                "3. Vérifier si ces accès permettent une 'escalade de privilèges' (accéder à des données d'autres clients ou des fonctions système)."
+            )
         ):
             created += 1
 
@@ -286,6 +338,11 @@ def run_attack_chain_correlation(scan_id):
             confidence="high",
             metadata={"tags": ["attack_chain"], "chain": ["git_exposure", "source_code", "secrets"]},
             source_findings=source,
+            reproduction=(
+                "1. Utiliser un outil de dump Git (ex: git-dumper) pour extraire l'historique complet de {{endpoint}}.\n"
+                "2. Rechercher des secrets ou des configurations sensibles dans les versions antérieures (git log -p).\n"
+                "3. Mapper les secrets trouvés aux services actifs pour confirmer l'accès."
+            )
         ):
             created += 1
 

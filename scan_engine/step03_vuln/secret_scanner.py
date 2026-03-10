@@ -45,6 +45,18 @@ class SecretScanner:
             "Twitter OAuth": r"[1-9][0-9]+-[0-9a-zA-Z]{40}",
         }
 
+    def _calculate_entropy(self, data):
+        """Calculates Shannon entropy of a string."""
+        if not data:
+            return 0
+        import math
+        entropy = 0
+        for x in range(256):
+            p_x = float(data.count(chr(x)))/len(data)
+            if p_x > 0:
+                entropy += - p_x * math.log(p_x, 2)
+        return entropy
+
     def scan_text(self, text, source_info="Unknown", target_domain=None):
         findings = []
         if not text:
@@ -65,26 +77,35 @@ class SecretScanner:
                         full_match = secret
 
                     # Deduplication & Noise Filtering
-                    # Filter out short strings unless they match specific short-format patterns
                     if len(secret) < 6 and "S3" not in name and "IP" not in name: 
                         continue
                         
+                    # ENTROPY VALIDATION (Crucial for Low Noise)
+                    entropy = self._calculate_entropy(secret)
+                    confidence = "medium"
+                    
+                    # Generic keys need higher entropy to be considered credible
+                    if "Generic" in name or "Potential" in name or "Secret" in name:
+                        if entropy < 3.5: continue # Likely a placeholder or simple word
+                        if entropy > 4.5: confidence = "high"
+                    
+                    # High-fidelity patterns automatically get higher confidence if they match
+                    if any(x in name for x in ["AWS", "GitHub", "Slack", "Stripe", "Google Cloud"]):
+                         confidence = "high"
+
                     # Ignore common false positive IPs (localhost, empty IPs)
                     if name == "IPv4 Address":
                          if secret.startswith("127.0.0.1") or secret == "0.0.0.0": continue
 
                     # SCOPE CHECK: Filter out noise and off-scope URLs
                     if name == "Exposed URL":
-                        # GLOBAL IGNORES for schemas/specs
                         if any(x in secret for x in ["w3.org", "schemas", "gmpg.org", "xmlsoap.org", "example.com", "android.com"]):
                             continue
 
                         if target_domain:
                             try:
-                                # Normalize helper
                                 check_url = secret if secret.startswith(('http:', 'https:')) else f"http://{secret}"
                                 parsed = urlparse(check_url)
-                                # If netloc does not contain target_domain, skip
                                 if target_domain not in parsed.netloc:
                                     continue
                             except Exception:
@@ -103,19 +124,16 @@ class SecretScanner:
                     if severity in ["critical", "high"]:
                         obfuscated = secret[:4] + "..." + secret[-4:] if len(secret) > 12 else "****"
                     else:
-                        obfuscated = secret # Don't obfuscate public info like URLs
+                        obfuscated = secret
 
                     # Context extraction (limit to 100 chars)
                     start = max(0, match.start() - 50)
                     end = min(len(text), match.end() + 50)
                     context_snippet = text[start:end].replace('\n', ' ').strip()
                     
-                    # Highlight the match in the context for better visibility
-                    # We use a simple but effective marker that the UI can emphasize
                     if full_match in context_snippet:
                         context_snippet = context_snippet.replace(full_match, f"==> {full_match} <== ")
                     
-                    # Ensure context is NOT empty if match itself is the only thing
                     if not context_snippet:
                         context_snippet = f"Match: {full_match}"
 
@@ -124,16 +142,18 @@ class SecretScanner:
                         "description": (
                             f"Discovered `{name}` in `{source_info}`.\n\n"
                             f"Match Preview: `{obfuscated}`\n"
-                            f"Confidence: High (Context Validated)\n\n"
+                            f"Confidence: {confidence.capitalize()} (Entropy: {entropy:.2f})\n\n"
                             f"Context:\n... {context_snippet} ..."
                         ),
                         "severity": severity,
+                        "confidence": confidence,
                         "tool_source": "secret_scanner",
                         "raw_secret": full_match,
                         "secret_type": name,
-                        "type": name, # Compatibility with template
-                        "match": obfuscated, # Compatibility with template (obfuscated for UI)
-                        "line_context": context_snippet # Compatibility with template
+                        "type": name,
+                        "match": obfuscated,
+                        "line_context": context_snippet,
+                        "endpoint": source_info
                     })
             except Exception: 
                 continue

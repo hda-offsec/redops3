@@ -22,42 +22,58 @@ class NoSQLScanner:
 
     def scan_endpoint(self, url, params, logger=None):
         findings = []
-        if logger: logger(f"NoSQL Expert: Auditing {url} for NoSQL Injection...", "INFO")
+        if logger: logger(f"NoSQL Expert: Auditing {url} for NoSQL Injection (Differential Analysis)...", "INFO")
 
         for param in params:
-            # 1. Behavioral Check: Logical Bypass
             try:
-                # Original request
-                orig = self.session.get(url, params={param: "testing123"}, timeout=5)
+                # 0. Baseline Analysis
+                orig = self.session.get(url, params={param: "random_test_safe_123"}, timeout=5)
+                baseline_text = orig.text if orig.status_code == 200 else ""
                 
-                # Malicious request: Injecting a dictionary object which some frameworks (Express/Mongoose) might parse
-                payload = {"$ne": "non_existent_key_999"}
-                
-                # Test via Query String (Some libraries like 'qs' support ?user[$ne]=val)
-                qs_payload = {f"{param}[$ne]": "9999999"}
+                # 1. Behavioral Check: Logical Bypass ($ne)
+                qs_payload = {f"{param}[$ne]": "totally_non_existent_key_xyz_999"}
                 nosql_qs = self.session.get(url, params=qs_payload, timeout=5)
                 
-                if nosql_qs.status_code == 200 and nosql_qs.status_code != orig.status_code:
-                    findings.append({
-                        "title": "NoSQL Injection (MongoDB Query Syntax)",
-                        "description": f"Encountered significant response change when injecting MongoDB operators in query string.\nParam: {param}\nPayload: {qs_payload}",
-                        "severity": "high",
-                        "tool_source": "nosql_expert",
-                        "url": url
-                    })
+                # Validation: 
+                # 1. Status code is 200
+                # 2. Response text is DIFFERENT from baseline (proves the operator was parsed)
+                # 3. Look for "id", "user", "email" or JSON success markers that weren't in baseline
+                if nosql_qs.status_code == 200 and nosql_qs.text != baseline_text:
+                    confidence = "medium"
+                    # If we see typical JSON success markers that weren't in the baseline, increase confidence
+                    interesting_keys = ['"id":', '"_id":', '"email":', '"username":']
+                    hit = False
+                    for k in interesting_keys:
+                        if k in nosql_qs.text and k not in baseline_text:
+                            hit = True
+                            confidence = "high"
+                            break
 
-                # Test via JSON Body (if it's a POST/PUT endpoint)
-                json_payload = {param: {"$ne": "9999999"}}
+                    if hit or (len(nosql_qs.text) > len(baseline_text) + 50): # Significant data leak
+                        findings.append({
+                            "title": "NoSQL Injection (MongoDB Operator Parsing)",
+                            "description": f"The application appears to parse MongoDB operators via Query String.\nParameter: {param}\nConfirmed via differential response analysis.",
+                            "severity": "high",
+                            "confidence": confidence,
+                            "tool_source": "nosql_expert",
+                            "url": url,
+                            "payload": str(qs_payload)
+                        })
+
+                # 2. JSON Body Injection (if applicable)
+                json_payload = {param: {"$ne": "non_existent_999"}}
                 nosql_json = self.session.post(url, json=json_payload, timeout=5)
                 
-                if nosql_json.status_code == 200 and "id" in nosql_json.text: # Often indicates a bypass
-                      findings.append({
-                        "title": "NoSQL Injection (JSON Body)",
-                        "description": f"Potential authentication bypass or data leakage via JSON body manipulation.\nParam: {param}\nPayload: {json_payload}",
-                        "severity": "critical",
-                        "tool_source": "nosql_expert",
-                        "url": url
-                    })
+                if nosql_json.status_code == 200 and nosql_json.text != baseline_text:
+                    if '"id":' in nosql_json.text or '"_id":' in nosql_json.text:
+                        findings.append({
+                            "title": "Critical NoSQL Injection (JSON Body)",
+                            "description": f"Confirmed NoSQL injection in JSON body.\nParameter: {param}\nPayload: {json_payload}",
+                            "severity": "critical",
+                            "confidence": "high",
+                            "tool_source": "nosql_expert",
+                            "url": url
+                        })
 
             except Exception as e:
                 pass

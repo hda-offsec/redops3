@@ -12,10 +12,14 @@
                 <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
                     placeholder="Filter detections (title, severity, tool)..." onkeyup="filterFindings()">
             </div>
-            <select id="findings-category-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;" onchange="filterFindings()">
+            <select id="findings-category-filter"
+                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;"
+                onchange="filterFindings()">
                 <option value="">All Categories</option>
             </select>
-            <select id="findings-severity-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 140px;" onchange="filterFindings()">
+            <select id="findings-severity-filter"
+                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 140px;"
+                onchange="filterFindings()">
                 <option value="">All Severity</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -23,18 +27,26 @@
                 <option value="low">Low</option>
                 <option value="info">Info</option>
             </select>
-            <input id="findings-exploit-filter" type="number" min="0" max="100" step="1" class="form-control form-control-sm bg-transparent border-secondary text-light" style="max-width: 150px;" placeholder="Min exploit" oninput="filterFindings()" />
-            <select id="findings-attack-priority-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 150px;" onchange="filterFindings()">
+            <input id="findings-exploit-filter" type="number" min="0" max="100" step="1"
+                class="form-control form-control-sm bg-transparent border-secondary text-light"
+                style="max-width: 150px;" placeholder="Min exploit" oninput="filterFindings()" />
+            <select id="findings-attack-priority-filter"
+                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 150px;"
+                onchange="filterFindings()">
                 <option value="">Attack Priority</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
             </select>
-            <select id="findings-component-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;" onchange="filterFindings()">
+            <select id="findings-component-filter"
+                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;"
+                onchange="filterFindings()">
                 <option value="">All Components</option>
             </select>
-            <select id="findings-provider-filter" class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;" onchange="filterFindings()">
+            <select id="findings-provider-filter"
+                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;"
+                onchange="filterFindings()">
                 <option value="">All Providers</option>
             </select>
         </div>
@@ -78,9 +90,9 @@
 <script>
     // Deserialize JSON natively to avoid parsing and IDE formatter conflict issues
     const findingsList = JSON.parse(document.getElementById('findings-json-data').textContent);
-    const rawFindingsData = {};
+    window.rawFindingsData = {};
     findingsList.forEach(f => {
-        rawFindingsData[f.id_stable || f.id] = f;
+        window.rawFindingsData[f.id_stable || f.id] = f;
     });
 
     function filterFindings() {
@@ -132,6 +144,11 @@
     function populateCategoryFilter() {
         const el = document.getElementById('findings-category-filter');
         if (!el) return;
+
+        // Preserve current selection
+        const currentCat = el.value;
+        el.innerHTML = '<option value="">All Categories</option>';
+
         const categories = [...new Set(findingsList.map(f => (f.category || '').toLowerCase()).filter(Boolean))].sort();
         categories.forEach(cat => {
             const opt = document.createElement('option');
@@ -139,28 +156,35 @@
             opt.textContent = cat;
             el.appendChild(opt);
         });
+        el.value = currentCat;
 
         const componentEl = document.getElementById('findings-component-filter');
         const providerEl = document.getElementById('findings-provider-filter');
-        const components = [...new Set(findingsList.map(f => (f.component || (f.metadata && f.metadata.component) || '').toLowerCase()).filter(Boolean))].sort();
-        const providers = [...new Set(findingsList.map(f => (f.provider || (f.metadata && f.metadata.provider) || '').toLowerCase()).filter(Boolean))].sort();
 
         if (componentEl) {
+            const currentComp = componentEl.value;
+            componentEl.innerHTML = '<option value="">All Components</option>';
+            const components = [...new Set(findingsList.map(f => (f.component || (f.metadata && f.metadata.component) || '').toLowerCase()).filter(Boolean))].sort();
             components.forEach(comp => {
                 const opt = document.createElement('option');
                 opt.value = comp;
                 opt.textContent = comp;
                 componentEl.appendChild(opt);
             });
+            componentEl.value = currentComp;
         }
 
         if (providerEl) {
+            const currentProv = providerEl.value;
+            providerEl.innerHTML = '<option value="">All Providers</option>';
+            const providers = [...new Set(findingsList.map(f => (f.provider || (f.metadata && f.metadata.provider) || '').toLowerCase()).filter(Boolean))].sort();
             providers.forEach(provider => {
                 const opt = document.createElement('option');
                 opt.value = provider;
                 opt.textContent = provider;
                 providerEl.appendChild(opt);
             });
+            providerEl.value = currentProv;
         }
     }
 
@@ -397,10 +421,17 @@
     };
     window.updateFindingsList = function (newFindings) {
         if (newFindings) {
-            // Update local memory
             newFindings.forEach(f => {
-                rawFindingsData[f.id_stable || f.id] = f;
+                const fid = f.id_stable || f.id;
+                // Update detail map
+                rawFindingsData[fid] = f;
+                // Update list if not already present
+                if (!findingsList.some(item => (item.id_stable || item.id) === fid)) {
+                    findingsList.push(f);
+                }
             });
+            // Re-populate categories to include new discoveries
+            populateCategoryFilter();
         }
         filterFindings();
     };

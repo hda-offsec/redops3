@@ -32,7 +32,7 @@ data/wordlists/
 !data/wordlists/.gitkeep
 
 # Logs & Temporary Outputs
-*.log
+*.log*
 nohup.out
 *.out
 *.tmp

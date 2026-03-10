@@ -152,6 +152,161 @@
 </div>
 {% endif %}
 
+<!-- ASSET IDENTITY CARD -->
+<div class="col-12 mb-4">
+    <div class="card border-secondary border-opacity-25 h-100">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-id-card me-2 text-info"></i>Asset Identity Card: <span class="text-white fw-bold">{{ scan.target.identifier }}</span></span>
+            <span class="badge bg-secondary bg-opacity-20 text-secondary border border-secondary border-opacity-50">Live Intel Profile</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-4">
+                <!-- IP & INFRASTRUCTURE -->
+                <div class="col-md-3 border-end border-secondary border-opacity-25">
+                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-server me-2"></i>Infrastructure</h6>
+                    
+                    <div class="mb-2">
+                        <small class="text-muted d-block text-uppercase x-small">Primary IP Addresses</small>
+                        {% set ns_ips = namespace(found=false) %}
+                        {% if results.phases.osint.origin_ips %}
+                            {% for ip_data in results.phases.osint.origin_ips[:3] %}
+                                <div class="text-white fw-bold d-flex align-items-center mb-1">
+                                    {{ ip_data.ip }}
+                                    {% if ip_data.confidence == 'high' %}
+                                        <i class="fas fa-check-circle text-success ms-2 x-small" title="High Confidence"></i>
+                                    {% endif %}
+                                </div>
+                                {% set ns_ips.found = true %}
+                            {% endfor %}
+                        {% endif %}
+                        {% if not ns_ips.found %}
+                            <div class="text-secondary fst-italic">Resolving...</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-2">
+                        <small class="text-muted d-block text-uppercase x-small">Hosting / Cloud</small>
+                        {% set ns_cloud = namespace(found=false) %}
+                        {% if results.phases.osint.cloud %}
+                            {% for c in results.phases.osint.cloud %}
+                                {% if c.service and c.service.lower() != 'unknown' %}
+                                    <div class="text-info fw-bold"><i class="fas fa-cloud me-1"></i> {{ c.service }}</div>
+                                    {% set ns_cloud.found = true %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                        {% if not ns_cloud.found %}
+                            <div class="text-secondary fst-italic">Unknown Provider</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- TECHNOLOGIES (WhatWeb/Katana) -->
+                <div class="col-md-4 border-end border-secondary border-opacity-25">
+                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-microchip me-2"></i>Dominant Stack</h6>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% set ns_tech = namespace(found=false) %}
+                        
+                        <!-- OS if Nmap guessed it -->
+                        {% if results.phases.recon and results.phases.recon.open_ports %}
+                            {% for port in results.phases.recon.open_ports %}
+                                {% if port.os_guess and "unknown" not in port.os_guess|lower %}
+                                    <span class="badge bg-dark border border-info border-opacity-50 text-info">
+                                        <i class="fab fa-linux me-1"></i> OS: {{ port.os_guess|truncate(15, true) }}
+                                    </span>
+                                    {% set ns_tech.found = true %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+
+                        <!-- Main Languages/Frameworks -->
+                        {% if results.phases.enum and results.phases.enum.whatweb and results.phases.enum.whatweb.technologies %}
+                            {% for tech, versions in results.phases.enum.whatweb.technologies.items() %}
+                                {% if loop.index <= 8 and tech not in ['IP', 'Country', 'HTTPServer'] %}
+                                    <span class="badge bg-dark border border-secondary text-light">
+                                        {{ tech }} {% if versions and versions[0] %}v{{ versions[0] }}{% endif %}
+                                    </span>
+                                    {% set ns_tech.found = true %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+
+                        {% if not ns_tech.found %}
+                            <div class="text-secondary fst-italic w-100">Scanning signatures...</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- DEFENSE / WAF -->
+                <div class="col-md-2 border-end border-secondary border-opacity-25">
+                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-shield-alt me-2"></i>Perimeter Defenses</h6>
+                    
+                    <div class="mb-2">
+                        <small class="text-muted d-block text-uppercase x-small">WAF Status</small>
+                        {% set waf_status = "Scanning..." %}
+                        {% set waf_class = "text-secondary" %}
+                        {% set waf_name = "" %}
+                        
+                        {% if results.phases.enum and results.phases.enum.waf %}
+                            {% for port, waf_data in results.phases.enum.waf.items() %}
+                                {% if waf_data.has_waf %}
+                                    {% set waf_status = "DETECTED" %}
+                                    {% set waf_class = "text-warning fw-bold" %}
+                                    {% set waf_name = waf_data.waf_name %}
+                                {% elif waf_status == "Scanning..." %}
+                                    {% set waf_status = "No WAF detected" %}
+                                    {% set waf_class = "text-success" %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                        
+                        <div class="{{ waf_class }}">
+                            {% if waf_status == "DETECTED" %}<i class="fas fa-exclamation-triangle me-1"></i>{% endif %}
+                            {{ waf_status }}
+                        </div>
+                        {% if waf_name %}
+                            <div class="text-info x-small fw-bold mt-1">{{ waf_name }}</div>
+                        {% endif %}
+                        
+                        <!-- Wordfence fallback -->
+                        {% if results.phases.vuln.wordpress %}
+                            {% for port, wp in results.phases.vuln.wordpress.items() %}
+                                {% if wp.wordfence_detected %}
+                                    <div class="text-warning fw-bold mt-1"><i class="fas fa-shield-virus me-1"></i> Wordfence</div>
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- EXPOSED PORTS MINI-MAP -->
+                <div class="col-md-3">
+                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-door-open me-2"></i>Exposed Surface</h6>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% if results.phases.recon and results.phases.recon.open_ports %}
+                            {% for port in results.phases.recon.open_ports[:10] %}
+                                {% set is_web = port.port in [80, 443, 8080, 8443] or 'http' in (port.service|default('')) %}
+                                <div class="badge {{ 'bg-info bg-opacity-20 text-info border border-info' if is_web else 'bg-dark border border-secondary text-light' }} p-2" title="{{ port.service|default('Unknown') }}">
+                                    <i class="fas {{ 'fa-globe' if is_web else 'fa-network-wired' }} me-1"></i> 
+                                    {{ port.port }}
+                                </div>
+                            {% endfor %}
+                            {% if results.phases.recon.open_ports|length > 10 %}
+                                <div class="badge bg-dark border border-secondary text-muted p-2">
+                                    +{{ results.phases.recon.open_ports|length - 10 }} more
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="text-secondary fst-italic">Port scanning...</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="col-lg-8 mb-4">
     <!-- Top Findings -->
     <div class="card  h-100">

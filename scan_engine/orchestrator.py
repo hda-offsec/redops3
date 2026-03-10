@@ -25,6 +25,7 @@ from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
 from scan_engine.phases.intel import run_intel
 from scan_engine.phases.recon import run_dns_osint, run_recon
+from scan_engine.step01_recon.nse_scanner import NSEScanner
 try:
     from scan_engine.phases.vuln import run_global_vuln_scans, run_vuln_scans
 except Exception:
@@ -217,7 +218,10 @@ class ScanOrchestrator:
         endpoint_seed = kwargs.get("endpoint") or kwargs.get("target") or kwargs.get("url") or ""
         try:
             parsed = urlparse(str(endpoint_seed))
-            endpoint_fingerprint = parsed.geturl() or parsed.path or "/"
+            # Normalize: ignore scheme and standard ports
+            # e.g. http://example.com:80/api and https://example.com:443/api -> example.com/api
+            host = parsed.hostname or parsed.netloc.split(':')[0]
+            endpoint_fingerprint = f"{host}{parsed.path}?{parsed.query}"
         except Exception:
             endpoint_fingerprint = str(endpoint_seed)
 
@@ -474,7 +478,42 @@ class ScanOrchestrator:
                 return run_recon(self) or []
 
             scheduler.add_task("recon", "phase", [], self._task_wrapper, args=("recon", recon_task))
-            scheduler.add_task("dns_osint", "phase", ["recon"], self._task_wrapper, args=("dns_osint", run_dns_osint, self))
+
+            def nse_scan_task():
+                open_ports = self.results.get("phases", {}).get("recon", {}).get("open_ports", [])
+                if not open_ports:
+                    self.log("NSE Scanner: Skipping — no open ports.", "DEBUG")
+                    return {}
+                nse = NSEScanner(self.target, options=self.options)
+                nse_results = nse.run_on_ports(open_ports, logger_func=self.log)
+                if nse_results:
+                    def _store_nse():
+                        self.results.setdefault("phases", {}).setdefault("recon", {})["nse_results"] = nse_results
+                    self.thread_safe_results_update(_store_nse)
+                    self.save_results(self.scan_id, self.results)
+                    # Surface key findings immediately
+                    for port_num, scripts in nse_results.items():
+                        for script_name, output in scripts.items():
+                            if not output or len(str(output)) < 5:
+                                continue
+                            severity = "info"
+                            if script_name == "ftp-anon" and "allowed" in str(output).lower():
+                                severity = "medium"
+                            elif script_name == "mysql-empty-password" and "empty" in str(output).lower():
+                                severity = "high"
+                            elif script_name == "smb-enum-shares" and output:
+                                severity = "medium"
+                            self.add_finding(
+                                title=f"NSE: {script_name} (port {port_num})",
+                                description=str(output)[:2000],
+                                severity=severity,
+                                tool_source="nse_scanner",
+                                category="nse_script",
+                            )
+                return nse_results
+
+            scheduler.add_task("nse_scan", "phase", ["recon"], self._task_wrapper, args=("nse_scan", nse_scan_task))
+            scheduler.add_task("dns_osint", "phase", [], self._task_wrapper, args=("dns_osint", run_dns_osint, self))
             scheduler.add_task("intel", "phase", ["dns_osint"], self._task_wrapper, args=("intel", run_intel, self))
 
             def discover_web_ports_task():

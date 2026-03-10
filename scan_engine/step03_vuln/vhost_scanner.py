@@ -2,6 +2,8 @@ import scan_engine.helpers.http_client as http_client
 from scan_engine.helpers.http_client import get_session
 import time
 import traceback
+import random
+import string
 
 class VhostScanner:
     """
@@ -44,12 +46,25 @@ class VhostScanner:
             
             base_url = f"{protocol}://{self.target}:{port}"
             
-            # 1. Capture Baseline
+            # 1. Capture Base Baseline (IP/Target string)
             try:
                 # Use a specific timeout for baseline
                 r_base = self.session.get(base_url, timeout=5, allow_redirects=False)
                 base_len = len(r_base.content)
                 base_status = r_base.status_code
+                
+                # Capture Catch-All Baseline (to filter out wildcard/default responses)
+                t_parts = self.target.split('.')
+                domain = ".".join(t_parts[-2:]) if len(t_parts) >= 2 else self.target
+                
+                random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+                catch_all_host = f"{random_str}.{domain}"
+                
+                r_catch_all = self.session.get(base_url, headers={"Host": catch_all_host}, timeout=5, allow_redirects=False)
+                catch_all_len = len(r_catch_all.content)
+                catch_all_status = r_catch_all.status_code
+                
+                if logger: logger(f"Vhost Expert: Base [{base_status}, {base_len}b], Catch-All [{catch_all_status}, {catch_all_len}b]", "DEBUG")
             except Exception as e:
                 results["status"] = "FAILED"
                 results["error"] = f"Baseline capture failed: {str(e)}"
@@ -57,8 +72,6 @@ class VhostScanner:
 
             # 2. Prepare Candidates
             common_list = self.quick_vhosts if is_quick else self.full_vhosts
-            t_parts = self.target.split('.')
-            domain = ".".join(t_parts[-2:]) if len(t_parts) >= 2 else self.target
             
             candidates = set()
             for v in common_list:
@@ -83,20 +96,32 @@ class VhostScanner:
                     # Small timeout per request to keep it moving
                     r = self.session.get(base_url, headers=headers, timeout=3, allow_redirects=False)
                     
-                    # Detection Logic
-                    is_different = False
-                    if r.status_code != base_status:
-                        is_different = True
-                    elif abs(len(r.content) - base_len) > (base_len * 0.15): # 15% tolerance
-                        is_different = True
+                    r_status = r.status_code
+                    r_len = len(r.content)
                     
-                    if is_different:
+                    # Detection Logic
+                    # 1. Must be different from the catch-all (wildcard) response to avoid classic false positives
+                    if r_status == catch_all_status:
+                        # If status is the same, check content length tolerance
+                        diff_catch = abs(r_len - catch_all_len)
+                        # If difference is minimal compared to catch-all, it's just the default page
+                        if diff_catch <= (catch_all_len * 0.15) or diff_catch < 50:
+                            continue
+                    
+                    # 2. Must be different from the base IP/target response
+                    is_different_from_base = False
+                    if r_status != base_status:
+                        is_different_from_base = True
+                    elif abs(r_len - base_len) > (base_len * 0.15) and abs(r_len - base_len) > 50:
+                        is_different_from_base = True
+                    
+                    if is_different_from_base:
                         finding = {
                             "title": f"Virtual Host Discovered: {vhost}",
                             "description": (
                                 f"A unique response was detected when using the Host header `{vhost}`.\n\n"
-                                f"**Status**: {r.status_code} (Base: {base_status})\n"
-                                f"**Content Length**: {len(r.content)} (Base: {base_len})"
+                                f"**Status**: {r_status} (Base: {base_status}, Catch-All: {catch_all_status})\n"
+                                f"**Content Length**: {r_len} (Base: {base_len}, Catch-All: {catch_all_len})"
                             ),
                             "severity": "medium",
                             "tool_source": "vhost_expert",

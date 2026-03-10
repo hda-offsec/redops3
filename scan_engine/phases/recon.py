@@ -68,6 +68,21 @@ def run_recon(orchestrator):
                 continue
             if "Discovered open port" in line:
                 log(line, "SUCCESS")
+                # V11: Add live finding for open port to keep the user engaged
+                import re
+                match = re.search(r"Discovered open port (\d+)/(\w+) on", line)
+                if match:
+                    p_num = match.group(1)
+                    p_proto = match.group(2)
+                    orch.add_finding(
+                        title=f"Open Port Discovered: {p_num}/{p_proto}",
+                        description=f"Initial discovery: Port {p_num} is reachable on target host.",
+                        severity="info",
+                        tool_source="nmap_active",
+                        endpoint=f"port:{p_num}",
+                        category="open_port",
+                        confidence="high"
+                    )
             elif "Nmap scan report for" in line:
                 log(line, "INFO")
             output_buffer.append(line)
@@ -75,7 +90,7 @@ def run_recon(orchestrator):
             log(f"Nmap Error: {event['message']}", "ERROR")
         elif event["type"] == "exit":
             if event["code"] != 0:
-                log("external_tool_non_zero_exit_code", "DEBUG")
+                log(f"Nmap finished with non-zero exit code {event.get('code')}", "DEBUG")
 
     def _store_recon_output():
         results.setdefault('phases', {}).setdefault('recon', {})

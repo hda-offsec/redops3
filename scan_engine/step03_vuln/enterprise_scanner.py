@@ -64,18 +64,29 @@ class EnterpriseScanner:
             "/libs/cq/ui/widgets.js",
             "/system/console/configMgr"
         ]
+        
+        # 0. Baseline check: requesting a non-existent random path
+        try:
+            baseline_r = self.session.get(f"{base_url}/aem_probe_test_non_existent", timeout=3, verify=False)
+            baseline_text = baseline_r.text if baseline_r.status_code == 200 else ""
+        except:
+            baseline_text = ""
+
         for p in paths:
             url = f"{base_url}{p}"
             try:
                 r = self.session.get(url, timeout=3, verify=False)
-                if r.status_code == 200:
+                # Validation: must be 200 AND text must be different from baseline
+                if r.status_code == 200 and r.text != baseline_text:
                     severity = "high" if "system/console" in p else "low"
                     findings.append({
                         "title": f"AEM: Exposed Endpoint Detected ({p})",
-                        "description": f"Adobe Experience Manager sensitive path leaked: `{url}`.",
+                        "description": f"Adobe Experience Manager sensitive path leaked: `{url}`.\nConfirmed via differential analysis against baseline.",
                         "severity": severity,
+                        "confidence": "high",
                         "tool_source": "enterprise_expert",
-                        "url": url
+                        "url": url,
+                        "raw_evidence": r.text[:500]
                     })
             except Exception: pass
         return findings
@@ -87,15 +98,24 @@ class EnterpriseScanner:
             "/Telerik.Web.UI.WebResource.axd",
             "/Telerik.Web.UI.DialogHandler.aspx"
         ]
+        
+        # 0. Baseline check for Telerik
+        try:
+            baseline_r = self.session.get(f"{base_url}/telerik_probe_test_999", timeout=3, verify=False)
+            baseline_text = baseline_r.text if baseline_r.status_code == 200 else ""
+        except:
+            baseline_text = ""
+
         for p in paths:
             url = f"{base_url}{p}"
             try:
                 r = self.session.get(url, timeout=3, verify=False)
-                if r.status_code == 200 and "Telerik" in r.text:
+                if r.status_code == 200 and r.text != baseline_text and "Telerik" in r.text:
                     findings.append({
                         "title": "Low: Telerik UI Component Detected",
-                        "description": f"Telerik UI components identified at `{url}`. Check for version-specific CVEs (e.g. CVE-2019-18935).",
+                        "description": f"Telerik UI components identified at `{url}`.\nCheck for version-specific CVEs (e.g. CVE-2019-18935).",
                         "severity": "low",
+                        "confidence": "high",
                         "tool_source": "enterprise_expert",
                         "url": url
                     })

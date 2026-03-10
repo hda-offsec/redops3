@@ -436,7 +436,10 @@ def run_enum(orchestrator, port, proto):
                     results['phases']['vuln'].setdefault('tech', tech_data)
                 _ts(_store_tech)
                 orch.save_results(orch.scan_id, results)
-                log(f"Tech Stack: {tech_data.get('modernization_level', 'Standard')} architecture identified.", "SUCCESS")
+                for f in tech_data:
+                    if isinstance(f, dict):
+                        orch.add_finding(**f)
+                log(f"Tech Stack / Exposure Intelligence identified {len(tech_data)} artifacts.", "SUCCESS")
         except Exception as e:
             log(f"Tech Exposure Scanner Error: {e}", "DEBUG")
 

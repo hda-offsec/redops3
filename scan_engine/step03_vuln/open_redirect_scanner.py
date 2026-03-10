@@ -44,15 +44,23 @@ class OpenRedirectScanner:
                     continue
 
                 for p_name in redirect_keys:
+                    # 0. Get baseline
+                    try:
+                        baseline_resp = http_client.get(ep, options=getattr(self, "options", None), timeout=5, allow_redirects=False)
+                        baseline_loc = baseline_resp.headers.get('Location', '')
+                    except Exception:
+                        baseline_loc = ""
+
                     for payload in self.bypass_payloads:
                         # Build test URL with proper query reconstruction
+                        # ... (encoding logic)
                         test_query = {k: v for k, v in query.items()}
                         test_query[p_name] = [payload]
-                        # Flatten single-value lists for clean encoding
                         flat_pairs = []
                         for k in sorted(test_query.keys()):
                             for val in test_query[k]:
                                 flat_pairs.append((k, val))
+                        
                         test_url = urlunparse((
                             parsed.scheme, parsed.netloc, parsed.path,
                             parsed.params, urlencode(flat_pairs), ""
@@ -61,9 +69,21 @@ class OpenRedirectScanner:
                         try:
                             r = http_client.get(test_url, options=getattr(self, "options", None), timeout=5, allow_redirects=False)
                             loc = r.headers.get('Location', '')
-                            if loc.startswith('//google.com') or 'google.com' in loc:
+                            
+                            # Validates if:
+                            # 1. Location matches our payload (google.com)
+                            # 2. Location is DIFFERENT from baseline (proves the parameter matters)
+                            if (loc.startswith('//google.com') or 'google.com' in loc) and loc != baseline_loc:
                                 if logger: logger(f"🔥 Open Redirect Found: {test_url} -> {loc}", "CRITICAL")
-                                vulnerable.append({"url": test_url, "destination": loc})
+                                vulnerable.append({
+                                    "title": "Open Redirect Detected",
+                                    "description": f"URL: {test_url}\nRedirects to: {loc}\nConfirmed via baseline comparison.",
+                                    "severity": "medium",
+                                    "confidence": "high",
+                                    "tool_source": "open_redirect_scanner",
+                                    "url": test_url,
+                                    "destination": loc
+                                })
                                 break  # Next param
                         except Exception:
                             continue

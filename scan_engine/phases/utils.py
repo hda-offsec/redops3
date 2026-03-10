@@ -40,14 +40,15 @@ def extract_wp_data(stream, port, logger_func):
                 current_component_name = f"WordPress Core {data['version']}"
                 current_plugin = None
 
-            elif "theme in use:" in line.lower() or "Theme Name:" in line:
+            elif "theme in use:" in line.lower() or "theme name:" in line.lower():
                 current_section = "theme"
                 theme_name = line.split(":")[-1].strip() if ":" in line else "Unknown"
-                data["theme"] = theme_name
+                if data["theme"] == "Unknown":
+                    data["theme"] = theme_name
                 current_component_name = f"Theme: {theme_name}"
                 current_plugin = None
 
-            elif "Plugin(s) Identified" in line or "plugin(s) identified" in line.lower():
+            elif "plugin(s) identified" in line.lower() or "enumerating plugins" in line.lower() or "enumerating vulnerable plugins" in line.lower():
                 current_section = "plugin"
                 current_plugin = None
 
@@ -55,10 +56,10 @@ def extract_wp_data(stream, port, logger_func):
                 current_section = "users"
                 current_plugin = None
 
-            # 1. Individual Plugin Entry: [+] <slug>
             elif current_section == "plugin" and line.startswith("[+]"):
                 slug_part = line.replace("[+]", "").strip().split()[0]
-                if slug_part and re.match(r'^[a-z0-9_-]+$', slug_part):
+                # exclude common WPScan headers
+                if slug_part and slug_part.lower() not in ["enumerating", "plugins", "wordpress", "wp"] and re.match(r'^[a-zA-Z0-9_-]+$', slug_part):
                     current_plugin = {
                         "slug": slug_part,
                         "version": "Unknown",

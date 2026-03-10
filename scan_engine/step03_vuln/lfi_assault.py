@@ -141,6 +141,15 @@ class LfiAssaultScanner:
         session = get_session(self.options)
         session.headers.update({"User-Agent": "RedOps3-Assault/1.0"})
         
+        # 0. Baseline fetch to avoid false positives (e.g. Mapbox case)
+        baselines = {}
+        for target_url, param in target_urls_with_points[:5]: # Baseline first few URLs
+             if target_url not in baselines:
+                 try:
+                     b_resp = session.get(target_url, timeout=3, verify=False)
+                     baselines[target_url] = b_resp.text if b_resp.status_code == 200 else ""
+                 except: baselines[target_url] = ""
+
         for rule in self.lfi_rules:
             # In quick mode, only test first 3 payloads per rule
             payloads_to_test = rule.get("payloads", [])
@@ -150,7 +159,6 @@ class LfiAssaultScanner:
                 # Apply mutations
                 rule_mutations = rule.get("mutations")
                 if quick:
-                    # Only basic mutations in quick mode
                     rule_mutations = [m for m in rule_mutations if m in ["url_encode", "original"]]
                     if not rule_mutations: rule_mutations = ["original"]
 
@@ -160,15 +168,19 @@ class LfiAssaultScanner:
                     for target_url, param in target_urls_with_points:
                         final_url = self._inject(target_url, param, payload)
                         try:
-                            # Use Verify=False if we want to bypass cert issues, 
-                            # but verify=True is safer. Let's stick to system default.
                             resp = session.get(final_url, timeout=3, verify=False)
-                            if self._check_success(resp, rule):
+                            baseline_text = baselines.get(target_url, "")
+                            
+                            # CRITICAL: Verify success AND check that it's NOT in the baseline
+                            if self._check_success(resp, rule, baseline_text=baseline_text):
                                 findings.append({
                                     "title": f"LFI Detected ({rule['rule_id']})",
                                     "severity": "critical",
-                                    "description": f"URL: {final_url}\nPayload: {payload}",
-                                    "url": final_url
+                                    "confidence": "high",
+                                    "description": f"Successfully confirmed Local File Inclusion via differential analysis.\nURL: {final_url}\nPayload: {payload}\nConfirmed using rule: {rule['rule_id']}",
+                                    "url": final_url,
+                                    "tool_source": "lfi_assault",
+                                    "payload": payload
                                 })
                                 break 
                         except Exception:
@@ -188,16 +200,21 @@ class LfiAssaultScanner:
         new_query = urlencode(qs, doseq=True)
         return urlunparse(parsed._replace(query=new_query))
 
-    def _check_success(self, resp, rule):
+    def _check_success(self, resp, rule, baseline_text=""):
         """
         Verifies if the attack succeeded based on the rule's check_type.
+        Includes differential check against baseline.
         """
+        if resp.status_code != 200:
+            return False
+            
         check_type = rule.get("check_type")
         keywords = rule.get("match_keywords", [])
         
         if check_type == "keyword_match":
             for kw in keywords:
-                if kw in resp.text:
+                # Signature must be present in response AND NOT in baseline
+                if kw in resp.text and kw not in baseline_text:
                     return True
         
         return False

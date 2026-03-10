@@ -378,8 +378,8 @@ class APIExpertScanner:
         if logger: logger(f"API Expert: Analyzing {len(api_endpoints)} endpoints with ACTIVE assault...", "INFO")
 
         for ep in api_endpoints:
-            url = ep['url']
-            path = ep['path'].lower()
+            url = ep.get('url', ep) if isinstance(ep, dict) else ep
+            path = ep.get('path', urlparse(url).path).lower() if isinstance(ep, dict) else urlparse(url).path.lower()
             
             # --- PASSIVE CHECKS (Existing RedOps3 Logic) ---
             # 1. Spec Exposure

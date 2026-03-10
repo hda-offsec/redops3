@@ -287,27 +287,28 @@ class APIIntelligenceEngine:
 
 
 class ExploitValidationEngine:
-    """Optional safe validation for high-risk findings with deterministic payloads."""
+    """
+    V7 ADVANCED: Rigorous Verification Engine.
+    Performs active, differential double-checks to confirm findings.
+    """
 
     @staticmethod
     def _is_candidate(finding):
         title = str(finding.get("title", "")).lower()
         category = str(finding.get("category", "")).lower()
         combined = f"{title} {category}"
-        markers = ["ssrf", "lfi", "rce", "open redirect", "cors", "http method", "upload"]
+        markers = ["ssrf", "lfi", "rce", "open redirect", "cors", "http method", "upload", "nosql", "xxe"]
         return any(m in combined for m in markers)
 
     @classmethod
     def validate(cls, findings, options=None):
         options = options or {}
-        if not options.get("enable_exploit_validation", False):
+        # Always enable for critical/high unless explicitly disabled
+        if not options.get("enable_exploit_validation", True):
             return []
 
-        max_requests = int(options.get("validation_max_requests", 20) or 20)
+        max_requests = int(options.get("validation_max_requests", 30) or 30)
         timeout = float(options.get("timeout", 6) or 6)
-        if max_requests <= 0:
-            return []
-
         session = get_session(options)
         out = []
         used = 0
@@ -317,113 +318,89 @@ class ExploitValidationEngine:
                 if not isinstance(item, dict) or not cls._is_candidate(item):
                     continue
 
+                # Skip if already highly confident and verified by redops native scanners
+                if item.get("confidence") == "high" and "verified" in str(item.get("description", "")):
+                    continue
+
                 endpoint = item.get("endpoint") or item.get("target")
                 if not endpoint or not str(endpoint).startswith(("http://", "https://")):
                     continue
+
+                # 0. BASELINE FETCH
+                try:
+                    b_start = requests.compat.time.time()
+                    baseline_resp = session.get(endpoint, timeout=timeout, allow_redirects=False)
+                    baseline_duration = requests.compat.time.time() - b_start
+                    baseline_text = baseline_resp.text
+                except: continue
 
                 title_low = str(item.get("title", "")).lower()
                 cat_low = str(item.get("category", "")).lower()
                 target = f"{title_low} {cat_low}"
 
                 tests = []
+                # Advanced Payloads
                 if "ssrf" in target:
                     tests.append(("url", "http://169.254.169.254/latest/meta-data/"))
-                    tests.append(("url", "http://127.0.0.1/"))
+                    tests.append(("dest", "http://127.0.0.1/"))
                 if "lfi" in target:
                     tests.append(("file", "../../../../etc/passwd"))
-                    tests.append(("file", "../../../../windows/win.ini"))
-                if "open redirect" in target or "redirect" in target:
-                    tests.append(("next", "https://example.com"))
+                    tests.append(("page", "/../../../../etc/passwd"))
+                if "redirect" in target:
+                    tests.append(("url", "https://google.com"))
+                    tests.append(("next", "//google.com"))
 
                 for param, payload in tests:
-                    if used >= max_requests:
-                        return out
+                    if used >= max_requests: break
                     used += 1
-                    encoded = quote_plus(payload)
+                    
                     sep = "&" if "?" in endpoint else "?"
-                    url = f"{endpoint}{sep}{param}={encoded}"
+                    url = f"{endpoint}{sep}{param}={quote_plus(payload)}"
+                    
                     try:
-                        resp = session.get(url, timeout=timeout, allow_redirects=False, headers={"Origin": "https://evil.example"})
-                        body = (resp.text or "")[:1500]
-                    except Exception:
-                        continue
+                        v_start = requests.compat.time.time()
+                        resp = session.get(url, timeout=timeout, allow_redirects=False)
+                        duration = requests.compat.time.time() - v_start
+                        body_low = resp.text.lower()
+                    except: continue
 
-                    body_low = body.lower()
                     valid = False
-                    validation_type = "safe_probe"
                     evidence = ""
-                    if "ssrf" in target and any(x in body_low for x in ["meta-data", "localhost", "127.0.0.1"]):
+                    
+                    # 1. SSRF Check
+                    if "ssrf" in target and any(x in body_low for x in ["meta-data", "instance-id"]) and "meta-data" not in baseline_text.lower():
                         valid = True
-                        validation_type = "ssrf"
-                        evidence = "Internal resource markers observed in response after URL parameter probe."
-                    elif "lfi" in target and ("root:x:0:0" in body_low or "[extensions]" in body_low):
+                        evidence = "Confirmed Cloud Metadata exfiltration via SSRF (Differential check OK)."
+                    
+                    # 2. LFI Check
+                    elif "lfi" in target and "root:x:0:0" in body_low and "root:x:0:0" not in baseline_text.lower():
                         valid = True
-                        validation_type = "lfi"
-                        evidence = "Sensitive file signature returned by path payload."
-                    elif ("open redirect" in target or "redirect" in target) and resp.status_code in {301, 302, 303, 307, 308}:
-                        location = resp.headers.get("Location", "")
-                        if "example.com" in location:
-                            valid = True
-                            validation_type = "open_redirect"
-                            evidence = f"Server redirected to attacker-controlled host: {location}"
+                        evidence = "Confirmed LFI via /etc/passwd signature (Differential check OK)."
+                    
+                    # 3. Open Redirect Check
+                    elif "redirect" in target and resp.status_code in [301, 302, 307] and "google.com" in resp.headers.get("Location", ""):
+                        valid = True
+                        evidence = f"Confirmed Open Redirect to {resp.headers.get('Location')}."
 
                     if valid:
                         out.append({
-                            "title": f"Exploit Validation Confirmed: {validation_type.upper()}",
-                            "severity": "high",
+                            "title": f"VERIFIED: {item.get('title')}",
+                            "severity": item.get("severity", "high"),
                             "confidence": "high",
-                            "tool_source": "exploit_validation_engine",
-                            "module": "exploit_validation",
-                            "category": "exploit_validation",
+                            "tool_source": "redops_verifier",
                             "endpoint": endpoint,
                             "parameter": param,
                             "payload": payload,
-                            "request": f"GET {url} HTTP/1.1",
-                            "response": body,
                             "evidence": evidence,
                             "repro_command": f"curl -isk '{url}'",
-                            "metadata": {"source_finding": item.get("id_stable"), "status_code": resp.status_code, "validation_type": validation_type},
+                            "metadata": {
+                                "verified": True, 
+                                "baseline_duration": baseline_duration,
+                                "attack_duration": duration,
+                                "source_id": item.get("id_stable")
+                            }
                         })
-
-                if used < max_requests and ("cors" in target or "http method" in target or "upload" in target):
-                    used += 1
-                    try:
-                        options_resp = session.options(endpoint, timeout=timeout, allow_redirects=False, headers={"Origin": "https://evil.example"})
-                    except Exception:
-                        continue
-
-                    allow = options_resp.headers.get("Allow", "")
-                    acao = options_resp.headers.get("Access-Control-Allow-Origin", "")
-                    acac = options_resp.headers.get("Access-Control-Allow-Credentials", "")
-                    if "cors" in target and acao == "*" and str(acac).lower() == "true":
-                        out.append({
-                            "title": "Exploit Validation Confirmed: CORS Abuse",
-                            "severity": "high",
-                            "confidence": "high",
-                            "tool_source": "exploit_validation_engine",
-                            "module": "exploit_validation",
-                            "category": "exploit_validation",
-                            "endpoint": endpoint,
-                            "request": f"OPTIONS {endpoint} HTTP/1.1",
-                            "response": str(dict(options_resp.headers)),
-                            "evidence": "ACAO=* and ACAC=true observed in validation response.",
-                            "repro_command": f"curl -isk -X OPTIONS -H 'Origin: https://evil.example' '{endpoint}'",
-                            "metadata": {"validation_type": "cors", "allow": allow},
-                        })
-                    if "http method" in target and any(m in allow.upper() for m in ["PUT", "DELETE", "TRACE", "CONNECT"]):
-                        out.append({
-                            "title": "Exploit Validation Confirmed: Dangerous HTTP Methods",
-                            "severity": "high",
-                            "confidence": "high",
-                            "tool_source": "exploit_validation_engine",
-                            "module": "exploit_validation",
-                            "category": "exploit_validation",
-                            "endpoint": endpoint,
-                            "response": str(dict(options_resp.headers)),
-                            "evidence": f"Server allows unsafe methods via Allow header: {allow}",
-                            "repro_command": f"curl -isk -X OPTIONS '{endpoint}'",
-                            "metadata": {"validation_type": "http_methods", "allow": allow},
-                        })
+                        break # One payload hit is enough
 
         finally:
             session.close()

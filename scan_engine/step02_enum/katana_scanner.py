@@ -19,7 +19,7 @@ class KatanaScanner:
         cmd = [
             katana_path,
             "-u", url,
-            "-jc",           # JSON output
+            "-j",            # JSON output
             "-jsl",          # JS Library detection
             "-kf", "all",    # Keep all fields
             "-d", "1" if quick else "3",

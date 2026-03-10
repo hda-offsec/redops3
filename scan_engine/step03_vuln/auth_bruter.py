@@ -11,22 +11,48 @@ class AuthBruteScanner:
         self.short_name = self.base_name[:8] if len(self.base_name) > 8 else self.base_name
 
     def create_wordlists(self):
-        """Generates hyper-targeted wordlists for the specific entity."""
+        """Generates hyper-targeted wordlists and pulls from Kali Linux standard dictionaries."""
         users = ["root", "admin", "administrator", "user", "guest", "backup", "operator", "webmaster", 
-                 self.base_name, self.short_name, f"svc_{self.short_name}"]
+                 self.base_name, self.short_name, f"svc_{self.short_name}", "postgres", "mysql", "dbadmin"]
         
         passwords = ["root", "admin", "password", "password123", "123456", "admin123", 
                      self.base_name, f"{self.base_name}123", f"{self.base_name}!", f"{self.base_name}2024",
-                     self.short_name, f"{self.short_name}123", "manager", "support", "changeme"]
+                     self.short_name, f"{self.short_name}123", "manager", "support", "changeme", "postgres"]
         
+        # Pull from common Kali wordlists if they exist
+        kali_user_paths = [
+            "/usr/share/nmap/nselib/data/usernames.lst",
+            "/usr/share/seclists/Usernames/top-users-shortlist.txt"
+        ]
+        kali_pass_paths = [
+            "/usr/share/wordlists/fasttrack.txt",
+            "/usr/share/nmap/nselib/data/passwords.lst"
+        ]
+        
+        for p in kali_user_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, 'r', encoding='latin-1') as f:
+                        for line, _ in zip(f, range(300)): users.append(line.strip())
+                except: pass
+                
+        for p in kali_pass_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, 'r', encoding='latin-1') as f:
+                        for line, _ in zip(f, range(300)): passwords.append(line.strip())
+                except: pass
+
         # Write to temporary files
         user_fd, user_path = tempfile.mkstemp(suffix=".txt", prefix="redops_users_")
         pass_fd, pass_path = tempfile.mkstemp(suffix=".txt", prefix="redops_pass_")
         
         with os.fdopen(user_fd, 'w') as f:
-            for u in sorted(list(set(users))): f.write(f"{u}\n")
+            for u in sorted(list(set(users))): 
+                if u.strip(): f.write(f"{u.strip()}\n")
         with os.fdopen(pass_fd, 'w') as f:
-            for p in sorted(list(set(passwords))): f.write(f"{p}\n")
+            for p in sorted(list(set(passwords))):
+                if p.strip(): f.write(f"{p.strip()}\n")
             
         return user_path, pass_path
 
@@ -122,6 +148,111 @@ class AuthBruteScanner:
                 if p and os.path.exists(p): os.remove(p)
         return findings
 
+    def audit_mysql(self, port=3306, logger=None):
+        findings = []
+        user_path, pass_path = None, None
+        try:
+            if logger: logger(f"Auth Expert: Auditing MySQL on {self.target}:{port}...", "INFO")
+            user_path, pass_path = self.create_wordlists()
+            
+            cmd = [
+                "nmap", "-p", str(port), 
+                "--script", "mysql-brute", 
+                "--script-args", f"userdb={user_path},passdb={pass_path}",
+                self.target
+            ]
+            
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            
+            if ("Accounts:" in res.stdout and "No valid accounts found" not in res.stdout) or "Valid credentials" in res.stdout:
+                import re
+                creds_match = re.search(r"Accounts:\s+([^\n-]+)", res.stdout)
+                found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found"
+
+                findings.append({
+                    "title": f"CRITICAL: MYSQL AUTHENTICATION BYPASS",
+                    "description": f"Valid MySQL credentials found via targeted/Kali enumeration.\n\nEvidence:\n{res.stdout}",
+                    "severity": "critical",
+                    "tool_source": "auth_expert",
+                    "raw_loot": found_creds,
+                    "loot_type": "MySQL Credential"
+                })
+        except Exception: pass
+        finally:
+            for p in [user_path, pass_path]:
+                if p and os.path.exists(p): os.remove(p)
+        return findings
+
+    def audit_postgres(self, port=5432, logger=None):
+        findings = []
+        user_path, pass_path = None, None
+        try:
+            if logger: logger(f"Auth Expert: Auditing PostgreSQL on {self.target}:{port}...", "INFO")
+            user_path, pass_path = self.create_wordlists()
+            
+            cmd = [
+                "nmap", "-p", str(port), 
+                "--script", "pgsql-brute", 
+                "--script-args", f"userdb={user_path},passdb={pass_path}",
+                self.target
+            ]
+            
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            
+            if ("Accounts:" in res.stdout and "No valid accounts found" not in res.stdout) or "Valid credentials" in res.stdout:
+                import re
+                creds_match = re.search(r"Accounts:\s+([^\n-]+)", res.stdout)
+                found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found"
+
+                findings.append({
+                    "title": f"CRITICAL: POSTGRESQL AUTHENTICATION BYPASS",
+                    "description": f"Valid PostgreSQL credentials found via targeted/Kali enumeration.\n\nEvidence:\n{res.stdout}",
+                    "severity": "critical",
+                    "tool_source": "auth_expert",
+                    "raw_loot": found_creds,
+                    "loot_type": "PostgreSQL Credential"
+                })
+        except Exception: pass
+        finally:
+            for p in [user_path, pass_path]:
+                if p and os.path.exists(p): os.remove(p)
+        return findings
+
+    def audit_http_admin(self, port, path="/admin", logger=None):
+        findings = []
+        user_path, pass_path = None, None
+        try:
+            if logger: logger(f"Auth Expert: Auditing HTTP Admin portal on {self.target}:{port}{path}...", "INFO")
+            user_path, pass_path = self.create_wordlists()
+            
+            cmd = [
+                "nmap", "-p", str(port), 
+                "--script", "http-brute", 
+                "--script-args", f"http-brute.path={path},userdb={user_path},passdb={pass_path}",
+                self.target
+            ]
+            
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            
+            if ("Accounts:" in res.stdout and "No valid accounts found" not in res.stdout) or "Valid credentials" in res.stdout:
+                import re
+                creds_match = re.search(r"Accounts:\s+([^\n-]+)", res.stdout)
+                found_creds = creds_match.group(1).strip() if creds_match else "Credentials Found"
+
+                findings.append({
+                    "title": f"CRITICAL: HTTP PORTAL AUTHENTICATION BYPASS",
+                    "description": f"Valid portal credentials found at {path} via targeted/Kali enumeration.\n\nEvidence:\n{res.stdout}",
+                    "severity": "critical",
+                    "tool_source": "auth_expert",
+                    "raw_loot": found_creds,
+                    "loot_type": "HTTP Admin Credential"
+                })
+        except Exception: pass
+        finally:
+            for p in [user_path, pass_path]:
+                if p and os.path.exists(p): os.remove(p)
+        return findings
+
     def run_all(self, open_ports, logger=None):
         findings = []
         for p in open_ports:
@@ -129,4 +260,9 @@ class AuthBruteScanner:
             svc = (p.get('service') or p.get('service_name') or '').lower()
             if port == 22 or "ssh" in svc: findings.extend(self.audit_ssh(port, logger))
             elif port == 21 or "ftp" in svc: findings.extend(self.audit_ftp(port, logger))
+            elif port == 3306 or "mysql" in svc: findings.extend(self.audit_mysql(port, logger))
+            elif port == 5432 or "postgres" in svc: findings.extend(self.audit_postgres(port, logger))
+            elif port in [80, 443, 8080, 8443] or "http" in svc:
+                findings.extend(self.audit_http_admin(port, "/admin", logger))
+                findings.extend(self.audit_http_admin(port, "/administrator", logger))
         return findings
