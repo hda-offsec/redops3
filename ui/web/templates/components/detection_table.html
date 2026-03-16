@@ -18,13 +18,15 @@
                 onclick="showFindingDetail('{{ f.id_stable or f.id }}')" 
                 data-title="{{ f.title|lower }}"
                 data-sev="{{ f.severity|lower }}" 
+                data-severity="{{ f.severity|lower }}" 
                 data-tool="{{ f.tool_source|lower }}"
                 data-category="{{ f.category|default('')|lower }}" 
                 data-exploit="{{ f.exploit_score|default('') }}"
                 data-port-status="{{ f.metadata.port_state|default('')|lower if f.metadata else '' }}"
                 data-attack-priority="{{ f.attack_priority|default('')|lower }}"
                 data-component="{{ f.component|default('')|lower }}" 
-                data-provider="{{ f.provider|default('')|lower }}">
+                data-provider="{{ f.provider|default('')|lower }}"
+                data-content="{{ ((f.title or '') ~ ' ' ~ (f.tool_source or f.tool or '') ~ ' ' ~ (f.category or '') ~ ' ' ~ (f.endpoint or f.target or ''))|lower }}">
                 
                 <td class="ps-3">
                     <span class="badge-severity bg-{{ f.severity|default('info')|lower }} w-100 text-center d-block rounded-1 py-1">
@@ -35,16 +37,20 @@
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <div class="fw-bold text-light text-truncate" title="{{ f.title }}">{{ f.title }}</div>
-                        {% if f.repro_command or f.reproduction %}
+                        {% set validation = f.metadata.validation if f.metadata and f.metadata.validation else {} %}
+                        {% set reproducibility = f.metadata.reproducibility if f.metadata and f.metadata.reproducibility else {} %}
+                        {% set primary_command = validation.command or reproducibility.command or f.repro_command or f.reproduction %}
+                        {% if primary_command and primary_command|lower not in ['n/a','na','none','null','manual','todo','ui','-'] %}
                             <i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>
                         {% endif %}
-                        {% if f.request or f.response %}
+                        {% if f.request or f.response or reproducibility.request_excerpt or reproducibility.response_excerpt or f.evidence or f.raw_output or validation.artifact or f.artifact %}
                             <i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>
                         {% endif %}
                         {% if f.chain_metadata %}
                             <i class="fas fa-link text-danger extra-small" title="Part of Attack Chain"></i>
                         {% endif %}
-                        {% if f.metadata and f.metadata.validation_status == 'confirmed_active' %}
+                        {% set validation_status = (validation.status if validation and validation.status else (f.metadata.validation_status if f.metadata else '')) %}
+                        {% if validation_status == 'success' or f.result_state in ['confirmed', 'confirmed_active'] %}
                             <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small">
                                 <i class="fas fa-check-circle me-1"></i>VALIDATED
                             </span>

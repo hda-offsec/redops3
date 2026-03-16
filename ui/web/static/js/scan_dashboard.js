@@ -148,6 +148,62 @@ class ScanDashboard {
             .replace(/'/g, "&#039;");
     }
 
+    isMeaningfulValue(value) {
+        if (value === null || value === undefined) return false;
+        if (typeof value === 'object') return Object.keys(value).length > 0;
+        const normalized = String(value).trim().toLowerCase();
+        return normalized !== '' && !['n/a', 'na', 'none', 'null', 'manual', 'todo', 'ui', '-'].includes(normalized);
+    }
+
+    getFindingValidation(finding) {
+        return finding?.metadata?.validation || {};
+    }
+
+    getFindingReproducibility(finding) {
+        return finding?.metadata?.reproducibility || {};
+    }
+
+    getFindingValidationStatus(finding) {
+        const validation = this.getFindingValidation(finding);
+        return validation.status || finding?.metadata?.validation_status || 'not_run';
+    }
+
+    getFindingPrimaryCommand(finding) {
+        const validation = this.getFindingValidation(finding);
+        const reproducibility = this.getFindingReproducibility(finding);
+        const candidate = validation.command || reproducibility.command || finding?.repro_command || finding?.reproduction || '';
+        return this.isMeaningfulValue(candidate) ? candidate : '';
+    }
+
+    getFindingPrimaryUrl(finding) {
+        const validation = this.getFindingValidation(finding);
+        const reproducibility = this.getFindingReproducibility(finding);
+        const candidate = validation.target || reproducibility.url || finding?.endpoint || finding?.target || '';
+        return this.isMeaningfulValue(candidate) ? candidate : '';
+    }
+
+    hasMeaningfulProof(finding) {
+        const validation = this.getFindingValidation(finding);
+        const reproducibility = this.getFindingReproducibility(finding);
+        return [
+            finding?.request,
+            finding?.response,
+            finding?.evidence,
+            finding?.raw_output,
+            finding?.artifact,
+            validation.artifact,
+            reproducibility.request_excerpt,
+            reproducibility.response_excerpt,
+        ].some(v => this.isMeaningfulValue(v));
+    }
+
+    getFindingAlertTone(finding) {
+        const sev = (finding?.severity || 'info').toLowerCase();
+        if (sev === 'critical' || sev === 'high') return 'danger';
+        if (sev === 'medium') return 'warning';
+        return 'secondary';
+    }
+
     setupSocketListeners() {
         const statusEl = document.getElementById('socket-status');
 
@@ -329,13 +385,17 @@ class ScanDashboard {
             const div = document.createElement("div");
             div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
 
-            const escapedTitle = this.escapeHtml(data.title);
-            const escapedTool = this.escapeHtml(data.tool);
-            const escapedDesc = this.escapeHtml(data.description);
+            const severity = (data.severity || 'info').toLowerCase();
+            const escapedTitle = this.escapeHtml(data.title || 'Untitled finding');
+            const escapedTool = this.escapeHtml(data.tool_source || data.tool || 'core');
+            const escapedDesc = this.escapeHtml(data.description || '');
+            const validationStatus = this.getFindingValidationStatus(data);
+            const primaryCommand = this.getFindingPrimaryCommand(data);
+            const hasProof = this.hasMeaningfulProof(data);
 
             let innerHTML = `
                 <div class="d-flex w-100 justify-content-between mb-2">
-                    <span class="badge severity-badge ${data.severity.toLowerCase()}">${data.severity.toUpperCase()}</span>
+                    <span class="badge severity-badge ${severity}">${severity.toUpperCase()}</span>
                     <span class="result-text fw-bold text-break">${escapedTitle}</span>
                 </div>
                 <div class="mt-1 small text-muted text-break">Source: ${escapedTool}</div>
@@ -373,7 +433,8 @@ class ScanDashboard {
                 const tr = document.createElement("tr");
                 tr.id = rowId;
                 tr.className = "finding-row cursor-pointer animate__animated animate__fadeIn";
-                tr.setAttribute("data-sev", data.severity.toLowerCase());
+                tr.setAttribute("data-sev", severity);
+                tr.setAttribute("data-severity", severity);
                 tr.setAttribute("data-title", escapedTitle.toLowerCase());
                 tr.setAttribute("data-tool", escapedTool.toLowerCase());
                 tr.setAttribute("data-category", this.escapeHtml(data.category || "").toLowerCase());
@@ -382,6 +443,7 @@ class ScanDashboard {
                 tr.setAttribute("data-attack-priority", this.escapeHtml(data.attack_priority || "").toLowerCase());
                 tr.setAttribute("data-component", this.escapeHtml(data.component || "").toLowerCase());
                 tr.setAttribute("data-provider", this.escapeHtml(data.provider || "").toLowerCase());
+                tr.setAttribute("data-content", `${escapedTitle} ${escapedTool} ${this.escapeHtml(data.category || '')} ${this.escapeHtml(this.getFindingPrimaryUrl(data) || '')}`.toLowerCase());
 
                 // Set click handler for new UI
                 tr.onclick = () => {
@@ -390,7 +452,7 @@ class ScanDashboard {
                     }
                 };
 
-                const sev = data.severity.toLowerCase();
+                const sev = severity;
                 const confidence = (data.confidence || 'med').toUpperCase().substring(0, 4);
                 const toolShow = (data.tool_source || 'CORE').toUpperCase();
                 
@@ -406,15 +468,15 @@ class ScanDashboard {
                 tr.innerHTML = `
                     <td class="ps-3">
                         <span class="badge-severity bg-${sev} w-100 text-center d-block rounded-1 py-1">
-                            ${data.severity.toUpperCase()}
+                            ${severity.toUpperCase()}
                         </span>
                     </td>
                     <td>
                         <div class="d-flex align-items-center gap-2">
                             <div class="fw-bold text-light text-truncate" title="${escapedTitle}">${escapedTitle}</div>
-                            ${(data.repro_command || data.reproduction) ? `<i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>` : ''}
-                            ${(data.request || data.response) ? `<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>` : ''}
-                            ${data.metadata?.validation_status === 'confirmed_active' ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
+                            ${primaryCommand ? `<i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>` : ''}
+                            ${hasProof ? `<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>` : ''}
+                            ${validationStatus === 'success' || data.result_state === 'confirmed' || data.result_state === 'confirmed_active' ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
                         </div>
                         <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
                             ${escapedDesc.replace(/<[^>]*>/g, '')}
@@ -498,13 +560,16 @@ class ScanDashboard {
             const emptyImg = gallery.querySelector(".text-center.py-4");
             if (emptyImg) emptyImg.remove();
 
+            const tone = this.getFindingAlertTone(data);
+            const label = tone === 'danger' ? 'HIGH RISK' : (tone === 'warning' ? 'REVIEW' : 'DISCOVERY');
+
             const col = document.createElement("div");
             col.className = "col-md-4 col-lg-3 animate__animated animate__zoomIn";
             col.innerHTML = `
-                <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+                <div class="screenshot-card bg-black border border-${tone} border-opacity-50 rounded overflow-hidden">
                     <img src="/static/${this.escapeHtml(data.screenshot_path)}" class="img-fluid w-100 screenshot-trigger" style="height: 120px; object-fit: cover; cursor: pointer;" title="${this.escapeHtml(data.title)}">
-                    <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
-                        <span class="text-danger">NEW EXPOSURE</span>
+                    <div class="p-1 text-center bg-${tone} bg-opacity-10 small font-monospace">
+                        <span class="text-${tone}">${label}</span>
                     </div>
                 </div>
             `;
@@ -803,8 +868,8 @@ class ScanDashboard {
         let visibleCount = 0;
 
         rows.forEach(row => {
-            const severity = row.getAttribute('data-severity');
-            const content = row.getAttribute('data-content');
+            const severity = row.getAttribute('data-severity') || row.getAttribute('data-sev') || '';
+            const content = row.getAttribute('data-content') || row.innerText.toLowerCase();
 
             const matchesSearch = content.includes(search);
             const matchesSev = checkedSeverities.includes(severity);
@@ -924,16 +989,7 @@ class ScanDashboard {
                 if (sev === 'critical') { criticalCount++; highRiskCount++; }
                 if (sev === 'high') { highCount++; highRiskCount++; }
 
-                this.handleNewFinding({
-                    scan_id: this.scanId,
-                    id: f.id,
-                    id_stable: f.id_stable,
-                    severity: f.severity,
-                    title: f.title,
-                    description: f.description,
-                    tool: f.tool_source || f.tool,
-                    screenshot_path: f.screenshot_path
-                });
+                this.handleNewFinding({ scan_id: this.scanId, ...f, tool: f.tool_source || f.tool });
             });
 
             if (statHighRisk) statHighRisk.innerText = highRiskCount;
