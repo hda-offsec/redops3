@@ -7,6 +7,21 @@ from core.results_store import load_results
 
 REPORTS_DIR = "data/reports"
 
+
+def severity_color_for_pdf(severity):
+    """Return (bg_color, text_color) where red is reserved strictly for HIGH severity."""
+    sev = str(severity or "info").lower()
+    if sev == "high":
+        return (180, 0, 0), (255, 255, 255)
+    if sev == "critical":
+        return (120, 60, 140), (255, 255, 255)
+    if sev == "medium":
+        return (90, 90, 95), (255, 255, 255)
+    if sev == "low":
+        return (230, 230, 235), (50, 50, 50)
+    return (245, 245, 250), (100, 100, 100)
+
+
 class RedOpsReport(FPDF):
     def __init__(self, target_name):
         super().__init__()
@@ -23,7 +38,7 @@ class RedOpsReport(FPDF):
         self.set_y(5)
         self.set_x(10)
         self.set_font('helvetica', 'B', 12)
-        self.set_text_color(255, 42, 42)
+        self.set_text_color(36, 92, 160)
         self.cell(0, 10, 'REDOPS3 - OFFENSIVE INTELLIGENCE REPORT', ln=True, align='L')
         
         self.set_y(12)
@@ -48,7 +63,7 @@ class RedOpsReport(FPDF):
         # Logo placeholder / Title
         self.set_y(60)
         self.set_font('helvetica', 'B', 36)
-        self.set_text_color(255, 42, 42)
+        self.set_text_color(36, 92, 160)
         self.cell(0, 20, 'REDOPS3', ln=True, align='C')
         
         self.set_font('helvetica', 'B', 20)
@@ -65,7 +80,7 @@ class RedOpsReport(FPDF):
         self.ln(50)
         self.set_font('helvetica', 'B', 16)
         if findings_count > 0:
-            self.set_text_color(255, 42, 42)
+            self.set_text_color(196, 100, 20)
             self.cell(0, 10, f'ALERT: {findings_count} VULNERABILITIES IDENTIFIED', ln=True, align='C')
         else:
             self.set_text_color(0, 255, 100)
@@ -92,7 +107,7 @@ class RedOpsReport(FPDF):
         except Exception:
             return text
 
-    def chapter_title(self, title, color=(255, 42, 42)):
+    def chapter_title(self, title, color=(36, 92, 160)):
         self.ln(10)
         self.set_font('helvetica', 'B', 16)
         self.set_text_color(*color)
@@ -180,7 +195,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.set_font("helvetica", "", 8)
         for p in sorted(ports, key=lambda x: x.get('priority_score', 0), reverse=True):
             score = p.get('priority_score', 0)
-            if score >= 80: pdf.set_text_color(255, 42, 42)
+            if score >= 80: pdf.set_text_color(196, 100, 20)
             else: pdf.set_text_color(0, 0, 0)
             
             pdf.cell(20, 7, f"{p['port']}/tcp", border=1)
@@ -389,7 +404,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
             if vulns:
                 pdf.ln(2)
                 pdf.set_font("helvetica", "B", 10)
-                pdf.set_text_color(255, 42, 42)
+                pdf.set_text_color(120, 60, 140)
                 pdf.cell(0, 7, f"Direct Vulnerabilities Found ({len(vulns)}):", ln=True)
                 pdf.set_font("helvetica", "", 8)
                 pdf.set_text_color(0, 0, 0)
@@ -519,22 +534,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
         if pdf.get_y() > 250: pdf.add_page()
         
         sev = get_sev(f)
-        # Professional color palette: Only Critical is Red (Tactical Alert)
-        if sev == 'critical': 
-            bg_color = (180, 0, 0)
-            text_color = (255, 255, 255)
-        elif sev == 'high': 
-            bg_color = (40, 40, 45) # Dark Gray/Blue for High (Serious but not critical)
-            text_color = (255, 255, 255)
-        elif sev == 'medium': 
-            bg_color = (90, 90, 95) # Neutral Gray
-            text_color = (255, 255, 255)
-        elif sev == 'low':
-            bg_color = (230, 230, 235) # Light Gray
-            text_color = (50, 50, 50)
-        else:
-            bg_color = (245, 245, 250) # Near-white for info
-            text_color = (100, 100, 100)
+        # Severity palette rule: red is reserved strictly for HIGH severity findings.
+        bg_color, text_color = severity_color_for_pdf(sev)
         
         title = f.get('title', 'Unknown') if isinstance(f, dict) else getattr(f, 'title', 'Unknown')
         tool_source = f.get('tool_source', 'Unknown') if isinstance(f, dict) else getattr(f, 'tool_source', 'Unknown')
@@ -581,7 +582,10 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.cell(0, 6, " TECHNICAL REPRODUCIBILITY & EVIDENCE", fill=True, ln=True)
             
             if repro_cmd:
-                pdf.set_text_color(180, 0, 0)
+                if sev == 'high':
+                    pdf.set_text_color(180, 0, 0)
+                else:
+                    pdf.set_text_color(70, 70, 75)
                 pdf.set_font("courier", "B", 8)
                 pdf.multi_cell(190, 4, pdf.safe_text(f"Command: {repro_cmd}"), border='LRB')
             

@@ -46,6 +46,7 @@ CANONICAL_FINDING_DEFAULTS = {
         "attack_path_summary": "",
         "pivot_point": None
     },
+    "result_state": "observation",
 }
 
 
@@ -61,6 +62,66 @@ SEVERITY_MAP = {
 
 CONFIDENCE_MAP = {"high": "high", "medium": "medium", "low": "low"}
 
+RESULT_STATE_MAP = {
+    "observation": "observation",
+    "observed": "observation",
+    "heuristic": "heuristic",
+    "signal": "heuristic",
+    "correlation": "correlation",
+    "correlated": "correlation",
+    "validation": "validation",
+    "validated": "validation",
+    "confirmed": "confirmed",
+    "operator_confirmed": "confirmed",
+    "rejected": "rejected",
+    "invalidated": "rejected",
+    "operator_rejected": "rejected",
+}
+
+VALIDATION_STATUS_MAP = {
+    "success": "success",
+    "succeeded": "success",
+    "failed": "failed",
+    "failure": "failed",
+    "error": "failed",
+    "uncertain": "uncertain",
+    "unknown": "uncertain",
+    "not_run": "not_run",
+    "not-executed": "not_run",
+}
+
+
+
+
+def _clean_text(value):
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        value = str(value)
+    return value.strip()
+
+
+def _normalize_command_value(*candidates):
+    invalid_markers = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+    for candidate in candidates:
+        normalized = _clean_text(candidate)
+        if not normalized:
+            continue
+        if normalized.lower() in invalid_markers:
+            continue
+        return normalized
+    return ""
+
+
+def _normalize_arguments(value):
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if k not in (None, "")}
+    if isinstance(value, list):
+        filtered = [item for item in value if item not in (None, "")]
+        return {"argv": filtered} if filtered else {}
+    if isinstance(value, str) and value.strip():
+        return {"raw": value.strip()}
+    return {}
 
 def _to_evidence_string(value):
     if value is None:
@@ -228,13 +289,64 @@ def normalize_finding_shape(payload, *, source=None):
     normalized["reproduction"] = normalized.get("reproduction") or normalized.get("repro_command")
     normalized["created_at"] = normalized.get("created_at") or datetime.utcnow().isoformat() + "Z"
 
+    raw_result_state = (
+        raw.get("result_state")
+        or normalized.get("result_state")
+        or raw.get("status")
+        or raw.get("state")
+    )
+    normalized["result_state"] = RESULT_STATE_MAP.get(str(raw_result_state or "observation").lower(), "observation")
+
     metadata = deep_merge_metadata(
         normalized["metadata"],
         {
             "source": normalized["source"],
             "confidence": normalized["confidence"],
+            "result_state": normalized["result_state"],
         },
     )
+
+    raw_validation = raw.get("validation") if isinstance(raw.get("validation"), dict) else {}
+    metadata_validation = metadata.get("validation") if isinstance(metadata.get("validation"), dict) else {}
+    validation_status_seed = (
+        raw_validation.get("status")
+        or metadata_validation.get("status")
+        or raw.get("validation_status")
+    )
+    normalized_validation_status = VALIDATION_STATUS_MAP.get(
+        str(validation_status_seed or "not_run").lower(),
+        "not_run",
+    )
+    metadata_validation_command = _normalize_command_value(
+        raw_validation.get("command"),
+        metadata_validation.get("command"),
+        _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
+        normalized.get("reproduction"),
+    )
+    metadata["validation"] = {
+        "status": normalized_validation_status,
+        "target": _clean_text(raw_validation.get("target") or metadata_validation.get("target") or normalized.get("endpoint") or normalized.get("target")),
+        "command": metadata_validation_command,
+        "expected": _clean_text(raw_validation.get("expected") or metadata_validation.get("expected")),
+        "success_criteria": _clean_text(raw_validation.get("success_criteria") or metadata_validation.get("success_criteria")),
+        "failure_criteria": _clean_text(raw_validation.get("failure_criteria") or metadata_validation.get("failure_criteria")),
+        "uncertainty_criteria": _clean_text(raw_validation.get("uncertainty_criteria") or metadata_validation.get("uncertainty_criteria")),
+        "artifact": _clean_text(raw_validation.get("artifact") or metadata_validation.get("artifact")),
+    }
+
+    reproducibility = metadata.get("reproducibility") if isinstance(metadata.get("reproducibility"), dict) else {}
+    metadata["reproducibility"] = {
+        "command": _normalize_command_value(
+            reproducibility.get("command"),
+            _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
+            normalized.get("reproduction"),
+            metadata_validation_command,
+        ),
+        "url": _clean_text(reproducibility.get("url") or normalized.get("endpoint") or normalized.get("target")),
+        "arguments": _normalize_arguments(reproducibility.get("arguments") or raw.get("arguments")),
+        "request_excerpt": _clean_text(reproducibility.get("request_excerpt") or normalized.get("request")),
+        "response_excerpt": _clean_text(reproducibility.get("response_excerpt") or normalized.get("response")),
+    }
     metadata["field_sources"] = merge_field_sources(
         metadata.get("field_sources"),
         {
@@ -246,8 +358,23 @@ def normalize_finding_shape(payload, *, source=None):
             "provider": metadata.get("source") if (normalized.get("provider") or metadata.get("provider")) else None,
             "component": metadata.get("source") if (normalized.get("component") or metadata.get("component")) else None,
             "version": metadata.get("source") if (normalized.get("version") or metadata.get("version")) else None,
+            "result_state": metadata.get("source") if normalized.get("result_state") else None,
         },
     )
+
+    evidence_value = str(normalized.get("evidence") or "").strip()
+    validation_artifact = str(metadata["validation"].get("artifact") or "").strip()
+    has_proof_artifact = any([
+        evidence_value and evidence_value not in {"{}", "[]", "null", '""'},
+        normalized.get("response"),
+        _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
+        validation_artifact and validation_artifact not in {"{}", "[]", "null", '""'},
+    ])
+    if normalized["result_state"] == "confirmed" and not has_proof_artifact:
+        normalized["result_state"] = "validation"
+        metadata["result_state"] = "validation"
+        metadata["validation"]["status"] = "uncertain"
+        metadata["validation"]["downgrade_reason"] = "confirmed_without_artifact"
 
     normalized["signal_count"] = len(normalized["signal_ids"])
     normalized["chain_length"] = (

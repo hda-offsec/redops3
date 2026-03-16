@@ -181,6 +181,79 @@ class ScanOrchestrator:
 
         kwargs["confidence"] = normalized_conf
 
+        def _clean_text(value):
+            if value is None:
+                return ""
+            if not isinstance(value, str):
+                value = str(value)
+            return value.strip()
+
+        def _normalize_command_value(*candidates):
+            invalid_markers = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+            for candidate in candidates:
+                normalized = _clean_text(candidate)
+                if not normalized:
+                    continue
+                if normalized.lower() in invalid_markers:
+                    continue
+                return normalized
+            return ""
+
+        metadata_payload = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
+        metadata_validation = metadata_payload.get("validation") if isinstance(metadata_payload.get("validation"), dict) else {}
+        metadata_repro = metadata_payload.get("reproducibility") if isinstance(metadata_payload.get("reproducibility"), dict) else {}
+
+        normalized_command = _normalize_command_value(
+            kwargs.get("repro_command"),
+            kwargs.get("reproduction"),
+            kwargs.get("command"),
+            metadata_repro.get("command"),
+            metadata_validation.get("command"),
+        )
+
+        command_arguments = kwargs.get("arguments")
+        if isinstance(command_arguments, list):
+            command_arguments = {"argv": [item for item in command_arguments if item not in (None, "")]}
+        elif isinstance(command_arguments, str) and command_arguments.strip():
+            command_arguments = {"raw": command_arguments.strip()}
+        elif not isinstance(command_arguments, dict):
+            command_arguments = {}
+
+        if not command_arguments:
+            existing_args = metadata_repro.get("arguments")
+            if isinstance(existing_args, dict):
+                command_arguments = dict(existing_args)
+
+        validation_status = kwargs.get("validation_status") or metadata_validation.get("status") or "not_run"
+
+        metadata_payload["validation"] = {
+            "status": str(validation_status).strip().lower() if validation_status is not None else "not_run",
+            "target": _clean_text(
+                metadata_validation.get("target")
+                or kwargs.get("endpoint")
+                or kwargs.get("target")
+                or kwargs.get("url")
+            ),
+            "command": _normalize_command_value(metadata_validation.get("command"), normalized_command),
+            "expected": _clean_text(metadata_validation.get("expected")),
+            "success_criteria": _clean_text(metadata_validation.get("success_criteria")),
+            "failure_criteria": _clean_text(metadata_validation.get("failure_criteria")),
+            "uncertainty_criteria": _clean_text(metadata_validation.get("uncertainty_criteria")),
+            "artifact": _clean_text(metadata_validation.get("artifact") or kwargs.get("response") or kwargs.get("evidence")),
+        }
+
+        metadata_payload["reproducibility"] = {
+            "command": _normalize_command_value(metadata_repro.get("command"), normalized_command),
+            "url": _clean_text(metadata_repro.get("url") or kwargs.get("endpoint") or kwargs.get("target") or kwargs.get("url")),
+            "arguments": command_arguments,
+            "request_excerpt": _clean_text(metadata_repro.get("request_excerpt") or kwargs.get("request")),
+            "response_excerpt": _clean_text(metadata_repro.get("response_excerpt") or kwargs.get("response")),
+        }
+
+        kwargs["metadata"] = metadata_payload
+        if normalized_command and not kwargs.get("repro_command"):
+            kwargs["repro_command"] = normalized_command
+
         signal_id = None
 
         evidence_value = kwargs.get("evidence")

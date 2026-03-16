@@ -117,6 +117,34 @@ class FindingNormalizer:
             "id_stable": "" # V6 Stable ID
         }
         
+        raw_validation = tool_data.get("validation") if isinstance(tool_data, dict) and isinstance(tool_data.get("validation"), dict) else {}
+        raw_arguments = tool_data.get("arguments") if isinstance(tool_data, dict) else {}
+
+        if not isinstance(finding.get("metadata"), dict):
+            finding["metadata"] = {}
+
+        existing_repro = finding["metadata"].get("reproducibility") if isinstance(finding["metadata"].get("reproducibility"), dict) else {}
+        existing_validation = finding["metadata"].get("validation") if isinstance(finding["metadata"].get("validation"), dict) else {}
+
+        finding["metadata"]["reproducibility"] = {
+            "command": existing_repro.get("command") or finding.get("repro_command") or finding.get("reproduction") or "",
+            "url": existing_repro.get("url") or finding.get("endpoint") or finding.get("target") or "",
+            "arguments": existing_repro.get("arguments") if isinstance(existing_repro.get("arguments"), dict) else raw_arguments if isinstance(raw_arguments, dict) else {},
+            "request_excerpt": existing_repro.get("request_excerpt") or finding.get("request") or "",
+            "response_excerpt": existing_repro.get("response_excerpt") or finding.get("response") or "",
+        }
+
+        finding["metadata"]["validation"] = {
+            "status": raw_validation.get("status") or existing_validation.get("status") or "not_run",
+            "target": raw_validation.get("target") or existing_validation.get("target") or finding.get("endpoint") or finding.get("target") or "",
+            "command": raw_validation.get("command") or existing_validation.get("command") or finding.get("repro_command") or finding.get("reproduction") or "",
+            "expected": raw_validation.get("expected") or existing_validation.get("expected") or "",
+            "success_criteria": raw_validation.get("success_criteria") or existing_validation.get("success_criteria") or "",
+            "failure_criteria": raw_validation.get("failure_criteria") or existing_validation.get("failure_criteria") or "",
+            "uncertainty_criteria": raw_validation.get("uncertainty_criteria") or existing_validation.get("uncertainty_criteria") or "",
+            "artifact": raw_validation.get("artifact") or existing_validation.get("artifact") or finding.get("response") or "",
+        }
+
         # Preserve specialized tool logic
         if tool_name == "nuclei":
             finding.update({
