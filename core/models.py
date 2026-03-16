@@ -1,5 +1,6 @@
 from datetime import datetime
 from flask_login import UserMixin
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, ForeignKey, Boolean, Float, UniqueConstraint
 from werkzeug.security import generate_password_hash, check_password_hash
 from core.extensions import db
 
@@ -404,6 +405,9 @@ class Finding(db.Model):
     request = db.Column(db.Text, nullable=True)
     response = db.Column(db.Text, nullable=True)
     repro_command = db.Column(db.Text, nullable=True)
+    remediation = db.Column(db.Text, nullable=True)
+    risk_scorecard = db.Column(db.JSON, nullable=True)
+    chain_metadata = db.Column(db.JSON, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -533,3 +537,21 @@ class KnowledgeEdge(db.Model):
 
     def __repr__(self):
         return f"<KnowledgeEdge {self.source_node} --[{self.relationship}]--> {self.target_node}>"
+
+
+# ------------------------------------------------------------------
+# SETTINGS
+# ------------------------------------------------------------------
+
+class GlobalSetting(db.Model):
+    __tablename__ = "global_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    value = db.Column(db.Text, nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(64), nullable=True, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<GlobalSetting {self.key}>"

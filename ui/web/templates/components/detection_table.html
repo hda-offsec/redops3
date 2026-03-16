@@ -1,55 +1,96 @@
 {% macro detection_table(findings, table_id="findings-table") %}
 <div class="table-responsive">
-    <table class="table table-hover mb-0" id="{{ table_id }}">
-        <thead>
-            <tr>
-                <th class="ps-3" style="width: 100px;">Severity</th>
-                <th>Title & Context</th>
-                <th style="width: 15%; text-align: center;">Confidence</th>
-                <th style="width: 15%">Engine</th>
-                <th class="text-end pe-3" style="width: 50px;"></th>
+    <table class="table table-hover mb-0 align-middle" id="{{ table_id }}">
+        <thead class="bg-black bg-opacity-10">
+            <tr class="extra-small text-muted text-uppercase fw-bold">
+                <th class="ps-3" style="width: 80px;">Risk</th>
+                <th>Title & Vector</th>
+                <th style="width: 200px;">Impact Area / Target</th>
+                <th style="width: 100px; text-align: center;">Confidence</th>
+                <th style="width: 120px;">Source</th>
+                <th class="text-end pe-3" style="width: 40px;"></th>
             </tr>
         </thead>
         <tbody id="findings-table-body">
             {% if findings %}
             {% for f in findings %}
             <tr id="finding-row-{{ f.id_stable or f.id }}" class="finding-row cursor-pointer"
-                onclick="showFindingDetail('{{ f.id_stable or f.id }}')" data-title="{{ f.title|lower }}"
-                data-sev="{{ f.severity|lower }}" data-tool="{{ f.tool_source|lower }}"
-                data-category="{{ f.category|default('')|lower }}" data-exploit="{{ f.exploit_score|default('') }}"
+                onclick="showFindingDetail('{{ f.id_stable or f.id }}')" 
+                data-title="{{ f.title|lower }}"
+                data-sev="{{ f.severity|lower }}" 
+                data-tool="{{ f.tool_source|lower }}"
+                data-category="{{ f.category|default('')|lower }}" 
+                data-exploit="{{ f.exploit_score|default('') }}"
+                data-port-status="{{ f.metadata.port_state|default('')|lower if f.metadata else '' }}"
                 data-attack-priority="{{ f.attack_priority|default('')|lower }}"
-                data-component="{{ f.component|default('')|lower }}" data-provider="{{ f.provider|default('')|lower }}">
-                <td class="ps-3 align-middle">
-                    <span class="badge-severity bg-{{ f.severity|default('info')|lower }} w-100 text-center d-block">
+                data-component="{{ f.component|default('')|lower }}" 
+                data-provider="{{ f.provider|default('')|lower }}">
+                
+                <td class="ps-3">
+                    <span class="badge-severity bg-{{ f.severity|default('info')|lower }} w-100 text-center d-block rounded-1 py-1">
                         {{ f.severity|upper }}
                     </span>
                 </td>
-                <td class="align-middle" style="max-width: 300px;">
-                    <div class="fw-bold text-light text-truncate lh-sm">{{ f.title }}</div>
+                
+                <td>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="fw-bold text-light text-truncate" title="{{ f.title }}">{{ f.title }}</div>
+                        {% if f.repro_command or f.reproduction %}
+                            <i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>
+                        {% endif %}
+                        {% if f.request or f.response %}
+                            <i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>
+                        {% endif %}
+                        {% if f.chain_metadata %}
+                            <i class="fas fa-link text-danger extra-small" title="Part of Attack Chain"></i>
+                        {% endif %}
+                        {% if f.metadata and f.metadata.validation_status == 'confirmed_active' %}
+                            <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small">
+                                <i class="fas fa-check-circle me-1"></i>VALIDATED
+                            </span>
+                        {% endif %}
+                    </div>
                     {% if f.description %}
-                    <div class="text-muted extra-small text-truncate mt-1 opacity-75">{{ f.description | striptags }}
+                    <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
+                        {{ f.description | striptags }}
                     </div>
                     {% endif %}
                 </td>
-                <td class="align-middle text-center">
-                    <span
-                        class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-25 extra-small">
-                        {{ f.confidence|default('N/A')|capitalize }}
+
+                <td class="font-monospace extra-small">
+                    {% if f.endpoint %}
+                        <div class="text-info text-truncate" title="{{ f.endpoint }}"><i class="fas fa-link me-1 opacity-50"></i>{{ f.endpoint }}</div>
+                    {% elif f.target %}
+                        <div class="text-secondary text-truncate" title="{{ f.target }}"><i class="fas fa-crosshairs me-1 opacity-50"></i>{{ f.target }}</div>
+                    {% else %}
+                        <span class="text-muted opacity-25">N/A</span>
+                    {% endif %}
+                </td>
+
+                <td class="text-center">
+                    <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small px-2">
+                        {{ f.confidence|default('MED')|upper|truncate(4, True, '') }}
                     </span>
                 </td>
-                <td class="align-middle">
-                    <span class="extra-small text-info ">{{ f.tool_source|default('N/A') }}</span>
+
+                <td>
+                    <span class="extra-small text-primary-emphasis fw-semibold bg-primary bg-opacity-10 px-2 py-1 rounded border border-primary border-opacity-10">
+                        {{ f.tool_source|default('CORE')|upper }}
+                    </span>
                 </td>
-                <td class="text-end pe-3 align-middle">
-                    <i class="fas fa-chevron-right text-muted extra-small"></i>
+
+                <td class="text-end pe-3">
+                    <i class="fas fa-chevron-right text-muted opacity-25 extra-small"></i>
                 </td>
             </tr>
             {% endfor %}
             {% else %}
             <tr id="findings-empty-state">
-                <td colspan="5" class="text-center py-5 text-muted">
-                    <i class="fas fa-microscope fa-3x opacity-10 mb-3"></i>
-                    <p class="small">No detections identified in this engagement sector.</p>
+                <td colspan="6" class="text-center py-5 text-muted">
+                    <div class="opacity-25 mb-3">
+                        <i class="fas fa-shield-alt fa-3x"></i>
+                    </div>
+                    <p class="small fw-light">No critical detections identified in the current engagement.</p>
                 </td>
             </tr>
             {% endif %}

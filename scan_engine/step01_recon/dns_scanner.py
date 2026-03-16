@@ -61,6 +61,11 @@ class DNSScanner:
         command = [subfinder_path, "-d", self.root_domain, "-silent"]
         return ProcessManager.run_command(command)
 
+    def run_axfr(self):
+        """Check for DNS Zone Transfer (AXFR)"""
+        command = ["dnsrecon", "-d", self.root_domain, "-t", "axfr"]
+        return ProcessManager.run_command(command)
+
     def analyze_security(self, records):
         """
         Analyze DNS records for security issues (SPF/DMARC/Takeover).

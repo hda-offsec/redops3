@@ -19,7 +19,13 @@ class ArchiveScanner:
         try:
              # cdx api
              api_url = f"http://web.archive.org/cdx/search/cdx?url={self.target}/*&output=json&collapse=urlkey"
-             r = http_client.get(api_url, options=getattr(self, "options", None), timeout=10)
+             
+             # Higher timeout and retries specifically for Wayback (often slow/503)
+             archive_opts = (self.options or {}).copy()
+             archive_opts["read_timeout"] = 45.0
+             archive_opts["max_retries"] = 5
+             
+             r = http_client.get(api_url, options=archive_opts, timeout=45)
              if r.status_code == 200:
                  data = r.json()
                  # Skip header row

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="animate__animated animate__fadeIn">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex align-items-center mb-1">
+                <i class="fas fa-cog text-primary me-2"></i>
+                <h2 class="mb-0 fw-bold">Global Configuration</h2>
+            </div>
+            <p class="text-muted small">Manage API keys, environment variables, and tool paths for the RedOps3 engine.</p>
+        </div>
+    </div>
+
+    <form method="POST">
+        {% set categories = settings|map(attribute='category')|unique|sort %}
+        {% for category in categories %}
+        <div class="card bg-dark border-secondary border-opacity-10 mb-4 shadow-sm">
+            <div class="card-header bg-transparent border-secondary border-opacity-10 py-3">
+                <h5 class="mb-0 text-primary">
+                    <i class="fas {% if category == 'API Keys' %}fa-key{% elif category == 'Tools' %}fa-tools{% else %}fa-sliders-h{% endif %} me-2"></i>
+                    {{ category }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for setting in settings if setting.category == category %}
+                    <div class="col-md-6 mb-4">
+                        <label for="setting_{{ setting.key }}" class="form-label small text-uppercase fw-bold text-muted letter-spacing-1">
+                            {{ setting.key|replace('_', ' ') }}
+                        </label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-black border-secondary border-opacity-25 text-primary">
+                                <i class="fas fa-terminal" style="font-size: 0.7rem;"></i>
+                            </span>
+                            <input type="text" class="form-control bg-black border-secondary border-opacity-25 text-light" 
+                                   id="setting_{{ setting.key }}" name="setting_{{ setting.key }}" 
+                                   value="{{ setting.value or '' }}" placeholder="Set value...">
+                        </div>
+                        {% if setting.description %}
+                        <div class="form-text extra-small text-muted-2 mt-1">
+                            <i class="fas fa-info-circle me-1"></i>{{ setting.description }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="d-flex justify-content-end mb-5">
+            <button type="submit" class="btn btn-primary px-4 py-2">
+                <i class="fas fa-save me-2"></i>Save Configuration
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .letter-spacing-1 { letter-spacing: 1px; }
+    .text-muted-2 { color: #888; }
+    .extra-small { font-size: 0.75rem; }
+    .btn-primary {
+        background: linear-gradient(45deg, #0d6efd, #0b5ed7);
+        border: none;
+        box-shadow: 0 4px 15px rgba(13, 110, 253, 0.3);
+        transition: transform 0.2s;
+    }
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4);
+    }
+    .card {
+        border-radius: 12px;
+        backdrop-filter: blur(5px);
+    }
+    .input-group-text, .form-control {
+        border-radius: 8px !important;
+    }
+</style>
+{% endblock %}

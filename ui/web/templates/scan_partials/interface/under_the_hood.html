@@ -5,7 +5,8 @@
         <h5 class="mb-0 text-white"><i class="fas fa-cogs me-2 text-danger"></i>Sous le capot</h5>
         <div class="btn-group">
             <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('timeline')">Task Timeline</button>
-            <button class="btn btn-sm btn-outline-danger active" onclick="toggleHoodTab('live-logs')">Live Logs</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('live-logs')">Live Logs</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('port-audit')">Port Audit Log</button>
             <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('state')">Engine State</button>
             <button class="btn btn-sm btn-outline-danger" onclick="toggleHoodTab('integrity')">UI Integrity</button>
         </div>
@@ -54,16 +55,15 @@
                         class="fas fa-arrow-down me-1"></i>Follow</button>
             </div>
         </div>
-        <div class="card-body p-0 ">
-            <div id="live-log-container" class="p-3  small text-success"
-                style="height: 500px; overflow-y: auto; white-space: pre-wrap;">
+        <div class="card-body p-0" style="background: #050505;">
+            <div id="live-log-container" class="p-3 extra-small font-monospace"
+                style="height: 550px; overflow-y: auto; white-space: pre-wrap; color: #00ff41; line-height: 1.4;">
                 {% if logs %}
                 {% for log in logs %}
-                <div>[{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'UNKNOWN_TIME' }}] [{{
-                    log.level }}] {{ log.message }}</div>
+                <div class="mb-1"><span class="text-muted">[{{ log.timestamp.strftime('%H:%M:%S') if log.timestamp else '00:00:00' }}]</span> <span class="text-{{ 'danger' if log.level == 'ERROR' else 'warning' if log.level == 'WARNING' else 'info' if log.level == 'DEBUG' else 'success' }} opacity-75">[{{ log.level }}]</span> {{ log.message }}</div>
                 {% endfor %}
                 {% else %}
-                <div class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Waiting for pipeline logs...</div>
+                <div class="text-muted fst-italic"><i class="fas fa-spinner fa-spin me-2"></i>Awaiting tactile telemetry stream...</div>
                 {% endif %}
             </div>
         </div>
@@ -139,7 +139,90 @@
     </div>
 </div>
 
+<!-- SECTION: PORT AUDIT LOG (Wave 5.5) -->
+<div class="col-12 hood-section d-none" id="hood-port-audit">
+    <div class="card  border-secondary h-100">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-terminal me-2"></i>Port Reconnaissance Audit (NSE Lineage)</span>
+            <span class="badge bg-info bg-opacity-20 text-info">Raw Port Intel</span>
+        </div>
+        <div class="card-body p-0">
+            <div id="port-audit-container" class="p-3" style="max-height: 600px; overflow-y: auto;">
+                {% if results.phases.recon.nse_results or results.phases.recon.commands_log %}
+                    <div class="row g-3">
+                        {% set nse_data = results.phases.recon.nse_results|default({}) %}
+                        {% set cmd_log = results.phases.recon.commands_log|default({}) %}
+                        
+                        {% for port_num, results_list in nse_data.items() %}
+                        <div class="col-12 port-audit-block" data-port="{{ port_num }}">
+                            <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-20">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="h6 mb-0 text-info fw-bold">Port {{ port_num }} (Audit)</div>
+                                    <span class="x-small text-muted">Phase: Recon / Wave 5.5</span>
+                                </div>
+                                
+                                {% if cmd_log[port_num] %}
+                                <div class="mb-3">
+                                    <small class="text-muted d-block text-uppercase x-small mb-1">Executed Command</small>
+                                    <code class="d-block p-2 bg-dark rounded border border-secondary text-success extra-small">
+                                        {{ cmd_log[port_num] }}
+                                    </code>
+                                </div>
+                                {% endif %}
+
+                                <div>
+                                    <small class="text-muted d-block text-uppercase x-small mb-1">NSE Script Results</small>
+                                    <div class="extra-small font-monospace p-2 bg-dark bg-opacity-50 rounded border border-secondary border-opacity-10 text-white-50" style="white-space: pre-wrap;">
+                                        {% if results_list is string %}
+                                            {{ results_list }}
+                                        {% else %}
+                                            {% for line in results_list %}
+                                                {{ line }}
+                                            {% endfor %}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="p-5 text-center text-muted">
+                        <i class="fas fa-search fa-3x mb-3 opacity-25"></i>
+                        <p>No NSE Audit data available for this target yet.</p>
+                        <small>Data is populated during the `recon` phase when NSE scripts are engaged.</small>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+    function showPortAudit(port) {
+        // Switch to Hood tab
+        const hoodTab = document.getElementById('hood-tab');
+        if (hoodTab) {
+            const tab = new bootstrap.Tab(hoodTab);
+            tab.show();
+        }
+        
+        // Toggle the correct section within Hood
+        toggleHoodTab('port-audit');
+        
+        // Highlight and scroll to the Port
+        setTimeout(() => {
+            const container = document.getElementById('port-audit-container');
+            const blocks = document.querySelectorAll('.port-audit-block');
+            blocks.forEach(b => b.classList.remove('border-info', 'border-opacity-50', 'bg-info', 'bg-opacity-10'));
+            
+            const target = document.querySelector(`.port-audit-block[data-port="${port}"]`);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                target.querySelector('div').classList.add('border-info', 'border-opacity-50', 'bg-info', 'bg-opacity-10');
+            }
+        }, 300);
+    }
     function toggleHoodTab(targetId) {
         document.querySelectorAll('.hood-section').forEach(el => el.classList.add('d-none'));
 
@@ -150,8 +233,14 @@
             }
         });
 
-        document.querySelectorAll('#hood-pane .btn-group button').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
+        document.querySelectorAll('#hood-pane .btn-group button').forEach(b => {
+             const onclickAttr = b.getAttribute('onclick');
+             if (onclickAttr && onclickAttr.includes("'" + targetId + "'")) {
+                 b.classList.add('active');
+             } else {
+                 b.classList.remove('active');
+             }
+        });
     }
 
     let autoScroll = true;
@@ -177,14 +266,27 @@
     // The RedOps3 UI handles this globally via scan_dashboard.js, so we hook here.
     if (typeof socket !== 'undefined' && socket) {
         socket.on('new_log', function (data) {
-            // Check if active on this scan? (Data payload handles it)
-            // Just basic append:
             const container = document.getElementById('live-log-container');
-            const d = new Date().toISOString().split('T');
-            const time = d[1].substring(0, 8);
             if (container) {
-                container.innerHTML += `<div>[${d[0]} ${time}] [${data.level || 'INFO'}] ${escapeHtml(data.message)}</div>`;
+                const now = new Date();
+                const timeStr = now.getHours().toString().padStart(2, '0') + ':' + 
+                              now.getMinutes().toString().padStart(2, '0') + ':' + 
+                              now.getSeconds().toString().padStart(2, '0');
+                
+                const lvl = data.level || 'INFO';
+                const lvlColor = lvl === 'ERROR' ? 'danger' : (lvl === 'WARNING' ? 'warning' : (lvl === 'DEBUG' ? 'info' : 'success'));
+                
+                const logLine = document.createElement('div');
+                logLine.className = 'mb-1';
+                logLine.innerHTML = `<span class="text-muted">[${timeStr}]</span> <span class="text-${lvlColor} opacity-75">[${lvl}]</span> ${data.message}`;
+                
+                container.appendChild(logLine);
                 if (autoScroll) scrollToBottom('live-log-container');
+                
+                // Keep performance: trim old logs if too many
+                if (container.children.length > 300) {
+                    container.removeChild(container.firstChild);
+                }
             }
         });
     }

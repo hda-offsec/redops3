@@ -8,17 +8,17 @@ class NmapScanner:
     PROFILES = {
         "quick": {
             "label": "Quick Scan",
-            "command": ["nmap", "-n", "-v", "-T4", "-F", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-v", "-Pn", "-T4", "-F", "--stats-every", "10s"],
             "requires_root": False,
         },
         "deep": {
             "label": "Deep Audit (Red Team Standard)",
-            "command": ["nmap", "-n", "-v", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-v", "-Pn", "-sC", "-sV", "--top-ports", "3000", "--open", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "full": {
             "label": "Full TCP Scan",
-            "command": ["nmap", "-n", "-v", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-n", "-v", "-Pn", "-sC", "-sV", "-p-", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "udp": {
@@ -28,7 +28,7 @@ class NmapScanner:
         },
         "vuln": {
             "label": "NSE Vuln Scan",
-            "command": ["nmap", "-v", "--script", "vuln", "-sV", "-T4", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "-Pn", "--script", "vuln", "-sV", "-T4", "--stats-every", "10s"],
             "requires_root": False,
         },
         "os": {
@@ -43,7 +43,7 @@ class NmapScanner:
         },
         "stealth": {
             "label": "Stealth Scan",
-            "command": ["nmap", "-v", "-sS", "-sV", "-T2", "--stats-every", "10s"],
+            "command": ["nmap", "-v", "-Pn", "-sS", "-sV", "-T2", "--stats-every", "10s"],
             "requires_root": True,
         },
         "web": {
@@ -51,6 +51,7 @@ class NmapScanner:
             "command": [
                 "nmap",
                 "-v",
+                "-Pn",
                 "-sV",
                 "-p",
                 "80,443,8000,8080,8443",
@@ -65,7 +66,7 @@ class NmapScanner:
         "smart": {
              "label": "Smart Adaptive Scan",
              # Top 2000 ports + Service Detect + No DNS resolution (-n) + JSON compatible stats
-             "command": ["nmap", "-v", "-sS", "-sV", "--version-intensity", "5", "--top-ports", "2000", "--stats-every", "10s", "-n"],  
+             "command": ["nmap", "-v", "-Pn", "-sS", "-sV", "--version-intensity", "5", "--top-ports", "2000", "--stats-every", "10s", "-n"],  
              "requires_root": True,
         },
     }

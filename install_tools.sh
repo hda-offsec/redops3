@@ -24,6 +24,9 @@ export PATH=$PATH:$HOME/go/bin
 if command -v pdtm &> /dev/null; then
     echo "[+] Using pdtm to install Nuclei, Katana, Subfinder..."
     pdtm -install nuclei,katana,subfinder
+    # Install Gitleaks & Gitrob
+    go install github.com/gitleaks/gitleaks/v8@latest || true
+    go install github.com/michenriksen/gitrob@latest || true
 else
     echo "[!] pdtm failed, falling back to direct go install..."
     go install github.com/projectdiscovery/katana/cmd/katana@latest || true
@@ -31,6 +34,9 @@ else
     go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest || true
     go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest || true
     go install github.com/hahwul/dalfox/v2@latest || true
+    # Install Gitleaks & Gitrob
+    go install github.com/gitleaks/gitleaks/v8@latest || true
+    go install github.com/michenriksen/gitrob@latest || true
 fi
 
 # Install Playwright browsers for screenshots

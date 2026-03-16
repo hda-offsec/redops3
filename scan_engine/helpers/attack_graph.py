@@ -89,6 +89,7 @@ class AttackGraphBuilder:
             parameter = finding.get("parameter")
             category = (finding.get("category") or "").lower()
             metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+            chain_meta = finding.get("chain_metadata") if isinstance(finding.get("chain_metadata"), dict) else {}
 
             endpoint_id = None
             if endpoint:
@@ -163,12 +164,22 @@ class AttackGraphBuilder:
                 if endpoint_id:
                     self._add_edge(endpoint_id, secret_id, "leads_to_attack")
 
-            if category in {"attack_chain", "attack_path"}:
+            if category in {"attack_chain", "attack_path"} or chain_meta.get("is_chain_root"):
                 chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
-                self._add_node({"type": "attack_chain", "id": chain_id, "label": finding.get("title", "Attack Chain"), "data": finding})
+                label = finding.get("title", "Attack Chain")
+                if chain_meta.get("attack_path_summary"):
+                    label = chain_meta.get("attack_path_summary")
+                
+                self._add_node({"type": "attack_chain", "id": chain_id, "label": label, "data": finding})
                 self._add_edge(target_node_id, chain_id, "leads_to_attack")
                 if endpoint_id:
                     self._add_edge(chain_id, endpoint_id, "leads_to")
+                
+                # Link related findings in the graph
+                for related_id in chain_meta.get("related_findings", []):
+                    related_node_id = f"finding:db:{related_id}"
+                    self._add_edge(chain_id, related_node_id, "correlates_to")
+
                 chain = metadata.get("chain", []) if isinstance(metadata.get("chain"), list) else []
                 for link in chain:
                     link_id = f"attack_chain_link:{link}"

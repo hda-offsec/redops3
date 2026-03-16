@@ -1,18 +1,83 @@
 import hashlib
 import time
 import json
-from scan_engine.helpers.finding_schema import normalize_finding_shape
+from scan_engine.helpers.finding_schema import normalize_finding_shape, generate_stable_id
+from scan_engine.helpers.remediation_vault import get_remediation_blueprint
 
 
 def _confidence_from_signal(finding):
     severity = str(finding.get("severity", "info")).lower()
-    evidence = finding.get("evidence") or {}
+    evidence = finding.get("evidence") or "{}"
+    if isinstance(evidence, str):
+        try:
+            evidence = json.loads(evidence)
+        except Exception:
+            evidence = {}
+            
     payload = finding.get("payload") or (evidence.get("poison") if isinstance(evidence, dict) else "")
+    repro = finding.get("reproduction") or finding.get("repro_command")
+    
+    # R1: Direct Proof (Response contains payload/poison)
     if finding.get("response") and payload and str(payload) in str(finding.get("response")):
         return "high"
+    
+    # R2: Expert Validation (Expert explicitly marked as high)
+    if finding.get("confidence") == "high":
+        return "high"
+        
+    # R3: Reproduction Command (POC exists)
+    if repro and "curl" in repro.lower():
+        return "high"
+
+    # R4: Fallback for High/Critical without proof
     if severity in {"critical", "high"}:
-        return "medium"
+        return "low"
+        
     return "low"
+
+def _derive_impact_area(finding):
+    """Semantic mapping of finding to business impact area."""
+    title = finding.get("title", "").lower()
+    cat = finding.get("category", "").lower()
+    
+    if any(k in title or k in cat for k in ["auth", "jwt", "oauth", "session", "cookie", "login", "password"]):
+        return "Identity & Access"
+    if any(k in title or k in cat for k in ["sqli", "nosql", "database", "rce", "cmd", "shell", "lfi", "rfi"]):
+        return "System / Data Integrity"
+    if any(k in title or k in cat for k in ["s3", "bucket", "cloud", "aws", "azure", "metadata"]):
+        return "Cloud Infrastructure"
+    if any(k in title or k in cat for k in ["api", "graphql", "rest", "swagger", "endpoint"]):
+        return "API Surface"
+    if any(k in title or k in cat for k in ["pii", "secret", "token", "key", "leak"]):
+        return "Sensitive Information"
+    
+    return "Web Application"
+
+def _generate_risk_scorecard(finding):
+    """Generates a 3-axis risk scorecard."""
+    severity = finding.get("severity", "info").lower()
+    confidence = finding.get("confidence", "medium").lower()
+    
+    # Impact (1-10)
+    impact_map = {"critical": 10, "high": 8, "medium": 5, "low": 2, "info": 1}
+    impact = impact_map.get(severity, 1)
+    
+    # Complexity (Low, Medium, High)
+    complexity = "Medium"
+    if "rce" in finding.get("title", "").lower(): complexity = "High"
+    if "xss" in finding.get("category", "").lower(): complexity = "Low"
+    
+    # Likelihood
+    likelihood = "Low"
+    if confidence == "high": likelihood = "High"
+    elif confidence == "certain": likelihood = "Certain"
+    elif severity in ["high", "critical"]: likelihood = "Medium"
+    
+    return {
+        "impact": impact,
+        "complexity": complexity,
+        "likelihood": likelihood
+    }
 
 class FindingNormalizer:
     """
@@ -52,9 +117,8 @@ class FindingNormalizer:
             "id_stable": "" # V6 Stable ID
         }
         
-        # ... logic for specific tools ... (keeping existing ones)
+        # Preserve specialized tool logic
         if tool_name == "nuclei":
-            # [Existing nuclei logic]
             finding.update({
                 "title": tool_data.get("info", {}).get("name", finding["title"]),
                 "severity": tool_data.get("info", {}).get("severity", finding["severity"]).lower(),
@@ -105,36 +169,28 @@ class FindingNormalizer:
         if not isinstance(finding.get("evidence"), str):
             finding["evidence"] = json.dumps(finding.get("evidence", {}), default=str)
 
-        if not finding.get("confidence"):
-            finding["confidence"] = _confidence_from_signal(finding)
-        else:
-            finding["confidence"] = str(finding.get("confidence")).lower()
+        conf = _confidence_from_signal(finding)
+        finding["confidence"] = conf
+        
+        # V12 Argumentative labeling: if high severity but low confidence, label it
+        if finding["severity"] in {"critical", "high"} and conf == "low":
+            if not finding["title"].startswith("["):
+                finding["title"] = f"[Unverified] {finding['title']}"
+            finding["description"] = f"**⚠ ATTENTION: This finding lacks definitive proof.**\n" \
+                                     f"It is based on theoretical heuristics. Manual audit recommended.\n\n" + \
+                                     finding["description"]
 
+        # --- RE-REMEDIATION ENRICHMENT (Wave 5.4) ---
+        if not finding.get("remediation"):
+            finding["remediation"] = get_remediation_blueprint(finding)
+
+        # --- ENRICHMENT (Wave 5.4) ---
+        finding["impact_area"] = _derive_impact_area(finding)
+        finding["risk_scorecard"] = _generate_risk_scorecard(finding)
+        
         # --- STABLE ID GENERATION (V6) ---
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(str(finding["target"]))
-            path_stable = parsed.path or "/"
-            evidence_obj = finding.get("evidence")
-            if isinstance(evidence_obj, str):
-                try:
-                    evidence_obj = json.loads(evidence_obj)
-                except Exception:
-                    evidence_obj = {}
-            
-            # Use evidence if available, else title/category
-            trigger_stable = str((evidence_obj or {}).get("param", "")) or \
-                             str((evidence_obj or {}).get("parameter", "")) or \
-                             str(finding["title"])
-                             
-            payload_class = str(finding["category"])
-            
-            id_seed = f"{path_stable}|{trigger_stable}|{payload_class}"
-            finding["id_stable"] = hashlib.sha256(id_seed.encode()).hexdigest()
-            finding["id"] = finding["id_stable"]
-        except Exception:
-            id_str = f"{finding['title']}|{finding['target']}|{finding['category']}"
-            finding["id_stable"] = hashlib.sha256(id_str.encode()).hexdigest()
-            finding["id"] = finding["id_stable"]
+        finding["id_stable"] = generate_stable_id(finding)
+        finding["id"] = finding["id_stable"]
+
         
         return normalize_finding_shape(finding, source=tool_name)

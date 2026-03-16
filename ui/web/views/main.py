@@ -9,7 +9,6 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
-from sqlalchemy.orm import joinedload
 from core.models import (
     Target,
     Scan,
@@ -25,9 +24,9 @@ from core.models import (
     ReplayVaultEntry,
     AuthIdentityMap,
     OperatorFeedback,
+    GlobalSetting,
     db,
 )
-from sqlalchemy import func
 from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report, generate_html_report
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
@@ -35,6 +34,8 @@ from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
 from core.extensions import socketio
 from core.tasks import run_scan_task
+from scan_engine.helpers.reporting_engine import ReportingEngine
+from scan_engine.helpers.identity_spectre import IdentitySpectre
 from core.replay_vault import (
     compare_replay_artifacts,
     extract_auth_identity_observations,
@@ -129,9 +130,54 @@ def _serialize_auth_identity_map(entry):
     }
 
 
+@main_bp.route("/scannmap")
+@login_required
+def scannmap():
+    from modules.scanners.nmap_scan import NMAP_PROFILES
+    recent_scans = Scan.query.filter_by(scan_type='scannmap').order_by(Scan.id.desc()).limit(10).all()
+    return render_template("scannmap.html", nmap_profiles=NMAP_PROFILES, recent_scans=recent_scans)
+
+
+@main_bp.route("/scannmap/launch", methods=["POST"])
+@login_required
+def scannmap_launch():
+    target_input = request.form.get("target")
+    profile_name = request.form.get("profile")
+    
+    if not target_input or not profile_name:
+        flash("Target and Profile are required", "error")
+        return redirect(url_for("main.scannmap"))
+        
+    target_input = _normalize_target(target_input)
+    target = Target.query.filter_by(identifier=target_input).first()
+    if not target:
+        target = Target(identifier=target_input)
+        db.session.add(target)
+        db.session.commit()
+        
+    scan = Scan(target_id=target.id, scan_type='scannmap', status='pending')
+    db.session.add(scan)
+    db.session.commit()
+    
+    from tasks.nmap_tasks import nmap_scan_task
+    # Note: the task is already registered because we imported it in app.py
+    task = nmap_scan_task.delay(scan.id, target.identifier, profile_name)
+    scan.task_id = task.id
+    db.session.commit()
+    
+    flash(f"Advanced Nmap scan launched on {target_input} with profile {profile_name}", "success")
+    return redirect(url_for("main.scan_detail", scan_id=scan.id))
+
+
 @main_bp.route("/terminal")
 def terminal():
     return render_template("terminal.html")
+
+
+@main_bp.route("/reference")
+@login_required
+def reference():
+    return render_template("reference.html")
 
 
 @main_bp.route("/test_graph")
@@ -160,6 +206,27 @@ def _get_tool_status():
 @main_bp.route("/api/dependencies")
 def check_dependencies():
     return jsonify(_get_tool_status())
+
+
+@main_bp.route("/scans/<int:scan_id>/report/markdown")
+@login_required
+def download_report_markdown(scan_id):
+    """Generates and serves a professional Markdown report for the scan."""
+    results = load_results(scan_id)
+    if not results:
+        flash("Scan results not found.", "error")
+        return redirect(url_for("main.dashboard"))
+    
+    engine = ReportingEngine()
+    md_content = engine.generate_markdown(results)
+    
+    filename = f"mission_report_{scan_id}.md"
+    from flask import Response
+    return Response(
+        md_content,
+        mimetype="text/markdown",
+        headers={"Content-disposition": f"attachment; filename={filename}"}
+    )
 
 
 @main_bp.route("/api/scans/<int:scan_id>/findings")
@@ -209,6 +276,8 @@ def get_scan_findings(scan_id):
             "request": f.request,
             "response": f.response,
             "repro_command": f.repro_command,
+            "impact_area": (f.metadata_json or {}).get("impact_area") if isinstance(f.metadata_json, dict) else "Web Application",
+            "risk_scorecard": (f.metadata_json or {}).get("risk_scorecard") if isinstance(f.metadata_json, dict) else {},
             "created_at": f.created_at.isoformat() if f.created_at else None
         } for f in items]
     })
@@ -449,6 +518,11 @@ def scan_detail(scan_id):
         "target": scan.target.identifier,
         "status": scan.status,
         "progress": {"percent": 0, "current_phase": "Initializing"},
+        "tactical_summary": {
+            "active_chains_count": 0,
+            "top_threats": [],
+            "tactical_recommendation": "Initializing tactical analysis..."
+        },
         "phases": {
             "recon": {"open_ports": [], "raw_output": ""},
             "dns": {"subdomains": []},
@@ -505,6 +579,12 @@ def scan_detail(scan_id):
     
     from core.results_store import deep_merge
     results = deep_merge(default_results, results_data)
+    
+    # --- TARGET SPECTRE ENRICHMENT (Wave 5.6) ---
+    # Ensure spectre is synthesized even if the orchestrator hadn't run it yet
+    if not results.get('phases', {}).get('enum', {}).get('derived', {}).get('identity_spectre'):
+        spectre = IdentitySpectre.synthesize(results)
+        results.setdefault('phases', {}).setdefault('enum', {}).setdefault('derived', {})['identity_spectre'] = spectre
     
     # Final safety: Ensure ID and Target always match the current scan record, 
     # even if the loaded JSON file was stale or mismatched.
@@ -602,9 +682,48 @@ def _log_and_emit(scan_id, msg, level="INFO"):
         print(f"[ERROR] Socket Emit Failed: {e}")
 
 
+@main_bp.route("/settings", methods=["GET", "POST"])
+@login_required
+def settings():
+    if request.method == "POST":
+        # Handle bulk update
+        for key, value in request.form.items():
+            if key.startswith("setting_"):
+                setting_key = key.replace("setting_", "")
+                setting = GlobalSetting.query.filter_by(key=setting_key).first()
+                if not setting:
+                    setting = GlobalSetting(key=setting_key)
+                    db.session.add(setting)
+                setting.value = value
+        
+        db.session.commit()
+        flash("Settings updated successfully!", "success")
+        return redirect(url_for("main.settings"))
+
+    # Seed default settings if empty
+    defaults = [
+        {"key": "GITHUB_TOKEN", "description": "GitHub Personal Access Token for OSINT/Scanning", "category": "API Keys"},
+        {"key": "SHODAN_API_KEY", "description": "Shodan API Key for service discovery", "category": "API Keys"},
+        {"key": "CENSYS_ID", "description": "Censys ID", "category": "API Keys"},
+        {"key": "CENSYS_SECRET", "description": "Censys Secret", "category": "API Keys"},
+        {"key": "VIRUSTOTAL_API_KEY", "description": "VirusTotal API Key", "category": "API Keys"},
+        {"key": "GITLEAKS_PATH", "description": "Path to gitleaks binary (default: gitleaks)", "category": "Tools", "value": "gitleaks"},
+        {"key": "GITROB_PATH", "description": "Path to gitrob binary (default: gitrob)", "category": "Tools", "value": "gitrob"},
+    ]
+    
+    for d in defaults:
+        if not GlobalSetting.query.filter_by(key=d["key"]).first():
+            s = GlobalSetting(key=d["key"], description=d["description"], category=d["category"], value=d.get("value"))
+            db.session.add(s)
+    db.session.commit()
+
+    all_settings = GlobalSetting.query.order_by(GlobalSetting.category, GlobalSetting.key).all()
+    return render_template("settings.html", settings=all_settings)
+
+
 
 def _add_finding(scan_id, tool, severity, title, description=None, screenshot_path=None, command=None, confidence='medium', request=None, response=None, repro_command=None, id_stable=None):
-    from core.utils import sanitize_evidence, cap_text
+    from core.utils import sanitize_evidence, cap_text, get_setting
     
     if command and not repro_command:
         repro_command = command
@@ -770,7 +889,7 @@ def background_scan(scan_id, target_identifier, scan_type, app):
                 db.session.rollback()
 
         def results_update_cb(scan_id, data, **kwargs):
-            save_results(scan_id, data, **kwargs)
+            merged_results = save_results(scan_id, data, **kwargs)
             # Emit the partial/full results update to the UI
             if socketio:
                 # If progress is in data, emit specifically for progress handlers
@@ -783,7 +902,7 @@ def background_scan(scan_id, target_identifier, scan_type, app):
 
                 socketio.emit("results_update", {
                     "scan_id": scan_id,
-                    "results": data
+                    "results": merged_results
                 }, room=f"scan_{scan_id}")
 
         def add_loot_cb(loot_type, content, context=None):

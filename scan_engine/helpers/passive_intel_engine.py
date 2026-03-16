@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from urllib.parse import urlparse, parse_qsl
+from urllib.parse import urlparse, parse_qsl, unquote
 import ipaddress
 
 from scan_engine.helpers.finding_schema import normalize_finding_shape
@@ -17,6 +17,11 @@ class AssetDiscoveryEngine:
         "azurewebsites.net",
         "digitaloceanspaces.com",
         "blob.core.windows.net",
+        "herokuapp.com",
+        "netlify.app",
+        "vercel.app",
+        "oraclecloud.com",
+        "softlayer.com"
     )
 
     @staticmethod
@@ -36,14 +41,27 @@ class AssetDiscoveryEngine:
     def _extract_hosts(blob):
         if not isinstance(blob, str):
             return []
+        
+        # URL decode blob to avoid artifacts like %22 (quote) being seen as '22' at start of host
+        blob = unquote(blob)
+        
         hosts = []
         for token in re.findall(r"https?://[A-Za-z0-9._:-]+", blob):
-            parsed = urlparse(token)
-            if parsed.hostname:
-                hosts.append(parsed.hostname.lower())
-        for host in re.findall(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b", blob):
-            hosts.append(host.lower())
-        return hosts
+            try:
+                parsed = urlparse(token)
+                if parsed.hostname:
+                    hosts.append(parsed.hostname.lower())
+            except: pass
+
+        # Refined regex: must start with a letter or digit, but not a hyphen.
+        # Avoids common banner artifacts like '220-hostname'
+        for host in re.findall(r"\b(?:[a-zA-Z0-9][a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}\b", blob):
+            h = host.lower()
+            # Reject if it looks like a response code artifact (e.g. 220-upload.hove.io)
+            if re.match(r"^\d{3}-", h):
+                h = h[4:]
+            hosts.append(h)
+        return list(set(hosts))
 
     @classmethod
     def _provider_for_host(cls, host):
@@ -56,6 +74,11 @@ class AssetDiscoveryEngine:
             "azurewebsites.net": "azure",
             "digitaloceanspaces.com": "digitalocean",
             "blob.core.windows.net": "azure",
+            "herokuapp.com": "heroku",
+            "netlify.app": "netlify",
+            "vercel.app": "vercel",
+            "oraclecloud.com": "oracle",
+            "softlayer.com": "ibm",
         }
         for suffix, provider in provider_map.items():
             if suffix in host:
@@ -161,6 +184,8 @@ class SecretsIntelligenceEngine:
         ("github_token", re.compile(r"\bghp_[A-Za-z0-9]{30,40}\b")),
         ("jwt_token", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")),
         ("oauth_token", re.compile(r"\boa(?:uth)?[_-]?token\s*[:=]\s*['\"]?[A-Za-z0-9._-]{16,}", re.IGNORECASE)),
+        ("slack_token", re.compile(r"\bxox[baprs]-[0-9a-zA-Z]{10,48}\b")),
+        ("stripe_key", re.compile(r"\bsk_(?:live|test)_[0-9a-zA-Z]{24}\b")),
         ("basic_auth", re.compile(r"\bbasic\s+[A-Za-z0-9+/]{8,}={0,2}", re.IGNORECASE)),
         ("private_key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
     ]
@@ -202,6 +227,8 @@ class SecretsIntelligenceEngine:
                                     "aws_access_key_id",
                                     "gcp_api_key",
                                     "github_token",
+                                    "slack_token",
+                                    "stripe_key",
                                 }
                                 else "medium"
                             ),
@@ -467,11 +494,13 @@ class PassiveIntelligenceEngine:
                     )
 
         for blob in cls._iter_telemetry_strings(results):
-            text = blob.lower().strip()
+            # Pre-processing: URL decode to handle %22 and other artifacts
+            blob_decoded = unquote(blob)
+            text = blob_decoded.lower().strip()
             if not text:
                 continue
 
-            for subdomain in cls._infer_subdomains(blob, target_domain):
+            for subdomain in cls._infer_subdomains(blob_decoded, target_domain):
                 add(
                     title=f"Subdomain Inferred: {subdomain}",
                     severity="info",

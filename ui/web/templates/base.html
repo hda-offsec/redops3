@@ -40,6 +40,12 @@
                                 <i class="fas fa-briefcase"></i>Missions
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'main.scannmap' %}active{% endif %}"
+                                href="{{ url_for('main.scannmap') }}">
+                                <i class="fas fa-satellite-dish"></i>ScanNmap <span class="badge bg-danger ms-1 extra-small">NEW</span>
+                            </a>
+                        </li>
                     </ul>
 
                     <div class="sidebar-heading">COMPONENTS</div>
@@ -88,8 +94,20 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'main.reference' %}active{% endif %}" 
+                                href="{{ url_for('main.reference') }}">
+                                <i class="fas fa-book-dead"></i>Attack Ref
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link" href="#">
                                 <i class="fas fa-file-contract"></i>Report Builder
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'main.settings' %}active{% endif %}" 
+                                href="{{ url_for('main.settings') }}">
+                                <i class="fas fa-cog"></i>Settings
                             </a>
                         </li>
                     </ul>

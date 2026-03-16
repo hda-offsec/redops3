@@ -1,5 +1,6 @@
 from scan_engine.helpers.http_client import get_session
 import os
+import re
 
 class UploadExpertScanner:
     """
@@ -18,8 +19,27 @@ class UploadExpertScanner:
             "gif": b"GIF89a"
         }
 
+    def _is_static_asset(self, url):
+        """Check if URL points to a static asset that shouldn't handle uploads."""
+        static_exts = {'.js', '.css', '.map', '.png', '.jpg', '.jpeg', '.svg', '.gif', '.ico', '.woff', '.woff2', '.ttf'}
+        path = url.split('?')[0].lower()
+        if any(path.endswith(ext) for ext in static_exts):
+            return True
+        
+        # Exclude common static directories
+        static_dirs = ['/js/', '/css/', '/assets/', '/static/', '/wp-includes/', '/wp-admin/js/', '/wp-admin/css/']
+        if any(sd in path for sd in static_dirs):
+            return True
+            
+        return False
+
     def scan_upload_form(self, action_url, file_param="file", logger=None):
         findings = []
+        
+        if self._is_static_asset(action_url):
+            if logger: logger(f"Upload Expert: Skipping static asset {action_url}", "DEBUG")
+            return []
+
         if logger: logger(f"Upload Expert: Testing bypass on {action_url}...", "INFO")
 
         # Attack Payloads
@@ -40,20 +60,68 @@ class UploadExpertScanner:
                 # Test the upload
                 resp = self.session.post(action_url, files=files, timeout=7)
                 
-                # Check for success indicators (200/201 and message)
-                success_indicators = ["success", "uploaded", "saved", p["filename"]]
-                if resp.status_code in [200, 201] and any(ind in resp.text.lower() for ind in success_indicators):
+                # REFINED SUCCESS INDICATORS (Avoid broad 200/201 without context)
+                # We look for structured indications of success
+                body = resp.text.lower()
+                headers = {k.lower(): v.lower() for k, v in resp.headers.items()}
+                
+                # A 200/201 is necessary but not sufficient
+                if resp.status_code not in [200, 201]:
+                    continue
+
+                # Evidence of successful upload processing
+                is_success = False
+                affirmative = any(ind in body for ind in ["\"success\":true", "'success':true", "upload successful", "file saved", "file_name", "upload_id"])
+                
+                # Check for 201 Created (Strong signal)
+                if resp.status_code == 201:
+                    is_success = True
+                
+                # Check for location header or JSON response with path
+                if 'location' in headers and p['filename'] in headers['location']:
+                    is_success = True
+                
+                # Hard gate: Reflection != Success
+                filename_reflected = p['filename'] in body
+                if affirmative:
+                    is_success = True
+                elif filename_reflected:
+                    # If only the filename is there, it might be an error message reflecting the input
+                    # or a static file echoing params. We need more proof.
+                    if any(err in body for err in ["error", "failed", "denied", "invalid", "not allowed"]):
+                        is_success = False
+                    else:
+                        # Ambiguous: could be a success without 'success' keyword
+                        # but we cap confidence
+                        is_success = "ambiguous"
+
+                if is_success:
+                    severity = "high" if is_success is True else "medium"
+                    label = "Bypass Potential" if is_success is True else "Ambiguous Upload Behavior"
+                    
+                    # V12: Final check - if it's on a .js or .css file despite the early check, it's garbage
+                    if self._is_static_asset(action_url):
+                        continue
+
+                    # Proof snippet
+                    proof = body[:500].replace('\n', ' ')
+                    
                     findings.append({
-                        "title": "File Upload Bypass Potential",
-                        "description": f"Successfully uploaded suspicious file: {p['filename']}\nMethod: {p.get('method', 'Signature/Extension Spoofing')}\nAction URL: {action_url}",
-                        "severity": "high",
+                        "title": f"File Upload {label}",
+                        "description": (
+                            f"Successfully sent a suspicious file: `{p['filename']}`\n"
+                            f"Method: {p.get('method', 'Signature/Extension Spoofing')}\n"
+                            f"Action URL: {action_url}\n"
+                            f"Response Code: {resp.status_code}\n"
+                            f"Evidence: {proof}..."
+                        ),
+                        "severity": severity,
                         "tool_source": "upload_expert",
                         "url": action_url,
-                        "raw_loot": f"Payload: {p['filename']} sent with Content-Type: {p['type']}"
+                        "raw_loot": f"Payload: {p['filename']} sent with Content-Type: {p['type']}",
+                        "confidence": "high" if is_success is True else "low"
                     })
-                    if logger: logger(f"HIGH: File Upload Bypass candidates at {action_url}", "WARN")
-                    
-                    # Try to find the uploaded file? (Usually risky/out of scope without surface mapper)
+                    if logger: logger(f"{severity.upper()}: Upload {label} at {action_url}", "WARN")
             except Exception:
                 pass
         

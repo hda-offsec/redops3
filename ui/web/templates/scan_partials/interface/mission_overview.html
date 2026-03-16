@@ -1,5 +1,42 @@
 <!-- TAB 1: MISSION OVERVIEW -->
 
+<!-- Red Team Tactical Board (New) -->
+{% set chain_count = results.get('tactical_summary', {}).get('active_chains_count', 0) %}
+{% set theme_color = 'danger' if chain_count > 0 else 'info' %}
+<div class="col-12 mb-4">
+    <div class="card border border-{{ theme_color }} border-opacity-25 bg-{{ theme_color }} bg-opacity-5 shadow-sm">
+        <div class="card-header bg-{{ theme_color }} bg-opacity-10 py-2 d-flex justify-content-between align-items-center">
+            <span class="text-{{ theme_color }} fw-bold x-small text-uppercase tracking-wider">
+                <i class="fas fa-radar me-2"></i>Mission Command: Tactical Board
+            </span>
+            <span class="badge bg-{{ theme_color }} bg-opacity-20 text-{{ theme_color }} border border-{{ theme_color }} border-opacity-25">ENRICHED INTELLIGENCE</span>
+        </div>
+        <div class="card-body p-3">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h5 class="text-white mb-2">
+                        {{ chain_count }} High-Value Attack Paths Identified
+                    </h5>
+                    <p class="text-muted small mb-0">
+                        <i class="fas fa-info-circle me-1"></i> {{ results.get('tactical_summary', {}).get('tactical_recommendation', "Processing signals for potential attack paths...") }}
+                    </p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <div class="d-inline-block p-2 bg-black bg-opacity-40 rounded border border-secondary border-opacity-10 text-start" style="min-width: 200px;">
+                        <div class="extra-small text-muted text-uppercase mb-1">Top Threats Detected</div>
+                        {% for threat in results.get('tactical_summary', {}).get('top_threats', []) %}
+                            <div class="x-small text-{{ theme_color }} fw-bold"><i class="fas fa-caret-right me-1"></i> {{ threat }}</div>
+                        {% endfor %}
+                        {% if not results.get('tactical_summary', {}).get('top_threats') %}
+                            <div class="x-small text-muted italic">Scanning for high-signal threats...</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Executive Summary Cards (Normalized) -->
 <div class="col-12 mb-4">
     <div class="row g-2">
@@ -111,26 +148,65 @@
 
                         <div class="d-flex flex-column gap-2 mb-3">
                             <div class="d-flex justify-content-between x-small">
-                                <span class="text-muted">Detected Components</span>
-                                <span class="text-light">{{ (wp.plugins|length if wp.plugins else 0) + (1 if wp.theme
-                                    else 0) }}</span>
+                                <span class="text-muted">Status</span>
+                                {% if wp.version == 'Unknown' or not wp.version %}
+                                <span class="text-warning fw-bold">OBFUSCATED</span>
+                                {% else %}
+                                <span class="text-success fw-bold">CONFIRMED</span>
+                                {% endif %}
                             </div>
+
                             <div class="d-flex justify-content-between x-small">
                                 <span class="text-muted">Vulnerabilities</span>
                                 <span class="text-{{ 'danger' if wp.vulns|length > 0 else 'success' }} fw-bold">{{
                                     wp.vulns|length }}</span>
                             </div>
+
+                            {% if wp.plugins %}
+                            <div class="mt-2">
+                                <span class="text-info extra-small text-uppercase fw-bold"><i class="fas fa-plug me-1"></i>Plugins ({{ wp.plugins|length }})</span>
+                                <div class="extra-small text-muted mt-1 ps-2 border-start border-info border-opacity-25" style="max-height: 100px; overflow-y: auto;">
+                                    {% for p in wp.plugins[:10] %}
+                                    {% if p is mapping %}
+                                    <div class="mb-1">• <span class="text-light">{{ p.slug }}</span> <span class="opacity-50">(v{{ p.version|default('?') }})</span></div>
+                                    {% else %}
+                                    <div class="mb-1">• {{ p }}</div>
+                                    {% endif %}
+                                    {% endfor %}
+                                    {% if wp.plugins|length > 10 %}
+                                    <div class="text-info opacity-50">+{{ wp.plugins|length - 10 }} more...</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if wp.users %}
+                            <div class="mt-2">
+                                <span class="text-success extra-small text-uppercase fw-bold"><i class="fas fa-users me-1"></i>Users ({{ wp.users|length }})</span>
+                                <div class="extra-small text-muted mt-1">
+                                    {% for u in wp.users[:5] %}
+                                    <span class="badge bg-dark border border-secondary">{{ u.name if u is mapping else u }}</span>
+                                    {% endfor %}
+                                    {% if wp.users|length > 5 %}
+                                    <span class="opacity-50">+{{ wp.users|length - 5 }} more</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+
                             {% if wp.wordfence_detected %}
-                            <div class="d-flex justify-content-between x-small">
-                                <span class="text-warning"><i class="fas fa-shield-alt me-1"></i>Wordfence</span>
-                                <span class="text-warning">ACTIVE</span>
+                            <div class="d-flex justify-content-between x-small mt-2 p-1 bg-warning bg-opacity-10 rounded">
+                                <span class="text-warning"><i class="fas fa-shield-alt me-1"></i>Wordfence WAF</span>
+                                <span class="text-warning fw-bold">ACTIVE</span>
                             </div>
                             {% endif %}
                         </div>
 
+                        {% set wp_finding_title = "WordPress " ~ (wp.version if wp.version else "vUnknown") ~ " Detected (" ~ port ~ ")" %}
                         <button class="btn btn-xs btn-outline-info w-100"
-                            onclick="openFindingDrawer(null, 'WordPress Vulnerabilities Detected ({{ port }})')">View
-                            Analysis</button>
+                            onclick="openFindingDrawer(null, '{{ wp_finding_title }}')">View
+                            Full Analysis</button>
+
                         <div
                             class="d-flex flex-column gap-1 extra-small mt-3 pt-2 border-top border-secondary border-opacity-10">
                             {% if wp.wordfence_detected %}
@@ -152,158 +228,245 @@
 </div>
 {% endif %}
 
-<!-- ASSET IDENTITY CARD -->
+{% include 'scan_partials/dns_intelligence.html' %}
+
+
+<!-- ASSET IDENTITY CARD (REDESIGNED SPECTRE - Wave 5.6) -->
 <div class="col-12 mb-4">
-    <div class="card border-secondary border-opacity-25 h-100">
+    <div class="card border-secondary border-opacity-25 h-100 shadow-sm">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-id-card me-2 text-info"></i>Asset Identity Card: <span class="text-white fw-bold">{{ scan.target.identifier }}</span></span>
-            <span class="badge bg-secondary bg-opacity-20 text-secondary border border-secondary border-opacity-50">Live Intel Profile</span>
+            <span><i class="fas fa-id-card me-2 text-info"></i>Asset Identity Spectre: <span class="text-white fw-bold">{{ scan.target.identifier }}</span></span>
+            <span class="badge bg-secondary bg-opacity-20 text-secondary border border-secondary border-opacity-50">Unified Multi-Layer Intelligence</span>
         </div>
         <div class="card-body">
+            {% set spectre = results.phases.enum.derived.identity_spectre %}
             <div class="row g-4">
-                <!-- IP & INFRASTRUCTURE -->
-                <div class="col-md-3 border-end border-secondary border-opacity-25">
-                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-server me-2"></i>Infrastructure</h6>
-                    
-                    <div class="mb-2">
-                        <small class="text-muted d-block text-uppercase x-small">Primary IP Addresses</small>
-                        {% set ns_ips = namespace(found=false) %}
-                        {% if results.phases.osint.origin_ips %}
-                            {% for ip_data in results.phases.osint.origin_ips[:3] %}
-                                <div class="text-white fw-bold d-flex align-items-center mb-1">
-                                    {{ ip_data.ip }}
-                                    {% if ip_data.confidence == 'high' %}
-                                        <i class="fas fa-check-circle text-success ms-2 x-small" title="High Confidence"></i>
-                                    {% endif %}
-                                </div>
-                                {% set ns_ips.found = true %}
-                            {% endfor %}
-                        {% endif %}
-                        {% if not ns_ips.found %}
-                            <div class="text-secondary fst-italic">Resolving...</div>
-                        {% endif %}
+                <!-- 1. OS & ENVIRONMENT -->
+                <div class="col-md-3 border-end border-secondary border-opacity-25 text-center">
+                    <div class="mb-3">
+                        <i class="fas {{ spectre.os.icon|default('fa-microchip') }} fa-3x text-info mb-2 opacity-75"></i>
+                        <div class="h5 mb-0 text-white fw-bold">{{ spectre.os.name|default('Unknown') }}</div>
+                        <div class="extra-small text-muted text-uppercase">Operating System ({{ spectre.os.confidence|default('0') }}%)</div>
                     </div>
-
-                    <div class="mb-2">
-                        <small class="text-muted d-block text-uppercase x-small">Hosting / Cloud</small>
-                        {% set ns_cloud = namespace(found=false) %}
-                        {% if results.phases.osint.cloud %}
-                            {% for c in results.phases.osint.cloud %}
-                                {% if c.service and c.service.lower() != 'unknown' %}
-                                    <div class="text-info fw-bold"><i class="fas fa-cloud me-1"></i> {{ c.service }}</div>
-                                    {% set ns_cloud.found = true %}
-                                {% endif %}
-                            {% endfor %}
-                        {% endif %}
-                        {% if not ns_cloud.found %}
-                            <div class="text-secondary fst-italic">Unknown Provider</div>
-                        {% endif %}
+                    <div class="p-2 border border-secondary border-opacity-25 rounded bg-black bg-opacity-20">
+                        <div class="extra-small text-muted text-uppercase mb-1">Environment Profile</div>
+                        <span class="badge {{ 'bg-success' if spectre.environment == 'Production' else 'bg-warning text-dark' }} text-uppercase w-100">
+                            {{ spectre.environment|default('Unknown') }}
+                        </span>
                     </div>
                 </div>
 
-                <!-- TECHNOLOGIES (WhatWeb/Katana) -->
-                <div class="col-md-4 border-end border-secondary border-opacity-25">
-                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-microchip me-2"></i>Dominant Stack</h6>
-                    <div class="d-flex flex-wrap gap-2">
-                        {% set ns_tech = namespace(found=false) %}
-                        
-                        <!-- OS if Nmap guessed it -->
-                        {% if results.phases.recon and results.phases.recon.open_ports %}
-                            {% for port in results.phases.recon.open_ports %}
-                                {% if port.os_guess and "unknown" not in port.os_guess|lower %}
-                                    <span class="badge bg-dark border border-info border-opacity-50 text-info">
-                                        <i class="fab fa-linux me-1"></i> OS: {{ port.os_guess|truncate(15, true) }}
-                                    </span>
-                                    {% set ns_tech.found = true %}
-                                {% endif %}
-                            {% endfor %}
-                        {% endif %}
-
-                        <!-- Main Languages/Frameworks -->
-                        {% if results.phases.enum and results.phases.enum.whatweb and results.phases.enum.whatweb.technologies %}
-                            {% for tech, versions in results.phases.enum.whatweb.technologies.items() %}
-                                {% if loop.index <= 8 and tech not in ['IP', 'Country', 'HTTPServer'] %}
-                                    <span class="badge bg-dark border border-secondary text-light">
-                                        {{ tech }} {% if versions and versions[0] %}v{{ versions[0] }}{% endif %}
-                                    </span>
-                                    {% set ns_tech.found = true %}
-                                {% endif %}
-                            {% endfor %}
-                        {% endif %}
-
-                        {% if not ns_tech.found %}
-                            <div class="text-secondary fst-italic w-100">Scanning signatures...</div>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <!-- DEFENSE / WAF -->
-                <div class="col-md-2 border-end border-secondary border-opacity-25">
-                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-shield-alt me-2"></i>Perimeter Defenses</h6>
-                    
-                    <div class="mb-2">
-                        <small class="text-muted d-block text-uppercase x-small">WAF Status</small>
-                        {% set waf_status = "Scanning..." %}
-                        {% set waf_class = "text-secondary" %}
-                        {% set waf_name = "" %}
-                        
-                        {% if results.phases.enum and results.phases.enum.waf %}
-                            {% for port, waf_data in results.phases.enum.waf.items() %}
-                                {% if waf_data.has_waf %}
-                                    {% set waf_status = "DETECTED" %}
-                                    {% set waf_class = "text-warning fw-bold" %}
-                                    {% set waf_name = waf_data.waf_name %}
-                                {% elif waf_status == "Scanning..." %}
-                                    {% set waf_status = "No WAF detected" %}
-                                    {% set waf_class = "text-success" %}
-                                {% endif %}
-                            {% endfor %}
-                        {% endif %}
-                        
-                        <div class="{{ waf_class }}">
-                            {% if waf_status == "DETECTED" %}<i class="fas fa-exclamation-triangle me-1"></i>{% endif %}
-                            {{ waf_status }}
+                <!-- 2. STACK SPECTRUM -->
+                <div class="col-md-6 border-end border-secondary border-opacity-25">
+                    <div class="row">
+                        <div class="col-6">
+                            <h6 class="text-muted small text-uppercase mb-3"><i class="fas {{ spectre.cms.icon|default('fa-puzzle-piece') }} me-2"></i>Content Management</h6>
+                            <div class="h5 text-info fw-bold mb-0">{{ spectre.cms.name|default('None') }}</div>
+                            <small class="text-muted extra-small">Confidence: {{ spectre.cms.confidence|default('0') }}%</small>
                         </div>
-                        {% if waf_name %}
-                            <div class="text-info x-small fw-bold mt-1">{{ waf_name }}</div>
-                        {% endif %}
-                        
-                        <!-- Wordfence fallback -->
-                        {% if results.phases.vuln.wordpress %}
-                            {% for port, wp in results.phases.vuln.wordpress.items() %}
-                                {% if wp.wordfence_detected %}
-                                    <div class="text-warning fw-bold mt-1"><i class="fas fa-shield-virus me-1"></i> Wordfence</div>
-                                {% endif %}
-                            {% endfor %}
-                        {% endif %}
+                        <div class="col-6 text-end">
+                            <h6 class="text-muted small text-uppercase mb-3"><i class="fas {{ spectre.waf.icon|default('fa-shield-halved') }} me-2"></i>Frontline Defense</h6>
+                            <div class="h5 {{ 'text-warning' if spectre.waf.detected else 'text-success' }} fw-bold mb-0">
+                                {{ spectre.waf.name|default('None') }}
+                            </div>
+                            <small class="text-muted extra-small">{{ 'WAF Detected' if spectre.waf.detected else 'Transparent Edge' }}</small>
+                        </div>
                     </div>
-                </div>
-
-                <!-- EXPOSED PORTS MINI-MAP -->
-                <div class="col-md-3">
-                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-door-open me-2"></i>Exposed Surface</h6>
-                    <div class="d-flex flex-wrap gap-2">
-                        {% if results.phases.recon and results.phases.recon.open_ports %}
-                            {% for port in results.phases.recon.open_ports[:10] %}
-                                {% set is_web = port.port in [80, 443, 8080, 8443] or 'http' in (port.service|default('')) %}
-                                <div class="badge {{ 'bg-info bg-opacity-20 text-info border border-info' if is_web else 'bg-dark border border-secondary text-light' }} p-2" title="{{ port.service|default('Unknown') }}">
-                                    <i class="fas {{ 'fa-globe' if is_web else 'fa-network-wired' }} me-1"></i> 
-                                    {{ port.port }}
-                                </div>
+                    <hr class="border-secondary border-opacity-25 my-3">
+                    <div>
+                        <h6 class="text-muted small text-uppercase mb-2">Technology Spectrum (Agnostic Fingerprinting)</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for item in spectre.stack %}
+                                <span class="badge bg-dark border border-secondary text-light px-2 py-1" style="font-size: 0.75rem;">
+                                    {{ item.name }} {% if item.version %}<span class="text-info ms-1">v{{ item.version }}</span>{% endif %}
+                                </span>
                             {% endfor %}
-                            {% if results.phases.recon.open_ports|length > 10 %}
-                                <div class="badge bg-dark border border-secondary text-muted p-2">
-                                    +{{ results.phases.recon.open_ports|length - 10 }} more
-                                </div>
+                            {% if not spectre.stack %}
+                                <div class="text-secondary fst-italic small">Fingerprinting target telemetry...</div>
                             {% endif %}
-                        {% else %}
-                            <div class="text-secondary fst-italic">Port scanning...</div>
-                        {% endif %}
+                        </div>
                     </div>
                 </div>
 
+                <!-- 3. CLOUD ORIGIN -->
+                <div class="col-md-3">
+                    <h6 class="text-muted small text-uppercase mb-3"><i class="fas {{ spectre.cloud.icon|default('fa-cloud') }} me-2"></i>Cloud Identity</h6>
+                    <div class="p-3 border border-secondary border-opacity-25 rounded bg-black bg-opacity-20 h-100">
+                        <div class="h5 text-white fw-bold mb-1">{{ spectre.cloud.name|default('On-Prem / Unknown') }}</div>
+                        <div class="extra-small text-muted mb-3">{{ 'Verified Provider' if spectre.cloud.provider != 'unknown' else 'Identity Unconfirmed' }}</div>
+                        
+                        {% if results.phases.osint.origin_ips %}
+                        <div class="pt-2 border-top border-secondary border-opacity-25">
+                            <div class="extra-small text-muted text-uppercase mb-1">Target IPs</div>
+                            {% for ip_data in results.phases.osint.origin_ips[:2] %}
+                                <div class="small text-info fw-bold font-monospace mb-1">{{ ip_data.ip }}</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. DOMAIN & WHOIS INTELLIGENCE (NEW) -->
+            {% if spectre.whois and spectre.whois.registrar != 'Unknown' %}
+            <div class="mt-4 pt-4 border-top border-secondary border-opacity-10">
+                <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-globe-americas me-2 text-primary"></i>Domain & WHOIS Intelligence</h6>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="p-2 rounded bg-dark bg-opacity-30 border border-secondary border-opacity-10">
+                            <div class="extra-small text-muted text-uppercase mb-1">Registrar</div>
+                            <div class="small text-white fw-bold">{{ spectre.whois.registrar }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 rounded bg-dark bg-opacity-30 border border-secondary border-opacity-10">
+                            <div class="extra-small text-muted text-uppercase mb-1">Domain Lifecycle</div>
+                            <div class="d-flex justify-content-between extra-small mt-1">
+                                <span class="text-muted">Born</span>
+                                <span class="text-success">{{ spectre.whois.creation_date }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between extra-small mt-1">
+                                <span class="text-muted">Expires</span>
+                                <span class="text-danger">{{ spectre.whois.expiration_date }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 rounded bg-dark bg-opacity-30 border border-secondary border-opacity-10">
+                            <div class="extra-small text-muted text-uppercase mb-1">Nameservers</div>
+                            <div class="extra-small text-info">
+                                {% for ns in spectre.whois.nameservers[:2] %}
+                                    <div class="text-truncate" title="{{ ns }}">• {{ ns }}</div>
+                                {% endfor %}
+                                {% if spectre.whois.nameservers|length > 2 %}
+                                    <div class="opacity-50">+{{ spectre.whois.nameservers|length - 2 }} more</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="p-2 rounded bg-dark bg-opacity-30 border border-secondary border-opacity-10">
+                            <div class="extra-small text-muted text-uppercase mb-1">Domain Status</div>
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                {% for stat in spectre.whois.status[:2] %}
+                                    <span class="badge bg-secondary extra-small" style="font-size: 0.6rem;">{{ stat.split(' ')[0] }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Expanded Contact Intelligence -->
+                {% set whois_full = results.get('phases', {}).get('osint', {}).get('whois', {}) %}
+                {% if whois_full.registrant %}
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4">
+                        <div class="p-2 border border-secondary border-opacity-10 rounded bg-black bg-opacity-20">
+                            <div class="extra-small text-muted text-uppercase mb-1"><i class="fas fa-user-tie me-1"></i>Registrant</div>
+                            <div class="small text-white truncate-1" title="{{ whois_full.registrant.name }} ({{ whois_full.registrant.org }})">
+                                {{ whois_full.registrant.name|default('REDACTED') }}
+                            </div>
+                            <div class="extra-small text-muted italic">{{ whois_full.registrant.org|default('Private Registration') }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-2 border border-secondary border-opacity-10 rounded bg-black bg-opacity-20">
+                            <div class="extra-small text-muted text-uppercase mb-1"><i class="fas fa-user-shield me-1"></i>Administrative</div>
+                            <div class="small text-white truncate-1" title="{{ whois_full.admin.name }} ({{ whois_full.admin.org }})">
+                                {{ whois_full.admin.name|default('REDACTED') }}
+                            </div>
+                            <div class="extra-small text-muted italic">{{ whois_full.admin.email|default('n/a') }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-2 border border-secondary border-opacity-10 rounded bg-black bg-opacity-20">
+                            <div class="extra-small text-muted text-uppercase mb-1"><i class="fas fa-user-cog me-1"></i>Technical</div>
+                            <div class="small text-white truncate-1" title="{{ whois_full.tech.name }} ({{ whois_full.tech.org }})">
+                                {{ whois_full.tech.name|default('REDACTED') }}
+                            </div>
+                            <div class="extra-small text-muted italic">{{ whois_full.tech.phone|default('n/a') }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="col-12">
+    <div class="row g-4">
+        <!-- PERIMETER DEFENSES -->
+        <div class="col-md-3 border-end border-secondary border-opacity-25">
+            <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-shield-alt me-2"></i>Perimeter Defenses</h6>
+            
+            <div class="mb-2">
+                <small class="text-muted d-block text-uppercase x-small">WAF Status</small>
+                {% set waf_status = "Scanning..." %}
+                {% set waf_class = "text-secondary" %}
+                {% set waf_name = "" %}
+                
+                {% if results.phases.enum and results.phases.enum.waf %}
+                    {% for port, waf_data in results.phases.enum.waf.items() %}
+                        {% if waf_data.has_waf %}
+                            {% set waf_status = "DETECTED" %}
+                            {% set waf_class = "text-warning fw-bold" %}
+                            {% set waf_name = waf_data.waf_name %}
+                        {% elif waf_status == "Scanning..." %}
+                            {% set waf_status = "No WAF detected" %}
+                            {% set waf_class = "text-success" %}
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                
+                <div class="{{ waf_class }}">
+                    {% if waf_status == "DETECTED" %}<i class="fas fa-exclamation-triangle me-1"></i>{% endif %}
+                    {{ waf_status }}
+                </div>
+                {% if waf_name %}
+                    <div class="text-info x-small fw-bold mt-1">{{ waf_name }}</div>
+                {% endif %}
+                
+                <!-- Wordfence fallback -->
+                {% if results.phases.vuln.wordpress %}
+                    {% for port, wp in results.phases.vuln.wordpress.items() %}
+                        {% if wp.wordfence_detected %}
+                            <div class="text-warning fw-bold mt-1"><i class="fas fa-shield-virus me-1"></i> Wordfence</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
             </div>
         </div>
+
+        <!-- EXPOSED SURFACE (ENRICHED - Wave 5.5) -->
+        <div class="col-md-9">
+            <h6 class="text-muted small text-uppercase mb-3"><i class="fas fa-door-open me-2"></i>Exposed Surface (Port Depth)</h6>
+            <div class="d-flex flex-wrap gap-2">
+                {% if results.phases.recon and results.phases.recon.open_ports %}
+                    {% for port in results.phases.recon.open_ports[:20] %}
+                        {% set is_web = port.port in [80, 443, 8080, 8443] or 'http' in (port.service|default('')) %}
+                        {% set version_info = port.version|default('No version detected') %}
+                        <div class="badge {{ 'bg-info bg-opacity-20 text-info border border-info' if is_web else 'bg-dark border border-secondary text-light' }} p-2 cursor-pointer" 
+                             data-bs-toggle="tooltip" 
+                             data-bs-html="true"
+                             title="<b>PORT {{ port.port }} ({{ port.service|default('Unknown')|upper }})</b><br><span class='text-muted'>{{ version_info }}</span><br><hr class='my-1'><small class='text-info'><i class='fas fa-search me-1'></i>Click to view NSE Audit Logs</small>"
+                             onclick="showPortAudit('{{ port.port }}')">
+                            <i class="fas {{ 'fa-globe' if is_web else 'fa-network-wired' }} me-1"></i> 
+                            {{ port.port }}
+                        </div>
+                    {% endfor %}
+                    {% if results.phases.recon.open_ports|length > 20 %}
+                        <div class="badge bg-dark border border-secondary text-muted p-2" title="Total ports: {{ results.phases.recon.open_ports|length }}">
+                            +{{ results.phases.recon.open_ports|length - 20 }} more
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="text-secondary fst-italic">Engaging Nmap port discovery...</div>
+                {% endif %}
+            </div>
+        </div>
+
     </div>
 </div>
 

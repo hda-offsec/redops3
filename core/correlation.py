@@ -80,6 +80,16 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         {"evidence": "correlation_engine", "raw_output": "correlation_engine"},
     )
 
+    if severity == "critical" and confidence != "high":
+        severity = "high"
+        title = f"{title} (Unvalidated)"
+        
+    # V12: Label unvalidated hypotheses as candidates
+    if confidence == "low" or "[unverified]" in description.lower():
+        title = f"Candidate Correlation: {title}"
+        if severity in ["critical", "high"]:
+            severity = "medium"
+
     finding = Finding(
         scan_id=scan_id,
         title=title,
@@ -91,7 +101,7 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
         category="attack_chain",
         target=target,
         endpoint=endpoint,
-        metadata_json={**metadata_payload, "timestamp": datetime.utcnow().isoformat() + "Z"},
+        metadata_json={**metadata_payload, "timestamp": datetime.utcnow().isoformat() + "Z", "verified": confidence == "high"},
         evidence=combined_evidence or description,
         raw_output=combined_raw or description,
         signal_ids=signal_ids or [],
@@ -216,16 +226,49 @@ def run_attack_chain_correlation(scan_id):
             created += 1
 
 
-    has_api_key = any("api key" in t or "token" in t for t in titles)
-    has_privileged = any("admin" in t or "privileged" in t or "auth" in t for t in titles)
-    if has_api_key and has_privileged:
-        source = [f for f, t in zip(findings, titles) if ("api key" in t or "token" in t or "admin" in t or "privileged" in t or "auth" in t)]
+    # V12: Strict WP/Auth Exclusions
+    def is_leaked_secret(f):
+        cat = (getattr(f, 'category', '') or '').lower()
+        title = (getattr(f, 'title', '') or '').lower()
+        if "secret" in cat or "token" in cat or "key" in cat:
+            return True
+        # Must be high conf if only keyword matched
+        if ("api key" in title or "token" in title) and getattr(f, 'confidence', '') == 'high':
+            return True
+        return False
+
+    def is_real_privileged_surface(f):
+        ep = (getattr(f, 'endpoint', '') or '').lower()
+        title = (getattr(f, 'title', '') or '').lower()
+        # EXCLUSIONS: Normal WP flow is not a "vulnerability" trigger
+        if any(x in ep for x in ["robots.txt", "wp-login.php", "admin-ajax.php", "admin-post.php", "reauth="]):
+            return False
+        return any(x in title for x in ["admin", "privileged", "auth"])
+
+    has_api_key_finding = any(is_leaked_secret(f) for f in findings)
+    has_privileged_surface = any(is_real_privileged_surface(f) for f in findings)
+    
+    if has_api_key_finding and has_privileged_surface:
+        source = [f for f in findings if is_leaked_secret(f) or is_real_privileged_surface(f)]
+        # Check if we have at least one CONFIRMED/HIGH CONF finding
+        is_confirmed = any(getattr(f, 'confidence', '') == 'high' for f in source)
+        
+        title = "Attack Chain: API Key Exposure + Privileged Surface"
+        if not is_confirmed:
+            title = "Hypothesis: Potential API/Auth Surface Interaction"
+            severity = "low"
+            confidence = "low"
+        else:
+            severity = "critical"
+            confidence = "high"
+
         if _add_chain(
             scan_id,
-            "Attack Chain: API Key Exposure + Privileged Surface",
-            "Detected leaked token/API key indicators alongside privileged endpoints. Validate direct authenticated access and role escalation pathways.",
-            severity="critical",
-            confidence="high",
+            title,
+            "Correlation linked token/key exposure with a non-standard privileged endpoint. " + 
+            ("PROVEN: Verified credential material found." if is_confirmed else "CANDIDATE: Requires manual validation of token material and endpoint acceptance."),
+            severity=severity,
+            confidence=confidence,
             metadata={"tags": ["attack_chain"], "chain": ["api_key_exposure", "privileged_surface"]},
             source_findings=source,
             reproduction=(

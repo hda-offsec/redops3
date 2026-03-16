@@ -1,17 +1,30 @@
 import os
+import json
+import logging
+import urllib.parse
 from scan_engine.helpers.process_manager import ProcessManager
+import scan_engine.helpers.http_client as http_client
+
+logger = logging.getLogger(__name__)
 
 class APIScanner:
     def __init__(self, target, options=None):
-        self.options = options
+        self.options = options or {}
         self.target = target
 
     def check_tools(self):
         return ProcessManager.find_binary_path("ffuf") is not None
 
-    def get_command(self, port, protocol='http', quick=False):
-        url = f"{protocol}://{self.target}:{port}/FUZZ"
-        wordlist = os.path.join(os.getcwd(), "data", "wordlists", "api_endpoints.txt")
+    def get_wordlist_path(self, scan_id=None):
+        """Returns a stable wordlist path. Uses scan-specific path if scan_id is provided."""
+        if scan_id:
+            base = os.path.join(os.getcwd(), "data", "results", f"scan_{scan_id}")
+            os.makedirs(base, exist_ok=True)
+            return os.path.join(base, "api_wordlist.txt")
+        return os.path.join(os.getcwd(), "data", "wordlists", "api_endpoints.txt")
+
+    def prepare_wordlist(self, quick=False, scan_id=None):
+        wordlist = self.get_wordlist_path(scan_id)
         
         # Comprehensive list of common Swagger/OpenAPI and API endpoints
         endpoints = [
@@ -37,36 +50,43 @@ class APIScanner:
             'ui/', 'v1', 'v1.0', 'v1.1', 'v2', 'v2.0', 'v3',
             'v1.x/swagger-ui.html', 'swagger/swagger-ui.html', 'swagger/index.html',
             'api/v1', 'api/v2', 'graphql', 'api/graphiql', 'api/v1/user', 'api/v1/auth', 'api/v1/config',
-            # Additional common API paths
             'actuator', 'actuator/health', 'actuator/info', 'actuator/env', 'actuator/metrics',
             'api/v1/health', 'api/v2/health', 'health', 'info', 'version', 'status',
             'api/v1/login', 'api/v1/signup', 'api/v1/register', 'api/v1/profile',
             'api/v1/admin', 'api/v1/settings', 'api/v1/debug', 'api/v1/test',
             'api/v1/swagger', 'api/v1/docs', 'api/v1/api-docs',
-            'api/v2/login', 'api/v2/signup', 'api/v2/register', 'api/v2/profile',
-            'api/v2/admin', 'api/v2/settings', 'api/v2/debug', 'api/v2/test',
-            'api/v2/swagger', 'api/v2/docs', 'api/v2/api-docs',
             'config', 'settings', 'admin', 'manage', 'management', 'private', 'internal',
             'api/private', 'api/internal', 'api/admin', 'api/manage', 'api/management',
             'metrics', 'prometheus', 'robots.txt', 'sitemap.xml', '.env', '.git/config'
         ]
         
         if quick:
-            # Top-tier most common API endpoints for quick discovery
             unique_endpoints = [
                 'swagger-ui.html', 'openapi.json', 'v2/api-docs', 'v3/api-docs',
                 'swagger.json', 'api-docs', 'docs', 'api/v1', 'api/v2', 'graphql',
                 'actuator/health', 'health', 'version', '.env'
             ]
         else:
-            # Deduplicate and sort for consistency
             unique_endpoints = sorted(list(set(endpoints)))
         
-        # Always ensure wordlist is up-to-date with our enriched list
         os.makedirs(os.path.dirname(wordlist), exist_ok=True)
-        with open(wordlist, "w") as f:
-            for ep in unique_endpoints:
-                f.write(f"{ep}\n")
+        # Check if wordlist exists and content is identical to avoid pointless writes
+        write_needed = True
+        if os.path.exists(wordlist):
+            with open(wordlist, "r") as f:
+                existing = [l.strip() for l in f.readlines()]
+                if set(existing) == set(unique_endpoints):
+                    write_needed = False
+        
+        if write_needed:
+            with open(wordlist, "w") as f:
+                for ep in unique_endpoints:
+                    f.write(f"{ep}\n")
+        return wordlist
+
+    def get_command(self, port, protocol='http', quick=False, scan_id=None):
+        url = f"{protocol}://{self.target}:{port}/FUZZ"
+        wordlist = self.prepare_wordlist(quick, scan_id)
 
         return [
             "ffuf", "-s", "-u", url, "-w", wordlist,
@@ -77,10 +97,48 @@ class APIScanner:
             "-t", "40",
             "-timeout", "5",
             "-noninteractive",
-            "-json" # Use JSON for robust parsing
+            "-json"
         ]
 
-    def stream_api_discovery(self, port, protocol='http', logger=None, quick=False):
-        command = self.get_command(port, protocol, quick=quick)
-        if logger: logger(f"Enrichment: Fuzzing for API Endpoints on port {port} (Mode: {'Quick' if quick else 'Full'})...", "INFO")
+    def verify_finding(self, url):
+        """
+        Performs strict verification of a discovered endpoint.
+        Returns (confirmed, severity, evidence, repro_cmd)
+        """
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = http_client.get(url, options=self.options, timeout=10, allow_redirects=True, headers=headers)
+            
+            # 1. Check for sensitive files (Critical/High)
+            filename = url.split('/')[-1].lower()
+            if filename == '.env' and resp.status_code == 200:
+                if any(x in resp.text for x in ['DB_', 'AWS_', 'SECRET', 'KEY']):
+                    return True, "critical", resp.text[:1000], f"curl -i -s -k {url}"
+            
+            if '.git/config' in url and resp.status_code == 200:
+                 if '[core]' in resp.text:
+                     return True, "high", resp.text[:500], f"curl -i -s -k {url}"
+
+            # 2. Check for API documentation (Info/Low)
+            if any(x in url.lower() for x in ['swagger', 'openapi', 'api-docs']):
+                if resp.status_code == 200 and ('swagger' in resp.text.lower() or 'openapi' in resp.text.lower()):
+                    return True, "low", f"API Documentation detected. Content-Type: {resp.headers.get('Content-Type')}", f"curl -i -k {url}"
+
+            # 3. Check for Actuator endpoints
+            if 'actuator' in url.lower() and resp.status_code == 200:
+                if 'application/json' in resp.headers.get('Content-Type', ''):
+                    return True, "medium", resp.text[:500], f"curl -i -k {url}"
+
+            # 4. Standard validation (is it real or a catch-all?)
+            # If it's a 200 but looks generic, we might skip it or leave as low confidence
+            return resp.status_code < 400, "info", f"Response Header: {resp.headers.get('Server', 'Unknown')}", f"curl -I -k {url}"
+
+        except Exception as e:
+            logger.debug(f"Verification failed for {url}: {e}")
+            return False, "info", None, None
+
+    def stream_api_discovery(self, port, protocol='http', logger=None, quick=False, scan_id=None):
+        command = self.get_command(port, protocol, quick=quick, scan_id=scan_id)
+        if logger: logger(f"Enrichment: Fuzzing for API Endpoints on port {port}...", "INFO")
         return ProcessManager.stream_command(command)
+

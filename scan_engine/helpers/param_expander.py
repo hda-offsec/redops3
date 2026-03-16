@@ -10,7 +10,9 @@ class ParamExpander:
     COMMON_LFI_PARAMS = [
         "file", "filename", "path", "document", "folder", "root", 
         "pg", "page", "template", "style", "view", "include", "inc", 
-        "layout", "mod", "conf", "config"
+        "layout", "mod", "conf", "config", "src", "source", "url",
+        "uri", "dest", "destination", "site", "html", "data", "id",
+        "action", "name", "dir", "path_info", "redirect", "to", "goto"
     ]
     
     COMMON_RCE_PARAMS = [

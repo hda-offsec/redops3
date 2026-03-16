@@ -25,8 +25,34 @@ def deep_merge(dict1, dict2):
             elif isinstance(dict1[key], list) and isinstance(value, list):
                 if value:
                     for item in value:
-                        if item not in dict1[key]:
-                            dict1[key].append(item)
+                        if isinstance(item, dict):
+                            # Try to find a unique key to identify the object
+                            pk = None
+                            for k in ["port", "url", "id", "id_stable", "name"]:
+                                if k in item:
+                                    pk = k
+                                    break
+                            
+                            if pk:
+                                # Check if an item with the same PK already exists
+                                existing_idx = -1
+                                for idx, existing in enumerate(dict1[key]):
+                                    if isinstance(existing, dict) and existing.get(pk) == item.get(pk):
+                                        existing_idx = idx
+                                        break
+                                
+                                if existing_idx >= 0:
+                                    # Update existing item instead of appending
+                                    dict1[key][existing_idx].update(item)
+                                else:
+                                    dict1[key].append(item)
+                            else:
+                                if item not in dict1[key]:
+                                    dict1[key].append(item)
+                        else:
+                            if item not in dict1[key]:
+                                dict1[key].append(item)
+
             else:
                 if not value and dict1[key] and type(value) == type(dict1[key]):
                     continue

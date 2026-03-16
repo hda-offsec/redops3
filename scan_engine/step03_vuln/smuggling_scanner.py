@@ -69,21 +69,47 @@ class SmugglingScanner:
             f"\r\n"
             f"X"
         )
-        duration, _ = self._send_socket_request(host, port, protocol, payload)
-        return duration
+    def check_h2c(self, host, port, protocol):
+        """Probes for H2C smuggling (HTTP/2 Cleartext upgrade)."""
+        # We send an HTTP/1.1 request with an Upgrade to h2c.
+        # If the front-end doesn't support/block it but the back-end does, we can smuggle H2.
+        payload = (
+            f"GET / HTTP/1.1\r\n"
+            f"Host: {host}\r\n"
+            f"Upgrade: h2c\r\n"
+            f"Connection: Upgrade, HTTP2-Settings\r\n"
+            f"HTTP2-Settings: AAMAAABkAAQAAP__\r\n"
+            f"\r\n"
+        )
+        _, response = self._send_socket_request(host, port, protocol, payload)
+        if response and "101 Switching Protocols" in response:
+            return True
+        return False
 
     def scan(self, port, protocol='http', logger=None):
         findings = []
         host = self.target
         if logger: logger(f"Smuggling Expert: Probing {host}:{port} for Desync vulnerabilities...", "INFO")
 
-        # Baseline request
+        # 1. H2C Smuggling Check
+        if self.check_h2c(host, port, protocol):
+            findings.append({
+                "title": "High: H2C Smuggling / Tunneling Detected",
+                "description": f"The server at `{host}:{port}` accepts an H2C upgrade (`Upgrade: h2c`). If a front-end proxy does not support H2C but forwards the upgrade headers, an attacker can tunnel HTTP/2 traffic directly to the back-end, bypassing front-end security controls.",
+                "severity": "high",
+                "confidence": "certain",
+                "tool_source": "smuggling_expert",
+                "url": f"{protocol}://{host}:{port}/"
+            })
+            if logger: logger(f"🔓 H2C SMUGGLING DETECTED on {port}", "HIGH")
+
+        # Baseline request for timing desync
         baseline_payload = f"GET / HTTP/1.1\r\nHost: {host}\r\n\r\n"
         baseline_dur, _ = self._send_socket_request(host, port, protocol, baseline_payload)
         
-        if baseline_dur is None: return [] # Connection failed
+        if baseline_dur is None: return findings # Connection failed but might have found H2C
 
-        # Test CL.TE
+        # 2. Test CL.TE
         cl_te_dur = self.check_cl_te(host, port, protocol)
         if cl_te_dur and cl_te_dur > baseline_dur + 3: # 3s delay is a strong signal
              findings.append({
@@ -99,7 +125,7 @@ class SmugglingScanner:
             })
              if logger: logger(f"💀 SMUGGLING DETECTED: CL.TE Desync on {port}", "CRITICAL")
 
-        # Test TE.CL
+        # 3. Test TE.CL
         te_cl_dur = self.check_te_cl(host, port, protocol)
         if te_cl_dur and te_cl_dur > baseline_dur + 3:
              findings.append({

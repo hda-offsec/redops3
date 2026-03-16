@@ -1,6 +1,7 @@
 import json
 import threading
 import traceback
+import re
 from datetime import datetime
 
 try:
@@ -20,12 +21,18 @@ from scan_engine.helpers.safety_checks import validate_results_schema
 from scan_engine.helpers.service_intelligence import derive_service_intel
 from scan_engine.helpers.surface_expander import derive_surface_expansion
 from scan_engine.helpers.js_mining_expert import JSDeepMiningExpert
+from scan_engine.helpers.identity_spectre import IdentitySpectre
+from scan_engine.helpers.finding_schema import generate_stable_id
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
 from scan_engine.phases.intel import run_intel
 from scan_engine.phases.recon import run_dns_osint, run_recon
 from scan_engine.step01_recon.nse_scanner import NSEScanner
+from scan_engine.step05_tactical.lateral_path_expert import LateralPathExpert
+from scan_engine.step03_vuln.token_validator import TokenValidator
+from scan_engine.step01_recon.cloud_storage_expert import CloudStorageExpert
+from core.results_store import load_results
 try:
     from scan_engine.phases.vuln import run_global_vuln_scans, run_vuln_scans
 except Exception:
@@ -152,6 +159,21 @@ class ScanOrchestrator:
         if not self._finding_callback:
             return
 
+        # V12: Aggressive Terminal Noise Filter (Global Orchestrator Gate)
+        def _clean_ansi(s):
+            if not isinstance(s, str) or not s: return s
+            # Strip ANSI escape sequences
+            s = re.sub(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]', '', s)
+            # Strip literal leftover terminal codes like [2K
+            s = re.sub(r'\[[0-9]{1,2}K', '', s)
+            # Retain only printable characters (plus basic whitespace)
+            return "".join(c for c in s if c.isprintable() or c in "\n\r\t").strip()
+
+        # Sanitize all potentially affected fields
+        for field in ["title", "description", "endpoint", "target", "parameter", "payload", "evidence", "raw_output"]:
+            if field in kwargs:
+                kwargs[field] = _clean_ansi(kwargs[field])
+
         normalized_conf = str(kwargs.get("confidence", "medium")).strip().lower()
 
         if normalized_conf not in {"low", "medium", "high"}:
@@ -212,30 +234,8 @@ class ScanOrchestrator:
         if merged:
             kwargs["signal_ids"] = sorted(set(merged))
 
-        import hashlib
-        from urllib.parse import urlparse
-
-        endpoint_seed = kwargs.get("endpoint") or kwargs.get("target") or kwargs.get("url") or ""
-        try:
-            parsed = urlparse(str(endpoint_seed))
-            # Normalize: ignore scheme and standard ports
-            # e.g. http://example.com:80/api and https://example.com:443/api -> example.com/api
-            host = parsed.hostname or parsed.netloc.split(':')[0]
-            endpoint_fingerprint = f"{host}{parsed.path}?{parsed.query}"
-        except Exception:
-            endpoint_fingerprint = str(endpoint_seed)
-
-        fp_seed = (
-            str(kwargs.get("title", "")) + "|"
-            + endpoint_fingerprint + "|"
-            + str(kwargs.get("parameter", "")) + "|"
-            + str(kwargs.get("payload", "")) + "|"
-            + str(kwargs.get("severity", "")) + "|"
-            + str(kwargs.get("tool_source", kwargs.get("tool", "")))
-        )
-
-        fingerprint = hashlib.sha256(fp_seed.encode()).hexdigest()
-
+        # V12: Use centralized stable ID generator for total system consistency
+        fingerprint = generate_stable_id(kwargs)
         kwargs.setdefault("id_stable", fingerprint)
 
         self._finding_callback(**kwargs)
@@ -434,7 +434,7 @@ class ScanOrchestrator:
                 "recon": {"open_ports": [], "raw_output": ""},
                 "dns": {"subdomains": []},
                 "intel": {},
-                "osint": {"cloud": [], "favicon": {}, "github": [], "emails": [], "dorks": [], "origin_ips": []},
+                "osint": {"cloud": [], "favicon": {}, "github": [], "emails": [], "dorks": [], "origin_ips": [], "whois": {}},
                 "enum": {
                     "whatweb": {}, "katana": {}, "api": {}, "arjun": {}, "headers": {},
                     "js_secrets": {},
@@ -485,10 +485,12 @@ class ScanOrchestrator:
                     self.log("NSE Scanner: Skipping — no open ports.", "DEBUG")
                     return {}
                 nse = NSEScanner(self.target, options=self.options)
-                nse_results = nse.run_on_ports(open_ports, logger_func=self.log)
+                nse_results, executed_commands = nse.run_on_ports(open_ports, logger_func=self.log)
                 if nse_results:
                     def _store_nse():
-                        self.results.setdefault("phases", {}).setdefault("recon", {})["nse_results"] = nse_results
+                        recon = self.results.setdefault("phases", {}).setdefault("recon", {})
+                        recon["nse_results"] = nse_results
+                        recon.setdefault("commands_log", []).extend(executed_commands)
                     self.thread_safe_results_update(_store_nse)
                     self.save_results(self.scan_id, self.results)
                     # Surface key findings immediately
@@ -581,6 +583,11 @@ class ScanOrchestrator:
                     attack_builder = AttackGraphBuilder()
                     graph_data = attack_builder.build(self.results)
                     self.thread_safe_results_update(lambda: self.results.__setitem__("attack_plan", attack_builder.rank_actions()))
+                    
+                    # 6. Target Identity Spectre (Full Spectrum)
+                    self.log("Cortex: Finalizing Target Identity Spectre...", "DEBUG")
+                    spectre = IdentitySpectre.synthesize(self.results)
+                    _set_enum_derived("identity_spectre", spectre)
                     
                     if self.graph_func:
                         self.graph_func(graph_data.get('nodes', []), graph_data.get('edges', []))
@@ -744,11 +751,60 @@ class ScanOrchestrator:
                 if isinstance(item, dict)
             )
 
+            # 7. Lateral Movement Analysis (Wave 2 Tactical)
+            try:
+                self.log("🔗 Lateral Path Expert: Analyzing cross-asset pivot potentials...", "INFO")
+                lpe = LateralPathExpert(self.scan_id, load_results)
+                lateral_findings = lpe.analyze(logger=self.log)
+                if lateral_findings:
+                    self.thread_safe_results_update(lambda: (
+                        self.results.setdefault("phases", {}).setdefault("tactical", {}).__setitem__("lateral_paths", lateral_findings)
+                    ))
+                    for f in lateral_findings:
+                        # Normalize and add as a strategic finding
+                        self.add_finding(
+                            title=f['title'],
+                            description=f['description'],
+                            severity=f['severity'],
+                            tool_source="lateral_expert",
+                            endpoint=f.get('source', '')
+                        )
+                    self.log(f"🔗 Lateral Path Expert: Identified {len(lateral_findings)} potential pivot vectors.", "SUCCESS")
+            except Exception as e:
+                self.log(f"Lateral Path Expert Error: {e}", "DEBUG")
+
             # Final Attack Graph Update (including all findings)
             if self.graph_func:
                 final_builder = AttackGraphBuilder()
                 final_graph = final_builder.build(self.results)
                 self.graph_func(final_graph.get('nodes', []), final_graph.get('edges', []))
+
+            # Wave 4: Cloud Exposure & Token Validation (Precision Intelligence)
+            try:
+                self.log("☁️ Cloud Storage Expert: Scanning discovered assets for bucket exposure...", "INFO")
+                cse = CloudStorageExpert(self.scan_id)
+                cloud_findings = cse.scan(self.results, logger=self.log)
+                for f in cloud_findings:
+                    self.add_finding(**f)
+            except Exception as e:
+                self.log(f"Cloud Storage Expert Error: {e}", "DEBUG")
+
+            try:
+                self.log("🔑 Token Validator: Analyzing findings for actionable secrets...", "INFO")
+                # Need consistent findings list
+                all_findings_list = []
+                # Extract findings from results
+                vuln_ph = self.results.get("phases", {}).get("vuln", {})
+                for mod, mod_data in vuln_ph.items():
+                    if isinstance(mod_data, list): all_findings_list.extend(mod_data)
+                    elif isinstance(mod_data, dict) and "findings" in mod_data: all_findings_list.extend(mod_data["findings"])
+
+                tv = TokenValidator(self.scan_id)
+                verified_secrets = tv.validate_discovered_secrets(all_findings_list, logger=self.log)
+                for vf in verified_secrets:
+                    self.add_finding(**vf)
+            except Exception as e:
+                self.log(f"Token Validator Error: {e}", "DEBUG")
 
             json.dumps(self.results)
         except Exception as e:

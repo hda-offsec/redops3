@@ -66,12 +66,13 @@ def run_dirbusting(orchestrator):
             orch.thread_safe_results_update(lambda: results['commands'].append({'tool': 'ffuf', 'cmd': shlex.join(cmd)}))
 
             try:
+                from scan_engine.helpers.process_manager import ProcessManager
                 stream = scanner.stream_fuzz(port, proto, quick=is_quick, fs=fs_val, fw=fw_val)
                 found_count = 0
 
                 for event in stream:
                     if event["type"] == "stdout":
-                        line = event["line"].strip()
+                        line = ProcessManager.strip_ansi(event["line"]).strip()
                         if not line or line.startswith("::") or line.startswith("["):
                             continue
 

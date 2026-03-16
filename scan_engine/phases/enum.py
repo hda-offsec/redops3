@@ -314,11 +314,13 @@ def run_enum(orchestrator, port, proto):
         if waf_scanner.check_tools():
             _ts(lambda: results['commands'].append({'tool': 'wafw00f', 'cmd': shlex.join(waf_scanner.get_command(port, proto))}))
             waf_stream = waf_scanner.stream_wafw00f(port, proto)
+            found_waf = False
             for event in waf_stream:
                 if "is behind" in event.get("line", ""):
                     res = event["line"].split("is behind")[-1].strip()
-                    _ts(lambda: results['phases']['enum'].setdefault('waf', {}).__setitem__(str(port), res))
+                    _ts(lambda: results['phases']['enum'].setdefault('waf', {}).__setitem__(str(port), {"has_waf": True, "waf_name": res}))
                     log(f"🛡️ WAF: {res}", "SUCCESS")
+                    found_waf = True
                     # V10: Surface WAF detection as INFO finding
                     orch.add_finding(
                         title=f"WAF Detected ({port})",
@@ -326,7 +328,10 @@ def run_enum(orchestrator, port, proto):
                         severity="info",
                         tool_source="wafw00f"
                     )
+            if not found_waf:
+                 _ts(lambda: results['phases']['enum'].setdefault('waf', {}).__setitem__(str(port), {"has_waf": False, "waf_name": None}))
             orch.mark_module("waf", port, "executed")
+
     except Exception as e:
         log(f"WAF scan failed: {e}", "DEBUG")
         orch.mark_module("waf", port, "failed", reason=str(e))
@@ -358,44 +363,62 @@ def run_enum(orchestrator, port, proto):
         log(f"Arjun scan failed: {e}", "DEBUG")
         orch.mark_module("arjun", port, "failed", reason=str(e))
 
-    # 6. API Discovery (Kiterunner)
+    # 6. API Discovery (Kiterunner / ffuf enriched)
     try:
-         api_scanner = APIScanner(target)
+         api_scanner = APIScanner(target, options=orch.options)
          if api_scanner.check_tools():
-            log(f"API Discovery (Kiterunner)...", "INFO")
-            _ts(lambda: results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto, quick=is_quick))}))
-            api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log, quick=is_quick)
-            api_endpoints = []
+            log(f"API Discovery & Validation (RedTeam Expert)...", "INFO")
+            _ts(lambda: results['commands'].append({'tool': 'kiterunner', 'cmd': shlex.join(api_scanner.get_command(port, protocol=proto, quick=is_quick, scan_id=orch.scan_id))}))
+            api_stream = api_scanner.stream_api_discovery(port, protocol=proto, logger=log, quick=is_quick, scan_id=orch.scan_id)
+            
+            raw_discovery = []
             for ev in api_stream:
                 if ev["type"] == "stdout":
-                    line = ev["line"].strip()
+                    line = ProcessManager.strip_ansi(ev["line"]).strip()
                     if line.startswith('{'):
                         try:
-                            import json
                             data = json.loads(line)
                             url = data.get('url')
-                            if url:
-                                api_endpoints.append(url)
-                                # log(f"API Found: {url}", "SUCCESS")
+                            if url: raw_discovery.append(url)
                         except Exception: continue
             
-            if api_endpoints:
-                 def _store_api():
-                     results['phases']['enum']['api'].setdefault('discovered_endpoints', []).extend(api_endpoints)
-                     # store all, but keep compatible with older UI parts that might use port keys
-                     results['phases']['enum']['api'][str(port)] = api_endpoints
-                     results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200, "source": "fuzzing"} for url in api_endpoints])
-                 _ts(_store_api)
-            # V10: Surface API discovery as INFO finding
-            if api_endpoints:
-                sample = ", ".join(api_endpoints[:5])
-                orch.add_finding(
-                    title=f"API Endpoints Discovered ({port})",
-                    description=f"Kiterunner discovered {len(api_endpoints)} API endpoints on port {port}.\nSample: {sample}",
-                    severity="info",
-                    tool_source="kiterunner"
-                )
-            orch.mark_module("api_scanner", port, "executed", artifacts=len(api_endpoints))
+            if raw_discovery:
+                log(f"API Discovery: Verifying {len(raw_discovery)} nodes...", "INFO")
+                final_endpoints = []
+                for url in raw_discovery:
+                    confirmed, sev, evidence, repro_cmd = api_scanner.verify_finding(url)
+                    if confirmed:
+                        final_endpoints.append(url)
+                        # If it's more than INFO, surface it immediately as a unique finding
+                        if sev != "info":
+                            orch.add_finding(
+                                title=f"Sensitive API Exposure: {url.split('/')[-1]} ({port})",
+                                description=f"Strict verification confirmed a sensitive endpoint: {url}",
+                                severity=sev,
+                                tool_source="api_expert",
+                                endpoint=url,
+                                evidence=evidence,
+                                repro_command=repro_cmd,
+                                category="sensitive_endpoint"
+                            )
+                
+                if final_endpoints:
+                     def _store_api():
+                         results['phases']['enum']['api'].setdefault('discovered_endpoints', []).extend(final_endpoints)
+                         results['phases']['enum']['api'][str(port)] = final_endpoints
+                         results['phases']['enum']['api'].setdefault('endpoints', []).extend([{"url": url, "status": 200, "source": "fuzzing"} for url in final_endpoints])
+                     _ts(_store_api)
+                     
+                     sample = ", ".join(final_endpoints[:5])
+                     orch.add_finding(
+                        title=f"API Endpoints Discovered ({port})",
+                        description=f"Verified {len(final_endpoints)} API/Web endpoints on port {port}. Sample: {sample}",
+                        severity="info",
+                        tool_source="api_discovery",
+                        endpoint=f"{proto}://{target}:{port}"
+                     )
+
+            orch.mark_module("api_scanner", port, "executed", artifacts=len(raw_discovery))
     except Exception as e:
         log(f"API discovery failed: {e}", "DEBUG")
         orch.mark_module("api_scanner", port, "failed", reason=str(e))
@@ -426,20 +449,45 @@ def run_enum(orchestrator, port, proto):
         orch.save_results(orch.scan_id, results)
         log(f"Seed Factory: derived {len(canonical['derived']['injection_points'])} seeds.", "SUCCESS")
 
-        # --- TECHNOLOGY STACK INTELLIGENCE ---
+        # --- TECHNOLOGY STACK INTELLIGENCE (V6 Comprehensive) ---
         try:
-            tech_scanner = TechExposureScanner(target)
-            tech_data = tech_scanner.audit(port, protocol=proto, logger=log)
-            if tech_data:
-                def _store_tech():
-                    results['phases']['enum']['tech'] = tech_data
-                    results['phases']['vuln'].setdefault('tech', tech_data)
-                _ts(_store_tech)
-                orch.save_results(orch.scan_id, results)
-                for f in tech_data:
+            # 1. Technical Exposure Findings
+            tech_scanner = TechExposureScanner(target, options=orch.options)
+            tech_findings = tech_scanner.audit(port, protocol=proto, logger=log)
+            
+            # 2. Advanced Tech Detection (Modernization & Score)
+            from scan_engine.step02_enum.tech_detect_advanced import AdvancedTechDetector
+            detector = AdvancedTechDetector(options=orch.options)
+            
+            # Fetch context for analysis
+            url = f"{proto}://{target}:{port}/"
+            headers = {}
+            content = ""
+            try:
+                resp = http_client.get(url, timeout=10, allow_redirects=True)
+                headers = dict(resp.headers)
+                content = resp.text
+            except Exception: pass
+            
+            # Combine findings into metadata
+            tech_report = detector.comprehensive_tech_analysis(url, headers, content, [])
+            
+            def _store_comprehensive_tech():
+                # Expected dict for PDF report and Adaptive Hints
+                results['phases']['enum']['tech'] = tech_report
+                results['phases']['vuln']['tech'] = tech_report
+                # Findings stored separately to avoid type conflict with report dict
+                results['phases']['enum']['tech_exposure'] = tech_findings
+            
+            _ts(_store_comprehensive_tech)
+            orch.save_results(orch.scan_id, results)
+
+            # Register findings as usual
+            if tech_findings:
+                for f in tech_findings:
                     if isinstance(f, dict):
                         orch.add_finding(**f)
-                log(f"Tech Stack / Exposure Intelligence identified {len(tech_data)} artifacts.", "SUCCESS")
+                log(f"Tech Stack Intelligence: identified {len(tech_findings)} artifacts. Modernization: {tech_report.get('modernization_level')}", "SUCCESS")
         except Exception as e:
             log(f"Tech Exposure Scanner Error: {e}", "DEBUG")
 

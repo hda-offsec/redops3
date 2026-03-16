@@ -37,6 +37,15 @@ CANONICAL_FINDING_DEFAULTS = {
     "component": None,
     "version": None,
     "source": "",
+    "remediation": "",
+    "risk_scorecard": {},
+    "impact_area": "Web Application",
+    "chain_metadata": {
+        "is_chain_root": False,
+        "related_findings": [],
+        "attack_path_summary": "",
+        "pivot_point": None
+    },
 }
 
 
@@ -141,18 +150,38 @@ def merge_chain_explanation(base, overlay):
 
 
 def generate_stable_id(finding):
-    endpoint = finding.get("endpoint") or finding.get("target") or ""
-    parameter = finding.get("parameter") or ""
-    category = finding.get("category") or "general"
-    title = finding.get("title") or "unknown"
+    """
+    Generate a deterministic, tool-agnostic stable ID for deduplication.
+    V12: Normalizes endpoints (hostname/path) and includes tactical parameters.
+    """
+    import hashlib
+    from urllib.parse import urlparse
+
+    title = str(finding.get("title") or "unknown")
+    endpoint_seed = finding.get("endpoint") or finding.get("target") or finding.get("url") or ""
+    parameter = str(finding.get("parameter") or "")
+    payload = str(finding.get("payload") or "")
+    severity = str(finding.get("severity") or "info").lower()
+    tool = str(finding.get("tool_source") or finding.get("tool") or "unknown")
 
     try:
-        path = urlparse(str(endpoint)).path or str(endpoint)
+        parsed = urlparse(str(endpoint_seed))
+        # Normalize: ignore scheme and standard ports
+        host = parsed.hostname or parsed.netloc.split(':')[0]
+        # Ignore port if it's 80/443
+        if parsed.port in [80, 443]:
+            host = host.split(':')[0]
+        
+        endpoint_fingerprint = f"{host}{parsed.path}?{parsed.query}"
     except Exception:
-        path = str(endpoint)
+        endpoint_fingerprint = str(endpoint_seed)
 
-    seed = f"{path}|{parameter}|{category}|{title}"
-    return hashlib.sha256(seed.encode()).hexdigest()
+    fp_seed = (
+        f"{title}|{endpoint_fingerprint}|{parameter}|{payload}|{severity}|{tool}"
+    )
+
+    return hashlib.sha256(fp_seed.encode()).hexdigest()
+
 
 
 def normalize_finding_shape(payload, *, source=None):
@@ -234,6 +263,8 @@ def normalize_finding_shape(payload, *, source=None):
         "provider",
         "component",
         "version",
+        "remediation",
+        "risk_scorecard",
     ]:
         if normalized.get(key) is None and key in metadata:
             normalized[key] = metadata.get(key)

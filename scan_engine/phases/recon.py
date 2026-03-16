@@ -11,6 +11,7 @@ from scan_engine.step00_osint.email_scanner import EmailScanner
 from scan_engine.step00_osint.dork_scanner import DorkScanner
 from scan_engine.step00_osint.origin_revealer import OriginRevealer
 from scan_engine.step00_osint.historic_scanner import HistoricScanner
+from scan_engine.step00_osint.whois_scanner import WhoisScanner
 from scan_engine.phases.utils import emit_progress
 
 
@@ -42,14 +43,14 @@ def run_recon(orchestrator):
 
     if not found_profile:
         if profile == 'quick':
-            scan_args = ["-T4", "--top-ports", "100"]
+            scan_args = ["-Pn", "-T4", "--top-ports", "100"]
         elif profile == 'full':
-            scan_args = ["-p-", "-T4"]
+            scan_args = ["-Pn", "-p-", "-T4"]
         elif profile == 'vuln':
-            scan_args = ["--script", "vuln"]
+            scan_args = ["-Pn", "--script", "vuln"]
         else:
             log(f"Unknown profile '{profile}', defaulting to quick scan.", "WARN")
-            scan_args = ["-F"]
+            scan_args = ["-Pn", "-F"]
 
     log(f"Executing Nmap with: {shlex.join(scan_args)}", "DEBUG")
     orch.thread_safe_results_update(lambda: results.setdefault('commands', []).append({'tool': 'nmap', 'cmd': shlex.join(['nmap'] + scan_args + [target])}))
@@ -187,6 +188,29 @@ def run_dns_osint(orchestrator):
 
     orch.thread_safe_results_update(_reset_dns_osint)
 
+    # --- ADVANCED: WHOIS Intelligence ---
+    try:
+        whois_scanner = WhoisScanner(target)
+        whois_data = whois_scanner.scan(logger=log)
+        if whois_data:
+            log(f"WHOIS: Registration data captured for {target} (Registrar: {whois_data.get('registrar')})", "SUCCESS")
+            def _store_whois():
+                results['phases']['osint']['whois'] = whois_data
+            orch.thread_safe_results_update(_store_whois)
+            
+            # Add as finding
+            orch.add_finding(
+                title=f"Domain Intelligence: {target}",
+                description=f"WHOIS data retrieved for {target}.\nRegistrar: {whois_data.get('registrar')}\nCreated: {whois_data.get('creation_date')}\nExpires: {whois_data.get('expiration_date')}",
+                severity="info",
+                tool_source="whois_scanner",
+                category="dns_intelligence",
+                metadata={"whois": whois_data}
+            )
+            orch.save_results(orch.scan_id, results)
+    except Exception as e:
+        log(f"WHOIS Intelligence failed: {e}", "DEBUG")
+
     try:
         dns_scanner = DNSScanner(target)
         dns_data = dns_scanner.enumerate_all(logger=log)
@@ -232,6 +256,35 @@ def run_dns_osint(orchestrator):
             )
 
         orch.save_results(orch.scan_id, results)
+
+        # --- EXPERT: DNS Zone Transfer (AXFR) ---
+        log("Checking for DNS Zone Transfer (AXFR)...", "INFO")
+        ax_success, ax_stdout, ax_stderr, ax_code = dns_scanner.run_axfr()
+        if ax_success and "Transfer failed" not in ax_stdout and "AXFR Search Done" in ax_stdout:
+            # Basic heuristic: if dnsrecon output contains records and doesn't say failed
+            log(f"ALERT: DNS Zone Transfer (AXFR) SUCCESSFUL on {target}!", "CRITICAL")
+            orch.add_finding(
+                title=f"Vulnerable DNS Zone Transfer (AXFR) on {target}",
+                description=f"The DNS server for {target} allows unauthorized zone transfers (AXFR). This exposes the entire DNS record set, mapping internal infrastructure and potential hidden subdomains.",
+                severity="high",
+                confidence="certain",
+                tool_source="dnsrecon_axfr",
+                category="dns_vulnerability",
+                raw_output=ax_stdout[:2000]
+            )
+        elif ax_success and "AXFR" in ax_stdout:
+             # Double check if any records were actually dumped
+             if "[+]" in ax_stdout:
+                log(f"Potential AXFR records leaked from {target}", "SUCCESS")
+                orch.add_finding(
+                    title=f"Successful DNS Zone Transfer (AXFR) on {target}",
+                    description=f"The DNS server for {target} leaked zone data via AXFR.",
+                    severity="high",
+                    confidence="certain",
+                    tool_source="dnsrecon_axfr",
+                    category="dns_vulnerability",
+                    raw_output=ax_stdout[:2000]
+                )
     except Exception as e:
         log(f"DNS Enumeration failed: {e}", "ERROR")
 
@@ -268,7 +321,7 @@ def run_dns_osint(orchestrator):
         leaks = gh_scanner.search_leaks(logger=log)
         if leaks:
             log(f"Found {len(leaks)} GitHub leaks.", "SUCCESS")
-            orch.thread_safe_results_update(lambda: results['phases']['osint'].__setitem__('github', leaks))
+            orch.thread_safe_results_update(lambda: results['phases'].setdefault('osint', {}).__setitem__('github', leaks))
             # V10: Surface GitHub leaks as finding
             orch.add_finding(
                 title=f"GitHub Intelligence ({len(leaks)} results)",
@@ -276,7 +329,50 @@ def run_dns_osint(orchestrator):
                 severity="low",
                 tool_source="github_osint"
             )
+            
+            # --- EXTENDED: Gitleaks Deep Scan ---
+            try:
+                from scan_engine.step00_osint.gitleaks_scanner import GitleaksScanner
+                log(f"Gitleaks: Deep scanning top {min(len(leaks), 3)} discovered repositories...", "INFO")
+                for leak in leaks[:3]: # Limit to top 3 for performance
+                    repo_url = leak.get('url')
+                    if repo_url:
+                        gl_scanner = GitleaksScanner(repo_url)
+                        gl_results = gl_scanner.scan(logger=log)
+                        if gl_results:
+                            for f in gl_results:
+                                orch.add_finding(
+                                    title=f"Gitleaks Secret: {f.get('type')}",
+                                    description=f"Hardcoded secret detected in {f.get('file')}\nMatch: {f.get('match')}\nRepository: {repo_url}",
+                                    severity="high",
+                                    tool_source="gitleaks",
+                                    category="secret_leak",
+                                    metadata=f
+                                )
+            except Exception as e:
+                log(f"Gitleaks integration error: {e}", "DEBUG")
+
             orch.save_results(orch.scan_id, results)
+        
+        # --- EXTENDED: Gitrob Organization Recon ---
+        try:
+            from scan_engine.step00_osint.gitrob_scanner import GitrobScanner
+            org_candidate = target.split('.')[0]
+            if len(org_candidate) > 3:
+                gr_scanner = GitrobScanner(org_candidate)
+                gr_results = gr_scanner.scan(logger=log)
+                if gr_results:
+                    for f in gr_results:
+                        orch.add_finding(
+                            title=f"Gitrob Exposure: {f.get('description')}",
+                            description=f"Potentially sensitive file '{f.get('file')}' found in repo '{f.get('repository')}'\nReason: {f.get('reason')}",
+                            severity="medium",
+                            tool_source="gitrob",
+                            category="reconnaissance",
+                            metadata=f
+                        )
+        except Exception as e:
+            log(f"Gitrob integration error: {e}", "DEBUG")
     except Exception as e:
         log(f"GitHub scan failed: {e}", "DEBUG")
 

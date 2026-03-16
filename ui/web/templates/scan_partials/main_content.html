@@ -44,7 +44,11 @@
         <!-- TAB 1: MISSION OVERVIEW -->
         <div class="tab-pane fade show active" id="mission-pane" role="tabpanel">
             <div class="row g-4">
-                {% include 'scan_partials/interface/mission_overview.html' %}
+                {% if scan.scan_type == 'scannmap' %}
+                    {% include 'scan_partials/interface/scannmap_dashboard.html' %}
+                {% else %}
+                    {% include 'scan_partials/interface/mission_overview.html' %}
+                {% endif %}
             </div>
         </div>
 

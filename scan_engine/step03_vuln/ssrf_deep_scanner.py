@@ -45,21 +45,47 @@ class SSRFDeepScanner:
                     if resp.text == baseline_text:
                         continue
 
-                    text_low = resp.text.lower()
-                    signatures = ["accesskeyid", "secretaccesskey", "token", "instance-id", "ami-id", "computemetadata"]
+                    # 1. Header Validation (Highest Confidence)
+                    headers_low = {k.lower(): v.lower() for k, v in resp.headers.items()}
+                    direct_hit = False
+                    if "metadata-flavor" in headers_low and "google" in headers_low["metadata-flavor"]:
+                        direct_hit = True
+                    if "x-ms-metadata-status" in headers_low:
+                        direct_hit = True
                     
-                    hit = False
-                    for sig in signatures:
-                        if sig in text_low and sig not in baseline_text.lower():
-                            hit = True
-                            break
+                    # 2. Signature Validation
+                    text_low = resp.text.lower()
+                    
+                    # Define provider-specific strong signatures (not in payload)
+                    prov_sigs = {
+                        "aws_iam": ["accesskeyid", "secretaccesskey", "token"],
+                        "aws_tokens": ["ds-metadata-token-ttl-seconds"],
+                        "gcp_metadata": ["\"access_token\":", "\"expires_in\":", "\"token_type\":"],
+                        "azure_metadata": ["\"access_token\":", "\"expires_in\":", "\"ext_expires_in\":"]
+                    }
+                    
+                    hit = direct_hit
+                    if not hit:
+                        sigs = prov_sigs.get(provider, ["accesskeyid", "secretaccesskey", "instance-id"])
+                        for sig in sigs:
+                            if sig in text_low and sig not in baseline_text.lower():
+                                # Verify it's not a reflection of the target_uri
+                                if sig in target_uri.lower():
+                                    # If sig is in payload, we need ANOTHER sig to be sure
+                                    other_sigs = [s for s in sigs if s != sig]
+                                    if any(s in text_low and s not in baseline_text.lower() for s in other_sigs):
+                                        hit = True
+                                        break
+                                else:
+                                    hit = True
+                                    break
 
                     if hit:
                         findings.append({
                             "title": f"Critical Cloud SSRF ({provider.upper()})",
                             "description": f"Successfully extracted cloud credentials via SSRF on parameter '{param}'.\nAttack URL: {attack_url}\nProvider: {provider}",
                             "severity": "critical",
-                            "confidence": "high",
+                            "confidence": "certain" if direct_hit else "high",
                             "tool_source": "ssrf_deep_expert",
                             "url": attack_url,
                             "raw_loot": resp.text[:1000]

@@ -19,6 +19,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from core import models
 from core.models import User
 import core.tasks
+import tasks.nmap_tasks
 
 load_dotenv()
 
@@ -43,6 +44,9 @@ def run_runtime_migrations(app):
                     "reproduction": "ALTER TABLE findings ADD COLUMN reproduction TEXT;",
                     "raw_output": "ALTER TABLE findings ADD COLUMN raw_output TEXT;",
                     "metadata_json": "ALTER TABLE findings ADD COLUMN metadata_json JSON;",
+                    "remediation": "ALTER TABLE findings ADD COLUMN remediation TEXT;",
+                    "risk_scorecard": "ALTER TABLE findings ADD COLUMN risk_scorecard JSON;",
+                    "chain_metadata": "ALTER TABLE findings ADD COLUMN chain_metadata JSON;",
                 }
                 for col, ddl in alter_map.items():
                     if col not in columns:
@@ -105,6 +109,9 @@ def run_runtime_migrations(app):
                 conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_finding_id ON operator_feedback(finding_id);"))
                 conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_replay_id ON operator_feedback(replay_id);"))
                 conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_type ON operator_feedback(feedback_type);"))
+
+                conn.execute(db.text("CREATE TABLE IF NOT EXISTS global_settings (id INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, value TEXT, description TEXT, category TEXT, updated_at DATETIME);"))
+                conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_global_settings_key ON global_settings(key);"))
     except Exception as e:
         app.logger.warning(f"Runtime migration check failed: {e}")
 
@@ -274,7 +281,9 @@ if __name__ == "__main__":
                         "raw_output": "ALTER TABLE findings ADD COLUMN raw_output TEXT;",
                         "metadata": "ALTER TABLE findings ADD COLUMN metadata JSON;",
                         "evidence": "ALTER TABLE findings ADD COLUMN evidence TEXT;",
-                        "reproduction": "ALTER TABLE findings ADD COLUMN reproduction TEXT;"
+                        "reproduction": "ALTER TABLE findings ADD COLUMN reproduction TEXT;",
+                        "remediation": "ALTER TABLE findings ADD COLUMN remediation TEXT;",
+                        "risk_scorecard": "ALTER TABLE findings ADD COLUMN risk_scorecard JSON;"
                     }
                     result = conn.execute(db.text("PRAGMA table_info(findings);")).fetchall()
                     columns = [row[1] for row in result]
@@ -319,6 +328,9 @@ if __name__ == "__main__":
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_finding_id ON operator_feedback(finding_id);"))
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_replay_id ON operator_feedback(replay_id);"))
                     conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_operator_feedback_type ON operator_feedback(feedback_type);"))
+
+                    conn.execute(db.text("CREATE TABLE IF NOT EXISTS global_settings (id INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, value TEXT, description TEXT, category TEXT, updated_at DATETIME);"))
+                    conn.execute(db.text("CREATE INDEX IF NOT EXISTS idx_global_settings_key ON global_settings(key);"))
             except Exception as e:
                 print(f"Migration check failed: {e}")
 

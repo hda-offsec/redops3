@@ -15,6 +15,7 @@ from core.results_store import save_results
 from datetime import datetime
 from flask import current_app
 import logging
+import tasks.nmap_tasks # Import the nmap tasks so they are registered
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,9 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     screenshot_path=kwargs.get('screenshot_path'),
                     request=cleaned_request,
                     response=cleaned_response,
-                    repro_command=cleaned_repro
+                    repro_command=cleaned_repro,
+                    remediation=kwargs.get('remediation'),
+                    risk_scorecard=kwargs.get('risk_scorecard')
                 )
                 db.session.add(finding)
                 db.session.commit()
@@ -227,7 +230,9 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     'signal_ids': kwargs.get('signal_ids', []),
                     'request': cleaned_request,
                     'response': cleaned_response,
-                    'repro_command': cleaned_repro
+                    'repro_command': cleaned_repro,
+                    'remediation': kwargs.get('remediation'),
+                    'risk_scorecard': kwargs.get('risk_scorecard')
                 }, room=f"scan_{scan_id}")
 
                 logger.info(
@@ -510,8 +515,43 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 cortex_created = run_cortex_attack_reasoning(scan_id, add_finding_cb)
                 if cortex_created:
                     _log_and_emit(scan_id, f"Cortex reasoning generated {cortex_created} attack path findings.", "INFO")
+
+                # --- TACTICAL ENRICHMENT (New Synthesis Engine) ---
+                from core.signal_intelligence import SignalSynthesisEngine
+                sy_engine = SignalSynthesisEngine()
+                
+                # Fetch findings from DB to synthesize
+                db_findings_for_synth = Finding.query.filter_by(scan_id=scan_id).all()
+                findings_dicts = []
+                for f in db_findings_for_synth:
+                    findings_dicts.append({
+                        "id_stable": f.id_stable,
+                        "title": f.title,
+                        "category": f.category,
+                        "severity": f.severity,
+                        "endpoint": f.endpoint,
+                        "target": f.target,
+                        "metadata": f.metadata_json or {},
+                        "chain_metadata": f.chain_metadata or {}
+                    })
+                
+                synthesized = sy_engine.synthesize(findings_dicts)
+                # Update Findings with new chain metadata
+                for f_data in synthesized:
+                    f_obj = Finding.query.filter_by(scan_id=scan_id, id_stable=f_data["id_stable"]).first()
+                    if f_obj:
+                        f_obj.chain_metadata = f_data["chain_metadata"]
+                
+                db.session.commit()
+                _log_and_emit(scan_id, "Tactical Intelligence: Findings synthesized and attack paths correlated.", "SUCCESS")
+                
+                # Enrich results with tactical summary
+                tactical_summary = sy_engine.get_tactical_summary(findings_dicts)
+                if not orchestrator.results: orchestrator.results = {}
+                orchestrator.results["tactical_summary"] = tactical_summary
+                
             except Exception as corr_e:
-                _log_and_emit(scan_id, f"Signal correlation/Cortex reasoning skipped: {corr_e}", "WARN")
+                _log_and_emit(scan_id, f"Signal correlation/Tactical enrichment skipped: {corr_e}", "WARN")
 
             try:
                 from core.analysis import apply_risk_scores

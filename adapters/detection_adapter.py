@@ -7,6 +7,7 @@ from scan_engine.helpers.finding_schema import (
     merge_signal_ids,
     deep_merge_metadata,
     merge_field_sources,
+    generate_stable_id,
 )
 
 
@@ -28,9 +29,15 @@ class DetectionAdapter:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_id(*parts):
-        raw = "|".join(str(p) for p in parts)
-        return hashlib.sha256(raw.encode()).hexdigest()
+    def _make_id(tool, title, endpoint="", parameter="", payload="", severity="info"):
+        return generate_stable_id({
+            "tool_source": tool,
+            "title": title,
+            "endpoint": endpoint,
+            "parameter": parameter,
+            "payload": payload,
+            "severity": severity
+        })
 
     # ------------------------------------------------------------------
     # ADD FINDING (CORE NORMALIZER)
@@ -47,10 +54,29 @@ class DetectionAdapter:
         confidence="medium",
         **extra,
     ):
+        # V12: Aggressive Global Cleaner for terminal noise (ffuf, etc.)
+        def clean_terminal_noise(s):
+            if not isinstance(s, str): return s
+            # 1. Standard ANSI escape sequences
+            ansi_regex = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
+            s = ansi_regex.sub('', s)
+            # 2. Literal terminal codes like [2K or [1K which sometimes leak
+            s = re.sub(r'\[[0-9]{1,2}K', '', s)
+            # 3. Non-printable controls
+            s = "".join(char for char in s if char.isprintable() or char in "\n\r\t")
+            return s.strip()
+
+        title = clean_terminal_noise(title)
+        description = clean_terminal_noise(description)
+        
+        # Clean extra fields
+        for field in ["endpoint", "target", "parameter", "payload", "raw_output"]:
+            if field in extra:
+                extra[field] = clean_terminal_noise(extra[field])
+
         if not title:
             return
-
-        title = title.strip()
+        
         clean_title = re.sub(
             r"^(critical|high|medium|low|info|warn|warning):\s*",
             "",
@@ -118,6 +144,17 @@ class DetectionAdapter:
                 )[:3000]
 
             return
+
+        # Port State Normalization for filtering
+        m_json = extra.get("metadata", {}) or {}
+        if not m_json.get("port_state"):
+            # Try to extract from description if it's there
+            state_match = re.search(r"State:\s*([a-z+|]+)", description, re.IGNORECASE)
+            if state_match:
+                m_json["port_state"] = state_match.group(1).lower()
+            elif (extra.get("category") == "service_detection" or extra.get("category") == "nse_result"):
+                m_json["port_state"] = "open" # Default for these categories if not specified
+        extra["metadata"] = m_json
 
         # Auto-Remediation Guidance
         remediations = {
@@ -305,20 +342,35 @@ class DetectionAdapter:
 
             # Main WordPress detection finding
             desc_lines = [
-                f"**Version**: {version}",
-                f"**Theme**: {theme}",
-                f"**Wordfence WAF**: {'Detected' if wordfence else 'Not detected'}",
-                f"**Enumerated Users**: {len(users)}",
-                f"**Plugins**: {len(plugins)}",
+                f"### WordPress Environment Intel",
+                f"**Version**: `{version}`",
+                f"**Theme**: `{theme}`",
+                f"**Wordfence WAF**: `{'PROTECTED' if wordfence else 'NOT DETECTED'}`",
+                f"**Total Plugins**: `{len(plugins)}`",
+                f"**Total Users**: `{len(users)}`",
+                "\n#### Identified Plugins & Versions",
             ]
-            if users:
-                desc_lines.append(
-                    "**Users**: " + ", ".join(str(u) for u in users[:10])
-                )
+            
             if plugins:
-                desc_lines.append(
-                    "**Plugins**: " + ", ".join(str(p) for p in plugins[:10])
-                )
+                for p in plugins:
+                    if isinstance(p, dict):
+                        name = p.get("slug", p.get("name", "Unknown"))
+                        ver = p.get("version", "Unknown")
+                        desc_lines.append(f"• **{name}** (v{ver})")
+                    else:
+                        desc_lines.append(f"• {p}")
+            else:
+                desc_lines.append("_No plugins identified._")
+
+            if users:
+                desc_lines.append("\n#### Enumerated Users")
+                user_names = []
+                for u in users:
+                    if isinstance(u, dict):
+                        user_names.append(f"`{u.get('name', 'unknown')}`")
+                    else:
+                        user_names.append(f"`{u}`")
+                desc_lines.append(", ".join(user_names))
 
             fid = DetectionAdapter._make_id("wordpress_intel", port, version)
             DetectionAdapter._add(
@@ -331,7 +383,9 @@ class DetectionAdapter:
                 confidence="high",
                 category="wordpress",
                 endpoint=f"port:{port}",
+                repro_command=f"wpscan --url {info.get('url', 'http://TARGET')} --enumerate p,t,u --disable-tls-checks",
             )
+
 
             # Individual WP vulnerability findings
             if isinstance(vulns, list):
@@ -348,9 +402,10 @@ class DetectionAdapter:
                             description=v.get("description", ""),
                             tool_source="wpscan",
                             confidence="high",
-                            category="wordpress_vuln",
+                            category="vulnerability",
                             endpoint=f"port:{port}",
                             evidence=v.get("reference", ""),
+                            repro_command=f"# Refer to: {v.get('reference', 'CVE details')}",
                         )
 
     @staticmethod
@@ -382,8 +437,9 @@ class DetectionAdapter:
                 description="\n".join(str(m) for m in matches[:20]),
                 tool_source="data_miner",
                 confidence="high",
-                category="data_leak",
+                category="intelligence",
                 endpoint=url,
+                repro_command=f"curl -ik {url}" if url else "",
             )
 
     @staticmethod
@@ -549,8 +605,9 @@ class DetectionAdapter:
                     description=f"Endpoint discovered by {tool}: `{url}` (HTTP {status})",
                     tool_source=tool,
                     confidence="high",
-                    category="dirbusting_endpoint",
+                    category="endpoint",
                     endpoint=url,
+                    repro_command=f"curl -ik {url}",
                 )
 
     @staticmethod
@@ -587,34 +644,258 @@ class DetectionAdapter:
                 description=f"Accessible endpoint discovered at `{url}` returned HTTP {status}.",
                 tool_source="api_scanner",
                 confidence="high",
-                category="api_endpoint",
+                category="api",
                 endpoint=url,
+                repro_command=f"curl -ik {url}",
             )
 
     @staticmethod
     def _synth_injection_points(enum_data, normalized):
         """Synthesize findings from enum.injection_points dict (port → list)."""
         injection = enum_data.get("injection_points", {})
+        seed_meta = enum_data.get("seed_meta", {})
         if not isinstance(injection, dict):
             return
 
         for port, points in injection.items():
             if not isinstance(points, list) or len(points) == 0:
                 continue
+            
+            # Map by classification
+            port_meta = seed_meta.get(str(port), {})
+            by_class = {
+                "candidate_injection_surface": [],
+                "legitimate_framework_parameter": [],
+                "parameterized_asset": []
+            }
+            
+            for url in points:
+                meta = port_meta.get(url, {})
+                cls = meta.get("classification")
+                
+                # Fallback classification if missing
+                if not cls:
+                    u_low = url.lower()
+                    if any(x in u_low for x in [".js?", ".css?", ".png?", ".jpg?", ".jpeg?", ".gif?", ".svg?", ".ico?"]):
+                        cls = "parameterized_asset"
+                    elif any(k in u_low for k in ["?ver=", "&ver=", "redirect_to=", "reauth=", "wp_lang="]):
+                        cls = "legitimate_framework_parameter"
+                    else:
+                        cls = "candidate_injection_surface"
+                
+                if cls in by_class:
+                    by_class[cls].append(url)
+                else:
+                    by_class["candidate_injection_surface"].append(url)
 
-            urls_display = "\n".join(f"• `{u}`" for u in points[:15])
+            # 1. Main Candidate Surface Finding
+            candidates = by_class["candidate_injection_surface"]
+            if candidates:
+                urls_display = "\n".join(f"• `{u}`" for u in candidates[:10])
+                fid = DetectionAdapter._make_id("injection_points_candidate", port, len(candidates))
+                DetectionAdapter._add(
+                    normalized,
+                    fid,
+                    title=f"Candidate Input Surface: {len(candidates)} Parameterized Endpoints (port {port})",
+                    severity="info",
+                    description=f"Discovered {len(candidates)} URLs with high-potential input parameters:\n{urls_display}" + (f"\n...and {len(candidates)-10} more" if len(candidates) > 10 else ""),
+                    tool_source="enum_seed_factory",
+                    confidence="medium",
+                    category="threat_surface",
+                    endpoint=f"port:{port}",
+                    metadata={"classification": "candidate"},
+                    repro_command=f"# Use burp or ffuf to fuzz parameters for these URLs:\n# {candidates[0]}",
+                )
 
-            fid = DetectionAdapter._make_id("injection_points", port, len(points))
+            # 2. Framework/Asset Surface (Lower Priority)
+            others = by_class["legitimate_framework_parameter"] + by_class["parameterized_asset"]
+            if others:
+                fid = DetectionAdapter._make_id("injection_points_other", port, len(others))
+                DetectionAdapter._add(
+                    normalized,
+                    fid,
+                    title=f"Discovered Low-Risk Parameters ({len(others)}) (port {port})",
+                    severity="info",
+                    description=f"Identified {len(others)} parameterized endpoints classified as low-risk (framework/static assets). Example: `{others[0]}`",
+                    tool_source="enum_seed_factory",
+                    confidence="low",
+                    category="parameterized_surface",
+                    endpoint=f"port:{port}",
+                    metadata={"classification": "low_risk"}
+                )
+
+    @staticmethod
+    def _synth_js_vulns(vuln_data, normalized):
+        """Synthesize findings from vuln.js_vulns (port → list)."""
+        js_vulns = vuln_data.get("js_vulns", {})
+        if not isinstance(js_vulns, dict):
+            return
+
+        for port, vulns in js_vulns.items():
+            if not isinstance(vulns, list):
+                continue
+
+            for v in vulns:
+                if not isinstance(v, dict):
+                    continue
+
+                title = v.get("title", "JS Vulnerability")
+                desc = v.get("description", "")
+                sev = v.get("severity", "medium")
+                tool = v.get("tool_source", "js_vuln_audit")
+                endpoint = v.get("endpoint") or v.get("target") or f"port:{port}"
+
+                fid = DetectionAdapter._make_id(tool, title, endpoint=endpoint, severity=sev)
+                DetectionAdapter._add(
+                    normalized,
+                    fid,
+                    title=title,
+                    severity=sev,
+                    description=desc,
+                    tool_source=tool,
+                    confidence="medium",
+                    category="vulnerability",
+                    endpoint=endpoint,
+                    repro_command=f"curl -ik {endpoint}" if endpoint.startswith("http") else "",
+                )
+
+    @staticmethod
+    def _synth_dns_findings(dns_data, normalized):
+        """Synthesize findings from dns phase data (subdomains, records)."""
+        subdomains = dns_data.get("subdomains", [])
+        if isinstance(subdomains, list) and subdomains:
+            fid = DetectionAdapter._make_id("dns_enum", f"Subdomains Discovered ({len(subdomains)})")
             DetectionAdapter._add(
                 normalized,
                 fid,
-                title=f"Injection Points: {len(points)} Injectable URLs (port {port})",
+                title=f"Subdomains Discovered ({len(subdomains)})",
                 severity="info",
-                description=f"Discovered {len(points)} URLs with injectable parameters:\n{urls_display}",
-                tool_source="enum_seed_factory",
+                description=f"DNS enumeration found {len(subdomains)} subdomains: " + ", ".join(str(s) for s in subdomains[:10]) + ("..." if len(subdomains) > 10 else ""),
+                tool_source="dns_enum",
+                confidence="high",
+                category="recon_dns"
+            )
+
+        records = dns_data.get("records", [])
+        if isinstance(records, list) and records:
+            fid = DetectionAdapter._make_id("dns_enum", f"DNS Records ({len(records)})")
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title=f"DNS Records ({len(records)})",
+                severity="info",
+                description="\n".join([f"• {r.get('type','?')}: {r.get('value','')}" for r in records[:20] if isinstance(r, dict)]),
+                tool_source="dns_enum",
+                confidence="high",
+                category="dns_intelligence"
+            )
+
+    @staticmethod
+    def _synth_dns_security(dns_data, normalized):
+        """Synthesize findings from dns.security analysis (SPF/DMARC/MX/CDN)."""
+        sec = dns_data.get("security", {})
+        if not isinstance(sec, dict):
+            return
+
+        # 1. SPF / DMARC Intelligence
+        spf = sec.get("spf", {})
+        dmarc = sec.get("dmarc", {})
+        
+        if spf.get("present") or dmarc.get("present"):
+            desc = f"**SPF Policy**: {spf.get('policy', 'N/A')} ({spf.get('rating', 'Unknown')})\n"
+            desc += f"**DMARC Policy**: {dmarc.get('policy', 'N/A')} ({dmarc.get('rating', 'Unknown')})"
+            
+            fid = DetectionAdapter._make_id("dns_security_policy", desc[:50])
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title="DNS Security Policy (SPF/DMARC) Analysis",
+                severity="info" if spf.get("rating") == "Secure" and dmarc.get("rating") == "Secure" else "low",
+                description=desc,
+                tool_source="dns_analyzer",
+                confidence="high",
+                category="dns_intelligence"
+            )
+
+        # 2. Takeovers
+        takeovers = sec.get("takeovers", [])
+        if takeovers:
+            desc = "Potential subdomain takeover vulnerabilities detected:\n"
+            for t in takeovers:
+                desc += f"• `{t.get('alias')}` pointing to `{t.get('target')}`\n"
+            
+            fid = DetectionAdapter._make_id("dns_takeover_potential", len(takeovers))
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title=f"Potential Subdomain Takeover ({len(takeovers)})",
+                severity="high",
+                description=desc,
+                tool_source="dns_analyzer",
                 confidence="medium",
-                category="injection_surface",
-                endpoint=f"port:{port}",
+                category="dns_vulnerability"
+            )
+
+        # 3. CDN / Infrastructure
+        cdns = sec.get("cdn", [])
+        if cdns:
+            desc = "Frontline infrastructure detected via DNS:\n" + "\n".join(f"• `{c}`" for c in cdns)
+            fid = DetectionAdapter._make_id("dns_infra_intel", len(cdns))
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title="Infrastructure Discovery (CDN/Cloud)",
+                severity="info",
+                description=desc,
+                tool_source="dns_analyzer",
+                confidence="high",
+                category="dns_intelligence"
+            )
+
+    @staticmethod
+    def _synth_osint_leaks(osint_data, normalized):
+        """Synthesize findings from OSINT leaks (emails, github)."""
+        emails = osint_data.get("emails", [])
+        if isinstance(emails, list) and emails:
+            email_list = emails if isinstance(emails[0], str) else [e.get("email", "") for e in emails]
+            fid = DetectionAdapter._make_id("osint", f"Exposed Email Addresses ({len(emails)})")
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title=f"OSINT: Exposed Email Addresses ({len(emails)})",
+                severity="info",
+                description="The following email addresses were discovered in public records or leaks:\n" + "\n".join(f"• {e}" for e in email_list[:20]),
+                tool_source="osint",
+                confidence="medium",
+                category="osint_email"
+            )
+
+        github = osint_data.get("github", [])
+        if isinstance(github, list) and github:
+            fid = DetectionAdapter._make_id("osint", f"GitHub Code Exposure ({len(github)} results)")
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title=f"OSINT: GitHub Code Exposure ({len(github)} results)",
+                severity="low",
+                description=f"GitHub search identified {len(github)} potential code or secret exposures related to the target domain.",
+                tool_source="osint",
+                confidence="medium",
+                category="osint_github"
+            )
+
+        cloud = osint_data.get("cloud", [])
+        if isinstance(cloud, list) and cloud:
+            fid = DetectionAdapter._make_id("osint", f"Cloud Assets Discovered ({len(cloud)})")
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title=f"OSINT: Cloud Assets Discovered ({len(cloud)})",
+                severity="info",
+                description="The following cloud assets/buckets were identified:\n" + "\n".join(f"• {c}" for c in cloud[:20]),
+                tool_source="osint",
+                confidence="medium",
+                category="osint_cloud"
             )
 
     @staticmethod
@@ -701,8 +982,9 @@ class DetectionAdapter:
                     description=output_str[:2000],
                     tool_source="nse_scanner",
                     confidence="high",
-                    category="nse_script",
+                    category="recon",
                     endpoint=f"port:{port}",
+                    repro_command=f"nmap -sV -p {port} --script {script_name} TARGET",
                 )
 
     # ------------------------------------------------------------------
@@ -770,15 +1052,22 @@ class DetectionAdapter:
                     continue
 
                 for item in items:
-                    if not isinstance(item, dict):
+                    if not isinstance(item, dict) or not item:
+                        continue
+                    
+                    # Basic validation: must have at least a title or a description/evidence to be a finding
+                    if not item.get("title") and not item.get("description") and not item.get("evidence") and not item.get("raw_output"):
                         continue
 
                     fid = item.get("id_stable")
-                    if not fid:
+                    if not fid or len(fid) < 32:
                         fid = DetectionAdapter._make_id(
                             tool,
-                            item.get("title", ""),
-                            item.get("endpoint", ""),
+                            item.get("title", "Finding"),
+                            endpoint=item.get("endpoint", ""),
+                            parameter=item.get("parameter", ""),
+                            payload=item.get("payload", ""),
+                            severity=item.get("severity", "info")
                         )
 
                     DetectionAdapter._add(
@@ -817,6 +1106,10 @@ class DetectionAdapter:
             DetectionAdapter._synth_open_ports(phases["recon"], normalized)
             DetectionAdapter._synth_nse_results(phases["recon"], normalized)
 
+        if "dns" in phases:
+            DetectionAdapter._synth_dns_findings(phases["dns"], normalized)
+            DetectionAdapter._synth_dns_security(phases["dns"], normalized)
+
         if "enum" in phases:
             DetectionAdapter._synth_headers(phases["enum"], normalized)
             DetectionAdapter._synth_js_secrets(phases["enum"], normalized)
@@ -824,12 +1117,14 @@ class DetectionAdapter:
         if "vuln" in phases:
             DetectionAdapter._synth_wordpress(phases["vuln"], normalized)
             DetectionAdapter._synth_data_leaks(phases["vuln"], normalized)
+            DetectionAdapter._synth_js_vulns(phases["vuln"], normalized)
 
         if "intel" in phases:
             DetectionAdapter._synth_intel_vectors(phases["intel"], normalized)
 
         if "osint" in phases:
             DetectionAdapter._synth_osint_summary(phases["osint"], normalized)
+            DetectionAdapter._synth_osint_leaks(phases["osint"], normalized)
             DetectionAdapter._synth_favicon_hash(phases["osint"], normalized)
 
         if "enum" in phases:

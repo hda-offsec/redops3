@@ -18,19 +18,36 @@ class HistoricScanner:
         
         if self.logger: self.logger(f"Fetching historic URLs from Wayback Machine for {self.target}...", "INFO")
         
-        try:
-            # We use a timeout to avoid hanging the scan if Archive.org is slow
-            response = http_client.get(api_url, options=getattr(self, "options", None), timeout=30)
-            if response.status_code == 200:
-                for line in response.text.splitlines():
-                    u = line.strip()
-                    if u:
-                        urls.add(u)
-                if self.logger: self.logger(f"Discovered {len(urls)} historic URLs.", "SUCCESS")
-            else:
-                if self.logger: self.logger(f"Wayback Machine returned status {response.status_code}", "WARN")
-        except Exception as e:
-            if self.logger: self.logger(f"Failed to fetch historic URLs: {e}", "DEBUG")
+        # Custom options for Wayback (notorious for timeouts/503)
+        archive_opts = (self.options or {}).copy()
+        archive_opts["read_timeout"] = 60.0 # 1 minute read timeout
+        archive_opts["max_retries"] = 5
+        
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                if self.logger: self.logger(f"Wayback Query (Attempt {attempt+1}/{max_attempts}): {self.target}", "DEBUG")
+                response = http_client.get(api_url, options=archive_opts, timeout=60)
+                if response.status_code == 200:
+                    for line in response.text.splitlines():
+                        u = line.strip()
+                        if u:
+                            urls.add(u)
+                    if self.logger: self.logger(f"Discovered {len(urls)} historic URLs.", "SUCCESS")
+                    break 
+                elif response.status_code == 503:
+                    if self.logger: self.logger(f"Wayback 503 (Busy). Retrying...", "WARN")
+                    time.sleep(2)
+                else:
+                    if self.logger: self.logger(f"Wayback Machine returned status {response.status_code}", "WARN")
+                    break 
+            except Exception as e:
+                if attempt == max_attempts - 1:
+                    if self.logger: self.logger(f"Wayback fetch failed after {max_attempts} attempts: {e}", "ERROR")
+                else:
+                    if self.logger: self.logger(f"Wayback attempt {attempt+1} failed: {e}. Retrying...", "DEBUG")
+                    time.sleep(2)
+
             
         return list(urls)
 

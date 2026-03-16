@@ -97,22 +97,62 @@ class EnumSeedFactory:
         seeds = []
         seed_meta = {}
         
+        # Classification patterns
+        framework_params = {"redirect_to", "reauth", "wp_lang", "ver", "lang", "utm_source", "utm_medium", "utm_campaign", "s"}
+        # 's' is the search param, while others are less 'injectable' but valid surface.
+        
         for ep in top_eps:
             url = ep["url"]
             parsed = urlparse(url)
+            path = parsed.path.lower()
+            
+            # Determine if it's a static asset
+            is_static = any(path.endswith(ext) for ext in self.static_exts)
             
             if parsed.query:
-                # IF endpoint has params: keep structure
-                seeds.append(url)
-                seed_meta[url] = {"source": ep["source"], "dynamic": True, "score": 100}
-            elif self.arjun_params:
-                # ELSE IF Arjun params exist: synthesize seeds
+                query_params = parse_qs(parsed.query)
+                param_names = set(query_params.keys())
+                
+                # Classify based on path and params
+                classification = "candidate_injection_surface"
+                if is_static:
+                    classification = "parameterized_asset"
+                elif param_names.issubset(framework_params):
+                    # Special case for 's' (Search) - it's a real surface even if it's framework
+                    if "s" in param_names:
+                        classification = "candidate_injection_surface"
+                    else:
+                        classification = "legitimate_framework_parameter"
+                
+                # V12: Only include as 'seed' if it's not a pure static asset with no high-risk params
+                include_as_seed = True
+                if classification == "parameterized_asset":
+                    # Check if it has any high-risk params (e.g. ?url=...)
+                    if not any(p in param_names for p in self.high_risk_params):
+                        include_as_seed = False
+                
+                if include_as_seed:
+                    seeds.append(url)
+                    seed_meta[url] = {
+                        "source": ep["source"],
+                        "dynamic": True,
+                        "classification": classification,
+                        "params": list(param_names),
+                        "score": 100 if classification == "candidate_injection_surface" else 30
+                    }
+            elif self.arjun_params and not is_static:
+                # ELSE IF Arjun params exist and not static
                 for p in self.arjun_params[:10]:
                     new_url = f"{url}?{p}=__seed__" if "?" not in url else f"{url}&{p}=__seed__"
                     seeds.append(new_url)
-                    seed_meta[new_url] = {"source": f"arjun:{ep['source']}", "dynamic": True, "score": 80}
+                    seed_meta[new_url] = {
+                        "source": f"arjun:{ep['source']}",
+                        "dynamic": True,
+                        "classification": "candidate_injection_surface",
+                        "params": [p],
+                        "score": 80
+                    }
             else:
-                # ELSE: DO NOT generate empty seeds (except original as target)
                 pass
 
         return {

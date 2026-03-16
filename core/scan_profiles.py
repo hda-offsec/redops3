@@ -2,32 +2,32 @@ SCAN_PROFILES = {
     "tcp_scans": {
       "quick_10": {
         "description": "Scan ultra rapide des 10 ports TCP les plus fréquents",
-        "args": "-T5 --top-ports 10 -sS",
+        "args": "-Pn -T5 --top-ports 10 -sS",
         "estimated_duration": 5
       },
       "quick_100": {
         "description": "Scan rapide des 100 ports TCP les plus courants",
-        "args": "-T4 --top-ports 100 -sS",
+        "args": "-Pn -T4 --top-ports 100 -sS",
         "estimated_duration": 10
       },
       "quick_300": {
         "description": "Scan rapide des 300 ports TCP les plus probables",
-        "args": "-T4 --top-ports 300 -sS",
+        "args": "-Pn -T4 --top-ports 300 -sS",
         "estimated_duration": 20
       },
       "quick_1000": {
         "description": "Scan rapide des 1000 ports TCP les plus communs",
-        "args": "-T4 --top-ports 1000 -sS",
+        "args": "-Pn -T4 --top-ports 1000 -sS",
         "estimated_duration": 30
       },
       "full_tcp": {
         "description": "Scan complet de tous les ports TCP",
-        "args": "-T4 -p- -sS",
+        "args": "-Pn -T4 -p- -sS",
         "estimated_duration": 90
       },
       "tcp_service_version": {
         "description": "Scan TCP avec détection de services et versions",
-        "args": "-sS -sV -T4",
+        "args": "-Pn -sS -sV -T4",
         "estimated_duration": 45
       }
     },
@@ -49,36 +49,36 @@ SCAN_PROFILES = {
       },
       "udp_detect_services": {
         "description": "Scan UDP avec détection de services et versions",
-        "args": "-sU -sV --top-ports 100 -T3",
+        "args": "-Pn -sU -sV --top-ports 100 -T3",
         "estimated_duration": 100
       }
     },
     "web_scans": {
       "web_ports": {
         "description": "Scan des ports Web typiques (80,443,8080...)",
-        "args": "-T4 -p 80,443,8000,8080,8443,8888,3000,5000 -sS -sV",
+        "args": "-Pn -T4 -p 80,443,8000,8080,8443,8888,3000,5000 -sS -sV",
         "estimated_duration": 25
       },
       "web_detect_vulns": {
         "description": "Scan Web avec détection de vulnérabilités (scripts NSE)",
-        "args": "-p 80,443,8080,8443 -sV --script http-vuln* -T4",
+        "args": "-Pn -p 80,443,8080,8443 -sV --script http-vuln* -T4",
         "estimated_duration": 60
       }
     },
     "specialized_scans": {
       "vuln_nse": {
         "description": "Scan vulnérabilités générales avec scripts NSE",
-        "args": "-sV --script vuln -T4",
+        "args": "-Pn -sV --script vuln -T4",
         "estimated_duration": 60
       },
       "os_detect": {
         "description": "Détection de l'OS, version, et services",
-        "args": "-O -sV -T3",
+        "args": "-Pn -O -sV -T3",
         "estimated_duration": 80
       },
       "aggressive": {
         "description": "Scan agressif complet avec scripts et OS",
-        "args": "-A -T4",
+        "args": "-Pn -A -T4",
         "estimated_duration": 100
       },
       "full_optimized": {

@@ -311,12 +311,19 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(50, 7, "Modernization Level:", border=1)
         pdf.set_font("helvetica", "", 10)
-        pdf.cell(0, 7, pdf.safe_text(tech.get('modernization_level', 'Unknown')), border=1, ln=True)
+        
+        modernization = "Unknown"
+        if isinstance(tech, dict):
+            modernization = tech.get('modernization_level', 'Unknown')
+        pdf.cell(0, 7, pdf.safe_text(modernization), border=1, ln=True)
         
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(50, 7, "Technology Score:", border=1)
         pdf.set_font("helvetica", "", 10)
-        score = tech.get('technology_score', 0)
+        
+        score = 0
+        if isinstance(tech, dict):
+            score = tech.get('technology_score', 0)
         pdf.cell(0, 7, f"{score}/100", border=1, ln=True)
         
         pdf.ln(3)
@@ -512,28 +519,43 @@ def generate_scan_report(scan_id, scan_obj, findings):
         if pdf.get_y() > 250: pdf.add_page()
         
         sev = get_sev(f)
-        if sev == 'critical': color = (200, 0, 0)
-        elif sev == 'high': color = (255, 42, 42)
-        elif sev == 'medium': color = (255, 120, 0)
-        else: color = (0, 100, 200)
+        # Professional color palette: Only Critical is Red (Tactical Alert)
+        if sev == 'critical': 
+            bg_color = (180, 0, 0)
+            text_color = (255, 255, 255)
+        elif sev == 'high': 
+            bg_color = (40, 40, 45) # Dark Gray/Blue for High (Serious but not critical)
+            text_color = (255, 255, 255)
+        elif sev == 'medium': 
+            bg_color = (90, 90, 95) # Neutral Gray
+            text_color = (255, 255, 255)
+        elif sev == 'low':
+            bg_color = (230, 230, 235) # Light Gray
+            text_color = (50, 50, 50)
+        else:
+            bg_color = (245, 245, 250) # Near-white for info
+            text_color = (100, 100, 100)
         
         title = f.get('title', 'Unknown') if isinstance(f, dict) else getattr(f, 'title', 'Unknown')
         tool_source = f.get('tool_source', 'Unknown') if isinstance(f, dict) else getattr(f, 'tool_source', 'Unknown')
         description = f.get('description', '') if isinstance(f, dict) else getattr(f, 'description', '')
         screenshot_path = f.get('screenshot_path', '') if isinstance(f, dict) else getattr(f, 'screenshot_path', '')
         
-        pdf.set_fill_color(*color)
-        pdf.set_text_color(255, 255, 255)
+        # Draw finding header
+        pdf.set_fill_color(*bg_color)
+        pdf.set_text_color(*text_color)
         pdf.set_font("helvetica", "B", 11)
+        # Clean title from prefix if it already exists
         title_cleaned = title.replace(f"{sev.upper()}:", "").strip()
         pdf.cell(0, 8, pdf.safe_text(f" {sev.upper()}: {title_cleaned}"), fill=True, ln=True)
         
+        # Finding Details Section
         pdf.set_text_color(50, 50, 50)
-        pdf.set_font("helvetica", "B", 9)
-        pdf.cell(0, 6, pdf.safe_text(f" Source: {tool_source}"), ln=True)
+        pdf.set_font("helvetica", "B", 8)
+        pdf.cell(0, 5, pdf.safe_text(f" Vector Source: {tool_source}"), ln=True)
         
         pdf.set_font("helvetica", "", 9)
-        pdf.set_text_color(80, 80, 80)
+        pdf.set_text_color(60, 60, 65)
         pdf.set_x(10)
         pdf.multi_cell(190, 5, pdf.safe_text(description))
         

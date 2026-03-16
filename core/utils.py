@@ -61,3 +61,15 @@ def cap_text(text: str, max_bytes: int = None) -> str:
         return truncated + "\n\n[CONTENT TRUNCATED FOR PERFORMANCE]"
     
     return text
+
+def get_setting(key, default=None):
+    """Helper to get a global setting from database or environment."""
+    try:
+        from core.models import GlobalSetting
+        setting = GlobalSetting.query.filter_by(key=key).first()
+        if setting and setting.value:
+            return setting.value
+        # Fallback to env
+        return os.getenv(key, default)
+    except Exception:
+        return os.getenv(key, default)

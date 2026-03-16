@@ -61,6 +61,10 @@ class PostDetectionReclassifier:
         elif "ip leak" in title_lower or "internal ip" in title_lower:
             self._handle_ip_leak(f, ev, req, res)
             
+        # 6) Correlation Engine Hygiene (V12)
+        elif tool == "correlation_engine":
+            self._handle_correlation_hygiene(f, ev)
+            
         else:
             # Default fallback for unhandled types
             if f.severity.lower() == "critical":
@@ -204,6 +208,37 @@ class PostDetectionReclassifier:
             f.severity = "info"
             ev.level = EvidenceLevel.HEURISTIC
             f.description = (f.description or "") + "\n\n[Reclassifier] Public IP banner only."
+
+    def _handle_correlation_hygiene(self, f: Finding, ev: EvidenceModel):
+        title_lower = f.title.lower() if f.title else ""
+        desc_lower = f.description.lower() if f.description else ""
+        endpoint_lower = (f.endpoint or "").lower()
+        
+        # WP Exclusions matching
+        is_wp_noise = any(x in endpoint_lower for x in ["robots.txt", "wp-login.php", "admin-ajax.php", "admin-post.php", "reauth="]) or \
+                      any(x in desc_lower for x in ["robots.txt", "wp-login.php", "admin-ajax.php", "reauth="])
+        
+        has_critical_claim = "critical" in f.severity.lower() or "privileged surface" in title_lower or "api key exposure" in title_lower
+        
+        # If it's a critical attack chain but linked to standard WP assets with no proof
+        if has_critical_claim and is_wp_noise:
+            # Check if there's any 'CONFIRMED' marker in description or signals
+            # Since correlation engine findings are consolidated, we look for explicit success markers
+            is_proven = "SUCCESS" in desc_payload if (desc_payload := (f.description or "")) else False
+            
+            if not is_proven:
+                f.severity = "low"
+                if "Candidate" not in f.title:
+                    f.title = f"Candidate Correlation: {f.title} (Unvalidated)"
+                f.description = (f.description or "") + "\n\n[Reclassifier] Demoted: WordPress administrative surfaces discovered but no valid secret/access proven."
+                ev.level = EvidenceLevel.HEURISTIC
+                ev.verification_required = True
+        
+        # Label all unverified chains
+        if f.severity.lower() in ["high", "critical"] and "verified" not in str(f.metadata_json or ""):
+             ev.verification_required = True
+             if "candidate" not in f.title.lower():
+                 f.title = f"Hypothesis: {f.title}"
 
     def _deduplicate(self, enriched: List[Tuple[Finding, EvidenceModel]]) -> List[Finding]:
         # signature -> list of (Finding, Evidence)

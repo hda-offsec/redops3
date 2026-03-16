@@ -10,6 +10,13 @@ class LFIScanner:
         findings = []
         base_url = f"{protocol}://{self.target}:{port}"
         
+        # 0. Baseline Analysis (Hardening)
+        try:
+            baseline_resp = http_client.get(base_url, options=getattr(self, "options", None), timeout=3)
+            baseline_text = baseline_resp.text if baseline_resp.status_code == 200 else ""
+        except:
+            baseline_text = ""
+
         # LFI Traversal Payloads
         payloads = [
             "../../../../etc/passwd",
@@ -28,6 +35,9 @@ class LFIScanner:
                     target_url = f"{base_url}/?{param}={payload}"
                     r = http_client.get(target_url, options=getattr(self, "options", None), timeout=3)
                     
+                    if r.status_code != 200:
+                        continue
+
                     param_checks = [
                         "root:x:0:0",                   # Linux /etc/passwd
                         "[extensions]",                 # Windows win.ini
@@ -44,7 +54,7 @@ class LFIScanner:
                     
                     is_vulnerable = False
                     for check in param_checks:
-                         if check in r.text:
+                         if check in r.text and check not in baseline_text:
                              is_vulnerable = True
                              break
                     

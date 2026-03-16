@@ -159,6 +159,7 @@ class NSEScanner:
             script_groups.setdefault(key, []).append((port, svc))
 
         results = {}
+        executed_commands = []
         total_scripts = sum(len(k) for k in script_groups)
         log(f"NSE Scanner: {len(port_map)} ports, {total_scripts} script mappings across {len(script_groups)} groups.", "INFO")
 
@@ -176,6 +177,7 @@ class NSEScanner:
                 "--script-timeout", "30s",
                 self.target,
             ]
+            executed_commands.append(" ".join(cmd))
 
             svc_labels = ", ".join(f"{p}({s or '?'})" for p, s in port_infos)
             log(f"NSE: Running {len(scripts_set)} scripts on ports [{svc_labels}]", "INFO")
@@ -200,7 +202,7 @@ class NSEScanner:
                     log(f"NSE: Port {port_num} → {len(script_data)} script results", "SUCCESS")
 
         log(f"NSE Scanner complete: {sum(len(v) for v in results.values())} total script results across {len(results)} ports.", "SUCCESS")
-        return results
+        return results, executed_commands
 
     @staticmethod
     def _parse_nse_output(raw_output: str) -> dict:

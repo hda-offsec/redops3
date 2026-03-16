@@ -40,11 +40,14 @@
             <!-- Pagination -->
             <div
                 class="d-flex justify-content-between align-items-center p-2 border-top border-secondary border-opacity-10  bg-opacity-10">
-                <span class="extra-small text-muted">Total: <span id="surface-count" class="text-info fw-bold">0</span>
-                    records</span>
+                <div class="extra-small text-muted">
+                    Total: <span id="surface-count" class="text-info fw-bold">0</span> records
+                    <span class="mx-2">|</span>
+                    Page: <span id="surface-current-page" class="text-light fw-bold">1</span> / <span id="surface-total-pages" class="text-muted">1</span>
+                </div>
                 <div class="btn-group">
-                    <button class="btn btn-xs btn-outline-secondary" onclick="prevSurfacePage()">PREV</button>
-                    <button class="btn btn-xs btn-outline-secondary" onclick="nextSurfacePage()">NEXT</button>
+                    <button class="btn btn-xs btn-outline-secondary" onclick="window.prevSurfacePage()">PREV</button>
+                    <button class="btn btn-xs btn-outline-secondary" onclick="window.nextSurfacePage()">NEXT</button>
                 </div>
             </div>
         </div>
@@ -79,6 +82,18 @@
     let surfacePage = 1;
     const surfacePerPage = 50;
 
+    // Recursive merge helper for JS
+    function deepMergeResults(target, source) {
+        for (const key in source) {
+            if (source[key] instanceof Object && !Array.isArray(source[key]) && key in target) {
+                deepMergeResults(target[key], source[key]);
+            } else {
+                target[key] = source[key];
+            }
+        }
+        return target;
+    }
+
     // Inject backend data (Normalized safely)
     window.scanResults = JSON.parse(document.getElementById('surface-json-results').textContent);
 
@@ -87,19 +102,22 @@
     });
 
     window.updateSurfaceExplorer = function (newResults) {
-        if (newResults) window.scanResults = newResults;
+        if (newResults) {
+            // Merge instead of replace to preserve existing state if partial updates arrive
+            window.scanResults = deepMergeResults(window.scanResults || {}, newResults);
+        }
         buildSurfaceData();
         window.applySurfaceFilter();
     };
 
     function buildSurfaceData() {
-        rawSurfaceData = [];
+        window.rawSurfaceData = [];
         const phases = scanResults.phases || {};
 
         // 1. Nmap Ports (Assets)
         if (phases.recon && phases.recon.open_ports) {
             phases.recon.open_ports.forEach(p => {
-                rawSurfaceData.push({
+                window.rawSurfaceData.push({
                     value: `Port ${p.port} (${p.service_name || p.service || 'unknown'})`,
                     type: 'asset',
                     source: 'nmap',
@@ -111,7 +129,7 @@
         // 2. DNS Subdomains (Assets)
         if (phases.dns && phases.dns.subdomains) {
             phases.dns.subdomains.forEach(d => {
-                rawSurfaceData.push({
+                window.rawSurfaceData.push({
                     value: d,
                     type: 'asset',
                     source: 'dnsrecon',
@@ -123,7 +141,7 @@
         // 3. Cloud Assets
         if (phases.osint && phases.osint.cloud) {
             phases.osint.cloud.forEach(c => {
-                rawSurfaceData.push({
+                window.rawSurfaceData.push({
                     value: typeof c === 'string' ? c : c.service || 'Cloud Asset',
                     type: 'asset',
                     source: 'cloud_scanner',
@@ -137,7 +155,7 @@
             Object.keys(phases.dirbusting).forEach(tool => {
                 if (phases.dirbusting[tool].endpoints) {
                     phases.dirbusting[tool].endpoints.forEach(e => {
-                        rawSurfaceData.push({
+                        window.rawSurfaceData.push({
                             value: typeof e === 'string' ? e : e.url || JSON.stringify(e),
                             type: 'endpoint',
                             source: tool,
@@ -153,7 +171,7 @@
         if (phases.enum && phases.enum.api) {
             if (phases.enum.api.endpoints) {
                 phases.enum.api.endpoints.forEach(e => {
-                    rawSurfaceData.push({
+                    window.rawSurfaceData.push({
                         value: typeof e === 'object' ? (e.url || JSON.stringify(e)) : e,
                         type: 'api_route',
                         source: 'kiterunner',
@@ -163,7 +181,7 @@
             }
             if (phases.enum.api.discovered_endpoints) {
                 phases.enum.api.discovered_endpoints.forEach(e => {
-                    rawSurfaceData.push({
+                    window.rawSurfaceData.push({
                         value: typeof e === 'object' ? (e.url || JSON.stringify(e)) : e,
                         type: 'api_route',
                         source: 'api_discovery',
@@ -178,7 +196,7 @@
             Object.entries(phases.enum.arjun).forEach(([url, data]) => {
                 const params = Array.isArray(data) ? data : data.params || [];
                 params.forEach(param => {
-                    rawSurfaceData.push({
+                    window.rawSurfaceData.push({
                         value: `${url} ?${param.name || param}=`,
                         type: 'param',
                         source: 'arjun',
@@ -191,7 +209,7 @@
         // 7. Leaks (Github, JS, Emails)
         if (phases.osint && phases.osint.emails) {
             phases.osint.emails.forEach(e => {
-                rawSurfaceData.push({
+                window.rawSurfaceData.push({
                     value: e,
                     type: 'leak',
                     source: 'osint',
@@ -205,7 +223,7 @@
             // Katana results might be an array or a dict mapped by port
             if (Array.isArray(phases.enum.katana)) {
                 phases.enum.katana.forEach(url => {
-                    rawSurfaceData.push({
+                    window.rawSurfaceData.push({
                         value: url,
                         type: 'url',
                         source: 'katana',
@@ -216,7 +234,7 @@
                 Object.entries(phases.enum.katana).forEach(([port, urls]) => {
                     if (Array.isArray(urls)) {
                         urls.forEach(url => {
-                            rawSurfaceData.push({
+                            window.rawSurfaceData.push({
                                 value: url,
                                 type: 'url',
                                 source: `katana (port ${port})`,
@@ -233,7 +251,7 @@
             Object.entries(phases.enum.whatweb.technologies).forEach(([port, techs]) => {
                 if (Array.isArray(techs)) {
                     techs.forEach(tech => {
-                        rawSurfaceData.push({
+                        window.rawSurfaceData.push({
                             value: tech,
                             type: 'technology',
                             source: `whatweb (port ${port})`,
@@ -248,7 +266,7 @@
         if (phases.enum && phases.enum.derived && phases.enum.derived.service_intelligence) {
             phases.enum.derived.service_intelligence.forEach(intel => {
                 if (intel.cpe) {
-                    rawSurfaceData.push({
+                    window.rawSurfaceData.push({
                         value: intel.cpe,
                         type: 'component',
                         source: `intel (port ${intel.port})`,
@@ -257,6 +275,31 @@
                 }
             });
         }
+
+        // 11. JS Audit Discovery (Discovered Endpoints)
+        if (phases.enum && phases.enum.js_vuln_audit) {
+            Object.entries(phases.enum.js_vuln_audit).forEach(([port, data]) => {
+                if (data.discovered_endpoints) {
+                    data.discovered_endpoints.forEach(e => {
+                        window.rawSurfaceData.push({
+                            value: (typeof e === 'object' ? e.value || e.url || JSON.stringify(e) : e),
+                            type: 'endpoint',
+                            source: `js_audit (port ${port})`,
+                            raw: e
+                        });
+                    });
+                }
+            });
+        }
+
+        // Smart Sort: Prioritize offensive data (endpoints, api routes) over assets/tech
+        window.rawSurfaceData.sort((a, b) => {
+            const order = { 'endpoint': 1, 'api_route': 2, 'param': 3, 'url': 4, 'leak': 5, 'asset': 10, 'technology': 20 };
+            const weightA = order[a.type] || 100;
+            const weightB = order[b.type] || 100;
+            if (weightA !== weightB) return weightA - weightB;
+            return a.value.localeCompare(b.value);
+        });
     }
 
     window.applySurfaceFilter = function() {
@@ -264,7 +307,7 @@
         let terms = {};
 
         if (query.trim() === '') {
-            filteredSurfaceData = [...rawSurfaceData];
+            filteredSurfaceData = [...window.rawSurfaceData];
         } else {
             const clauses = query.split(' ');
             clauses.forEach(c => {
@@ -276,7 +319,7 @@
                 }
             });
 
-            filteredSurfaceData = rawSurfaceData.filter(row => {
+            filteredSurfaceData = window.rawSurfaceData.filter(row => {
                 let match = true;
                 if (terms.type && !row.type.includes(terms.type)) match = false;
                 if (terms.source && !(row.source || '').includes(terms.source)) match = false;
@@ -286,16 +329,24 @@
         }
 
         surfacePage = 1;
-        renderSurfaceTable();
+        window.renderSurfaceTable();
     }
 
-    function renderSurfaceTable() {
+    window.renderSurfaceTable = function() {
         const tbody = document.getElementById('surface-tbody');
         const emptyState = document.getElementById('surface-empty-state');
         const countSpan = document.getElementById('surface-count');
+        const pageSpan = document.getElementById('surface-current-page');
+        const totalPagesSpan = document.getElementById('surface-total-pages');
 
         tbody.innerHTML = '';
         countSpan.textContent = filteredSurfaceData.length;
+        
+        const maxPages = Math.ceil(filteredSurfaceData.length / surfacePerPage) || 1;
+        if (surfacePage > maxPages) surfacePage = maxPages;
+        
+        if (pageSpan) pageSpan.textContent = surfacePage;
+        if (totalPagesSpan) totalPagesSpan.textContent = maxPages;
 
         if (filteredSurfaceData.length === 0) {
             emptyState.classList.remove('d-none');
@@ -346,18 +397,18 @@
         }
     }
 
-    function prevSurfacePage() {
+    window.prevSurfacePage = function() {
         if (surfacePage > 1) {
             surfacePage--;
-            renderSurfaceTable();
+            window.renderSurfaceTable();
         }
     }
 
-    function nextSurfacePage() {
+    window.nextSurfacePage = function() {
         const maxPages = Math.ceil(filteredSurfaceData.length / surfacePerPage);
         if (surfacePage < maxPages) {
             surfacePage++;
-            renderSurfaceTable();
+            window.renderSurfaceTable();
         }
     }
 
@@ -371,18 +422,35 @@
         const offcanvasEl = document.getElementById('surfaceContextOffcanvas');
         const offcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl) || new bootstrap.Offcanvas(offcanvasEl);
         offcanvas.show();
+        
+        // Extract repro command if exists in raw data
+        const repro = data.raw && (data.raw.repro_command || data.raw.repro || data.raw.curl_command);
 
         panel.innerHTML = `
-            <div class="mb-3">
-                <h6 class="text-white text-break fw-bold mb-1">${data.value}</h6>
-                <div class="d-flex gap-2">
-                    <span class="badge border border-secondary text-secondary">${data.type.toUpperCase()}</span>
-                    <span class="badge bg-secondary bg-opacity-25 text-light">${data.source.toUpperCase()}</span>
+            <div class="mb-4">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h6 class="text-white text-break fw-bold mb-0">${data.value}</h6>
+                    <span class="badge border border-secondary text-secondary extra-small">${data.type.toUpperCase()}</span>
                 </div>
+                <div class="extra-small text-muted opacity-50"><i class="fas fa-microscope me-1"></i>SOURCE: ${data.source.toUpperCase()}</div>
             </div>
+
+            ${repro ? `
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="extra-small text-info text-uppercase mb-0 fw-bold"><i class="fas fa-terminal me-2"></i>Reproduction Command</h6>
+                    <button class="btn btn-xs btn-outline-info" onclick="navigator.clipboard.writeText(\`${repro.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`); alert('Copied to clipboard!')"><i class="fas fa-copy me-1"></i>Copy</button>
+                </div>
+                <div class="p-3 rounded border border-info border-opacity-20 bg-black bg-opacity-50 font-monospace">
+                    <pre class="mb-0 text-info small text-wrap">${repro}</pre>
+                </div>
+            </div>` : ''}
             
             <div class="border border-secondary border-opacity-25 rounded bg-black bg-opacity-20 p-3 mb-3">
-                <span class="text-muted x-small text-uppercase mb-2 d-block"><i class="fas fa-code me-1"></i>Raw Evidence Data</span>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted extra-small text-uppercase"><i class="fas fa-code me-1"></i>Raw Object Details</span>
+                    <button class="btn btn-xs btn-link text-muted p-0" onclick="console.log('SURFACE_RAW:', ${JSON.stringify(data.raw)})"><i class="fas fa-bug"></i></button>
+                </div>
                 <pre class="m-0 text-success" style="font-size: 0.75rem; white-space: pre-wrap; max-height: 450px; overflow-y: auto;">${JSON.stringify(data.raw, null, 2)}</pre>
             </div>
         `;

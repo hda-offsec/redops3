@@ -1,62 +1,56 @@
 {% from "components/detection_table.html" import detection_table %}
 
-<!-- TAB 3: FINDINGS (Dependency-Track Inspired) -->
+<!-- Strategic Category Board -->
 <div class="col-12 mb-3">
-    <div
-        class="d-flex justify-content-between align-items-center  bg-opacity-20 p-3 rounded border border-secondary border-opacity-10">
-        <h5 class="mb-0 text-light fw-bold"><i class="fas fa-biohazard me-2 text-danger"></i>Detection Vault</h5>
+    <div class="d-flex flex-wrap gap-2" id="findings-category-stats">
+        <!-- Dynamically populated by updateTacticalSummary() -->
+    </div>
+</div>
+
+<div class="col-12 mb-3">
+    <div class="d-flex justify-content-between align-items-center bg-black bg-opacity-20 p-3 rounded border border-secondary border-opacity-10 shadow-sm">
+        <h5 class="mb-0 text-light fw-bold">
+            <i class="fas fa-biohazard me-2 text-danger"></i>Detection Vault 
+            <span class="extra-small text-muted fw-normal ms-2 opacity-50" id="findings-total-label">0 findings</span>
+        </h5>
+        
         <div class="d-flex gap-2 flex-wrap justify-content-end">
             <div class="input-group input-group-sm" style="max-width: 320px;">
-                <span class="input-group-text bg-transparent border-secondary text-muted"><i
-                        class="fas fa-search"></i></span>
+                <span class="input-group-text bg-black border-secondary text-muted"><i class="fas fa-search"></i></span>
                 <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
-                    placeholder="Filter detections (title, severity, tool)..." onkeyup="filterFindings()">
+                    placeholder="Search by title, tool, or target..." onkeyup="filterFindings()">
             </div>
-            <select id="findings-category-filter"
-                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;"
-                onchange="filterFindings()">
-                <option value="">All Categories</option>
-            </select>
-            <select id="findings-severity-filter"
-                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 140px;"
-                onchange="filterFindings()">
-                <option value="">All Severity</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-                <option value="info">Info</option>
-            </select>
-            <input id="findings-exploit-filter" type="number" min="0" max="100" step="1"
-                class="form-control form-control-sm bg-transparent border-secondary text-light"
-                style="max-width: 150px;" placeholder="Min exploit" oninput="filterFindings()" />
-            <select id="findings-attack-priority-filter"
-                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 150px;"
-                onchange="filterFindings()">
-                <option value="">Attack Priority</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-            </select>
-            <select id="findings-component-filter"
-                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;"
-                onchange="filterFindings()">
-                <option value="">All Components</option>
-            </select>
-            <select id="findings-provider-filter"
-                class="form-select form-select-sm bg-transparent border-secondary text-light" style="max-width: 170px;"
-                onchange="filterFindings()">
-                <option value="">All Providers</option>
-            </select>
+            
+            <div class="d-flex gap-1 border-start border-secondary border-opacity-25 ps-2">
+                <select id="findings-severity-filter" class="form-select form-select-sm bg-black border-secondary text-light w-auto" onchange="filterFindings()">
+                    <option value="">All Sev</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+                
+                <select id="findings-category-filter" class="form-select form-select-sm bg-black border-secondary text-light w-auto" onchange="filterFindings()">
+                    <option value="">All Categories</option>
+                </select>
+
+                <select id="findings-port-status-filter" class="form-select form-select-sm bg-black border-secondary text-light w-auto" onchange="filterFindings()">
+                    <option value="">All Status</option>
+                    <option value="open">Open</option>
+                    <option value="filtered">Filtered</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
         </div>
     </div>
 </div>
 
 <div class="col-lg-12">
-    <div class="card h-100">
-        <div class="card-header border-0 pb-0">
-            <span class="extra-small text-muted text-uppercase">Identification Matrix</span>
+    <div class="card h-100 bg-transparent border-0">
+        <div class="card-header border-0 pb-1 px-0 bg-transparent">
+            <h6 class="extra-small text-muted text-uppercase d-flex align-items-center gap-2 mb-0">
+                <i class="fas fa-layer-group"></i> Identification Matrix
+            </h6>
         </div>
         <div class="card-body p-0">
             <div id="findings-table-container" style="max-height: 700px; overflow-y: auto;">
@@ -99,96 +93,107 @@
         const query = document.getElementById('findings-search').value.toLowerCase().trim();
         const severityFilter = (document.getElementById('findings-severity-filter')?.value || '').toLowerCase();
         const categoryFilter = (document.getElementById('findings-category-filter')?.value || '').toLowerCase();
-        const minExploitValue = document.getElementById('findings-exploit-filter')?.value;
-        const minExploit = minExploitValue === '' ? null : Number(minExploitValue);
-        const attackPriorityFilter = (document.getElementById('findings-attack-priority-filter')?.value || '').toLowerCase();
-        const componentFilter = (document.getElementById('findings-component-filter')?.value || '').toLowerCase();
-        const providerFilter = (document.getElementById('findings-provider-filter')?.value || '').toLowerCase();
-        const rows = document.querySelectorAll('.finding-row');
+        const portStatusFilter = (document.getElementById('findings-port-status-filter')?.value || '').toLowerCase();
+        const rows = document.querySelectorAll('#findings-table-body .finding-row');
+        let visibleCount = 0;
 
         rows.forEach(row => {
             const t = row.getAttribute('data-title') || '';
             const s = (row.getAttribute('data-sev') || '').toLowerCase();
             const tool = row.getAttribute('data-tool') || '';
             const category = (row.getAttribute('data-category') || '').toLowerCase();
-            const exploitRaw = row.getAttribute('data-exploit');
-            const exploitScore = exploitRaw === '' || exploitRaw === null ? null : Number(exploitRaw);
-            const confidence = row.innerText.toLowerCase();
-            const attackPriority = (row.getAttribute('data-attack-priority') || '').toLowerCase();
-            const component = (row.getAttribute('data-component') || '').toLowerCase();
-            const provider = (row.getAttribute('data-provider') || '').toLowerCase();
+            const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
+            const textContent = row.innerText.toLowerCase();
 
-            let textMatch = false;
-            if (query === '') {
-                textMatch = true;
-            } else if (query === 'high-risk') {
-                textMatch = (s === 'high' || s === 'critical');
-            } else if (query === 'certain' || query === 'high-confidence') {
-                textMatch = confidence.includes('certain') || confidence.includes('high');
-            } else {
-                textMatch = t.includes(query) || s.includes(query) || tool.includes(query) || category.includes(query);
-            }
-
+            let textMatch = (query === '') || t.includes(query) || tool.includes(query) || category.includes(query) || textContent.includes(query);
             const severityMatch = !severityFilter || s === severityFilter;
             const categoryMatch = !categoryFilter || category === categoryFilter;
-            const exploitMatch = minExploit === null || (!Number.isNaN(exploitScore) && exploitScore !== null && exploitScore >= minExploit);
-            const attackPriorityMatch = !attackPriorityFilter || attackPriority === attackPriorityFilter;
-            const componentMatch = !componentFilter || component === componentFilter;
-            const providerMatch = !providerFilter || provider === providerFilter;
+            const portStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
 
-            row.style.display = (textMatch && severityMatch && categoryMatch && exploitMatch && attackPriorityMatch && componentMatch && providerMatch) ? '' : 'none';
+            const isVisible = textMatch && severityMatch && categoryMatch && portStatusMatch;
+            row.style.display = isVisible ? '' : 'none';
+            if (isVisible) visibleCount++;
         });
-    }
 
+        const label = document.getElementById('findings-total-label');
+        if (label) label.textContent = `${visibleCount} discoveries`;
+        
+        // Hide/Show empty state
+        const emptyState = document.getElementById('findings-empty-state');
+        if (emptyState) emptyState.style.display = visibleCount === 0 ? '' : 'none';
+    }
 
     function populateCategoryFilter() {
         const el = document.getElementById('findings-category-filter');
         if (!el) return;
 
-        // Preserve current selection
         const currentCat = el.value;
-        el.innerHTML = '<option value="">All Categories</option>';
-
         const categories = [...new Set(findingsList.map(f => (f.category || '').toLowerCase()).filter(Boolean))].sort();
+        
+        el.innerHTML = '<option value="">All Categories</option>';
         categories.forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat;
-            opt.textContent = cat;
+            opt.textContent = cat.charAt(0).toUpperCase() + cat.slice(1).replace(/_/g, ' ');
             el.appendChild(opt);
         });
         el.value = currentCat;
+        
+        updateTacticalSummary(categories);
+    }
 
-        const componentEl = document.getElementById('findings-component-filter');
-        const providerEl = document.getElementById('findings-provider-filter');
+    function updateTacticalSummary(categories) {
+        const statsEl = document.getElementById('findings-category-stats');
+        if (!statsEl) return;
+        statsEl.innerHTML = '';
+        
+        const counts = {};
+        findingsList.forEach(f => {
+            const cat = (f.category || 'general').toLowerCase();
+            counts[cat] = (counts[cat] || 0) + 1;
+        });
 
-        if (componentEl) {
-            const currentComp = componentEl.value;
-            componentEl.innerHTML = '<option value="">All Components</option>';
-            const components = [...new Set(findingsList.map(f => (f.component || (f.metadata && f.metadata.component) || '').toLowerCase()).filter(Boolean))].sort();
-            components.forEach(comp => {
-                const opt = document.createElement('option');
-                opt.value = comp;
-                opt.textContent = comp;
-                componentEl.appendChild(opt);
+        const totalPill = createStatPill('all', findingsList.length, 'primary');
+        statsEl.appendChild(totalPill);
+
+        Object.keys(counts).sort((a,b) => counts[b] - counts[a]).forEach(cat => {
+            let color = 'secondary';
+            if (cat.includes('vuln') || cat.includes('exploit') || cat.includes('cve')) color = 'danger';
+            else if (cat.includes('endpoint') || cat === 'api' || cat === 'route') color = 'info';
+            else if (cat.includes('leaks') || cat.includes('secret')) color = 'warning';
+            else if (cat.includes('osint') || cat.includes('recon') || cat.includes('dns')) color = 'success';
+            
+            statsEl.appendChild(createStatPill(cat, counts[cat], color));
+        });
+    }
+
+    function createStatPill(cat, count, color) {
+        const div = document.createElement('div');
+        div.className = `btn btn-xs btn-outline-${color} bg-${color} bg-opacity-10 d-flex align-items-center gap-2 px-3 py-2 border-opacity-25 rounded-pill cursor-pointer hover-bright`;
+        div.style.transition = 'all 0.2s';
+        
+        const label = cat === 'all' ? 'TOTAL' : cat.toUpperCase().replace(/_/g, ' ');
+        div.innerHTML = `
+            <span class="extra-small fw-bold opacity-75">${label}</span>
+            <span class="badge bg-${color} bg-opacity-25 text-${color} border border-${color} border-opacity-25">${count}</span>
+        `;
+        
+        div.onclick = () => {
+            const filterEl = document.getElementById('findings-category-filter');
+            filterEl.value = cat === 'all' ? '' : cat;
+            filterFindings();
+            document.querySelectorAll('#findings-category-stats .btn').forEach(b => {
+                b.classList.remove('active', 'border-opacity-100');
+                b.style.backgroundColor = '';
             });
-            componentEl.value = currentComp;
-        }
-
-        if (providerEl) {
-            const currentProv = providerEl.value;
-            providerEl.innerHTML = '<option value="">All Providers</option>';
-            const providers = [...new Set(findingsList.map(f => (f.provider || (f.metadata && f.metadata.provider) || '').toLowerCase()).filter(Boolean))].sort();
-            providers.forEach(provider => {
-                const opt = document.createElement('option');
-                opt.value = provider;
-                opt.textContent = provider;
-                providerEl.appendChild(opt);
-            });
-            providerEl.value = currentProv;
-        }
+            div.classList.add('active', 'border-opacity-100');
+            div.style.backgroundColor = 'rgba(255,255,255,0.05)';
+        };
+        return div;
     }
 
     populateCategoryFilter();
+    filterFindings();
 
     function showFindingDetail(findId) {
         const f = rawFindingsData[findId];
@@ -223,20 +228,235 @@
 
         let html = `
             <div class="mb-4">
-                <div class="d-flex align-items-center gap-2 mb-2">
-                    <span class="badge-severity bg-${f.severity.toLowerCase()}">${f.severity.toUpperCase()}</span>
-                    <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small">CONF: ${(f.confidence || 'medium').toUpperCase()}</span>
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge-severity bg-${f.severity.toLowerCase()}">${f.severity.toUpperCase()}</span>
+                        <span class="badge bg-secondary bg-opacity-20 text-muted extra-small">CONF: ${(f.confidence || 'medium').toUpperCase()}</span>
+                    </div>
+                    <span class="extra-small text-info fw-bold"><i class="fas fa-id-badge me-1"></i>VICTIM IDENTITY PROFILE</span>
                 </div>
-                <h4 class="finding-detail-title text-light">${f.title}</h4>
-                ${f.target ? `<div class="extra-small text-info mt-1 font-monospace" style="word-break: break-all;"><i class="fas fa-link me-1"></i>${f.target}</div>` : ''}
-                ${f.endpoint ? `<div class="extra-small text-muted mt-1 font-monospace" style="word-break: break-all;"><i class="fas fa-route me-1"></i>Endpoint: ${escapeHtml(f.endpoint)}</div>` : ''}
-                ${f.parameter ? `<div class="extra-small text-muted mt-1 font-monospace"><i class="fas fa-filter me-1"></i>Parameter: ${escapeHtml(f.parameter)}</div>` : ''}
-                ${f.payload ? `<div class="extra-small text-warning mt-1 font-monospace text-truncate"><i class="fas fa-vial me-1"></i>Payload: ${escapeHtml(f.payload)}</div>` : ''}
+                
+                <h4 class="finding-detail-title text-light mb-1">${f.title}</h4>
+                <div class="extra-small text-muted mb-4 d-flex flex-wrap gap-2">
+                    <span class="badge bg-dark border border-secondary text-secondary">${f.tool_source ? f.tool_source.toUpperCase() : 'N/A'}</span>
+                    ${f.category ? `<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-10">${f.category.toUpperCase()}</span>` : ''}
+                </div>
+
+                <!-- VICTIM IDENTITY MATRIX (Premium Wave 5.4) -->
+                <div class="card bg-black bg-opacity-30 border-secondary border-opacity-25 mb-4 shadow-sm">
+                    <div class="card-body p-3">
+                        <div class="row g-3">
+                            <div class="col-md-3 border-end border-secondary border-opacity-10">
+                                <div class="extra-small text-muted text-uppercase mb-2"><i class="fas fa-bullseye me-1"></i>Impact Surface</div>
+                                <div class="small fw-bold text-danger">${f.impact_area || 'Web Application'}</div>
+                                <div class="extra-small text-muted opacity-50 mt-1">Confirmed Vector</div>
+                            </div>
+                            <div class="col-md-3 border-end border-secondary border-opacity-10">
+                                <div class="extra-small text-muted text-uppercase mb-2"><i class="fas fa-layer-group me-1"></i>Blueprint</div>
+                                <div class="small fw-bold text-info">${f.risk_scorecard?.complexity || 'Medium'}</div>
+                                <div class="extra-small text-muted opacity-50 mt-1">Complexity</div>
+                            </div>
+                            <div class="col-md-3 border-end border-secondary border-opacity-10">
+                                <div class="extra-small text-muted text-uppercase mb-2"><i class="fas fa-thermometer-half me-1"></i>Score</div>
+                                <div class="small fw-bold text-warning">${f.risk_scorecard?.impact || '5'}/10</div>
+                                <div class="extra-small text-muted opacity-50 mt-1">Risk Severity</div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="extra-small text-muted text-uppercase mb-2"><i class="fas fa-certificate me-1"></i>Trust Index</div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="small fw-bold text-success">${f.metadata?.confidence_score || '70'}%</div>
+                                    <div class="progress flex-grow-1" style="height: 4px; background: rgba(255,255,255,0.05);">
+                                        <div class="progress-bar bg-success" style="width: ${f.metadata?.confidence_score || '70'}%"></div>
+                                    </div>
+                                </div>
+                                <div class="extra-small text-muted opacity-50 mt-1">${f.metadata?.detection_method?.toUpperCase() || 'HEURISTIC'}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                ${f.endpoint || f.target ? `
+                <div class="p-2 mb-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10">
+                    <div class="extra-small text-muted text-uppercase mb-1 opacity-50">Discovery Lineage / Vector</div>
+                    <div class="small font-monospace text-info text-break"><i class="fas fa-link me-2"></i>${escapeHtml(f.endpoint || f.target)}</div>
+                    ${f.parameter ? `<div class="extra-small text-warning mt-1 font-monospace"><i class="fas fa-filter me-2"></i>Parameter Identity: ${escapeHtml(f.parameter)}</div>` : ''}
+                </div>` : ''}
+
+                <!-- HOST MATRICES (RedOps 3.5 Extension) -->
+                ${(f.metadata && (f.metadata.host_ip || f.metadata.hostname)) ? `
+                <div class="mb-4 p-3 rounded border border-info border-opacity-10 bg-info bg-opacity-5" style="border-left: 4px solid #0dcaf0 !important;">
+                    <h6 class="extra-small text-info text-uppercase mb-3 fw-bold"><i class="fas fa-server me-2"></i>Host Intelligence Identity</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="extra-small text-muted text-uppercase mb-1">Resolved IP</div>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="bg-info bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;">
+                                    <i class="fas fa-network-wired text-info extra-small"></i>
+                                </div>
+                                <span class="small fw-bold text-light">${f.metadata.host_ip || 'N/A'}</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="extra-small text-muted text-uppercase mb-1">Host Identity</div>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="bg-secondary bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;">
+                                    <i class="fas fa-tag text-muted extra-small"></i>
+                                </div>
+                                <span class="small fw-bold text-light">${f.metadata.hostname || 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                <!-- SIGNAL INTELLIGENCE CHAIN (New - Wave 6.0) -->
+                ${f.chain_metadata ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-danger text-uppercase mb-3 fw-bold">
+                        <i class="fas fa-link me-2"></i>Signal Intelligence Chain
+                    </h6>
+                    <div class="p-3 rounded border border-danger border-opacity-10 bg-danger bg-opacity-5">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div class="extra-small text-muted">Tactical Logic:</div>
+                            <span class="badge bg-danger bg-opacity-20 text-danger border border-danger border-opacity-25 py-1 px-2">ATTACK PATH</span>
+                        </div>
+                        <div class="d-flex flex-column gap-3">
+                            ${f.chain_metadata.previous_findings ? f.chain_metadata.previous_findings.map((prevId, idx) => {
+                                const prev = rawFindingsData[prevId];
+                                return `
+                                <div class="d-flex align-items-start gap-2">
+                                    <div class="d-flex flex-column align-items-center" style="width: 20px;">
+                                        <div class="rounded-circle bg-secondary bg-opacity-50" style="width: 8px; height: 8px; margin-top: 6px;"></div>
+                                        <div class="bg-secondary bg-opacity-20" style="width: 2px; height: 20px; flex-grow: 1;"></div>
+                                    </div>
+                                    <div class="flex-grow-1 p-2 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 cursor-pointer hover-bright" onclick="showFindingDetail('${prevId}')">
+                                        <div class="extra-small text-muted text-uppercase mb-1">${idx === 0 ? 'Root Identification' : 'Pivoting Identification'}</div>
+                                        <div class="small text-light fw-bold">${prev ? prev.title : 'Legacy Signal Record'}</div>
+                                    </div>
+                                </div>
+                                `;
+                            }).join('') : ''}
+                            
+                            <div class="d-flex align-items-start gap-2">
+                                <div class="d-flex flex-column align-items-center" style="width: 20px;">
+                                    <div class="rounded-circle bg-danger" style="width: 12px; height: 12px; margin-top: 4px; box-shadow: 0 0 10px rgba(220,53,69,0.5);"></div>
+                                </div>
+                                <div class="flex-grow-1 p-2 rounded bg-danger bg-opacity-10 border border-danger border-opacity-20">
+                                    <div class="extra-small text-danger text-uppercase mb-1">Target Assessment Candidate</div>
+                                    <div class="small text-white fw-bold">${f.title}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                <!-- ACTIONABLE REPRO VECTOR -->
+                ${(f.repro_command || f.reproduction) ? `
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="extra-small text-warning text-uppercase mb-0 fw-bold"><i class="fas fa-terminal me-2"></i>Reproduction Blueprint</h6>
+                        ${f.repro_command ? `<button class="btn btn-xs btn-outline-warning" onclick="navigator.clipboard.writeText(\`${f.repro_command.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`); alert('Copied to clipboard!')"><i class="fas fa-copy me-1"></i>Copy</button>` : ''}
+                    </div>
+                    <div class="p-3 rounded border border-warning border-opacity-20 bg-black bg-opacity-50 font-monospace" style="border-left: 4px solid #ffc107 !important;">
+                        <pre class="mb-0 text-warning small text-wrap">${escapeHtml(f.repro_command || f.reproduction)}</pre>
+                    </div>
+                </div>` : ''}
+
+                <!-- PAYLOAD TOOLBOX -->
+                ${f.payload ? `
+                <div class="mb-4 p-3 rounded border border-secondary border-opacity-10" style="background: rgba(255,202,40,0.02); border-left: 4px solid #ffca28 !important;">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="extra-small text-warning text-uppercase mb-0 fw-bold"><i class="fas fa-tools me-2"></i>Payload Identity</h6>
+                        <span class="badge bg-warning text-dark extra-small">Bypass Variations</span>
+                    </div>
+                    <div class="mb-2">
+                        <div class="extra-small text-muted mb-1">Active Payload:</div>
+                        <div class="p-2 bg-dark rounded font-monospace small text-warning border border-secondary border-opacity-20 text-break">${escapeHtml(f.payload)}</div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6 col-md-3">
+                            <button class="btn btn-xs btn-outline-secondary w-100" onclick="navigator.clipboard.writeText(btoa(\`${f.payload.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)); alert('Base64 copied!')">B64</button>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <button class="btn btn-xs btn-outline-secondary w-100" onclick="navigator.clipboard.writeText(encodeURIComponent(\`${f.payload.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)); alert('URL Encoded copied!')">URL Enc</button>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <button class="btn btn-xs btn-outline-secondary w-100" onclick="navigator.clipboard.writeText(encodeURIComponent(encodeURIComponent(\`${f.payload.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`))); alert('Double Encoded copied!')">Double Enc</button>
+                        </div>
+                        <div class="col-6 col-md-3">
+                             <a href="https://gchq.github.io/CyberChef/#recipe=Magic(3,true,false,'')&input=${btoa(f.payload)}" target="_blank" class="btn btn-xs btn-outline-secondary w-100"><i class="fas fa-external-link-alt"></i></a>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                <!-- REMEDIATION BLUEPRINT -->
+                ${f.remediation ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-success text-uppercase mb-3 fw-bold">
+                        <i class="fas fa-tools me-2"></i>Remediation Blueprint
+                    </h6>
+                    <div class="p-3 rounded border border-success border-opacity-10 bg-success bg-opacity-5 font-monospace small lh-base text-success-emphasis" style="white-space: pre-wrap; background: rgba(25, 135, 84, 0.03); border-left: 4px solid #198754 !important;">${escapeHtml(f.remediation)}</div>
+                </div>` : ''}
+
+                <!-- TACTICAL NEXT STEPS (Point 2: Chaining Dynamique) -->
+                ${(f.metadata && f.metadata.port) ? (() => {
+                    const port = parseInt(f.metadata.port);
+                    const ip = f.metadata.host_ip;
+                    let recs = [];
+                    if ([80, 443, 8080, 8443].includes(port)) {
+                        recs.push({tool: 'Katana', cmd: `./katana -u ${ip} -jc`, desc: 'Deep crawling of web assets'});
+                        recs.push({tool: 'Nuclei', cmd: `nuclei -u ${ip}`, desc: 'Template-based vuln scanning'});
+                    } else if ([445, 139].includes(port)) {
+                        recs.push({tool: 'SMB-Enum', cmd: `nmap --script smb-enum-shares -p ${port} ${ip}`, desc: 'Listing network shares'});
+                    } else if (port === 22) {
+                        recs.push({tool: 'SSH-Audit', cmd: `ssh-audit ${ip}`, desc: 'Audit for weak algorithms'});
+                    } else if ([3306, 5432, 1433].includes(port)) {
+                        recs.push({tool: 'DB-Audit', cmd: `nmap --script mysql-info -p ${port} ${ip}`, desc: 'Database access fingerprinting'});
+                    }
+                    
+                    if (recs.length === 0) return '';
+                    
+                    return `
+                    <div class="mb-4">
+                        <h6 class="extra-small text-info text-uppercase mb-3 fw-bold">
+                            <i class="fas fa-directions me-2"></i>Tactical Next Steps
+                        </h6>
+                        <div class="d-flex flex-column gap-2">
+                            ${recs.map(r => `
+                                <div class="p-2 rounded border border-info border-opacity-10 bg-info bg-opacity-5 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="extra-small fw-bold text-info">${r.tool.toUpperCase()}</div>
+                                        <div class="extra-small text-muted">${r.desc}</div>
+                                    </div>
+                                    <button class="btn btn-xs btn-outline-info" onclick="navigator.clipboard.writeText('${r.cmd}'); alert('Command copied: ${r.cmd}')">
+                                        <i class="fas fa-play me-1"></i>Plan
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>`;
+                })() : ''}
+            </div>
+
+            <div class="mb-4">
+                <h6 class="extra-small text-muted text-uppercase mb-2">Tactical Intelligence Summary</h6>
+                <div class="text-secondary small lh-base" style="white-space: pre-wrap;">${cleanDescription}</div>
             </div>
             
-            <div class="mb-4 border-start border-3 border-danger border-opacity-50 ps-3 py-1">
-                <h6 class="extra-small  text-muted text-uppercase mb-2">Intelligence Summary</h6>
-                <div class="text-secondary small lh-sm" style="white-space: pre-wrap;">${cleanDescription}</div>
+            <div class="mb-4 bg-black bg-opacity-30 p-3 rounded border border-secondary border-opacity-10">
+                <h6 class="extra-small text-muted text-uppercase mb-3 fw-bold">Environment Metadata</h6>
+                <div class="row g-2">
+                    <div class="col-6"><div class="extra-small text-muted">Cloud / Provider</div><div class="small text-warning">${f.provider || (f.metadata && f.metadata.provider) || 'N/A'}</div></div>
+                    <div class="col-6"><div class="extra-small text-muted">Core Component</div><div class="small text-light">${f.component || (f.metadata && f.metadata.component) || 'N/A'}</div></div>
+                    <div class="col-6"><div class="extra-small text-muted">Component Version</div><div class="small text-light">${f.version || (f.metadata && f.metadata.version) || 'vUnknown'}</div></div>
+                    <div class="col-6"><div class="extra-small text-muted">Detection Module</div><div class="small text-info">${f.module ? f.module.toUpperCase() : 'N/A'}</div></div>
+                    ${f.metadata && f.metadata.port_state ? `<div class="col-6"><div class="extra-small text-muted">Port State</div><div class="small text-${f.metadata.port_state === 'open' ? 'success' : 'warning'} fw-bold">${f.metadata.port_state.toUpperCase()}</div></div>` : ''}
+                </div>
+                ${f.signal_ids && f.signal_ids.length ? `<div class="mt-2 pt-2 border-top border-secondary border-opacity-10 extra-small font-monospace opacity-50">Signal Trace: ${f.signal_ids.join(', ')}</div>` : ''}
+            </div>
+
+            <div class="mt-4 pt-4 border-top border-secondary border-opacity-10 d-flex gap-2">
+                <button class="btn btn-xs btn-outline-info flex-fill" onclick="$('#graph-tab').tab('show')"><i class="fas fa-project-diagram me-1"></i>Visual Graph</button>
+                <button class="btn btn-xs btn-outline-secondary flex-fill" onclick="$('#hood-tab').tab('show')"><i class="fas fa-bug me-1"></i>System Log</button>
             </div>
         `;
 
@@ -268,68 +488,23 @@
             `;
         }
 
-        if (f.screenshot) {
+        if (f.screenshot_path) {
             html += `
              <div class="mb-4">
-                <h6 class="extra-small  text-muted text-uppercase mb-2"><i class="fas fa-camera me-1"></i>Visual Evidence</h6>
-                <img src="/static/${f.screenshot}" class="img-fluid border border-secondary rounded hover-zoom" style="max-height: 250px; cursor: pointer" onclick="window.open(this.src)">
+                <h6 class="extra-small text-muted text-uppercase mb-2"><i class="fas fa-camera me-1"></i>Visual Evidence</h6>
+                <img src="/static/${f.screenshot_path}" class="img-fluid border border-secondary rounded shadow-sm hover-zoom" style="max-height: 250px; cursor: pointer" onclick="window.open(this.src)">
              </div>
             `;
         }
 
-        // Engine Metadata
-        html += `
-            <div class="mb-4 bg-opacity-30 p-2 rounded border border-secondary border-opacity-10">
-                <div class="d-flex justify-content-between align-items-center extra-small">
-                    <span class="text-muted text-uppercase italic">Detection Engine:</span>
-                    <span class="text-info fw-bold">${f.tool_source}</span>
-                </div>
-                ${f.category ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Category:</span> <span class="text-danger">${escapeHtml(f.category)}</span></div>` : ''}
-                ${f.endpoint ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Endpoint:</span> <span class="font-monospace">${escapeHtml(f.endpoint)}</span></div>` : ''}
-                ${f.parameter ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Parameter:</span> <span class="text-warning">${escapeHtml(f.parameter)}</span></div>` : ''}
-                ${f.payload ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Payload:</span> <span class="text-danger">${escapeHtml(f.payload)}</span></div>` : ''}
-                ${f.evidence ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Evidence:</span> <span class="text-info">${escapeHtml(String(f.evidence).slice(0, 500))}</span></div>` : ''}
-                ${f.reproduction ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Reproduction:</span> <span class="text-warning">${escapeHtml(String(f.reproduction).slice(0, 500))}</span></div>` : ''}
-                ${f.exploit_score !== null && f.exploit_score !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Exploit Score:</span> <span class="text-danger">${escapeHtml(String(f.exploit_score))}</span></div>` : ''}
-                ${f.risk_level ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Risk Level:</span> <span class="text-danger text-uppercase">${escapeHtml(String(f.risk_level))}</span></div>` : ''}
-                ${f.attack_priority ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Attack Priority:</span> <span class="text-warning text-uppercase">${escapeHtml(String(f.attack_priority))}</span></div>` : ''}
-                ${(f.component || (f.metadata && f.metadata.component)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Component:</span> <span class="text-info">${escapeHtml(String(f.component || f.metadata.component))}</span></div>` : ''}
-                ${(f.version || (f.metadata && f.metadata.version)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Version:</span> <span class="text-warning">${escapeHtml(String(f.version || f.metadata.version))}</span></div>` : ''}
-                ${(f.provider || (f.metadata && f.metadata.provider)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Provider:</span> <span class="text-info">${escapeHtml(String(f.provider || f.metadata.provider))}</span></div>` : ''}
-                ${f.action_priority !== null && f.action_priority !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Action Priority:</span> <span class="text-danger">${escapeHtml(String(f.action_priority))}</span></div>` : ''}
-                ${f.action_type ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Action Type:</span> <span class="text-warning text-uppercase">${escapeHtml(String(f.action_type))}</span></div>` : ''}
-                ${(f.objective_type || (f.metadata && f.metadata.objective_type)) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Objective Type:</span> <span class="text-info">${escapeHtml(String(f.objective_type || f.metadata.objective_type))}</span></div>` : ''}
-                ${(f.metadata && f.metadata.field_sources) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Field Sources:</span> <span class="font-monospace text-info">${escapeHtml(JSON.stringify(f.metadata.field_sources).slice(0, 220))}</span></div>` : ''}
-                ${(f.metadata && f.metadata.score_factors) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Score Factors:</span> <span class="font-monospace text-warning">${escapeHtml(JSON.stringify(f.metadata.score_factors).slice(0, 260))}</span></div>` : ''}
-                ${(f.metadata && f.metadata.chain_explanation) ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain Why:</span> <span class="text-light">${escapeHtml(String((f.metadata.chain_explanation.reason || '')).slice(0, 240))}</span></div>` : ''}
-                ${f.estimated_value ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Estimated Value:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.estimated_value))}</span></div>` : ''}
-                ${f.estimated_complexity ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Estimated Complexity:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.estimated_complexity))}</span></div>` : ''}
-                ${f.chain_length !== null && f.chain_length !== undefined ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain Length:</span> <span class="text-info">${escapeHtml(String(f.chain_length))}</span></div>` : ''}
-                ${f.attack_complexity ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Attack Complexity:</span> <span class="text-info text-uppercase">${escapeHtml(String(f.attack_complexity))}</span></div>` : ''}
-                ${f.signal_ids && f.signal_ids.length ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Signals:</span> <span class="text-info font-monospace">${escapeHtml(f.signal_ids.join(', '))}</span></div>` : ''}
-                ${f.category === 'attack_chain' && f.metadata && f.metadata.chain ? `<div class="extra-small text-secondary mt-1"><span class="text-muted">Chain:</span> <span class="text-danger">${escapeHtml((f.metadata.chain || []).join(' -> '))}</span></div>` : ''}
-            </div>
-        `;
-
-        // TECHNICAL REPRODUCIBILITY & EVIDENCE (UI Alignment)
-        if (f.request || f.response || f.repro_command) {
+        // TECHNICAL EVIDENCE (Request/Response)
+        if (f.request || f.response) {
             html += `
             <div class="mb-4">
-                <h6 class="extra-small text-danger text-uppercase mb-3 fw-bold">
-                    <i class="fas fa-microscope me-1"></i>TECHNICAL REPRODUCIBILITY & EVIDENCE
+                <h6 class="extra-small text-info text-uppercase mb-3 fw-bold">
+                    <i class="fas fa-code me-2"></i>Technical Proof of Concept
                 </h6>
                 
-                ${f.repro_command ? `
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <span class="extra-small text-muted text-uppercase">Reproduction Vector</span>
-                    </div>
-                    <div class="p-2 rounded border border-danger border-opacity-20 bg-dark position-relative">
-                        <button class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-1" onclick="navigator.clipboard.writeText(this.nextElementSibling.innerText)" title="Copy to clipboard"><i class="fas fa-copy"></i></button>
-                        <pre class="mb-0 text-warning extra-small text-wrap" style="padding-top: 10px;">${escapeHtml(f.repro_command)}</pre>
-                    </div>
-                </div>` : ''}
-
                 <div class="accordion accordion-flush bg-black bg-opacity-20 rounded p-1" id="techEvidence">
                     ${f.request ? `
                     <div class="accordion-item bg-transparent">
@@ -340,7 +515,7 @@
                         </h2>
                         <div id="collapseReq" class="accordion-collapse collapse" data-bs-parent="#techEvidence">
                             <div class="accordion-body p-0 pt-2">
-                                <pre class="evidence-block">${escapeHtml(f.request)}</pre>
+                                <pre class="evidence-block" style="background: #0d1117; color: #ffeb3b;">${escapeHtml(f.request)}</pre>
                             </div>
                         </div>
                     </div>` : ''}
@@ -354,27 +529,14 @@
                         </h2>
                         <div id="collapseRes" class="accordion-collapse collapse" data-bs-parent="#techEvidence">
                             <div class="accordion-body p-0 pt-2">
-                                <pre class="evidence-block" style="color: #66ccff;">${escapeHtml(f.response)}</pre>
+                                <pre class="evidence-block" style="background: #0d1117; color: #a5d6ff; border: 1px solid #30363d; overflow-x: auto; font-family: 'JetBrains Mono', monospace;">${escapeHtml(f.response)}</pre>
                             </div>
                         </div>
                     </div>` : ''}
                 </div>
-
-                ${(!f.request && !f.response && !f.repro_command) ? `
-                    <div class="small text-muted italic mt-2">
-                        <i class="fas fa-info-circle me-1"></i> Note: Detailed evidence is available for scans launched after the latest engine update.
-                    </div>
-                ` : ''}
             </div>
             `;
         }
-
-        html += `
-            <div class="mt-4 pt-3 border-top border-secondary border-opacity-10 d-flex gap-2">
-                <button class="btn btn-xs btn-outline-info flex-fill" onclick="$('#graph-tab').tab('show')"><i class="fas fa-project-diagram me-1"></i>Graph View</button>
-                <button class="btn btn-xs btn-outline-secondary flex-fill" onclick="$('#hood-tab').tab('show')"><i class="fas fa-bug me-1"></i>Raw Log</button>
-            </div>
-        `;
 
         panel.innerHTML = html;
     }

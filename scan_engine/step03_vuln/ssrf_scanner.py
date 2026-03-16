@@ -41,21 +41,41 @@ class SSRFScanner:
             if r.text == baseline_text:
                 return False, None, None, None
 
-            # 2. Strict Signatures for success
-            # We look for markers that are NOT in the baseline text
-            signatures = [
-                "ami-id", "instance-id", "local-hostname",  # AWS
-                "AccessKeyId", "SecretAccessKey",           # AWS IAM
-                "computeMetadata/v1", "Metadata-Flavor",     # GCP
-                "\"compute\":", "\"network\":"              # Azure (JSON markers)
-            ]
+            # 2. Header Validation (Highest Confidence)
+            # AWS IMDSv2, GCP, and Azure use specific headers
+            headers_low = {k.lower(): v.lower() for k, v in r.headers.items()}
+            if "metadata-flavor" in headers_low and "google" in headers_low["metadata-flavor"]:
+                return True, r, test_url, payload
+            if "x-ms-metadata-status" in headers_low:
+                return True, r, test_url, payload
+
+            # 3. Strict Signatures for success
+            # Markers that are unlikely to be in a simple reflected payload
+            signatures = {
+                "aws": ["ami-id", "instance-id", "local-hostname", "security-groups"],
+                "aws_iam": ["AccessKeyId", "SecretAccessKey", "Token"],
+                "gcp": ["\"access_token\":", "\"expires_in\":", "\"token_type\":"],
+                "azure": ["\"compute\":", "\"network\":", "\"vmId\":"]
+            }
             
-            for sig in signatures:
-                if sig in r.text and sig not in baseline_text:
-                    # Double check: if it looks like a cloud hit, verify it's not just returning 200 for everything
-                    # by checking a known non-existent path on the same target
-                    return True, r, test_url, payload
-                    
+            # 4. Anti-Reflection Check
+            # If the payload is reflected in the body, its components shouldn't be counted as signatures
+            # unless they are part of a larger valid metadata structure.
+            body_text = r.text
+            for cloud, sigs in signatures.items():
+                for sig in sigs:
+                    if sig in body_text and sig not in baseline_text:
+                        # Verify it's not JUST reflecting the 'sig' from our payload
+                        # (e.g. if we sent it in the URL and it's in a hidden input)
+                        if sig in payload:
+                            # If sig is in payload, we need ANOTHER sig or a header to be sure
+                            other_sigs = [s for s in sigs if s != sig]
+                            if any(s in body_text and s not in baseline_text for s in other_sigs):
+                                return True, r, test_url, payload
+                        else:
+                            # Signature found and NOT in our payload -> High confidence SSRF
+                            return True, r, test_url, payload
+                            
         except Exception:
             pass
         return False, None, None, None

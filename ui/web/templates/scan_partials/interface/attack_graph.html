@@ -22,405 +22,242 @@
     </div>
 </div>
 
-<!-- Warning Banner if relations aren't fully persisted -->
 <div class="col-12 mb-3">
-    <div class="alert alert-dark border-warning  bg-opacity-75 fade show d-flex align-items-center mb-0 p-2 d-none"
+    <div class="alert alert-dark border-warning bg-opacity-75 fade show d-flex align-items-center mb-0 p-2 d-none"
         id="graph-warning" role="alert">
         <i class="fas fa-exclamation-triangle text-warning me-3 ms-2 fa-lg"></i>
-        <div class="x-small  text-muted">
-            <strong class="text-warning">Partial graph:</strong> DB schema relationships not explicitly persisted. Using
-            inferred links from tool logs and seed URLs.
+        <div class="x-small text-muted">
+            <strong class="text-warning">Partial graph:</strong> DB schema relationships not explicitly persisted. Using inferred links.
         </div>
     </div>
 </div>
 
-<div class="col-lg-8">
-    <div class="card h-100">
-        <div class="card-header border-0 pb-0 d-flex justify-content-between">
-            <span class="extra-small text-muted text-uppercase">Execution Paths</span>
-            <div class="input-group input-group-sm" style="max-width: 300px;">
-                <span class="input-group-text bg-transparent border-secondary text-muted"><i
-                        class="fas fa-search"></i></span>
-                <input type="text" id="graph-filter" class="form-control bg-transparent border-secondary text-light"
-                    placeholder="Search paths..." onkeyup="renderGraphTable()">
+<div class="col-lg-9">
+    <div class="card shadow-lg border-secondary" style="height: 700px; background: #0b0b0b;">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-project-diagram me-2"></i>Mission Visualizer</span>
+            <div class="d-flex gap-2">
+                 <button class="btn btn-xs btn-outline-info" onclick="fitGraph()"><i class="fas fa-expand"></i> Fit</button>
+                 <button class="btn btn-xs btn-outline-cyber" onclick="initGraphData()"><i class="fas fa-sync-alt"></i> Rebuild</button>
             </div>
         </div>
-        <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                <table class="table table-hover mb-0" id="graph-table">
-                    <thead>
-                        <tr class="extra-small text-muted text-uppercase">
-                            <th class="ps-3">Source (From)</th>
-                            <th>Relationship</th>
-                            <th>Target (To)</th>
-                            <th class="text-end pe-3">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="graph-tbody" class="extra-small">
-                        <!-- Populated by JS -->
-                    </tbody>
-                </table>
-                <div id="graph-empty-state" class="text-center p-5">
-                    <i class="fas fa-project-diagram fa-3x text-muted opacity-10 mb-3"></i>
-                    <p class="small text-muted" id="graph-empty-text">No execution paths match your filter.</p>
-                </div>
+        <div class="card-body p-0 position-relative">
+            <div id="network-graph" style="width: 100%; height: 100%;"></div>
+            <div id="graph-loader" class="position-absolute top-50 start-50 translate-middle text-center d-none">
+                <div class="spinner-border text-info mb-2"></div>
+                <div class="text-muted small">Synthesizing Graph...</div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="col-lg-4">
-    <div class="card h-100 position-sticky" style="top: 20px;">
-        <div class="card-header glass-header">
-            <i class="fas fa-crosshairs me-2"></i>Path Context
+<div class="col-lg-3">
+    <div class="card border-secondary h-100 shadow-sm" style="background: #111;">
+        <div class="card-header border-bottom border-secondary extra-small py-2 text-uppercase text-muted">
+            <i class="fas fa-fingerprint me-2"></i>Entity Inspector
         </div>
-        <div class="card-body" id="graph-inspector-panel" style="max-height: 600px; overflow-y: auto;">
-            <div class="text-center p-5 text-muted fst-italic">
-                <i class="fas fa-mouse-pointer fa-2x opacity-25 mb-2"></i>
-                <p class="mb-0">Select a path to inspect provenance.</p>
+        <div class="card-body p-3" id="graph-inspector-panel">
+            <div class="text-center mt-5 text-muted fst-italic">
+                <i class="fas fa-mouse-pointer fa-2x opacity-25 mb-3"></i>
+                <p class="small mb-0">Select a node or edge to inspect context.</p>
             </div>
         </div>
     </div>
 </div>
+
+<script src="/static/js/vis-network.min.js"></script>
 
 <script>
-    document.addEventListener("DOMContentLoaded", () => {
-        // Initial delay to let other partials settle
-        setTimeout(initGraphData, 1000);
-    });
-
-    let graphDataNodes = [];
-    let graphDataEdges = [];
+    let network = null;
+    let nodes = new vis.DataSet();
+    let edges = new vis.DataSet();
     let graphMode = 'promising';
 
+    document.addEventListener("DOMContentLoaded", () => {
+        setTimeout(initGraphData, 500);
+    });
+
     async function initGraphData() {
-        console.log("Graph: Starting initialization...");
-        const debugEl = document.getElementById('graph-debug-info');
-        if (debugEl) debugEl.innerText = "Rebuilding...";
-
-        let allNodes = [];
-        let allEdges = [];
-
+        const loader = document.getElementById('graph-loader');
+        if (loader) loader.classList.remove('d-none');
+        
         try {
             const scanId = window.scanResults ? (window.scanResults.scan_id || window.scanResults.id) : null;
-            console.log("Graph: Scan ID detected:", scanId);
+            if (!scanId) return buildHeuristicGraph();
 
-            if (!scanId) {
-                console.warn("Graph: No scan ID found in scanResults");
-                buildHeuristicGraph(allNodes, allEdges);
+            const response = await fetch(`/api/scans/${scanId}/graph`);
+            const data = await response.json();
+            
+            nodes.clear();
+            edges.clear();
+
+            if (data.nodes && data.nodes.length > 0) {
+                data.nodes.forEach(n => {
+                    nodes.add(prepareNode(n));
+                });
+                data.edges.forEach(e => {
+                    edges.add({
+                        id: `edge_${e.from}_${e.to}`,
+                        from: e.from,
+                        to: e.to,
+                        label: e.type,
+                        font: { size: 10, color: '#666', align: 'middle' },
+                        color: { color: '#444' },
+                        arrows: 'to'
+                    });
+                });
             } else {
-                const response = await fetch(`/api/scans/${scanId}/graph`);
-                const data = await response.json();
-                console.log("Graph: Fetched nodes:", data.nodes?.length, "edges:", data.edges?.length);
-
-                if (data.nodes && data.nodes.length > 0) {
-                    document.getElementById('graph-warning').classList.add('d-none');
-                    data.nodes.forEach(n => {
-                        let color = { background: '#222', border: '#444' };
-                        let shape = 'dot';
-                        let font = { color: '#aaa', size: 10 };
-                        let size = 15;
-                        let label = n.label || n.id;
-
-                        const type = (n.type || '').toLowerCase();
-                        if (type === 'service') {
-                            shape = 'hexagon';
-                            color = { background: '#111', border: '#00f0ff' };
-                            font = { color: '#00f0ff', face: 'monospace' };
-                            size = 25;
-                        } else if (type === 'finding' || type === 'detection') {
-                            shape = 'box';
-                            const sev = (n.data?.severity || 'info').toLowerCase();
-                            const colorMap = {
-                                'critical': '#ff2a2a', 'high': '#f39c12',
-                                'medium': '#f1c40f', 'low': '#3498db', 'info': '#95a5a6'
-                            };
-                            color = { background: colorMap[sev] || '#95a5a6', border: '#000' };
-                            font = { color: '#000', bold: true };
-                            label = `🚨\n${n.label || n.id}`;
-                        } else if (type === 'endpoint') {
-                            label = `🔗\n${n.label || n.id}`;
-                        } else if (type === 'target' || type === 'seed') {
-                            shape = 'star';
-                            color = { background: '#f1c40f', border: '#000' };
-                            font = { color: '#000', bold: true };
-                            size = 30;
-                            label = `🎯\n${n.label || n.id}`;
-                        }
-
-                        allNodes.push({
-                            id: n.id,
-                            label: label,
-                            shape: shape,
-                            color: color,
-                            font: font,
-                            size: size,
-                            meta: { type: n.type, ...n.data }
-                        });
-                    });
-
-                    data.edges.forEach(e => {
-                        allEdges.push({
-                            from: e.from,
-                            to: e.to,
-                            label: e.type,
-                            font: { size: 8, color: '#666', align: 'middle' },
-                            color: { color: '#444' },
-                            arrows: 'to'
-                        });
-                    });
+                buildHeuristicGraph();
+            }
+            
+            // Inject Lateral Paths if available
+            const lateral = window.scanResults?.phases?.tactical?.lateral_paths || [];
+            lateral.forEach((path, idx) => {
+                const lpNodeId = `lp_${idx}`;
+                nodes.add({
+                    id: lpNodeId,
+                    label: `🔥\nPIVOT\n${path.title}`,
+                    shape: 'diamond',
+                    color: { background: '#ff2a2a', border: '#fff' },
+                    font: { color: '#fff', bold: true },
+                    size: 35,
+                    meta: { type: 'Lateral Path', ...path }
+                });
+                if (path.source) {
+                    edges.add({ from: path.source, to: lpNodeId, label: 'pivots from', color: '#ff2a2a', dashes: true });
                 }
-            }
+                if (path.destination) {
+                    edges.add({ from: lpNodeId, to: path.destination, label: 'reaches', color: '#ff2a2a', dashes: true });
+                }
+            });
 
-            // ALWAYS inject findings nodes if they are missing
-            injectFindingsToGraph(allNodes, allEdges);
-
-            if (allNodes.length === 0) {
-                buildHeuristicGraph(allNodes, allEdges);
-            }
+            createNetwork();
         } catch (err) {
-            console.error("Failed to load persisted graph:", err);
-            buildHeuristicGraph(allNodes, allEdges);
+            console.error("Graph Error:", err);
+            buildHeuristicGraph();
+        } finally {
+            if (loader) loader.classList.add('d-none');
         }
-
-        graphDataNodes = allNodes;
-        graphDataEdges = allEdges;
-
-        if (debugEl) debugEl.innerText = `${allNodes.length} Nodes, ${allEdges.length} Edges`;
-        renderGraphTable();
     }
 
-    function injectFindingsToGraph(allNodes, allEdges) {
-        // Access rawFindingsData globally
-        const findings = window.rawFindingsData || {};
-        const count = Object.keys(findings).length;
-        console.log("Graph: Injecting findings. Count:", count);
+    function prepareNode(n) {
+        let color = { background: '#222', border: '#444' };
+        let shape = 'dot';
+        let font = { color: '#aaa', size: 12 };
+        let size = 15;
+        let label = n.label || n.id;
 
-        const targetVal = window.scanResults ? window.scanResults.target : 'Target';
-        const targetNodeId = `target_1`;
-
-        if (!allNodes.some(n => n.id === targetNodeId)) {
-            allNodes.push({
-                id: targetNodeId,
-                label: `🎯\n${targetVal}`,
-                shape: 'hexagon',
-                color: { background: '#111', border: '#00f0ff' },
-                font: { color: '#00f0ff', face: 'monospace' },
-                size: 30,
-                meta: { type: 'Seed', details: targetVal }
-            });
-        }
-
-        Object.values(findings).forEach(f => {
-            const fNodeId = `vuln_${f.id_stable || f.id}`;
-            if (allNodes.some(n => n.id === fNodeId)) return;
-
-            const sev = (f.severity || 'info').toLowerCase();
+        const type = (n.type || '').toLowerCase();
+        if (type === 'service' || type === 'port') {
+            shape = 'hexagon';
+            color = { background: '#0b0b0b', border: '#00f0ff' };
+            font = { color: '#00f0ff', face: 'monospace' };
+            size = 25;
+        } else if (type === 'vulnerability' || type === 'finding' || type === 'detection') {
+            shape = 'box';
+            const sev = (n.data?.severity || 'info').toLowerCase();
             const colorMap = {
                 'critical': '#ff2a2a', 'high': '#f39c12',
                 'medium': '#f1c40f', 'low': '#3498db', 'info': '#95a5a6'
             };
-            const bgClr = colorMap[sev] || '#95a5a6';
-
-            allNodes.push({
-                id: fNodeId,
-                label: `🚨\n${(f.title || 'Finding').substring(0, 25)}...`,
-                shape: 'box',
-                color: { background: bgClr, border: '#000' },
-                font: { color: '#000', bold: true },
-                meta: { type: 'Detection', severity: f.severity, source: f.tool_source || f.tool }
-            });
-
-            // Link to surface
-            let linked = false;
-            const targetUrl = (f.endpoint || f.target || "").toLowerCase();
-            if (targetUrl) {
-                const matcher = targetUrl;
-                const relatedNode = allNodes.find(n =>
-                    (n.id && n.id.toLowerCase().includes(matcher)) ||
-                    (n.meta && n.meta.url && n.meta.url.toLowerCase().includes(matcher)) ||
-                    (n.label && n.label.toLowerCase().includes(matcher))
-                );
-
-                if (relatedNode && relatedNode.id !== fNodeId) {
-                    allEdges.push({
-                        from: relatedNode.id,
-                        to: fNodeId,
-                        label: 'exploits',
-                        color: { color: bgClr },
-                        font: { size: 8, color: bgClr },
-                        arrows: 'to'
-                    });
-                    linked = true;
-                }
-            }
-
-            if (!linked) {
-                allEdges.push({
-                    from: targetNodeId,
-                    to: fNodeId,
-                    label: `discovered`,
-                    color: { color: '#666', opacity: 0.5 },
-                    font: { size: 8, color: '#666' },
-                    arrows: 'to'
-                });
-            }
-        });
-    }
-
-    function buildHeuristicGraph(allNodes, allEdges) {
-        const targetVal = window.scanResults ? window.scanResults.target : 'Target';
-        const targetNodeId = `target_1`;
-
-        if (!allNodes.some(n => n.id === targetNodeId)) {
-            allNodes.push({
-                id: targetNodeId,
-                label: `🎯\n${targetVal}`,
-                shape: 'hexagon',
-                color: { background: '#111', border: '#00f0ff' },
-                font: { color: '#00f0ff', face: 'monospace' },
-                size: 30,
-                meta: { type: 'Seed', details: targetVal }
-            });
+            color = { background: colorMap[sev] || '#95a5a6', border: '#000' };
+            font = { color: '#000', bold: true };
+            label = `🚨\n${label}`;
+        } else if (type === 'target' || type === 'seed') {
+            shape = 'star';
+            color = { background: '#f1c40f', border: '#000' };
+            font = { color: '#000', bold: true };
+            size = 30;
+            label = `🎯\n${label}`;
+        } else if (type === 'endpoint') {
+            label = `🔗\n${label}`;
         }
 
-        const surface = window.rawSurfaceData || [];
-        surface.forEach((s, idx) => {
-            let sNodeId = `surface_${idx}`;
-            let icon = s.type === 'asset' ? '🌐' : s.type === 'endpoint' ? '🔗' : '📦';
-            allNodes.push({
-                id: sNodeId,
-                label: `${icon}\n${(s.value || '').substring(0, 25)}...`,
-                shape: 'dot',
-                color: { background: '#222', border: '#444' },
-                font: { color: '#aaa', size: 10 },
-                size: 15,
-                meta: { type: s.type, source: s.source, details: s.value }
-            });
-
-            allEdges.push({
-                from: targetNodeId,
-                to: sNodeId,
-                label: 'discovered',
-                font: { size: 8, color: '#666', align: 'middle' },
-                color: { color: '#333' },
-                arrows: 'to'
-            });
-        });
-
-        injectFindingsToGraph(allNodes, allEdges);
+        return {
+            id: n.id,
+            label: label,
+            shape: shape,
+            color: color,
+            font: font,
+            size: size,
+            title: n.id, // Tooltip
+            meta: { type: n.type, ...n.data }
+        };
     }
 
-    function renderGraphTable() {
-        const tbody = document.getElementById('graph-tbody');
-        const emptyState = document.getElementById('graph-empty-state');
-        const emptyText = document.getElementById('graph-empty-text');
-        const filter = document.getElementById('graph-filter').value.toLowerCase();
+    function createNetwork() {
+        const container = document.getElementById('network-graph');
+        const data = { nodes: nodes, edges: edges };
+        const options = {
+            nodes: { borderWidth: 2, shadow: true },
+            edges: { 
+                smooth: { type: 'cubicBezier', forceDirection: 'none', roundness: 0.5 },
+                color: { inherit: 'from' },
+                width: 1
+            },
+            physics: {
+                enabled: true,
+                barnesHut: { gravitationalConstant: -3000, springLength: 150 },
+                stabilization: { iterations: 100 }
+            },
+            interaction: { hover: true, tooltipDelay: 200 }
+        };
 
-        tbody.innerHTML = '';
-        let matchCount = 0;
+        network = new vis.Network(container, data, options);
 
-        const nodeMap = {};
-        graphDataNodes.forEach(n => nodeMap[n.id] = n);
-
-        graphDataEdges.forEach((edge, idx) => {
-            const fromNode = nodeMap[edge.from];
-            const toNode = nodeMap[edge.to];
-
-            if (!fromNode || !toNode) return;
-
-            const fromLabel = (fromNode.label || fromNode.id).replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim();
-            const toLabel = (toNode.label || toNode.id).replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim();
-            const rel = edge.label || 'connected';
-
-            const searchString = `${fromLabel} ${toLabel} ${rel}`.toLowerCase();
-
-            let showRow = true;
-            if (filter && !searchString.includes(filter)) showRow = false;
-
-            if (graphMode === 'promising') {
-                const toType = (toNode.meta && toNode.meta.type) || '';
-                if (toType !== 'finding' && toType !== 'Detection') {
-                    showRow = false;
-                }
-            } else if (graphMode === 'surface') {
-                const toType = (toNode.meta && toNode.meta.type) || '';
-                if (toType === 'finding' || toType === 'Detection') {
-                    showRow = false;
-                }
-            }
-
-            if (showRow) {
-                matchCount++;
-                const tr = document.createElement('tr');
-                tr.className = 'hover-action cursor-pointer finding-row';
-                tr.onclick = () => inspectPath(fromNode, edge, toNode);
-
-                tr.innerHTML = `
-                    <td class="ps-3 align-middle">
-                        <span class="text-light fw-bold">${fromLabel.substring(0, 35)}${fromLabel.length > 35 ? '...' : ''}</span><br>
-                        <span class="text-muted extra-small">${fromNode.meta ? fromNode.meta.type : 'Node'}</span>
-                    </td>
-                    <td class="align-middle text-center">
-                        <div class="badge bg-secondary bg-opacity-10 border border-secondary text-info px-2 py-1">
-                            <i class="fas fa-long-arrow-alt-right me-1"></i> ${rel}
-                        </div>
-                    </td>
-                    <td class="align-middle">
-                        <span class="text-light fw-bold">${toLabel.substring(0, 35)}${toLabel.length > 35 ? '...' : ''}</span><br>
-                        <span class="text-muted extra-small">${toNode.meta ? toNode.meta.type : 'Node'}</span>
-                    </td>
-                    <td class="text-end pe-3 align-middle">
-                        <button class="btn btn-xs btn-outline-cyber"><i class="fas fa-eye"></i></button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
+        network.on("click", (params) => {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+                inspectEntity(node);
+            } else if (params.edges.length > 0) {
+                 const edgeId = params.edges[0];
+                 const edge = edges.get(edgeId);
+                 inspectEntity({ label: edge.label, meta: { type: 'Relationship', from: edge.from, to: edge.to } });
             }
         });
-
-        if (matchCount === 0) {
-            emptyState.classList.remove('d-none');
-            emptyText.innerText = filter ? `No match for "${filter}"` : `No execution paths found in "${graphMode}" mode. Try switching to Forensics.`;
-        } else {
-            emptyState.classList.add('d-none');
-        }
     }
 
-    function setGraphMode(mode) {
-        graphMode = mode;
-        document.querySelectorAll('#graph-pane button.btn-outline-cyber').forEach(b => b.classList.remove('active'));
-        const btn = document.getElementById(`graph-btn-${mode}`);
-        if (btn) btn.classList.add('active');
-        renderGraphTable();
-    }
-
-    function inspectPath(fromNode, edge, toNode) {
+    function inspectEntity(entity) {
         const panel = document.getElementById('graph-inspector-panel');
         let html = `
-            <div class="mb-4">
-                <h6 class="text-muted text-uppercase extra-small mb-2">Path Context</h6>
-                <div class="d-flex align-items-center justify-content-between p-2 bg-black bg-opacity-20 rounded border border-secondary border-opacity-25">
-                    <div class="text-truncate" style="max-width: 40%;"><span class="badge bg-dark">${fromNode.meta ? fromNode.meta.type : ''}</span><br><span class="text-light small text-wrap">${fromNode.label.replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim()}</span></div>
-                    <div class="text-info small"><i class="fas fa-arrow-right"></i><br><span style="font-size: 0.65rem;">${edge.label}</span></div>
-                    <div class="text-truncate text-end" style="max-width: 40%;"><span class="badge bg-dark">${toNode.meta ? toNode.meta.type : ''}</span><br><span class="text-light small text-wrap">${toNode.label.replace(/[\n🚨🎯🌐🔗📦☁️🛠️]/g, ' ').trim()}</span></div>
+            <div class="mb-4 text-center">
+                <div class="badge bg-cyber text-dark mb-2">${entity.meta?.type || 'Entity'}</div>
+                <h5 class="text-white text-break">${entity.label.replace(/[\n🚨🎯🔗]/g, '')}</h5>
+            </div>
+            <div class="small">
+                <h6 class="text-muted extra-small text-uppercase border-bottom border-secondary pb-1 mb-2">Technical Metadata</h6>
+                <div class="list-group list-group-flush bg-transparent">
+        `;
+
+        const meta = entity.meta || {};
+        Object.entries(meta).forEach(([k, v]) => {
+            if (k === 'type' || k === 'id') return;
+            if (typeof v === 'object') v = `<pre class="extra-small text-info mt-1">${JSON.stringify(v, null, 2)}</pre>`;
+            html += `
+                <div class="list-group-item bg-transparent text-muted px-0 py-2 border-0">
+                    <div class="extra-small text-uppercase opacity-50 mb-1">${k}</div>
+                    <div class="text-light text-break">${v || 'N/A'}</div>
+                </div>
+            `;
+        });
+
+        html += `
                 </div>
             </div>
         `;
-        html += `<div class="row g-2">
-            <div class="col-12"><h6 class="text-muted text-uppercase extra-small border-bottom border-secondary pb-1 mb-2">Technical Details</h6><ul class="list-group list-group-flush bg-transparent extra-small">`;
-
-        const allMeta = { ...(fromNode.meta || {}), ...(toNode.meta || {}) };
-        Object.entries(allMeta).forEach(([k, v]) => {
-            if (typeof v === 'object') v = JSON.stringify(v);
-            html += `
-             <li class="list-group-item bg-transparent text-muted px-0 py-1 d-flex justify-content-between text-break">
-                 <span class="opacity-50 text-uppercase">${k}</span>
-                 <span class="text-light text-end w-75">${v || 'N/A'}</span>
-             </li>`;
-        });
-
-        html += `</ul></div></div>`;
         panel.innerHTML = html;
-        panel.scrollTop = 0;
+    }
+
+    function fitGraph() {
+        if (network) network.fit({ animation: true });
+    }
+
+    function buildHeuristicGraph() {
+        // Fallback or static build if API fails
+        nodes.clear(); edges.clear();
+        const target = window.scanResults?.target || "Target";
+        nodes.add({ id: 'target_1', label: `🎯\n${target}`, shape: 'star', color: '#f1c40f', size: 30 });
+        createNetwork();
     }
 </script>

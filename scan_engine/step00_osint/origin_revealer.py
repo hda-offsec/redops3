@@ -28,34 +28,68 @@ class OriginRevealer:
         
         candidates = []
 
-        # 1. DNS History (Simulated for now, would need API keys for SecurityTrails)
-        # We check if the domain resolves to non-CDN IPs directly
+        # 1. Direct DNS Check
         try:
             current_ip = socket.gethostbyname(self.domain)
             is_cdn = self._is_cdn(current_ip)
             
+            # Identify provider via reverse DNS
+            provider = "Unknown Provider"
+            try:
+                # Reverse DNS
+                host = socket.gethostbyaddr(current_ip)[0].lower()
+                if "ionos" in host or "1and1" in host: provider = "IONOS (1&1)"
+                elif "amazon" in host or "aws" in host: provider = "AWS (Amazon Cloud)"
+                elif "google" in host or "googleusercontent" in host: provider = "Google Cloud"
+                elif "hetzner" in host: provider = "Hetzner Online"
+                elif "digitalocean" in host: provider = "DigitalOcean"
+                elif "ovh" in host: provider = "OVHcloud"
+                elif "linode" in host: provider = "Linode"
+                elif "hostinger" in host or "h-hosting" in host: provider = "Hostinger"
+                elif "bluehost" in host: provider = "Bluehost"
+                elif "dreamhost" in host: provider = "Dreamhost"
+                elif "siteground" in host: provider = "SiteGround"
+                elif "godaddy" in host: provider = "GoDaddy"
+                else: 
+                    # Use reverse hostname as fallback if we don't recognize it
+                    provider = ".".join(host.split('.')[-2:])
+            except Exception:
+                # If rDNS fails, we haven't lost hope yet, we set it to Unknown for now
+                pass
+
+
             if not is_cdn:
-                if logger: logger(f"OriginRevealer: Domain resolves to {current_ip} which does not look like a known CDN!", "SUCCESS")
-                candidates.append({"ip": current_ip, "confidence": "high", "reason": "Direct DNS Resolution (No CDN detected)"})
+                if logger: logger(f"OriginRevealer: Direct IP resolved to {current_ip} (Hosting: {provider})", "SUCCESS")
+                candidates.append({
+                    "ip": current_ip, 
+                    "confidence": "high", 
+                    "reason": "Direct DNS Resolution (No CDN detected)",
+                    "hosting": provider
+                })
             else:
-                if logger: logger(f"OriginRevealer: Domain is behind CDN ({current_ip}). probing deeper...", "INFO")
+                if logger: logger(f"OriginRevealer: Domain behind CDN ({current_ip}).", "INFO")
+                # Even behind CDN, keep the record for profiling
+                candidates.append({
+                    "ip": current_ip,
+                    "confidence": "low",
+                    "reason": f"CDN detected via {current_ip}",
+                    "hosting": provider
+                })
         except Exception:
             pass
 
-        # 2. SSL Certificate Matching on Common Subnets (Aggressive)
-        # In a real Red Team scenario, we would scan the entire ASN.
-        # Here we just check if we have any 'likely' IPs from other sources (e.g. historical data or subdomains)
-        # For this PoC, we will implement a "Favicon Hash" check if the user provides a list of IPs to check
-        # But since we don't have an IP list, we trust the 'Censys' approach conceptually.
-        
-        # Implementation of Favicon Hash Calculation
+        # 2. Add Favicon Hash Query
         fav_hash = self._get_favicon_hash(f"https://{self.domain}")
-        if fav_hash and logger:
-            logger(f"OriginRevealer: Target Favicon Hash: {fav_hash}. (Use this in Shodan: http.favicon.hash:{fav_hash})", "INFO")
-            # We can't query Shodan without API key, but we provide the intel.
-            candidates.append({"ip": "N/A", "confidence": "manual", "reason": f"Shodan Query: http.favicon.hash:{fav_hash}"})
+        if fav_hash:
+            candidates.append({
+                "ip": "N/A", 
+                "confidence": "manual", 
+                "reason": f"Shodan Query: http.favicon.hash:{fav_hash}",
+                "favicon_hash": fav_hash
+            })
 
         return candidates
+
 
     def _is_cdn(self, ip):
         # Simple heuristic for Cloudflare/Akamai/AWS

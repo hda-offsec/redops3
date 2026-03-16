@@ -24,7 +24,9 @@ class ScanDashboard {
             'Dirbusting': 'fuzz', 'Vulnerability': 'vulns', 'Nuclei': 'vulns',
             'Dalfox': 'vulns', 'Intel': 'intel', 'Loot': 'loot',
             'Wayback': 'historic', 'Historic': 'historic', 'Archive': 'historic',
-            'Spring': 'apps', 'Firebase': 'apps', 'Actuator': 'apps', 'Docker': 'apps'
+            'Spring': 'apps', 'Firebase': 'apps', 'Actuator': 'apps', 'Docker': 'apps',
+            'rfi_expert': 'rfi', 'RFI': 'rfi', 'xss_expert': 'xss', 'XSS': 'xss',
+            'logic_expert': 'logic', 'Logic': 'logic', 'sqli_expert': 'sqli', 'SQLi': 'sqli'
         };
 
         this.renderedFindingIds = new Set();
@@ -376,6 +378,7 @@ class ScanDashboard {
                 tr.setAttribute("data-tool", escapedTool.toLowerCase());
                 tr.setAttribute("data-category", this.escapeHtml(data.category || "").toLowerCase());
                 tr.setAttribute("data-exploit", data.exploit_score || "");
+                tr.setAttribute("data-port-status", (data.metadata?.port_state || "").toLowerCase());
                 tr.setAttribute("data-attack-priority", this.escapeHtml(data.attack_priority || "").toLowerCase());
                 tr.setAttribute("data-component", this.escapeHtml(data.component || "").toLowerCase());
                 tr.setAttribute("data-provider", this.escapeHtml(data.provider || "").toLowerCase());
@@ -388,22 +391,50 @@ class ScanDashboard {
                 };
 
                 const sev = data.severity.toLowerCase();
+                const confidence = (data.confidence || 'med').toUpperCase().substring(0, 4);
+                const toolShow = (data.tool_source || 'CORE').toUpperCase();
+                
+                let vectorHtml = '';
+                if (data.endpoint) {
+                    vectorHtml = `<div class="text-info text-truncate" title="${this.escapeHtml(data.endpoint)}"><i class="fas fa-link me-1 opacity-50"></i>${this.escapeHtml(data.endpoint)}</div>`;
+                } else if (data.target) {
+                    vectorHtml = `<div class="text-secondary text-truncate" title="${this.escapeHtml(data.target)}"><i class="fas fa-crosshairs me-1 opacity-50"></i>${this.escapeHtml(data.target)}</div>`;
+                } else {
+                    vectorHtml = `<span class="text-muted opacity-25">N/A</span>`;
+                }
 
                 tr.innerHTML = `
-                    <td class="ps-3 align-middle">
-                        <span class="badge-severity bg-${sev} w-100 text-center d-block">
+                    <td class="ps-3">
+                        <span class="badge-severity bg-${sev} w-100 text-center d-block rounded-1 py-1">
                             ${data.severity.toUpperCase()}
                         </span>
                     </td>
-                    <td class="align-middle" style="max-width: 300px;">
-                        <div class="fw-bold text-light text-truncate lh-sm">${escapedTitle}</div>
-                        <div class="text-muted extra-small text-truncate mt-1 opacity-75">${escapedDesc}</div>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="fw-bold text-light text-truncate" title="${escapedTitle}">${escapedTitle}</div>
+                            ${(data.repro_command || data.reproduction) ? `<i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>` : ''}
+                            ${(data.request || data.response) ? `<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>` : ''}
+                            ${data.metadata?.validation_status === 'confirmed_active' ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
+                        </div>
+                        <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
+                            ${escapedDesc.replace(/<[^>]*>/g, '')}
+                        </div>
                     </td>
-                    <td class="align-middle text-muted extra-small">
-                        <span class="badge bg-dark border border-secondary text-muted">${escapedTool}</span>
+                    <td class="font-monospace extra-small">
+                        ${vectorHtml}
                     </td>
-                    <td class="text-end pe-3 align-middle">
-                        <i class="fas fa-chevron-right text-muted opacity-25"></i>
+                    <td class="text-center">
+                        <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small px-2">
+                            ${confidence}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="extra-small text-primary-emphasis fw-semibold bg-primary bg-opacity-10 px-2 py-1 rounded border border-primary border-opacity-10">
+                            ${toolShow}
+                        </span>
+                    </td>
+                    <td class="text-end pe-3">
+                        <i class="fas fa-chevron-right text-muted opacity-25 extra-small"></i>
                     </td>
                 `;
 
@@ -415,6 +446,50 @@ class ScanDashboard {
                 }
             }
         }
+
+        // ScanNmap Dashboard Specific updates
+        if (data.category === 'service_detection') {
+            this.updateScanNmapDashboard(data);
+        }
+    }
+
+    updateScanNmapDashboard(data) {
+        const tableBody = document.getElementById("scannmap-services-tbody");
+        if (!tableBody) return;
+
+        const m = data.metadata || {};
+        const portId = `scannmap-port-${m.host_ip}-${m.port}`;
+        if (document.getElementById(portId)) return;
+
+        const tr = document.createElement("tr");
+        tr.id = portId;
+        tr.setAttribute("data-status", (m.port_state || "open").toLowerCase());
+
+        const confidenceHtml = m.confidence_score ? `
+            <div class="progress mt-1" style="height: 2px; width: 60px; background: rgba(255,255,255,0.05);" title="Trust Index: ${m.confidence_score}%">
+                <div class="progress-bar bg-success" style="width: ${m.confidence_score}%"></div>
+            </div>
+        ` : '';
+
+        tr.innerHTML = `
+            <td class="ps-3"><span class="badge bg-info bg-opacity-10 border border-info text-info">${m.port || 'N/A'}</span></td>
+            <td class="small font-monospace text-info">${m.host_ip || 'N/A'}</td>
+            <td class="fw-bold text-light">
+                ${(m.service || 'N/A').toUpperCase()}
+                ${m.port_state === 'filtered' ? '<i class="fas fa-shield-alt text-warning extra-small ms-1" title="Filtered"></i>' : ''}
+            </td>
+            <td class="small text-muted">
+                ${m.version || 'N/A'}
+                ${confidenceHtml}
+            </td>
+            <td class="text-end pe-3">
+                <button class="btn btn-xs btn-outline-secondary" onclick="showFindingDetail('${data.id_stable || data.id}')">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </td>
+        `;
+
+        tableBody.prepend(tr);
     }
 
     addToGallery(data) {
@@ -615,14 +690,29 @@ class ScanDashboard {
         }
     }
 
-    activateDiscovery(id, discovered = false) {
+    /**
+     * Wave 5.7: Multi-state discovery button activation
+     * @param {string} id - The discovery button ID suffix
+     * @param {string|boolean} state - 'launching', 'active', or true/false (true=discovered, false=active)
+     */
+    activateDiscovery(id, state) {
         const btn = document.getElementById(`discovery-${id}`);
         if (!btn) return;
-        if (discovered) {
+
+        // Map boolean to legacy states for backward compatibility
+        let finalState = state;
+        if (state === true) finalState = 'discovered';
+        if (state === false) finalState = 'active';
+
+        // Remove all state classes first to ensure clean transition
+        btn.classList.remove('launching', 'active', 'discovered');
+
+        if (finalState === 'discovered') {
             btn.classList.add('discovered');
-            btn.classList.remove('active');
-        } else if (!btn.classList.contains('discovered')) {
+        } else if (finalState === 'active') {
             btn.classList.add('active');
+        } else if (finalState === 'launching') {
+            btn.classList.add('launching');
         }
     }
 

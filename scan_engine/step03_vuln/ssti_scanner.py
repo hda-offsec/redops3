@@ -72,13 +72,17 @@ class SSTIScanner:
         })
 
     def get_payloads(self):
-        """Payloads with expected results for engine identification."""
+        """
+        Payloads with large, unique mathematical results to avoid noise (V12 Policy).
+        Using numbers like 49 (7*7) is forbidden due to collision with search counts.
+        """
         return [
-            {"payload": "{{7*7}}", "expected": "49", "engines": ["Jinja2", "Twig", "Mako", "Handlebars"]},
-            {"payload": "${7*7}", "expected": "49", "engines": ["Freemarker", "Velocity", "EL"]},
-            {"payload": "<%= 7*7 %>", "expected": "49", "engines": ["ERB"]},
-            {"payload": "{{7*'7'}}", "expected": "7777777", "engines": ["Jinja2", "Twig"]},
-            {"payload": "*{7*7}", "expected": "49", "engines": ["Thymeleaf"]},
+            # Unique multi-digit results only
+            {"payload": "{{9876*1234}}", "expected": "12186984", "engines": ["Jinja2", "Twig", "Mako", "Handlebars"]},
+            {"payload": "${998*889}", "expected": "887222", "engines": ["Freemarker", "Velocity", "EL"]},
+            {"payload": "<%= 1337*7331 %>", "expected": "9801547", "engines": ["ERB"]},
+            {"payload": "{{1234*'5'}}", "expected": "55555", "engines": ["Jinja2", "Twig"]},
+            {"payload": "*{99*99}", "expected": "9801", "engines": ["Thymeleaf"]},
         ]
 
     # ------------------------------------------------------------------
@@ -331,38 +335,35 @@ class SSTIScanner:
 
                     if logger:
                         logger(
-                            f"SSTI V9: Factors={factors} → C={confidence}",
+                            f"SSTI V9: Factors={factors} → C={confidence} (Confirmations: {confirmations}/2)",
                             "DEBUG"
                         )
 
                     # ------ SEVERITY MAPPING ------
                     f1 = factors.get("f1_deterministic", 0)
+                    f5 = factors.get("f5_multi_attempt", 0)
                     f2 = factors.get("f2_structural_diff", 0)
 
-                    if confidence >= 0.8 and f1 == 1 and f2 == 1:
-                        severity = "critical"
-                        label = "CONFIRMED"
-                    elif confidence >= 0.6:
-                        severity = "high"
-                        label = "PROBABLE"
-                    elif confidence >= 0.4:
+                    # HARD GATE: No proof = No high severity
+                    if f5 == 0:
                         severity = "medium"
-                        label = "UNCONFIRMED — MANUAL REVIEW REQUIRED"
+                        label = "UNCONFIRMED - REPRODUCTION FAILED (No proof)"
+                    elif f1 == 1 and f2 == 1 and confidence >= 0.8:
+                        severity = "critical"
+                        label = "CONFIRMED (Execution Proven)"
+                    elif f1 == 1 or confidence >= 0.6:
+                        severity = "high"
+                        label = "PROBABLE (Reproduced)"
                     else:
-                        if logger:
-                            logger(
-                                f"SSTI V9: SUPPRESSED (C={confidence})"
-                                f" for {param_name}",
-                                "DEBUG"
-                            )
-                        continue
+                        severity = "medium"
+                        label = "CANDIDATE (Weak evidence)"
 
                     # Stack mismatch enforcement (P8)
                     if not engine_compat and stack != "unknown":
                         # Cap at MEDIUM — ENGINE_INCOMPATIBLE_WITH_STACK
                         if severity in ("critical", "high"):
                             severity = "medium"
-                        label = "ENGINE_INCOMPATIBLE_WITH_STACK"
+                        label = "ENGINE_INCOMPATIBLE_WITH_STACK (Faux Positif probable)"
                         engine_str = (
                             f"POSSIBLE TEMPLATE BEHAVIOR — "
                             f"ENGINE UNKNOWN (Stack: {stack})"
@@ -374,13 +375,9 @@ class SSTIScanner:
                         )
                         engine_str = ", ".join(compat_engines) if compat_engines else "Unknown"
 
-                    # CRITICAL requires FULL determinism + structural mutation
-                    if severity == "critical" and (f1 != 1 or f2 != 1):
-                        severity = "high"
-                        label = "PROBABLE (determinism incomplete)"
-
                     # ------ BUILD EVIDENCE ------
                     req_dump = f"GET {test_url} HTTP/1.1\n"
+                    # Handle cases where r might be None if we skipped earlier, but we are inside successful logic
                     for k, v in r.request.headers.items():
                         req_dump += f"{k}: {v}\n"
 
@@ -394,7 +391,8 @@ class SSTIScanner:
                         "description": (
                             f"**SSTI VALIDATION RESULT (V9 Formal Model)**:\n"
                             f"- Execution proven (P1): "
-                            f"{'YES' if f1 == 1 else 'NO'}\n"
+                            f"{'YES (Confirmed)' if f5 == 1 else 'NO (Failed to reproduce)'}\n"
+                            f"- Reproducibility: {confirmations}/2 successful attempts\n"
                             f"- Payload rendered (P2): YES "
                             f"('{probe['payload']}' → '{probe['expected']}')\n"
                             f"- Baseline exclusion (P3): YES\n"
@@ -406,11 +404,10 @@ class SSTIScanner:
                             f"- Not redirect-only (P7): YES\n"
                             f"- Stack compatible (P8): "
                             f"{'YES' if engine_compat else f'NO ({stack})'}\n"
-                            f"- Multi-attempt: {confirmations}/2\n"
                             f"- **Confidence: {confidence}/1.0**\n\n"
                             f"Parameter: `{param_name}`\n"
                             f"Detected Stack: {stack}\n"
-                            f"Validation Path: {vp}\n"
+                            f"Note: Proof of execution is required for HIGH/CRITICAL status."
                         ),
                         "severity": severity,
                         "confidence": str(confidence),
@@ -428,7 +425,7 @@ class SSTIScanner:
                     if logger:
                         logger(
                             f"SSTI V9: [{label}] {engine_str} on {param_name} "
-                            f"(C={confidence}, stack={stack})",
+                            f"(C={confidence}, Conf={confirmations}/2)",
                             "CRITICAL" if severity == "critical" else "WARN"
                         )
                     break  # One finding per parameter

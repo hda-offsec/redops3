@@ -53,8 +53,9 @@ class LfiAssaultScanner:
                 # Limit surface in quick mode
                 urls = urls[:15]
                 if logger: logger(f"LFI Assault: (Quick Mode) Capping scan to top {len(urls)} target URLs", "DEBUG")
+            else:
+                if logger: logger(f"LFI Assault: (Exhaustive) Processing all {len(urls)} target URLs", "INFO")
             
-            if logger: logger(f"LFI Assault: Ingested {len(urls)} prioritized URLs", "INFO")
             urls_to_test.extend(urls)
             
         # 2. Attack Execution
@@ -86,30 +87,6 @@ class LfiAssaultScanner:
         if logger: logger(f"LFI Assault: Finished. Found {len(findings)} issues.", "SUCCESS")
         return findings
 
-    def _get_crawled_urls(self, scan_id):
-        try:
-            results = load_results(scan_id)
-            if not results: return []
-            
-            urls = set()
-            # Extract from Katana
-            if "enum" in results.get("phases", {}) and "katana" in results["phases"]["enum"]:
-                 # Katana output might be a list of strings or dicts
-                 katana_data = results["phases"]["enum"]["katana"]
-                 # ... parsing logic depends on how raw_output is stored.
-                 # Assuming simpler case for now or empty.
-                 pass
-            
-            # Extract from FFUF
-            if "dirbusting" in results.get("phases", {}) and "ffuf" in results["phases"]["dirbusting"]:
-                 ffuf_data = results["phases"]["dirbusting"]["ffuf"]
-                 if isinstance(ffuf_data, dict) and "endpoints" in ffuf_data:
-                     for ep in ffuf_data["endpoints"]:
-                         urls.add(ep.get("url"))
-                         
-            return list(urls)
-        except Exception:
-            return []
 
     def _assault_url(self, url, logger, quick=False):
         """
@@ -136,7 +113,10 @@ class LfiAssaultScanner:
                         target_urls_with_points.append((e_url, p))
                         if quick: break # Only one expanded param in quick mode
         
-        target_urls_with_points = list(set(target_urls_with_points))[:10] # Cap injection points
+        if not quick:
+             target_urls_with_points = list(set(target_urls_with_points)) # No cap in exhaustive mode
+        else:
+             target_urls_with_points = list(set(target_urls_with_points))[:10] # Cap injection points in quick mode
         
         session = get_session(self.options)
         session.headers.update({"User-Agent": "RedOps3-Assault/1.0"})
@@ -173,15 +153,28 @@ class LfiAssaultScanner:
                             
                             # CRITICAL: Verify success AND check that it's NOT in the baseline
                             if self._check_success(resp, rule, baseline_text=baseline_text):
-                                findings.append({
-                                    "title": f"LFI Detected ({rule['rule_id']})",
+                                f = {
+                                    "title": f"Local File Inclusion (LFI) - {rule['rule_id']}",
                                     "severity": "critical",
                                     "confidence": "high",
-                                    "description": f"Successfully confirmed Local File Inclusion via differential analysis.\nURL: {final_url}\nPayload: {payload}\nConfirmed using rule: {rule['rule_id']}",
-                                    "url": final_url,
-                                    "tool_source": "lfi_assault",
-                                    "payload": payload
-                                })
+                                    "description": f"Confirmed Local File Inclusion via differential analysis.\nURL: {final_url}\nPayload: {payload}\nConfirmed using rule: {rule['rule_id']}",
+                                    "remediation": "Validate all user-supplied input against an allow-list of files. Avoid passing parameters directly to file system APIs. If possible, use an indirect reference map (e.g., ID 1 maps to file A).",
+                                    "risk_scorecard": {
+                                        "impact": "Critical",
+                                        "complexity": "Low",
+                                        "likelihood": "Medium"
+                                    },
+                                    "repro_command": f"curl -i '{final_url}'",
+                                    "request": f"GET {final_url} HTTP/1.1\nHost: {urlparse(target_url).netloc}",
+                                    "response": f"HTTP/1.1 {resp.status_code}\n\n{resp.text[:800]}",
+                                    "payload": payload,
+                                    "metadata": {
+                                        "validation_status": "confirmed_active",
+                                        "rule_id": rule['rule_id'],
+                                        "bypass_technique": "mutation_matrix"
+                                    }
+                                }
+                                findings.append(f)
                                 break 
                         except Exception:
                             pass
@@ -203,18 +196,30 @@ class LfiAssaultScanner:
     def _check_success(self, resp, rule, baseline_text=""):
         """
         Verifies if the attack succeeded based on the rule's check_type.
-        Includes differential check against baseline.
+        Includes differential check against baseline and auto-decoding for wrappers.
         """
         if resp.status_code != 200:
             return False
             
         check_type = rule.get("check_type")
         keywords = rule.get("match_keywords", [])
+        content = resp.text
         
+        # Wave 5: High-fidelity PHP Wrapper Verification
+        # If the content looks like base64 and we test a PHP filter, try to decode it
+        if len(content) > 10 and re.match(r'^[a-zA-Z0-9+/=]+$', content.strip()):
+            try:
+                import base64
+                decoded = base64.b64decode(content.strip()).decode('utf-8', errors='ignore')
+                if decoded:
+                    content = decoded
+            except:
+                pass
+
         if check_type == "keyword_match":
             for kw in keywords:
-                # Signature must be present in response AND NOT in baseline
-                if kw in resp.text and kw not in baseline_text:
+                # Signature must be present in content AND NOT in baseline
+                if kw in content and kw not in baseline_text:
                     return True
         
         return False

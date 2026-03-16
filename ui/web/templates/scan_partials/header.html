@@ -11,6 +11,9 @@
                     class="btn btn-xs btn-outline-cyber">
                     <i class="fas fa-file-pdf me-1"></i>Report
                 </a>
+                <a href="/api/scans/{{ scan.id }}/report/markdown" class="btn btn-xs btn-outline-info" target="_blank">
+                    <i class="fas fa-file-download me-1"></i>Report (MD)
+                </a>
                 <a href="{{ url_for('main.scan_osint', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
                     <i class="fas fa-search-plus me-1"></i>OSINT
                 </a>
@@ -18,6 +21,11 @@
                     data-bs-target="#harvestLootModal">
                     <i class="fas fa-hand-holding-usd me-1"></i>Loot
                 </button>
+                <form action="{{ url_for('main.delete_scan', scan_id=scan.id) }}" method="POST" onsubmit="return confirm('DÉTRUIRE TOUTES LES DONNÉES ? Cette action est irréversible.');" class="d-inline">
+                    <button type="submit" class="btn btn-xs btn-outline-danger">
+                        <i class="fas fa-trash me-1"></i>SUPPRIMER
+                    </button>
+                </form>
                 <span class="badge status-pill status-{{ scan.status }} ms-2">{{ scan.status }}</span>
             </div>
         </div>
@@ -96,8 +104,20 @@
                         <div id="discovery-vulns" class="discovery-btn">
                             <i class="fas fa-biohazard"></i> Vulns
                         </div>
+                        <div id="discovery-sqli" class="discovery-btn">
+                            <i class="fas fa-database"></i> SQLi
+                        </div>
+                        <div id="discovery-rfi" class="discovery-btn">
+                            <i class="fas fa-satellite"></i> RFI
+                        </div>
+                        <div id="discovery-xss" class="discovery-btn">
+                            <i class="fas fa-code"></i> XSS
+                        </div>
+                        <div id="discovery-logic" class="discovery-btn">
+                            <i class="fas fa-brain"></i> Logic
+                        </div>
                         <div id="discovery-intel" class="discovery-btn">
-                            <i class="fas fa-brain"></i> Intel
+                            <i class="fas fa-microchip"></i> Intel
                         </div>
                         <div id="discovery-historic" class="discovery-btn">
                             <i class="fas fa-history"></i> Historic
