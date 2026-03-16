@@ -115,6 +115,23 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertEqual(payload["operator_feedback"]["false_positive_like_actions"], 1)
         self.assertEqual(payload["coverage_hints"]["objectives_with_paths"], 1)
 
+    def test_finding_schema_additive_reproducibility_fields(self):
+        normalized = normalize_finding_shape(
+            {
+                "title": "API probe",
+                "endpoint": "https://example.org/api",
+                "repro_command": "curl -i https://example.org/api",
+                "validation": {"status": "failed"},
+            },
+            source="unit_test",
+        )
+
+        self.assertIn("metadata", normalized)
+        self.assertIn("validation", normalized["metadata"])
+        self.assertIn("reproducibility", normalized["metadata"])
+        self.assertEqual(normalized["metadata"]["validation"]["status"], "failed")
+        self.assertEqual(normalized["metadata"]["reproducibility"]["url"], "https://example.org/api")
+
 
 if __name__ == "__main__":
     unittest.main()
