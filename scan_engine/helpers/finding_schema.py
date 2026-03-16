@@ -90,6 +90,8 @@ VALIDATION_STATUS_MAP = {
     "not-executed": "not_run",
 }
 
+INVALID_TEXT_MARKERS = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+
 
 def _clean_text(value):
     if value is None:
@@ -100,15 +102,36 @@ def _clean_text(value):
 
 
 def _normalize_command_value(*candidates):
-    invalid_markers = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
     for candidate in candidates:
         normalized = _clean_text(candidate)
         if not normalized:
             continue
-        if normalized.lower() in invalid_markers:
+        if normalized.lower() in INVALID_TEXT_MARKERS:
             continue
         return normalized
     return ""
+
+
+def _normalize_locator_value(*candidates):
+    for candidate in candidates:
+        normalized = _clean_text(candidate)
+        if not normalized:
+            continue
+        if normalized.lower() in INVALID_TEXT_MARKERS:
+            continue
+        return normalized
+    return ""
+
+
+def _has_meaningful_artifact(value):
+    text_value = _clean_text(value)
+    if not text_value:
+        return False
+    if text_value.lower() in INVALID_TEXT_MARKERS:
+        return False
+    if text_value in {"{}", "[]", '""'}:
+        return False
+    return True
 
 
 def _normalize_arguments(value):
@@ -319,10 +342,12 @@ def normalize_finding_shape(payload, *, source=None):
     metadata["validation"] = {
         "status": normalized_validation_status,
         "target": _clean_text(
-            raw_validation.get("target")
-            or metadata_validation.get("target")
-            or normalized.get("endpoint")
-            or normalized.get("target")
+            _normalize_locator_value(
+                raw_validation.get("target"),
+                metadata_validation.get("target"),
+                normalized.get("endpoint"),
+                normalized.get("target"),
+            )
         ),
         "command": metadata_validation_command,
         "expected": _clean_text(raw_validation.get("expected") or metadata_validation.get("expected")),
@@ -346,7 +371,11 @@ def normalize_finding_shape(payload, *, source=None):
             normalized.get("reproduction"),
             metadata_validation_command,
         ),
-        "url": _clean_text(reproducibility.get("url") or normalized.get("endpoint") or normalized.get("target")),
+        "url": _normalize_locator_value(
+            reproducibility.get("url"),
+            normalized.get("endpoint"),
+            normalized.get("target"),
+        ),
         "arguments": _normalize_arguments(reproducibility.get("arguments") or raw.get("arguments")),
         "request_excerpt": _clean_text(reproducibility.get("request_excerpt") or normalized.get("request")),
         "response_excerpt": _clean_text(reproducibility.get("response_excerpt") or normalized.get("response")),
@@ -364,6 +393,9 @@ def normalize_finding_shape(payload, *, source=None):
             "component": metadata.get("source") if (normalized.get("component") or metadata.get("component")) else None,
             "version": metadata.get("source") if (normalized.get("version") or metadata.get("version")) else None,
             "result_state": metadata.get("source") if normalized.get("result_state") else None,
+            "repro_command": metadata.get("source") if metadata.get("reproducibility", {}).get("command") else None,
+            "request": metadata.get("source") if metadata.get("reproducibility", {}).get("request_excerpt") else None,
+            "response": metadata.get("source") if metadata.get("reproducibility", {}).get("response_excerpt") else None,
         },
     )
 
@@ -371,10 +403,10 @@ def normalize_finding_shape(payload, *, source=None):
     validation_artifact = str(metadata["validation"].get("artifact") or "").strip()
     has_proof_artifact = any(
         [
-            evidence_value and evidence_value not in {"{}", "[]", "null", '""'},
-            normalized.get("response"),
+            _has_meaningful_artifact(evidence_value),
+            _has_meaningful_artifact(normalized.get("response")),
             _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
-            validation_artifact and validation_artifact not in {"{}", "[]", "null", '""'},
+            _has_meaningful_artifact(validation_artifact),
         ]
     )
     if normalized["result_state"] == "confirmed" and not has_proof_artifact:

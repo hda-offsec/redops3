@@ -188,8 +188,19 @@ class ScanOrchestrator:
                 value = str(value)
             return value.strip()
 
+        invalid_markers = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+
         def _normalize_command_value(*candidates):
-            invalid_markers = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+            for candidate in candidates:
+                normalized = _clean_text(candidate)
+                if not normalized:
+                    continue
+                if normalized.lower() in invalid_markers:
+                    continue
+                return normalized
+            return ""
+
+        def _normalize_locator_value(*candidates):
             for candidate in candidates:
                 normalized = _clean_text(candidate)
                 if not normalized:
@@ -228,11 +239,11 @@ class ScanOrchestrator:
 
         metadata_payload["validation"] = {
             "status": str(validation_status).strip().lower() if validation_status is not None else "not_run",
-            "target": _clean_text(
-                metadata_validation.get("target")
-                or kwargs.get("endpoint")
-                or kwargs.get("target")
-                or kwargs.get("url")
+            "target": _normalize_locator_value(
+                metadata_validation.get("target"),
+                kwargs.get("endpoint"),
+                kwargs.get("target"),
+                kwargs.get("url"),
             ),
             "command": _normalize_command_value(metadata_validation.get("command"), normalized_command),
             "expected": _clean_text(metadata_validation.get("expected")),
@@ -244,7 +255,12 @@ class ScanOrchestrator:
 
         metadata_payload["reproducibility"] = {
             "command": _normalize_command_value(metadata_repro.get("command"), normalized_command),
-            "url": _clean_text(metadata_repro.get("url") or kwargs.get("endpoint") or kwargs.get("target") or kwargs.get("url")),
+            "url": _normalize_locator_value(
+                metadata_repro.get("url"),
+                kwargs.get("endpoint"),
+                kwargs.get("target"),
+                kwargs.get("url"),
+            ),
             "arguments": command_arguments,
             "request_excerpt": _clean_text(metadata_repro.get("request_excerpt") or kwargs.get("request")),
             "response_excerpt": _clean_text(metadata_repro.get("response_excerpt") or kwargs.get("response")),

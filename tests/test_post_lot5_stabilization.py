@@ -213,5 +213,56 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertEqual(finding["metadata"]["reproducibility"]["arguments"], {"method": "GET"})
 
 
+
+    def test_confirmed_with_placeholder_artifacts_is_downgraded(self):
+        normalized = normalize_finding_shape(
+            {
+                "title": "Placeholder confirmed",
+                "result_state": "confirmed",
+                "evidence": "null",
+                "response": "N/A",
+                "validation": {"artifact": "manual"},
+                "repro_command": "ui",
+            },
+            source="unit_test",
+        )
+
+        self.assertEqual(normalized["result_state"], "validation")
+        self.assertEqual(normalized["metadata"]["validation"]["status"], "uncertain")
+        self.assertEqual(
+            normalized["metadata"]["validation"]["downgrade_reason"],
+            "confirmed_without_artifact",
+        )
+
+    def test_locator_placeholders_are_not_retained(self):
+        normalized = normalize_finding_shape(
+            {
+                "title": "Weak locator",
+                "endpoint": "N/A",
+                "target": "manual",
+                "metadata": {
+                    "reproducibility": {"url": "ui"},
+                    "validation": {"target": "todo"},
+                },
+            },
+            source="unit_test",
+        )
+
+        self.assertEqual(normalized["metadata"]["reproducibility"]["url"], "")
+        self.assertEqual(normalized["metadata"]["validation"]["target"], "")
+
+    def test_finding_normalizer_preserves_result_state_mapping(self):
+        finding = FindingNormalizer.normalize(
+            {
+                "title": "Validated chain",
+                "severity": "medium",
+                "url": "https://example.org/path",
+                "result_state": "validated",
+            },
+            tool_name="unit_tool",
+        )
+
+        self.assertEqual(finding["result_state"], "validation")
+
 if __name__ == "__main__":
     unittest.main()
