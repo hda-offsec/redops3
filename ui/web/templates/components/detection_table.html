@@ -24,8 +24,8 @@
                 data-exploit="{{ f.exploit_score|default('') }}"
                 data-port-status="{{ f.metadata.port_state|default('')|lower if f.metadata else '' }}"
                 data-attack-priority="{{ f.attack_priority|default('')|lower }}"
-                data-component="{{ f.component|default('')|lower }}" 
-                data-provider="{{ f.provider|default('')|lower }}"
+                data-component="{{ (f.component or (f.metadata.component if f.metadata else ''))|default('')|lower }}" 
+                data-provider="{{ (f.provider or (f.metadata.provider if f.metadata else ''))|default('')|lower }}"
                 data-content="{{ ((f.title or '') ~ ' ' ~ (f.tool_source or f.tool or '') ~ ' ' ~ (f.category or '') ~ ' ' ~ (f.endpoint or f.target or ''))|lower }}">
                 
                 <td class="ps-3">
@@ -40,6 +40,7 @@
                         {% set validation = f.metadata.validation if f.metadata and f.metadata.validation else {} %}
                         {% set reproducibility = f.metadata.reproducibility if f.metadata and f.metadata.reproducibility else {} %}
                         {% set primary_command = validation.command or reproducibility.command or f.repro_command or f.reproduction %}
+                        {% set primary_url = validation.target or reproducibility.url or f.endpoint or f.target %}
                         {% if primary_command and primary_command|lower not in ['n/a','na','none','null','manual','todo','ui','-'] %}
                             <i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>
                         {% endif %}
@@ -50,7 +51,8 @@
                             <i class="fas fa-link text-danger extra-small" title="Part of Attack Chain"></i>
                         {% endif %}
                         {% set validation_status = (validation.status if validation and validation.status else (f.metadata.validation_status if f.metadata else '')) %}
-                        {% if validation_status == 'success' or f.result_state in ['confirmed', 'confirmed_active'] %}
+                        {% set result_state = (validation.result_state if validation and validation.result_state else f.result_state) %}
+                        {% if validation_status == 'success' or result_state in ['confirmed', 'confirmed_active', 'validated'] %}
                             <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small">
                                 <i class="fas fa-check-circle me-1"></i>VALIDATED
                             </span>
@@ -64,10 +66,8 @@
                 </td>
 
                 <td class="font-monospace extra-small">
-                    {% if f.endpoint %}
-                        <div class="text-info text-truncate" title="{{ f.endpoint }}"><i class="fas fa-link me-1 opacity-50"></i>{{ f.endpoint }}</div>
-                    {% elif f.target %}
-                        <div class="text-secondary text-truncate" title="{{ f.target }}"><i class="fas fa-crosshairs me-1 opacity-50"></i>{{ f.target }}</div>
+                    {% if primary_url %}
+                        <div class="text-info text-truncate" title="{{ primary_url }}"><i class="fas fa-link me-1 opacity-50"></i>{{ primary_url }}</div>
                     {% else %}
                         <span class="text-muted opacity-25">N/A</span>
                     {% endif %}

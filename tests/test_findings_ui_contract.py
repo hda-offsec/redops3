@@ -9,6 +9,8 @@ class FindingsUiContractTests(unittest.TestCase):
             'getFindingValidationStatus',
             'getFindingPrimaryCommand',
             'getFindingPrimaryUrl',
+            'getFindingResultState',
+            'decodeDataValue',
             'hasMeaningfulProof',
             'data-severity',
             'data-content',
@@ -23,6 +25,8 @@ class FindingsUiContractTests(unittest.TestCase):
             'Section E — Preuve',
             'Copy command',
             'VALIDATION:',
+            'VERIFIED',
+            'encodeURIComponent(primaryCommand)',
             'getFindingReproducibility',
         ]:
             self.assertIn(token, content)
@@ -32,6 +36,8 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertIn('data-sev="{{ f.severity|lower }}"', content)
         self.assertIn('data-severity="{{ f.severity|lower }}"', content)
         self.assertIn('data-content="{{ ((f.title or', content)
+        self.assertIn('{% set primary_url = validation.target or reproducibility.url or f.endpoint or f.target %}', content)
+        self.assertIn("result_state = (validation.result_state if validation and validation.result_state else f.result_state)", content)
 
 
 if __name__ == '__main__':

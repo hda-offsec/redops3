@@ -131,7 +131,8 @@ class ScanDashboard {
             // Manual verification
             const verifyBtn = e.target.closest('.verify-btn');
             if (verifyBtn) {
-                const cmd = verifyBtn.getAttribute('data-command');
+                const encoded = verifyBtn.getAttribute('data-command');
+                const cmd = this.decodeDataValue(encoded);
                 this.verifyFinding(cmd);
                 return;
             }
@@ -168,6 +169,12 @@ class ScanDashboard {
         return validation.status || finding?.metadata?.validation_status || 'not_run';
     }
 
+    getFindingResultState(finding) {
+        const validation = this.getFindingValidation(finding);
+        const candidate = validation.result_state || finding?.result_state || 'observation';
+        return this.isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
+    }
+
     getFindingPrimaryCommand(finding) {
         const validation = this.getFindingValidation(finding);
         const reproducibility = this.getFindingReproducibility(finding);
@@ -180,6 +187,15 @@ class ScanDashboard {
         const reproducibility = this.getFindingReproducibility(finding);
         const candidate = validation.target || reproducibility.url || finding?.endpoint || finding?.target || '';
         return this.isMeaningfulValue(candidate) ? candidate : '';
+    }
+
+    decodeDataValue(value) {
+        if (!value) return '';
+        try {
+            return decodeURIComponent(value);
+        } catch (_) {
+            return value;
+        }
     }
 
     hasMeaningfulProof(finding) {
@@ -441,8 +457,8 @@ class ScanDashboard {
                 tr.setAttribute("data-exploit", data.exploit_score || "");
                 tr.setAttribute("data-port-status", (data.metadata?.port_state || "").toLowerCase());
                 tr.setAttribute("data-attack-priority", this.escapeHtml(data.attack_priority || "").toLowerCase());
-                tr.setAttribute("data-component", this.escapeHtml(data.component || "").toLowerCase());
-                tr.setAttribute("data-provider", this.escapeHtml(data.provider || "").toLowerCase());
+                tr.setAttribute("data-component", this.escapeHtml(data.component || data.metadata?.component || "").toLowerCase());
+                tr.setAttribute("data-provider", this.escapeHtml(data.provider || data.metadata?.provider || "").toLowerCase());
                 tr.setAttribute("data-content", `${escapedTitle} ${escapedTool} ${this.escapeHtml(data.category || '')} ${this.escapeHtml(this.getFindingPrimaryUrl(data) || '')}`.toLowerCase());
 
                 // Set click handler for new UI
@@ -456,14 +472,16 @@ class ScanDashboard {
                 const confidence = (data.confidence || 'med').toUpperCase().substring(0, 4);
                 const toolShow = (data.tool_source || 'CORE').toUpperCase();
                 
+                const primaryUrl = this.getFindingPrimaryUrl(data);
                 let vectorHtml = '';
-                if (data.endpoint) {
-                    vectorHtml = `<div class="text-info text-truncate" title="${this.escapeHtml(data.endpoint)}"><i class="fas fa-link me-1 opacity-50"></i>${this.escapeHtml(data.endpoint)}</div>`;
-                } else if (data.target) {
-                    vectorHtml = `<div class="text-secondary text-truncate" title="${this.escapeHtml(data.target)}"><i class="fas fa-crosshairs me-1 opacity-50"></i>${this.escapeHtml(data.target)}</div>`;
+                if (primaryUrl) {
+                    vectorHtml = `<div class="text-info text-truncate" title="${this.escapeHtml(primaryUrl)}"><i class="fas fa-link me-1 opacity-50"></i>${this.escapeHtml(primaryUrl)}</div>`;
                 } else {
                     vectorHtml = `<span class="text-muted opacity-25">N/A</span>`;
                 }
+
+                const resultState = this.getFindingResultState(data);
+                const isValidated = validationStatus === 'success' || ['confirmed', 'confirmed_active', 'validated'].includes(resultState);
 
                 tr.innerHTML = `
                     <td class="ps-3">
@@ -476,7 +494,7 @@ class ScanDashboard {
                             <div class="fw-bold text-light text-truncate" title="${escapedTitle}">${escapedTitle}</div>
                             ${primaryCommand ? `<i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>` : ''}
                             ${hasProof ? `<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>` : ''}
-                            ${validationStatus === 'success' || data.result_state === 'confirmed' || data.result_state === 'confirmed_active' ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
+                            ${isValidated ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
                         </div>
                         <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
                             ${escapedDesc.replace(/<[^>]*>/g, '')}
@@ -628,12 +646,13 @@ class ScanDashboard {
             const div = document.createElement("div");
             div.className = "result-row d-flex justify-content-between align-items-center p-2 mb-2 bg-black border border-secondary rounded animate__animated animate__fadeInUp";
             const escapedCmd = this.escapeHtml(data.command_suggestion);
+            const encodedCmd = encodeURIComponent(data.command_suggestion || '');
             div.innerHTML = `
                 <div>
                     <span class="badge bg-secondary me-2">${this.escapeHtml(data.tool_name)}</span>
                     <span class="result-text font-monospace small">${escapedCmd}</span>
                 </div>
-                <button class="btn btn-xs btn-outline-warning verify-btn" data-command="${escapedCmd}">
+                <button class="btn btn-xs btn-outline-warning verify-btn" data-command="${encodedCmd}">
                     <i class="fas fa-play"></i>
                 </button>
             `;
