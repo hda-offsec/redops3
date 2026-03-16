@@ -32,37 +32,37 @@
         <div class="card-body">
             <!-- TACTICAL SUMMARY BAR -->
             <div class="row tactical-summary-bar p-3 rounded mb-4 g-1">
-                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'sev:critical')">
                     <div class="text-muted x-small text-uppercase">Critical Risks</div>
                     <div id="stat-critical"
                         class="h4 mb-0 fw-bold {{ 'text-danger pulse-danger' if severity_counts['critical'] > 0 else 'text-muted' }}">
                         {{ severity_counts['critical'] }}</div>
                 </div>
-                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'sev:high')">
                     <div class="text-muted x-small text-uppercase">High Risks</div>
                     <div id="stat-high"
                         class="h4 mb-0 fw-bold {{ 'text-warning' if severity_counts['high'] > 0 else 'text-muted' }}">
                         {{ severity_counts['high'] }}</div>
                 </div>
-                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:asset source:nmap')">
                     <div class="text-muted x-small text-uppercase">Entry Points</div>
                     <div id="stat-ports-header" class="h4 mb-0 fw-bold text-info">{{
                         results.phases.recon.open_ports|length if
                         (results.phases.recon and results.phases.recon.open_ports) else 0 }}</div>
                 </div>
-                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:asset source:dnsrecon')">
                     <div class="text-muted x-small text-uppercase">Subdomains</div>
                     <div id="stat-subdomains-header" class="h4 mb-0 fw-bold text-info">{{
                         results.phases.dns.subdomains|length if
                         (results.phases.dns and results.phases.dns.subdomains) else 0 }}</div>
                 </div>
-                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center">
+                <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:technology')">
                     <div class="text-muted x-small text-uppercase">Intel Vectors</div>
                     <div id="stat-intel-header" class="h4 mb-0 fw-bold text-warning">{{ results.phases.intel|length if
                         results.phases.intel
                         else 0 }}</div>
                 </div>
-                <div class="col-md-2 text-center">
+                <div class="col-md-2 text-center cursor-pointer hover-bright" onclick="bootstrap.Modal.getOrCreateInstance('#harvestLootModal').show()">
                     <div class="text-muted x-small text-uppercase">Loot Collected</div>
                     <div id="stat-loot-header" class="h4 mb-0 fw-bold text-success loot-counter-val">
                         {{ loots|length if loots else 0 }}
@@ -74,67 +74,67 @@
                 <div class="col-12">
                     <div
                         class="discovery-status-bar d-flex flex-wrap gap-2 mb-4 p-2  bg-opacity-20 rounded border border-secondary border-opacity-10">
-                        <div id="discovery-dns" class="discovery-btn">
+                        <div id="discovery-dns" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:dns')">
                             <i class="fas fa-network-wired"></i> DNS
                         </div>
-                        <div id="discovery-ports" class="discovery-btn">
+                        <div id="discovery-ports" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:nmap')">
                             <i class="fas fa-plug"></i> Ports
                         </div>
-                        <div id="discovery-cloud" class="discovery-btn">
+                        <div id="discovery-cloud" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:cloud')">
                             <i class="fas fa-cloud"></i> Cloud
                         </div>
-                        <div id="discovery-waf" class="discovery-btn">
+                        <div id="discovery-waf" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:waf')">
                             <i class="fas fa-shield-halved"></i> WAF
                         </div>
-                        <div id="discovery-crawl" class="discovery-btn">
+                        <div id="discovery-crawl" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:katana')">
                             <i class="fas fa-spider"></i> Katana
                         </div>
-                        <div id="discovery-params" class="discovery-btn">
+                        <div id="discovery-params" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:arjun')">
                             <i class="fas fa-hat-wizard"></i> Arjun
                         </div>
-                        <div id="discovery-fuzz" class="discovery-btn">
+                        <div id="discovery-fuzz" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:ffuf')">
                             <i class="fas fa-folder-open"></i> Ffuf
                         </div>
-                        <div id="discovery-api" class="discovery-btn">
+                        <div id="discovery-api" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:api_route')">
                             <i class="fas fa-microchip"></i> API
                         </div>
-                        <div id="discovery-secrets" class="discovery-btn">
+                        <div id="discovery-secrets" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'secret')">
                             <i class="fas fa-user-secret"></i> Secrets
                         </div>
-                        <div id="discovery-vulns" class="discovery-btn">
+                        <div id="discovery-vulns" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', '')">
                             <i class="fas fa-biohazard"></i> Vulns
                         </div>
-                        <div id="discovery-sqli" class="discovery-btn">
+                        <div id="discovery-sqli" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'sqli')">
                             <i class="fas fa-database"></i> SQLi
                         </div>
-                        <div id="discovery-rfi" class="discovery-btn">
+                        <div id="discovery-rfi" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'rfi')">
                             <i class="fas fa-satellite"></i> RFI
                         </div>
-                        <div id="discovery-xss" class="discovery-btn">
+                        <div id="discovery-xss" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'xss')">
                             <i class="fas fa-code"></i> XSS
                         </div>
-                        <div id="discovery-logic" class="discovery-btn">
+                        <div id="discovery-logic" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'logic')">
                             <i class="fas fa-brain"></i> Logic
                         </div>
-                        <div id="discovery-intel" class="discovery-btn">
+                        <div id="discovery-intel" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:intel')">
                             <i class="fas fa-microchip"></i> Intel
                         </div>
-                        <div id="discovery-historic" class="discovery-btn">
+                        <div id="discovery-historic" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:historic')">
                             <i class="fas fa-history"></i> Historic
                         </div>
-                        <div id="discovery-apps" class="discovery-btn">
+                        <div id="discovery-apps" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:technology')">
                             <i class="fas fa-cubes"></i> Apps
                         </div>
-                        <div id="discovery-loot" class="discovery-btn">
+                        <div id="discovery-loot" class="discovery-btn cursor-pointer hover-bright" onclick="bootstrap.Modal.getOrCreateInstance('#harvestLootModal').show()">
                             <i class="fas fa-treasure-chest"></i> Loot
                         </div>
-                        <div id="discovery-tls" class="discovery-btn">
+                        <div id="discovery-tls" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'source:tls')">
                             <i class="fas fa-certificate"></i> TLS
                         </div>
-                        <div id="discovery-expert" class="discovery-btn">
+                        <div id="discovery-expert" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'expert')">
                             <i class="fas fa-microscope"></i> Expert
                         </div>
-                        <div id="discovery-miner" class="discovery-btn">
+                        <div id="discovery-miner" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:param')">
                             <i class="fas fa-digging"></i> Miner
                         </div>
                         <div class="ms-auto d-flex align-items-center">

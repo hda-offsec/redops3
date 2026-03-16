@@ -2066,12 +2066,20 @@ window.applyTacticalFilter = function (targetTab, filterValue) {
     setTimeout(() => {
         if (targetTab === 'findings') {
             const searchInput = document.getElementById('findings-search');
-            if (searchInput) {
-                searchInput.value = filterValue;
-                // Trigger the local filter function defined in findings.html
-                if (typeof filterFindings === 'function') {
-                    filterFindings();
-                }
+            const sevFilter = document.getElementById('findings-severity-filter');
+            
+            if (filterValue.startsWith('sev:')) {
+                const sev = filterValue.substring(4).toLowerCase();
+                if (sevFilter) sevFilter.value = sev;
+                if (searchInput) searchInput.value = '';
+            } else {
+                if (searchInput) searchInput.value = filterValue;
+                if (sevFilter) sevFilter.value = '';
+            }
+            
+            // Trigger the local filter function defined in findings.html
+            if (typeof filterFindings === 'function') {
+                filterFindings();
             }
         } else if (targetTab === 'surface') {
             const filterInput = document.getElementById('surface-filter');
