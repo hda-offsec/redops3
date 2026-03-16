@@ -230,10 +230,11 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 subs = [s for s in subs if isinstance(s, str) and s.strip()]
 
                 if subs:
+                    unique_subs = sorted(list(set(subs)))
                     pdf.set_font("helvetica", "B", 10)
-                    pdf.cell(0, 7, f"Discovered Subdomains ({len(subs)}):", ln=True)
+                    pdf.cell(0, 7, f"Discovered Subdomains ({len(unique_subs)}):", ln=True)
                     pdf.set_font("helvetica", "", 8)
-                    pdf.multi_cell(0, 5, pdf.safe_text(", ".join(subs)))
+                    pdf.multi_cell(0, 5, pdf.safe_text(", ".join(unique_subs)))
                     pdf.ln(3)
 
         # Cloud
@@ -256,10 +257,11 @@ def generate_scan_report(scan_id, scan_obj, findings):
 
         # Emails
         if osint.get('emails'):
+            unique_emails = sorted(list(set(osint['emails'])))
             pdf.set_font("helvetica", "B", 10)
-            pdf.cell(0, 7, f"Email Addresses ({len(osint['emails'])}):", ln=True)
+            pdf.cell(0, 7, f"Email Addresses ({len(unique_emails)}):", ln=True)
             pdf.set_font("helvetica", "", 8)
-            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(osint['emails'])))
+            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(unique_emails)))
             pdf.ln(3)
 
     # 4.5 Strategic Intelligence (Cortex)
@@ -275,8 +277,12 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.cell(0, 7, "Strategic Recommendations:", ln=True)
             pdf.set_font("helvetica", "", 9)
             pdf.set_text_color(50, 50, 50)
+            seen_recs = set()
             for r in recs:
                 title = r.get('title', 'Recommendation')
+                if title in seen_recs: continue
+                seen_recs.add(title)
+                
                 reason = r.get('reason', '')
                 conf = r.get('confidence', 0)
                 pdf.set_font("helvetica", "B", 9)
@@ -297,10 +303,11 @@ def generate_scan_report(scan_id, scan_obj, findings):
             
             global_eps = expansion.get('global', {}).get('derived_endpoints', [])
             if global_eps:
+                unique_eps = sorted(list(set(global_eps)))
                 pdf.set_font("helvetica", "B", 9)
                 pdf.cell(0, 5, "Heuristic Search Nodes:", ln=True)
                 pdf.set_font("helvetica", "I", 8)
-                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(global_eps)))
+                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(unique_eps)))
                 pdf.ln(2)
 
         # Service Intel
@@ -311,11 +318,11 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.set_text_color(50, 50, 50)
             pdf.cell(0, 7, "Service Intelligence Tags:", ln=True)
             pdf.set_font("helvetica", "", 9)
-            tags_found = []
+            tags_found = set()
             for item in intel:
                 for t in item.get('tags', []):
-                    tags_found.append(f"{t} (Port {item.get('port')})")
-            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(tags_found)))
+                    tags_found.add(f"{t} (Port {item.get('port')})")
+            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(sorted(tags_found))))
             pdf.ln(5)
 
     # 5. Technology Intelligence
@@ -530,7 +537,33 @@ def generate_scan_report(scan_id, scan_obj, findings):
         
     sorted_findings = sorted(findings, key=lambda x: sev_map.get(get_sev(x), 4))
     
+    import re
+    # Grouping repetitive INFO findings to keep report size manageable
+    info_groups = {
+        "Subdomain Inferred": [],
+        "Parameter Surface Discovered": [],
+        "Discovered Asset": []
+    }
+    other_findings = []
+    
     for f in sorted_findings:
+        sev = get_sev(f)
+        title = f.get('title', 'Unknown') if isinstance(f, dict) else getattr(f, 'title', 'Unknown')
+        
+        grouped = False
+        if sev == "info":
+            for prefix in info_groups.keys():
+                if title.startswith(f"{prefix}:"):
+                    val = title.replace(f"{prefix}:", "").strip()
+                    info_groups[prefix].append(val)
+                    grouped = True
+                    break
+        
+        if not grouped:
+            other_findings.append(f)
+
+    # Print Detailed Findings
+    for f in other_findings:
         if pdf.get_y() > 250: pdf.add_page()
         
         sev = get_sev(f)
@@ -558,6 +591,11 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(60, 60, 65)
         pdf.set_x(10)
+        
+        # Truncate description for Info findings if they are still very long
+        if sev == "info" and len(description) > 500:
+            description = description[:500] + "... [TRUNCATED]"
+            
         pdf.multi_cell(190, 5, pdf.safe_text(description))
         
         if screenshot_path:
@@ -595,7 +633,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.cell(0, 5, " Offensive Request:", ln=True)
                 pdf.set_font("courier", "", 7)
                 # Cap request length for report
-                req_disp = request_text[:1000] + ("..." if len(request_text) > 1000 else "")
+                req_disp = request_text[:500] + ("..." if len(request_text) > 500 else "")
                 pdf.multi_cell(190, 3.5, pdf.safe_text(req_disp), border=1)
 
             if response_text:
@@ -604,10 +642,31 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.cell(0, 5, " Server Response Validation:", ln=True)
                 pdf.set_font("courier", "", 7)
                 # Cap response
-                res_disp = response_text[:1000] + ("..." if len(response_text) > 1000 else "")
+                res_disp = response_text[:500] + ("..." if len(response_text) > 500 else "")
                 pdf.multi_cell(190, 3.5, pdf.safe_text(res_disp), border=1)
 
         pdf.ln(6)
+
+    # Print Grouped Info Findings
+    for prefix, values in info_groups.items():
+        if not values: continue
+        if pdf.get_y() > 240: pdf.add_page()
+        
+        pdf.set_fill_color(245, 245, 250)
+        pdf.set_text_color(100, 100, 100)
+        pdf.set_font("helvetica", "B", 10)
+        pdf.cell(0, 8, pdf.safe_text(f" INFO SUMMARY: {prefix} ({len(values)})"), fill=True, ln=True)
+        
+        pdf.set_font("helvetica", "", 8)
+        pdf.set_text_color(80, 80, 85)
+        # Deduplicate and sort values for clean summary
+        unique_vals = sorted(list(set(values)))
+        summary_text = ", ".join(unique_vals)
+        if len(summary_text) > 5000:
+             summary_text = summary_text[:5000] + "... [TRUNCATED DUE TO VOLUME]"
+             
+        pdf.multi_cell(190, 4, pdf.safe_text(summary_text))
+        pdf.ln(5)
 
     # 6. LOOT VAULT
     from core.models import Loot

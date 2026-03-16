@@ -50,7 +50,11 @@ def _add_chain(scan_id, title, description, severity="medium", confidence="mediu
     combined_evidence = "\n\n".join(evidence_parts)[:4000]
     combined_raw = "\n\n".join(raw_parts)[:4000]
     
-    enriched_description = f"{description}\n\n**Linked Findings Leading to this Chain:**\n" + "\n".join(source_titles)
+    display_titles = source_titles[:15]
+    if len(source_titles) > 15:
+        display_titles.append(f"\n_... and {len(source_titles) - 15} more linked findings._")
+        
+    enriched_description = f"{description}\n\n**Linked Findings Leading to this Chain:**\n" + "\n".join(display_titles)
     
     source_categories = sorted({(f.category or "general") for f in source_findings})
     related_finding_ids = [f.id for f in source_findings if getattr(f, "id", None) is not None]
