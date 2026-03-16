@@ -134,7 +134,6 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertEqual(normalized["metadata"]["validation"]["status"], "failed")
         self.assertEqual(normalized["metadata"]["reproducibility"]["url"], "https://example.org/api")
 
-
     def test_confirmed_with_real_artifact_is_not_downgraded(self):
         normalized = normalize_finding_shape(
             {
@@ -192,7 +191,6 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertNotEqual(severity_color_for_pdf("medium")[0], (180, 0, 0))
         self.assertNotEqual(severity_color_for_pdf("low")[0], (180, 0, 0))
         self.assertNotEqual(severity_color_for_pdf("info")[0], (180, 0, 0))
-
 
     def test_finding_normalizer_populates_reproducibility_blocks(self):
         finding = FindingNormalizer.normalize(
