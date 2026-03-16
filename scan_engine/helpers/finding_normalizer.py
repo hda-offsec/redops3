@@ -113,6 +113,8 @@ class FindingNormalizer:
             "module": tool_data.get("module", tool_name or "generic") if isinstance(tool_data, dict) else (tool_name or "generic"),
             "raw_output": tool_data.get("raw_output", tool_data.get("response", tool_data.get("description", ""))) if isinstance(tool_data, dict) else str(tool_data),
             "metadata": tool_data.get("metadata", {}) if isinstance(tool_data, dict) and isinstance(tool_data.get("metadata", {}), dict) else {},
+            "result_state": tool_data.get("result_state", tool_data.get("state", tool_data.get("status", "observation"))) if isinstance(tool_data, dict) else "observation",
+            "validation_status": tool_data.get("validation_status") if isinstance(tool_data, dict) else None,
             "timestamp": int(time.time()),
             "id_stable": "" # V6 Stable ID
         }
