@@ -2,7 +2,9 @@ import unittest
 
 from core.quality_metrics import build_quality_metrics, classify_finding_family
 from core.replay_vault import compare_replay_artifacts, normalize_replay_artifact
+from core.reporting import severity_color_for_pdf
 from scan_engine.helpers.finding_schema import normalize_finding_shape
+from scan_engine.helpers.finding_normalizer import FindingNormalizer
 
 
 class PostLot5StabilizationTests(unittest.TestCase):
@@ -131,6 +133,84 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertIn("reproducibility", normalized["metadata"])
         self.assertEqual(normalized["metadata"]["validation"]["status"], "failed")
         self.assertEqual(normalized["metadata"]["reproducibility"]["url"], "https://example.org/api")
+
+    def test_confirmed_with_real_artifact_is_not_downgraded(self):
+        normalized = normalize_finding_shape(
+            {
+                "title": "Confirmed SSRF",
+                "result_state": "confirmed",
+                "severity": "high",
+                "repro_command": "curl -isk 'https://example.org/metadata'",
+                "response": "HTTP/1.1 200 OK\nmetadata",
+            },
+            source="unit_test",
+        )
+
+        self.assertEqual(normalized["result_state"], "confirmed")
+        self.assertEqual(normalized["metadata"]["validation"]["status"], "not_run")
+
+    def test_reproducibility_preserves_command_url_and_arguments(self):
+        normalized = normalize_finding_shape(
+            {
+                "title": "Replay check",
+                "endpoint": "https://example.org/api/users",
+                "repro_command": "curl -isk 'https://example.org/api/users?id=7'",
+                "arguments": ["-isk", "https://example.org/api/users?id=7"],
+                "request": "GET /api/users?id=7 HTTP/1.1",
+                "response": "HTTP/1.1 200 OK",
+            },
+            source="unit_test",
+        )
+
+        repro = normalized["metadata"]["reproducibility"]
+        self.assertEqual(repro["command"], "curl -isk 'https://example.org/api/users?id=7'")
+        self.assertEqual(repro["url"], "https://example.org/api/users")
+        self.assertEqual(repro["arguments"], {"argv": ["-isk", "https://example.org/api/users?id=7"]})
+        self.assertIn("GET /api/users", repro["request_excerpt"])
+        self.assertIn("200 OK", repro["response_excerpt"])
+
+    def test_reproducibility_ignores_placeholder_command_values(self):
+        normalized = normalize_finding_shape(
+            {
+                "title": "Weak signal",
+                "endpoint": "https://example.org/x",
+                "metadata": {
+                    "reproducibility": {"command": "N/A"},
+                    "validation": {"command": "manual"},
+                },
+            },
+            source="unit_test",
+        )
+
+        self.assertEqual(normalized["metadata"]["reproducibility"]["command"], "")
+        self.assertEqual(normalized["metadata"]["validation"]["command"], "")
+
+    def test_pdf_color_mapping_red_only_for_high(self):
+        self.assertEqual(severity_color_for_pdf("high")[0], (180, 0, 0))
+        self.assertNotEqual(severity_color_for_pdf("critical")[0], (180, 0, 0))
+        self.assertNotEqual(severity_color_for_pdf("medium")[0], (180, 0, 0))
+        self.assertNotEqual(severity_color_for_pdf("low")[0], (180, 0, 0))
+        self.assertNotEqual(severity_color_for_pdf("info")[0], (180, 0, 0))
+
+    def test_finding_normalizer_populates_reproducibility_blocks(self):
+        finding = FindingNormalizer.normalize(
+            {
+                "title": "Endpoint test",
+                "severity": "high",
+                "url": "https://example.org/api",
+                "request": "GET /api HTTP/1.1",
+                "response": "HTTP/1.1 200 OK",
+                "repro_command": "curl -isk 'https://example.org/api'",
+                "arguments": {"method": "GET"},
+                "validation": {"status": "success", "success_criteria": "200 response"},
+            },
+            tool_name="unit_tool",
+        )
+
+        self.assertEqual(finding["metadata"]["validation"]["status"], "success")
+        self.assertEqual(finding["metadata"]["validation"]["target"], "https://example.org/api")
+        self.assertEqual(finding["metadata"]["reproducibility"]["url"], "https://example.org/api")
+        self.assertEqual(finding["metadata"]["reproducibility"]["arguments"], {"method": "GET"})
 
 
 if __name__ == "__main__":

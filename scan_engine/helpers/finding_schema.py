@@ -44,7 +44,7 @@ CANONICAL_FINDING_DEFAULTS = {
         "is_chain_root": False,
         "related_findings": [],
         "attack_path_summary": "",
-        "pivot_point": None
+        "pivot_point": None,
     },
     "result_state": "observation",
 }
@@ -89,6 +89,37 @@ VALIDATION_STATUS_MAP = {
     "not_run": "not_run",
     "not-executed": "not_run",
 }
+
+
+def _clean_text(value):
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        value = str(value)
+    return value.strip()
+
+
+def _normalize_command_value(*candidates):
+    invalid_markers = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+    for candidate in candidates:
+        normalized = _clean_text(candidate)
+        if not normalized:
+            continue
+        if normalized.lower() in invalid_markers:
+            continue
+        return normalized
+    return ""
+
+
+def _normalize_arguments(value):
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if k not in (None, "")}
+    if isinstance(value, list):
+        filtered = [item for item in value if item not in (None, "")]
+        return {"argv": filtered} if filtered else {}
+    if isinstance(value, str) and value.strip():
+        return {"raw": value.strip()}
+    return {}
 
 
 def _to_evidence_string(value):
@@ -183,9 +214,6 @@ def generate_stable_id(finding):
     Generate a deterministic, tool-agnostic stable ID for deduplication.
     V12: Normalizes endpoints (hostname/path) and includes tactical parameters.
     """
-    import hashlib
-    from urllib.parse import urlparse
-
     title = str(finding.get("title") or "unknown")
     endpoint_seed = finding.get("endpoint") or finding.get("target") or finding.get("url") or ""
     parameter = str(finding.get("parameter") or "")
@@ -195,22 +223,15 @@ def generate_stable_id(finding):
 
     try:
         parsed = urlparse(str(endpoint_seed))
-        # Normalize: ignore scheme and standard ports
-        host = parsed.hostname or parsed.netloc.split(':')[0]
-        # Ignore port if it's 80/443
+        host = parsed.hostname or parsed.netloc.split(":")[0]
         if parsed.port in [80, 443]:
-            host = host.split(':')[0]
-        
+            host = host.split(":")[0]
         endpoint_fingerprint = f"{host}{parsed.path}?{parsed.query}"
     except Exception:
         endpoint_fingerprint = str(endpoint_seed)
 
-    fp_seed = (
-        f"{title}|{endpoint_fingerprint}|{parameter}|{payload}|{severity}|{tool}"
-    )
-
+    fp_seed = f"{title}|{endpoint_fingerprint}|{parameter}|{payload}|{severity}|{tool}"
     return hashlib.sha256(fp_seed.encode()).hexdigest()
-
 
 
 def normalize_finding_shape(payload, *, source=None):
@@ -263,7 +284,10 @@ def normalize_finding_shape(payload, *, source=None):
         or raw.get("status")
         or raw.get("state")
     )
-    normalized["result_state"] = RESULT_STATE_MAP.get(str(raw_result_state or "observation").lower(), "observation")
+    normalized["result_state"] = RESULT_STATE_MAP.get(
+        str(raw_result_state or "observation").lower(),
+        "observation",
+    )
 
     metadata = deep_merge_metadata(
         normalized["metadata"],
@@ -285,25 +309,49 @@ def normalize_finding_shape(payload, *, source=None):
         str(validation_status_seed or "not_run").lower(),
         "not_run",
     )
+
+    metadata_validation_command = _normalize_command_value(
+        raw_validation.get("command"),
+        metadata_validation.get("command"),
+        _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
+        normalized.get("reproduction"),
+    )
     metadata["validation"] = {
         "status": normalized_validation_status,
-        "target": raw_validation.get("target") or metadata_validation.get("target") or normalized.get("endpoint") or "",
-        "command": raw_validation.get("command") or metadata_validation.get("command") or normalized.get("repro_command") or "",
-        "expected": raw_validation.get("expected") or metadata_validation.get("expected") or "",
-        "success_criteria": raw_validation.get("success_criteria") or metadata_validation.get("success_criteria") or "",
-        "failure_criteria": raw_validation.get("failure_criteria") or metadata_validation.get("failure_criteria") or "",
-        "uncertainty_criteria": raw_validation.get("uncertainty_criteria") or metadata_validation.get("uncertainty_criteria") or "",
-        "artifact": raw_validation.get("artifact") or metadata_validation.get("artifact") or "",
+        "target": _clean_text(
+            raw_validation.get("target")
+            or metadata_validation.get("target")
+            or normalized.get("endpoint")
+            or normalized.get("target")
+        ),
+        "command": metadata_validation_command,
+        "expected": _clean_text(raw_validation.get("expected") or metadata_validation.get("expected")),
+        "success_criteria": _clean_text(
+            raw_validation.get("success_criteria") or metadata_validation.get("success_criteria")
+        ),
+        "failure_criteria": _clean_text(
+            raw_validation.get("failure_criteria") or metadata_validation.get("failure_criteria")
+        ),
+        "uncertainty_criteria": _clean_text(
+            raw_validation.get("uncertainty_criteria") or metadata_validation.get("uncertainty_criteria")
+        ),
+        "artifact": _clean_text(raw_validation.get("artifact") or metadata_validation.get("artifact")),
     }
 
     reproducibility = metadata.get("reproducibility") if isinstance(metadata.get("reproducibility"), dict) else {}
     metadata["reproducibility"] = {
-        "command": reproducibility.get("command") or normalized.get("repro_command") or "",
-        "url": reproducibility.get("url") or normalized.get("endpoint") or normalized.get("target") or "",
-        "arguments": reproducibility.get("arguments") or raw.get("arguments") or {},
-        "request_excerpt": reproducibility.get("request_excerpt") or normalized.get("request") or "",
-        "response_excerpt": reproducibility.get("response_excerpt") or normalized.get("response") or "",
+        "command": _normalize_command_value(
+            reproducibility.get("command"),
+            _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
+            normalized.get("reproduction"),
+            metadata_validation_command,
+        ),
+        "url": _clean_text(reproducibility.get("url") or normalized.get("endpoint") or normalized.get("target")),
+        "arguments": _normalize_arguments(reproducibility.get("arguments") or raw.get("arguments")),
+        "request_excerpt": _clean_text(reproducibility.get("request_excerpt") or normalized.get("request")),
+        "response_excerpt": _clean_text(reproducibility.get("response_excerpt") or normalized.get("response")),
     }
+
     metadata["field_sources"] = merge_field_sources(
         metadata.get("field_sources"),
         {
@@ -321,12 +369,14 @@ def normalize_finding_shape(payload, *, source=None):
 
     evidence_value = str(normalized.get("evidence") or "").strip()
     validation_artifact = str(metadata["validation"].get("artifact") or "").strip()
-    has_proof_artifact = any([
-        evidence_value and evidence_value not in {"{}", "[]", "null", '""'},
-        normalized.get("response"),
-        normalized.get("repro_command"),
-        validation_artifact and validation_artifact not in {"{}", "[]", "null", '""'},
-    ])
+    has_proof_artifact = any(
+        [
+            evidence_value and evidence_value not in {"{}", "[]", "null", '""'},
+            normalized.get("response"),
+            _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
+            validation_artifact and validation_artifact not in {"{}", "[]", "null", '""'},
+        ]
+    )
     if normalized["result_state"] == "confirmed" and not has_proof_artifact:
         normalized["result_state"] = "validation"
         metadata["result_state"] = "validation"
