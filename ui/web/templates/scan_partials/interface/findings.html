@@ -217,6 +217,12 @@
         return validation.status || finding?.metadata?.validation_status || 'not_run';
     }
 
+    function getFindingResultState(finding) {
+        const validation = getFindingValidation(finding);
+        const candidate = validation.result_state || finding?.result_state || 'observation';
+        return isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
+    }
+
     function getFindingPrimaryCommand(finding) {
         const validation = getFindingValidation(finding);
         const reproducibility = getFindingReproducibility(finding);
@@ -272,6 +278,15 @@
         return `<button class="btn btn-xs btn-outline-secondary ms-2 copy-inline" data-copy="${escaped}"><i class="fas fa-copy me-1"></i>${label}</button>`;
     }
 
+    function decodeDataValue(value) {
+        if (!value) return '';
+        try {
+            return decodeURIComponent(value);
+        } catch (_) {
+            return value;
+        }
+    }
+
     document.addEventListener('click', (event) => {
         const copyBtn = event.target.closest('.copy-inline');
         if (!copyBtn) return;
@@ -308,9 +323,13 @@
         const versionInfo = getFindingVersionInfo(f);
         const evidence = getFindingEvidence(f);
         const alertTone = getFindingAlertTone(f);
+        const resultState = getFindingResultState(f);
+        const provider = f.provider || f?.metadata?.provider || '';
+        const component = f.component || f?.metadata?.component || '';
 
         const statusToneMap = { success: 'success', failed: 'danger', uncertain: 'warning', not_run: 'secondary' };
         const statusTone = statusToneMap[validationStatus] || 'secondary';
+        const isValidated = validationStatus === 'success' || ['confirmed', 'confirmed_active', 'validated'].includes(resultState);
 
         const validationRows = [
             ['Status', validationStatus],
@@ -345,15 +364,16 @@
                         <span class="badge-severity bg-${(f.severity || 'info').toLowerCase()}">${(f.severity || 'info').toUpperCase()}</span>
                         <span class="badge bg-secondary bg-opacity-20 text-muted extra-small">CONF: ${(f.confidence || 'medium').toUpperCase()}</span>
                         <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 extra-small">VALIDATION: ${validationStatus.toUpperCase()}</span>
-                        <span class="badge bg-${alertTone} bg-opacity-10 text-${alertTone} border border-${alertTone} border-opacity-25 extra-small">STATE: ${(f.result_state || 'observation').toUpperCase()}</span>
+                        ${isValidated ? '<span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-25 extra-small">VERIFIED</span>' : ''}
+                        <span class="badge bg-${alertTone} bg-opacity-10 text-${alertTone} border border-${alertTone} border-opacity-25 extra-small">STATE: ${resultState.toUpperCase()}</span>
                     </div>
                 </div>
                 <h4 class="finding-detail-title text-light mb-2">${escapeHtml(f.title || 'Untitled finding')}</h4>
                 <div class="extra-small text-muted mb-3 d-flex flex-wrap gap-2">
                     <span class="badge bg-dark border border-secondary text-secondary">${escapeHtml((f.tool_source || f.tool || 'n/a').toUpperCase())}</span>
                     ${f.category ? `<span class="badge bg-secondary bg-opacity-10 text-light border border-secondary border-opacity-25">${escapeHtml(f.category.toUpperCase())}</span>` : ''}
-                    ${f.provider ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">PROVIDER: ${escapeHtml(f.provider)}</span>` : ''}
-                    ${f.component ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">COMPONENT: ${escapeHtml(f.component)}</span>` : ''}
+                    ${provider ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">PROVIDER: ${escapeHtml(provider)}</span>` : ''}
+                    ${component ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">COMPONENT: ${escapeHtml(component)}</span>` : ''}
                     ${versionInfo ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">VERSION: ${escapeHtml(versionInfo)}</span>` : ''}
                 </div>
                 ${f.description ? `<div class="small text-muted border border-secondary border-opacity-10 rounded p-2 mb-3">${escapeHtml(f.description)}</div>` : ''}
@@ -386,7 +406,7 @@
                 <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
                     <h6 class="extra-small text-uppercase text-muted mb-2">Section F — Actions</h6>
                     <div class="d-flex flex-wrap gap-2">
-                        ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn" data-command="${escapeHtml(primaryCommand)}"><i class="fas fa-play me-1"></i>Verify</button>` : '<button class="btn btn-sm btn-outline-secondary" disabled><i class="fas fa-play me-1"></i>Verify unavailable</button>'}
+                        ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn" data-command="${encodeURIComponent(primaryCommand)}"><i class="fas fa-play me-1"></i>Verify</button>` : '<button class="btn btn-sm btn-outline-secondary" disabled><i class="fas fa-play me-1"></i>Verify unavailable</button>'}
                         ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(primaryCommand)}"><i class="fas fa-copy me-1"></i>Copy command</button>` : ''}
                         ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(primaryUrl)}"><i class="fas fa-copy me-1"></i>Copy URL</button>` : ''}
                         ${evidence.request ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(evidence.request)}"><i class="fas fa-copy me-1"></i>Copy request</button>` : ''}
