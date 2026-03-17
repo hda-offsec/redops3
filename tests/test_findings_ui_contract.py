@@ -14,6 +14,8 @@ class FindingsUiContractTests(unittest.TestCase):
             'hasMeaningfulProof',
             'data-severity',
             'data-content',
+            "finding?.metadata?.result_state",
+            "findings-port-status-filter",
         ]:
             self.assertIn(token, content)
 
@@ -28,6 +30,10 @@ class FindingsUiContractTests(unittest.TestCase):
             'VERIFIED',
             'encodeURIComponent(primaryCommand)',
             'getFindingReproducibility',
+            'data-copy-encoded',
+            'decodeDataValue(encoded)',
+            'normalizeFindingRecord',
+            "row.getAttribute('data-content')",
         ]:
             self.assertIn(token, content)
 
@@ -37,7 +43,9 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertIn('data-severity="{{ f.severity|lower }}"', content)
         self.assertIn('data-content="{{ ((f.title or', content)
         self.assertIn('{% set primary_url = validation.target or reproducibility.url or f.endpoint or f.target %}', content)
-        self.assertIn("result_state = (validation.result_state if validation and validation.result_state else f.result_state)", content)
+        self.assertIn("result_state = (validation.result_state if validation and validation.result_state else (f.result_state or (f.metadata.result_state if f.metadata else '')))", content)
+        self.assertIn('{% set has_chain_links = chain.related_findings is defined and chain.related_findings %}', content)
+        self.assertIn('No findings match the current view for this engagement.', content)
 
 
 if __name__ == '__main__':

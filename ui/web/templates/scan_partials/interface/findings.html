@@ -84,9 +84,27 @@
 <script>
     // Deserialize JSON natively to avoid parsing and IDE formatter conflict issues
     const findingsList = JSON.parse(document.getElementById('findings-json-data').textContent);
+    window.findingsList = findingsList;
     window.rawFindingsData = {};
+
+    function normalizeFindingRecord(finding) {
+        if (!finding || typeof finding !== 'object') return finding;
+        const metadata = (finding.metadata && typeof finding.metadata === 'object') ? finding.metadata : {};
+        finding.metadata = metadata;
+        finding._ui = {
+            primaryCommand: getFindingPrimaryCommand(finding),
+            primaryUrl: getFindingPrimaryUrl(finding),
+            provider: finding.provider || metadata.provider || '',
+            component: finding.component || metadata.component || '',
+            version: getFindingVersionInfo(finding),
+            resultState: getFindingResultState(finding),
+        };
+        return finding;
+    }
+
     findingsList.forEach(f => {
-        window.rawFindingsData[f.id_stable || f.id] = f;
+        const normalized = normalizeFindingRecord(f);
+        window.rawFindingsData[normalized.id_stable || normalized.id] = normalized;
     });
 
     function filterFindings() {
@@ -103,9 +121,9 @@
             const tool = row.getAttribute('data-tool') || '';
             const category = (row.getAttribute('data-category') || '').toLowerCase();
             const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
-            const textContent = row.innerText.toLowerCase();
+            const content = (row.getAttribute('data-content') || '').toLowerCase();
 
-            let textMatch = (query === '') || t.includes(query) || tool.includes(query) || category.includes(query) || textContent.includes(query);
+            let textMatch = (query === '') || t.includes(query) || tool.includes(query) || category.includes(query) || content.includes(query);
             const severityMatch = !severityFilter || s === severityFilter;
             const categoryMatch = !categoryFilter || category === categoryFilter;
             const portStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
@@ -219,7 +237,7 @@
 
     function getFindingResultState(finding) {
         const validation = getFindingValidation(finding);
-        const candidate = validation.result_state || finding?.result_state || 'observation';
+        const candidate = validation.result_state || finding?.result_state || finding?.metadata?.result_state || 'observation';
         return isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
     }
 
@@ -274,8 +292,8 @@
 
     function buildCopyButton(value, label) {
         if (!isMeaningfulValue(value)) return '';
-        const escaped = escapeHtml(value);
-        return `<button class="btn btn-xs btn-outline-secondary ms-2 copy-inline" data-copy="${escaped}"><i class="fas fa-copy me-1"></i>${label}</button>`;
+        const encoded = encodeURIComponent(value);
+        return `<button class="btn btn-xs btn-outline-secondary ms-2 copy-inline" data-copy-encoded="${encoded}"><i class="fas fa-copy me-1"></i>${label}</button>`;
     }
 
     function decodeDataValue(value) {
@@ -290,8 +308,9 @@
     document.addEventListener('click', (event) => {
         const copyBtn = event.target.closest('.copy-inline');
         if (!copyBtn) return;
-        const value = copyBtn.getAttribute('data-copy') || '';
-        if (!value) return;
+        const encoded = copyBtn.getAttribute('data-copy-encoded') || '';
+        const value = decodeDataValue(encoded);
+        if (!isMeaningfulValue(value)) return;
         navigator.clipboard.writeText(value);
         const icon = copyBtn.querySelector('i');
         if (icon) {
@@ -320,12 +339,12 @@
         const validationStatus = getFindingValidationStatus(f);
         const primaryCommand = getFindingPrimaryCommand(f);
         const primaryUrl = getFindingPrimaryUrl(f);
-        const versionInfo = getFindingVersionInfo(f);
+        const versionInfo = f?._ui?.version || getFindingVersionInfo(f);
         const evidence = getFindingEvidence(f);
         const alertTone = getFindingAlertTone(f);
-        const resultState = getFindingResultState(f);
-        const provider = f.provider || f?.metadata?.provider || '';
-        const component = f.component || f?.metadata?.component || '';
+        const resultState = f?._ui?.resultState || getFindingResultState(f);
+        const provider = f?._ui?.provider || '';
+        const component = f?._ui?.component || '';
 
         const statusToneMap = { success: 'success', failed: 'danger', uncertain: 'warning', not_run: 'secondary' };
         const statusTone = statusToneMap[validationStatus] || 'secondary';
@@ -383,8 +402,8 @@
                     ${primaryUrl ? `<div class="small font-monospace text-info mb-1">${escapeHtml(primaryUrl)}${buildCopyButton(primaryUrl, 'Copy URL')}</div>` : '<div class="small text-muted">No target URL available.</div>'}
                     ${isMeaningfulValue(f.endpoint) && f.endpoint !== primaryUrl ? `<div class="small text-muted">Endpoint: <span class="font-monospace">${escapeHtml(f.endpoint)}</span></div>` : ''}
                     ${isMeaningfulValue(f.target) && f.target !== primaryUrl ? `<div class="small text-muted">Target: <span class="font-monospace">${escapeHtml(f.target)}</span></div>` : ''}
-                    ${isMeaningfulValue(f.parameter) ? `<div class="small text-warning">Parameter: <span class="font-monospace">${escapeHtml(f.parameter)}</span></div>` : ''}
-                    ${isMeaningfulValue(f.payload) ? `<div class="small text-warning">Payload: <span class="font-monospace">${escapeHtml(f.payload)}</span></div>` : ''}
+                    ${isMeaningfulValue(f.parameter) ? `<div class="small text-info">Parameter: <span class="font-monospace">${escapeHtml(f.parameter)}</span></div>` : ''}
+                    ${isMeaningfulValue(f.payload) ? `<div class="small text-info">Payload: <span class="font-monospace">${escapeHtml(f.payload)}</span></div>` : ''}
                 </div>
 
                 <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
@@ -407,10 +426,10 @@
                     <h6 class="extra-small text-uppercase text-muted mb-2">Section F — Actions</h6>
                     <div class="d-flex flex-wrap gap-2">
                         ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn" data-command="${encodeURIComponent(primaryCommand)}"><i class="fas fa-play me-1"></i>Verify</button>` : '<button class="btn btn-sm btn-outline-secondary" disabled><i class="fas fa-play me-1"></i>Verify unavailable</button>'}
-                        ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(primaryCommand)}"><i class="fas fa-copy me-1"></i>Copy command</button>` : ''}
-                        ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(primaryUrl)}"><i class="fas fa-copy me-1"></i>Copy URL</button>` : ''}
-                        ${evidence.request ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(evidence.request)}"><i class="fas fa-copy me-1"></i>Copy request</button>` : ''}
-                        ${evidence.response ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy="${escapeHtml(evidence.response)}"><i class="fas fa-copy me-1"></i>Copy response</button>` : ''}
+                        ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(primaryCommand)}"><i class="fas fa-copy me-1"></i>Copy command</button>` : ''}
+                        ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(primaryUrl)}"><i class="fas fa-copy me-1"></i>Copy URL</button>` : ''}
+                        ${evidence.request ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(evidence.request)}"><i class="fas fa-copy me-1"></i>Copy request</button>` : ''}
+                        ${evidence.response ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(evidence.response)}"><i class="fas fa-copy me-1"></i>Copy response</button>` : ''}
                     </div>
                 </div>
 
@@ -461,13 +480,16 @@
             showFindingDetail(findId);
         }
     };
+    window.filterFindings = filterFindings;
+    window.showFindingDetail = showFindingDetail;
+
     window.updateFindingsList = function (newFindings) {
         if (newFindings) {
             newFindings.forEach(f => {
                 const fid = f.id_stable || f.id;
                 // Update detail map
                 const previous = rawFindingsData[fid] || {};
-                rawFindingsData[fid] = { ...previous, ...f, metadata: { ...(previous.metadata || {}), ...(f.metadata || {}) } };
+                rawFindingsData[fid] = normalizeFindingRecord({ ...previous, ...f, metadata: { ...(previous.metadata || {}), ...(f.metadata || {}) } });
                 // Update list if not already present
                 const existingIndex = findingsList.findIndex(item => (item.id_stable || item.id) === fid);
                 if (existingIndex === -1) {

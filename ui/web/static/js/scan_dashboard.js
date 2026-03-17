@@ -100,7 +100,11 @@ class ScanDashboard {
         // Delegate search and filter events
         document.addEventListener('change', (e) => {
             if (e.target.matches('.form-check-input')) {
-                this.filterFindings();
+                if (typeof window.filterFindings === 'function') {
+                    window.filterFindings();
+                } else {
+                    this.filterFindings();
+                }
             }
         });
 
@@ -171,7 +175,7 @@ class ScanDashboard {
 
     getFindingResultState(finding) {
         const validation = this.getFindingValidation(finding);
-        const candidate = validation.result_state || finding?.result_state || 'observation';
+        const candidate = validation.result_state || finding?.result_state || finding?.metadata?.result_state || 'observation';
         return this.isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
     }
 
@@ -880,37 +884,66 @@ class ScanDashboard {
     }
 
     filterFindings() {
-        const search = document.getElementById('findingSearch').value.toLowerCase();
-        const checkedSeverities = Array.from(document.querySelectorAll('.form-check-input:checked')).map(cb => cb.value);
+        const findingsSearch = document.getElementById('findings-search');
+        const findingsSeverity = document.getElementById('findings-severity-filter');
+        const findingsCategory = document.getElementById('findings-category-filter');
+        const findingsPortStatus = document.getElementById('findings-port-status-filter');
 
+        if (findingsSearch && findingsSeverity && findingsCategory && findingsPortStatus) {
+            const query = (findingsSearch.value || '').toLowerCase().trim();
+            const severityFilter = (findingsSeverity.value || '').toLowerCase();
+            const categoryFilter = (findingsCategory.value || '').toLowerCase();
+            const portStatusFilter = (findingsPortStatus.value || '').toLowerCase();
+            const rows = document.querySelectorAll('#findings-table-body .finding-row');
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                const title = (row.getAttribute('data-title') || '').toLowerCase();
+                const severity = (row.getAttribute('data-severity') || row.getAttribute('data-sev') || '').toLowerCase();
+                const tool = (row.getAttribute('data-tool') || '').toLowerCase();
+                const category = (row.getAttribute('data-category') || '').toLowerCase();
+                const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
+                const content = (row.getAttribute('data-content') || '').toLowerCase();
+
+                const textMatch = !query || title.includes(query) || tool.includes(query) || category.includes(query) || content.includes(query);
+                const severityMatch = !severityFilter || severity === severityFilter;
+                const categoryMatch = !categoryFilter || category === categoryFilter;
+                const portStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
+
+                const isVisible = textMatch && severityMatch && categoryMatch && portStatusMatch;
+                row.style.display = isVisible ? '' : 'none';
+                if (isVisible) visibleCount++;
+            });
+
+            const label = document.getElementById('findings-total-label');
+            if (label) label.textContent = `${visibleCount} discoveries`;
+
+            const emptyState = document.getElementById('findings-empty-state');
+            if (emptyState) emptyState.style.display = visibleCount === 0 ? '' : 'none';
+            return;
+        }
+
+        const search = (document.getElementById('findingSearch')?.value || '').toLowerCase();
+        const checkedSeverities = Array.from(document.querySelectorAll('.form-check-input:checked')).map(cb => cb.value);
         const rows = document.querySelectorAll('.finding-row');
         let visibleCount = 0;
 
         rows.forEach(row => {
             const severity = row.getAttribute('data-severity') || row.getAttribute('data-sev') || '';
-            const content = row.getAttribute('data-content') || row.innerText.toLowerCase();
-
+            const content = (row.getAttribute('data-content') || '').toLowerCase();
             const matchesSearch = content.includes(search);
-            const matchesSev = checkedSeverities.includes(severity);
+            const matchesSev = checkedSeverities.length === 0 || checkedSeverities.includes(severity);
 
             if (matchesSearch && matchesSev) {
                 row.classList.remove('d-none');
                 visibleCount++;
             } else {
                 row.classList.add('d-none');
-                const btn = row.querySelector('button');
-                if (btn) {
-                    const detailId = btn.getAttribute('data-bs-target');
-                    const detailRow = document.querySelector(detailId);
-                    if (detailRow) detailRow.classList.remove('show');
-                }
             }
         });
 
         const noMatchRow = document.getElementById('no-findings-match');
-        if (noMatchRow) {
-            noMatchRow.classList.toggle('d-none', !(visibleCount === 0 && rows.length > 0));
-        }
+        if (noMatchRow) noMatchRow.classList.toggle('d-none', !(visibleCount === 0 && rows.length > 0));
     }
 
 

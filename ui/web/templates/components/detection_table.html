@@ -47,11 +47,16 @@
                         {% if f.request or f.response or reproducibility.request_excerpt or reproducibility.response_excerpt or f.evidence or f.raw_output or validation.artifact or f.artifact %}
                             <i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>
                         {% endif %}
-                        {% if f.chain_metadata %}
-                            <i class="fas fa-link text-danger extra-small" title="Part of Attack Chain"></i>
+                        {% set chain = f.chain_metadata if f.chain_metadata else {} %}
+                        {% set has_chain_links = chain.related_findings is defined and chain.related_findings %}
+                        {% set has_chain_path = chain.attack_path_summary is defined and chain.attack_path_summary %}
+                        {% set has_chain_root = chain.chain_root is defined and chain.chain_root %}
+                        {% set has_chain_pivot = chain.pivot_point is defined and chain.pivot_point %}
+                        {% if has_chain_links or has_chain_path or has_chain_root or has_chain_pivot %}
+                            <i class="fas fa-link text-warning extra-small" title="Part of Attack Chain"></i>
                         {% endif %}
                         {% set validation_status = (validation.status if validation and validation.status else (f.metadata.validation_status if f.metadata else '')) %}
-                        {% set result_state = (validation.result_state if validation and validation.result_state else f.result_state) %}
+                        {% set result_state = (validation.result_state if validation and validation.result_state else (f.result_state or (f.metadata.result_state if f.metadata else ''))) %}
                         {% if validation_status == 'success' or result_state in ['confirmed', 'confirmed_active', 'validated'] %}
                             <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small">
                                 <i class="fas fa-check-circle me-1"></i>VALIDATED
@@ -96,7 +101,7 @@
                     <div class="opacity-25 mb-3">
                         <i class="fas fa-shield-alt fa-3x"></i>
                     </div>
-                    <p class="small fw-light">No critical detections identified in the current engagement.</p>
+                    <p class="small fw-light">No findings match the current view for this engagement.</p>
                 </td>
             </tr>
             {% endif %}
