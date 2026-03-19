@@ -75,15 +75,16 @@ class OpenRedirectScanner:
                             # 2. Location is DIFFERENT from baseline (proves the parameter matters)
                             if (loc.startswith('//google.com') or 'google.com' in loc) and loc != baseline_loc:
                                 if logger: logger(f"🔥 Open Redirect Found: {test_url} -> {loc}", "CRITICAL")
-                                vulnerable.append({
-                                    "title": "Open Redirect Detected",
-                                    "description": f"URL: {test_url}\nRedirects to: {loc}\nConfirmed via baseline comparison.",
-                                    "severity": "medium",
-                                    "confidence": "high",
-                                    "tool_source": "open_redirect_scanner",
-                                    "url": test_url,
-                                    "destination": loc
-                                })
+                                from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                                vulnerable.append(FindingNormalizer.from_response(
+                                    r,
+                                    title="Open Redirect Detected",
+                                    description=f"URL: {test_url}\nRedirects to: {loc}\nConfirmed via baseline comparison.",
+                                    severity="medium",
+                                    tool_source="open_redirect_scanner",
+                                    category="redirect",
+                                    payload=payload
+                                ))
                                 break  # Next param
                         except Exception:
                             continue

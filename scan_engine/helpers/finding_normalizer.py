@@ -85,6 +85,55 @@ class FindingNormalizer:
     Ensures consistency for UI rendering and reporting.
     """
     @staticmethod
+    def _format_request(req):
+        """Formats a requests.PreparedRequest into a raw HTTP string."""
+        if req is None: return ""
+        try:
+            headers = "\n".join(f"{k}: {v}" for k, v in req.headers.items())
+            body = ""
+            if req.body:
+                if isinstance(req.body, bytes):
+                    body = req.body.decode('utf-8', errors='replace')
+                else:
+                    body = str(req.body)
+            # Only include first 10KB of request body
+            return f"{req.method} {req.url} HTTP/1.1\n{headers}\n\n{body[:10000]}"
+        except Exception:
+            return str(req)
+
+    @staticmethod
+    def _format_response(res):
+        """Formats a requests.Response into a raw HTTP string (Status + Headers + Body)."""
+        if res is None: return ""
+        try:
+            status_line = f"HTTP/1.1 {res.status_code} {res.reason}\n"
+            headers = "\n".join(f"{k}: {v}" for k, v in res.headers.items())
+            # Only include first 50KB of response body to avoid bloating
+            body = res.text[:51200] if hasattr(res, 'text') else ""
+            return f"{status_line}{headers}\n\n{body}"
+        except Exception:
+            return str(res)
+
+    @staticmethod
+    def from_response(response, title, severity="info", category="general", description="", **extra):
+        """
+        Creates a finding mapping directly from an HTTP response object.
+        Injects request/response dumps into the finding automatically.
+        """
+        f = {
+            "title": title,
+            "severity": severity,
+            "category": category,
+            "description": description,
+            "url": response.url,
+            "endpoint": response.url,
+            "request": FindingNormalizer._format_request(response.request),
+            "response": FindingNormalizer._format_response(response),
+            **extra
+        }
+        return FindingNormalizer.normalize(f)
+
+    @staticmethod
     def normalize(tool_data, tool_name=None):
         """
         Maps tool-specific output to a canonical finding.

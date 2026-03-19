@@ -83,16 +83,21 @@ class DeserializationExpert:
             
             # Validation: must be at least 2s and significantly slower than baseline
             if duration >= 2 and duration > (baseline_duration + 1.5):
+                # V12: Timing-only RCE is not 'Confirmed', it's 'Suspected' or 'Hypothesis'
                 found.append({
-                    "title": "Confirmed Node.js Deserialization RCE",
-                    "description": f"Verified RCE on {url} via node-serialize gadget. The server was delayed by 2 seconds via sleep command (Baseline: {baseline_duration:.2f}s, Attack: {duration:.2f}s).",
-                    "severity": "critical",
-                    "confidence": "high",
+                    "title": "Suspected Node.js Deserialization RCE (Timing)",
+                    "description": f"Detected potential RCE on {url} via node-serialize gadget. The server was delayed by 2 seconds via sleep command (Baseline: {baseline_duration:.2f}s, Attack: {duration:.2f}s).\n\nNOTE: This finding is based solely on timing analysis and may be a false positive due to network jitter or server load. Manual validation is required.",
+                    "severity": "medium",
+                    "confidence": "low",
                     "tool_source": "deserialization_expert",
                     "url": url,
-                    "repro_payload": payload
+                    "repro_payload": payload,
+                    "metadata": {
+                        "validation_status": "not_run",
+                        "result_state": "hypothesis"
+                    }
                 })
-                if logger: logger(f"CRITICAL: Node.js Deserialization RCE confirmed at {url}", "CRITICAL")
+                if logger: logger(f"MEDIUM: Suspected Node.js Deserialization RCE via timing at {url}", "WARNING")
         except Exception:
             pass
         return found

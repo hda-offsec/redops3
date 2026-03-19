@@ -136,19 +136,21 @@ class SSRFScanner:
                             res_dump += f"{k}: {v}\n"
                         res_dump += f"\n{resp.text[:1000]}..."
 
-                        findings.append({
-                            "title": title,
-                            "description": desc,
-                            "severity": severity,
-                            "confidence": "high",
-                            "tool_source": "ssrf_expert",
-                            "url": vuln_url,
-                            "request": req_dump,
-                            "response": res_dump,
-                            "repro_command": f"curl -v '{vuln_url}'",
-                            "raw_loot": resp.text[:2000],
-                            "loot_type": "Cloud Credentials" if "AccessKeyId" in resp.text else "Instance Metadata"
-                        })
+                        from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                        findings.append(FindingNormalizer.from_response(
+                            resp,
+                            title=title,
+                            description=desc,
+                            severity=severity,
+                            confidence="high",
+                            tool_source="ssrf_expert",
+                            category="ssrf",
+                            payload=p_val,
+                            method="GET",
+                            metadata={
+                                "loot_type": "Cloud Credentials" if "AccessKeyId" in resp.text else "Instance Metadata"
+                            }
+                        ))
                         
                         if logger: logger(f"🔥 SSRF BREACH: {cloud.upper()} metadata exposed on {base}", "CRITICAL")
                         break # Found one cloud on this param, move to next param

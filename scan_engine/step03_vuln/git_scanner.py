@@ -32,12 +32,15 @@ class GitExposureScanner:
                 if remotes:
                     desc += "\nDiscovered Remotes:\n" + "\n".join([f"- {url}" for url in remotes])
                     
-                findings.append({
-                    "title": f"CRITICAL: .git Directory Exposed ({port})",
-                    "description": desc,
-                    "severity": "critical",
-                    "tool_source": "git_scanner"
-                })
+                from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                findings.append(FindingNormalizer.from_response(
+                    r,
+                    title=f"CRITICAL: .git Directory Exposed ({port})",
+                    description=desc,
+                    severity="critical",
+                    tool_source="git_scanner",
+                    category="vuln"
+                ))
                 
                 if logger: logger(f"🔥 CRITICAL: Exposed .git directory found on port {port}!", "CRITICAL")
 
@@ -51,12 +54,15 @@ class GitExposureScanner:
                     if logger: logger(f"⚔️  Attempting to dump source code to {loot_path}...", "WARN")
                     self.dump_git(f"{protocol}://{self.target}:{port}/.git/", loot_path, logger)
                     
-                    findings.append({
-                        "title": "Git Source Code Dump Attempted",
-                        "description": f"RedOps3 attempted to dump the repository to `{loot_path}`.\nCheck the `data/loot` directory for extracted source code.",
-                        "severity": "critical",
-                        "tool_source": "git_dumper"
-                    })
+                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                    findings.append(FindingNormalizer.from_response(
+                        r_head,
+                        title="Git Source Code Dump Attempted",
+                        description=f"RedOps3 attempted to dump the repository to `{loot_path}`.\nCheck the `data/loot` directory for extracted source code.",
+                        severity="critical",
+                        tool_source="git_dumper",
+                        category="vuln"
+                    ))
 
         except Exception as e:
             if logger: logger(f"Git exposure check failed on {port}: {e}", "DEBUG")

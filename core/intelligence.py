@@ -27,7 +27,9 @@ class AttackVectorMapper:
                             "score": rule.get("score", 50),
                             "name": rule["name"],
                             "description": rule["desc"],
-                            "action": rule["action"]
+                            "action": rule["action"],
+                            "matched_version": rule["match"],
+                            "service_version": version
                         }
 
     @staticmethod
@@ -50,7 +52,8 @@ class AttackVectorMapper:
                     "score": 10,
                     "name": f"Offensive Tip (Port {port}) - {tip['tool']}",
                     "description": tip["tip"],
-                    "action": f"Use {tip['tool']} for further enumeration."
+                    "action": f"Use {tip['tool']} for further enumeration.",
+                    "port": port
                 })
 
         # 3. Default Fallback for Web
@@ -62,7 +65,8 @@ class AttackVectorMapper:
                     "score": 70,
                     "name": "Web Application Surface",
                     "description": "Port runs a web server. Potential for SQLi, XSS, RCE.",
-                    "action": f"Check tech stack (Wappalyzer) and fuzz directories (ffuf). Access: http://<target>:{port}"
+                    "action": f"Check tech stack (Wappalyzer) and fuzz directories (ffuf). Access: http://<target>:{port}",
+                    "port": port
                 })
 
         # Sort by score descending (Prioritization)

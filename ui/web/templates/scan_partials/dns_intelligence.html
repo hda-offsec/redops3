@@ -83,12 +83,9 @@
                          <div class="extra-small text-muted text-uppercase mb-2">Asset Spectrum (Subdomains)</div>
                          <div class="d-flex flex-wrap gap-1">
                             {% if dns.subdomains %}
-                            {% for s in dns.subdomains[:15] %}
+                            {% for s in dns.subdomains %}
                             <span class="badge bg-dark border border-secondary border-opacity-50 text-light extra-small">{{ s }}</span>
                             {% endfor %}
-                            {% if dns.subdomains|length > 15 %}
-                            <span class="badge bg-dark border border-secondary border-opacity-25 text-muted extra-small">+{{ dns.subdomains|length - 15 }}</span>
-                            {% endif %}
                             {% else %}
                             <span class="text-secondary extra-small fst-italic">No assets enumerated yet.</span>
                             {% endif %}

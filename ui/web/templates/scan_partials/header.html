@@ -1,7 +1,7 @@
 <div class="col-12">
     <div class="card ">
         <div class="card-header glass-header d-flex justify-content-between align-items-center">
-            <span><i class="fas fa-satellite-dish me-2"></i>Operation Overview: <span class="text-info">{{
+            <span class="fw-bold"><i class="fas fa-satellite-dish me-2 text-cyber"></i>Operation Overview: <span class="text-cyber-glow ms-1">{{
                     scan.target.identifier }}</span></span>
             <div class="mission-ops d-flex gap-2">
                 <a href="{{ url_for('main.index') }}" class="btn btn-xs btn-outline-cyber">
@@ -23,48 +23,48 @@
                 </button>
                 <form action="{{ url_for('main.delete_scan', scan_id=scan.id) }}" method="POST" onsubmit="return confirm('DÉTRUIRE TOUTES LES DONNÉES ? Cette action est irréversible.');" class="d-inline">
                     <button type="submit" class="btn btn-xs btn-outline-danger">
-                        <i class="fas fa-trash me-1"></i>SUPPRIMER
+                        <i class="fas fa-trash me-1"></i>TERMINATE
                     </button>
                 </form>
-                <span class="badge status-pill status-{{ scan.status }} ms-2">{{ scan.status }}</span>
+                <span class="badge status-pill status-{{ scan.status }} ms-2 shadow-sm">{{ scan.status }}</span>
             </div>
         </div>
         <div class="card-body">
             <!-- TACTICAL SUMMARY BAR -->
             <div class="row tactical-summary-bar p-3 rounded mb-4 g-1">
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'sev:critical')">
-                    <div class="text-muted x-small text-uppercase">Critical Risks</div>
+                    <div class="text-muted extra-small text-uppercase fw-600">Critical Risks</div>
                     <div id="stat-critical"
-                        class="h4 mb-0 fw-bold {{ 'text-danger pulse-danger' if severity_counts['critical'] > 0 else 'text-muted' }}">
+                         class="h4 mb-0 fw-bold {{ 'text-critical pulse-danger' if severity_counts['critical'] > 0 else 'text-muted' }}">
                         {{ severity_counts['critical'] }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('findings', 'sev:high')">
-                    <div class="text-muted x-small text-uppercase">High Risks</div>
+                    <div class="text-muted extra-small text-uppercase fw-600">High Risks</div>
                     <div id="stat-high"
-                        class="h4 mb-0 fw-bold {{ 'text-warning' if severity_counts['high'] > 0 else 'text-muted' }}">
+                        class="h4 mb-0 fw-bold {{ 'text-high' if severity_counts['high'] > 0 else 'text-muted' }}">
                         {{ severity_counts['high'] }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:asset source:nmap')">
-                    <div class="text-muted x-small text-uppercase">Entry Points</div>
+                    <div class="text-muted extra-small text-uppercase">Entry Points</div>
                     <div id="stat-ports-header" class="h4 mb-0 fw-bold text-info">{{
                         results.phases.recon.open_ports|length if
                         (results.phases.recon and results.phases.recon.open_ports) else 0 }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:asset source:dnsrecon')">
-                    <div class="text-muted x-small text-uppercase">Subdomains</div>
+                    <div class="text-muted extra-small text-uppercase">Subdomains</div>
                     <div id="stat-subdomains-header" class="h4 mb-0 fw-bold text-info">{{
                         results.phases.dns.subdomains|length if
                         (results.phases.dns and results.phases.dns.subdomains) else 0 }}</div>
                 </div>
                 <div class="col-md-2 border-end border-secondary border-opacity-25 text-center cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:technology')">
-                    <div class="text-muted x-small text-uppercase">Intel Vectors</div>
-                    <div id="stat-intel-header" class="h4 mb-0 fw-bold text-warning">{{ results.phases.intel|length if
+                    <div class="text-muted extra-small text-uppercase">Intel Vectors</div>
+                    <div id="stat-intel-header" class="h4 mb-0 fw-bold text-medium">{{ results.phases.intel|length if
                         results.phases.intel
                         else 0 }}</div>
                 </div>
                 <div class="col-md-2 text-center cursor-pointer hover-bright" onclick="bootstrap.Modal.getOrCreateInstance('#harvestLootModal').show()">
-                    <div class="text-muted x-small text-uppercase">Loot Collected</div>
-                    <div id="stat-loot-header" class="h4 mb-0 fw-bold text-success loot-counter-val">
+                    <div class="text-muted extra-small text-uppercase">Loot Collected</div>
+                    <div id="stat-loot-header" class="h4 mb-0 fw-bold text-low loot-counter-val">
                         {{ loots|length if loots else 0 }}
                     </div>
                 </div>
@@ -137,11 +137,10 @@
                         <div id="discovery-miner" class="discovery-btn cursor-pointer hover-bright" onclick="applyTacticalFilter('surface', 'type:param')">
                             <i class="fas fa-digging"></i> Miner
                         </div>
-                        <div class="ms-auto d-flex align-items-center">
-                            <span class="text-muted x-small text-uppercase me-2">Module Engine</span>
+                        <div class="ms-auto d-flex align-items-center bg-black bg-opacity-20 px-3 py-1 rounded-pill border border-secondary border-opacity-10">
+                            <span class="text-muted extra-small text-uppercase me-2 fw-600">Module Engine</span>
                             <div class="d-flex gap-1">
-                                <div class="bg-cyber rounded-circle shadow-cyber" style="width: 8px; height: 8px;">
-                                </div>
+                                <span class="dot bg-low animate-pulse" style="width: 6px; height: 6px;"></span>
                             </div>
                         </div>
                     </div>

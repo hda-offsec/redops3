@@ -96,14 +96,16 @@ class SpringBootScanner:
                         if logger: 
                             logger(f"🌱 Spring Boot: Found {endpoint} ({severity.upper()})", "WARN")
                         
-                        findings.append({
-                            "title": title,
-                            "description": desc,
-                            "severity": severity,
-                            "tool_source": "spring_boot_scanner",
-                            "raw_loot": url if severity in ["critical", "high"] else None,
-                            "loot_type": "Spring Boot Exposure"
-                        })
+                        from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                        findings.append(FindingNormalizer.from_response(
+                            resp,
+                            title=title,
+                            description=desc,
+                            severity=severity,
+                            tool_source="spring_boot_scanner",
+                            category="vuln",
+                            method="GET"
+                        ))
             
             except Exception as e:
                 # logger(f"Debug: {url} failed: {e}", "DEBUG")

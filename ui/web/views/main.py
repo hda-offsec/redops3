@@ -58,6 +58,7 @@ from core.mission_intelligence import (
     update_operator_action_status,
     aggregate_mission_quality_metrics,
 )
+from scan_engine.helpers.api_reconstructor import ApiReconstructor
 
 main_bp = Blueprint("main", __name__)
 
@@ -169,7 +170,35 @@ def scannmap_launch():
     return redirect(url_for("main.scan_detail", scan_id=scan.id))
 
 
+@main_bp.route("/scannmap/results/<int:scan_id>")
+@login_required
+def scannmap_results(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    results_data = load_results(scan_id) or {}
+    
+    # Simple setup for scannmap specialized results
+    from core.results_store import deep_merge
+    from adapters.detection_adapter import DetectionAdapter
+    from core.mission_intelligence import aggregate_mission_intelligence
+    
+    db_findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
+    normalized_findings = DetectionAdapter.normalize_findings(db_findings, results_data)
+    
+    results = deep_merge({}, results_data)
+    results['findings'] = normalized_findings
+    results['scan_id'] = scan.id
+    results['target'] = scan.target.identifier
+
+    return render_template(
+        "scannmap_results.html",
+        scan=scan,
+        results=results,
+        findings=normalized_findings
+    )
+
+
 @main_bp.route("/terminal")
+
 def terminal():
     return render_template("terminal.html")
 
@@ -304,6 +333,25 @@ def get_scan_graph(scan_id):
             "data": e.metadata_json
         } for e in edges]
     })
+
+
+@main_bp.route("/api/scans/<int:scan_id>/api-tree")
+@login_required
+def get_scan_api_tree(scan_id):
+    scan = Scan.query.get_or_404(scan_id)
+    results_data = load_results(scan_id) or {}
+    
+    # We need the findings in a dict/normalized for the reconstructor
+    db_findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
+    from adapters.detection_adapter import DetectionAdapter
+    normalized_findings = DetectionAdapter.normalize_findings(db_findings, results_data)
+    
+    # Add scan_id to results_data if missing
+    results_data['scan_id'] = scan_id
+    results_data['target'] = scan.target.identifier
+    
+    tree = ApiReconstructor.reconstruct(results_data, findings=normalized_findings)
+    return jsonify(tree)
 
 
 @main_bp.route("/api/replay-vault", methods=["GET", "POST"])
@@ -1642,6 +1690,35 @@ def delete_scan(scan_id):
         flash(f"Failed to delete scan: {str(e)}", "error")
         
     return redirect(url_for("main.index"))
+
+
+@main_bp.route("/scannmap/purge-all", methods=["POST"])
+@login_required
+def scannmap_purge_all():
+    """Purge all scannmap scans (findings, logs, suggestions, result files)."""
+    try:
+        scans = Scan.query.filter_by(scan_type="scannmap").all()
+        count = len(scans)
+        for scan in scans:
+            # Stop running tasks
+            if scan.status == "running" and scan.task_id:
+                try:
+                    from core.celery_app import celery
+                    celery.control.revoke(scan.task_id, terminate=True)
+                except Exception:
+                    pass
+            # Delete result JSON file
+            try:
+                delete_results(scan.id)
+            except Exception:
+                pass
+            db.session.delete(scan)
+        db.session.commit()
+        flash(f"{count} scan(s) ScanNmap supprimé(s) avec succès.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Erreur lors de la purge : {str(e)}", "error")
+    return redirect(url_for("main.scannmap"))
 
 
 @main_bp.route("/api/missions/<int:mission_id>/quality-metrics", methods=["GET"])

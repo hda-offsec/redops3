@@ -65,18 +65,19 @@ class BackupScanner:
                         continue
                         
                     found_count += 1
+                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
                     severity = "high"
                     if any(x in path for x in ['.env', '.sql', 'config', 'id_rsa']):
                         severity = "critical"
                     
-                    findings.append({
-                        "title": f"Sensitive Backup File Exposed: `{path}`",
-                        "description": f"A potentially sensitive backup or archive file was found at {url}.\n\nSize: {r.headers.get('Content-Length', 'Unknown')} bytes",
-                        "severity": severity,
-                        "tool_source": "backup_expert",
-                        "raw_loot": f"Exposed File: {url}",
-                        "loot_type": "Sensitive File"
-                    })
+                    findings.append(FindingNormalizer.from_response(
+                        r_get,
+                        title=f"Sensitive Backup File Exposed: `{path}`",
+                        description=f"A potentially sensitive backup or archive file was found at {url}.\n\nSize: {r.headers.get('Content-Length', 'Unknown')} bytes",
+                        severity=severity,
+                        tool_source="backup_expert",
+                        category="backup"
+                    ))
                     if logger: logger(f"💰 LOOT FOUND: Exposed backup detected at {url}", "WARN")
             except Exception:
                 continue

@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Nmap Intel: #{{ scan.id }} {{ scan.target.identifier }}{% endblock %}
+
+{% block content %}
+{% include 'scan_partials/styles.html' %}
+
+<div class="row g-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <a href="{{ url_for('main.scannmap') }}" class="btn btn-xs btn-outline-secondary mb-2">
+                    <i class="fas fa-arrow-left me-1"></i> Back to Module
+                </a>
+                <h4 class="mb-0 text-light fw-bold">
+                    <i class="fas fa-satellite-dish me-2 text-danger"></i>ScanNmap Intelligence
+                    <span class="badge bg-dark border border-secondary text-muted ms-2 x-small">#{{ scan.id }}</span>
+                </h4>
+                <div class="extra-small text-muted mt-1">
+                    Target: <span class="text-info font-monospace">{{ scan.target.identifier }}</span> 
+                    <span class="mx-2">|</span> 
+                    Status: <span class="badge border bg-opacity-10 {{ 'bg-success border-success text-success' if scan.status == 'completed' else 'bg-warning border-warning text-warning' }}">{{ scan.status|upper }}</span>
+                </div>
+            </div>
+            <div class="text-end">
+                <div class="extra-small text-muted mb-1">Timeline</div>
+                <div class="small fw-bold text-light">
+                    {{ scan.start_time.strftime('%H:%M:%S') if scan.start_time else 'N/A' }} 
+                    <i class="fas fa-long-arrow-alt-right mx-1 opacity-50"></i>
+                    {{ scan.end_time.strftime('%H:%M:%S') if scan.end_time else 'Running...' }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <!-- Specialized ScanNmap Dashboard -->
+        {% include 'scan_partials/interface/scannmap_dashboard.html' %}
+    </div>
+</div>
+
+<!-- ===== OFFCANVAS: Finding Detail (standalone, required by action buttons) ===== -->
+<div class="offcanvas offcanvas-end bg-dark text-light" tabindex="-1" id="findingDetailOffcanvas"
+    style="width: 700px; border-left: 1px solid #333;">
+    <div class="offcanvas-header border-bottom border-secondary border-opacity-25 pb-3">
+        <h5 class="offcanvas-title"><i class="fas fa-microscope me-2 text-warning"></i>Tactical Brief</h5>
+        <div>
+            <span class="badge border border-secondary text-muted extra-small me-2" id="detail-id">ID: NULL</span>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+    </div>
+    <div class="offcanvas-body" id="finding-detail-panel">
+        <div class="text-center p-5 text-muted fst-italic">
+            <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
+            <p class="small">Sélectionnez un port ou un résultat NSE pour afficher le détail.</p>
+        </div>
+    </div>
+</div>
+
+<!-- ===== MODAL: Port Audit Trace (standalone, for showPortAudit button) ===== -->
+<div class="modal fade" id="portAuditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content bg-dark border-secondary shadow-lg">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-info"><i class="fas fa-terminal me-2"></i>Port Audit Trace — Port <span id="port-audit-modal-port">?</span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="port-audit-modal-content" class="p-3 extra-small font-monospace text-white-50" style="background:#050505; min-height:300px; white-space:pre-wrap;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Re-use common modals (loot, node detail) -->
+{% include 'scan_partials/modals.html' %}
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Pre-load findings data so dashboard action buttons can access it immediately -->
+<script id="scannmap-findings-json" type="application/json">
+{{ findings | tojson }}
+</script>
+
+<!-- Specialized scripts for ScanNmap results -->
+<script src="{{ url_for('static', filename='js/scan_dashboard.js') }}"></script>
+<script>
+    // ===== SCANNMAP RESULT PAGE BOOTSTRAP =====
+    // All functions must be defined BEFORE the dashboard includes its DOMContentLoaded listeners.
+
+    // 1. Findings data store (mirrors findings.html rawFindingsData for compatibility)
+    window.rawFindingsData = window.rawFindingsData || {};
+    window.findingsList = window.findingsList || [];
+
+    (function _preloadFindingsData() {
+        try {
+            const raw = JSON.parse(document.getElementById('scannmap-findings-json').textContent);
+            raw.forEach(function(f) {
+                const fid = f.id_stable || f.id;
+                window.rawFindingsData[fid] = f;
+                window.findingsList.push(f);
+            });
+        } catch(e) {
+            console.warn('[ScanNmap] Failed to pre-load findings JSON:', e);
+        }
+    })();
+
+    // 2. Shared escape helper
+    window._escapeHtml = window._escapeHtml || function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/[&<>'"]/g,
+            tag => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[tag])
+        );
+    };
+
+    // 3. Core showFindingDetail — renders the offcanvas from rawFindingsData
+    window.showFindingDetail = function(findId) {
+        const f = window.rawFindingsData[findId];
+        const panel = document.getElementById('finding-detail-panel');
+        const idBadge = document.getElementById('detail-id');
+        if (!panel) return;
+
+        const offcanvasEl = document.getElementById('findingDetailOffcanvas');
+        const offcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl) || new bootstrap.Offcanvas(offcanvasEl);
+
+        if (!f) {
+            // Fallback: try to fetch from API
+            panel.innerHTML = '<div class="text-center p-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Chargement...</div>';
+            offcanvas.show();
+            fetch('/api/scans/{{ scan.id }}/findings?limit=500')
+                .then(r => r.json())
+                .then(data => {
+                    const match = (data.items || []).find(x => (x.id_stable || String(x.id)) === String(findId));
+                    if (match) {
+                        window.rawFindingsData[findId] = match;
+                        window.showFindingDetail(findId);
+                    } else {
+                        panel.innerHTML = '<div class="text-center p-4 text-warning small">Finding non trouvé (ID: ' + window._escapeHtml(findId) + ')</div>';
+                    }
+                })
+                .catch(() => {
+                    panel.innerHTML = '<div class="text-center p-4 text-danger small">Erreur lors du chargement du finding.</div>';
+                });
+            return;
+        }
+
+        if (idBadge) {
+            idBadge.textContent = 'ID: ' + String(findId).substring(0, 8);
+            idBadge.title = findId;
+        }
+        panel.scrollTop = 0;
+        offcanvas.show();
+
+        const meta = (f.metadata && typeof f.metadata === 'object') ? f.metadata : {};
+        const sev = (f.severity || 'info').toLowerCase();
+        const sevColor = sev === 'critical' || sev === 'high' ? 'danger' : sev === 'medium' ? 'warning' : 'secondary';
+        const conf = (f.confidence || 'medium').toUpperCase();
+        const tool = (f.tool_source || f.tool || 'nmap').toUpperCase();
+        const category = (f.category || '').toUpperCase();
+
+        // Validation / reproducibility
+        const validation = (meta.validation && typeof meta.validation === 'object') ? meta.validation : {};
+        const repro = (meta.reproducibility && typeof meta.reproducibility === 'object') ? meta.reproducibility : {};
+        const primaryCmd = validation.command || repro.command || f.repro_command || f.reproduction || '';
+        const primaryUrl = validation.target || repro.url || f.endpoint || f.target || '';
+
+        // Evidence
+        const evidence = f.evidence || '';
+        const rawOutput = f.raw_output || '';
+        const reqExcerpt = repro.request_excerpt || f.request || '';
+        const resExcerpt = repro.response_excerpt || f.response || '';
+
+        function buildRow(label, value, mono) {
+            if (!value) return '';
+            return `<div class="small mb-2"><div class="text-muted extra-small text-uppercase">${label}</div>
+                <pre class="p-2 rounded border border-secondary border-opacity-10 bg-black bg-opacity-30 mb-0 extra-small" style="white-space:pre-wrap;max-height:200px;overflow-y:auto;">${window._escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`;
+        }
+
+        let html = `
+        <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+            <span class="badge bg-${sevColor} bg-opacity-20 text-${sevColor} border border-${sevColor} border-opacity-50 text-uppercase">${sev}</span>
+            <span class="badge bg-secondary bg-opacity-20 text-muted">CONF: ${conf}</span>
+            <span class="badge bg-dark border border-secondary text-secondary">${window._escapeHtml(tool)}</span>
+            ${category ? `<span class="badge bg-secondary bg-opacity-10 text-light border border-secondary border-opacity-25">${window._escapeHtml(category)}</span>` : ''}
+        </div>
+        <h5 class="text-light mb-2">${window._escapeHtml(f.title || 'Untitled Finding')}</h5>
+        ${f.description ? `<div class="small text-muted border border-secondary border-opacity-10 rounded p-2 mb-3" style="white-space:pre-wrap;">${window._escapeHtml(f.description)}</div>` : ''}
+
+        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
+            <h6 class="extra-small text-uppercase text-muted mb-2">Localisation / Vecteur</h6>
+            ${primaryUrl ? `<div class="small font-monospace text-info mb-1">${window._escapeHtml(primaryUrl)}</div>` : '<div class="small text-muted">Aucune URL cible disponible.</div>'}
+            ${meta.port ? `<div class="extra-small text-muted mt-1"><i class="fas fa-plug me-1 text-info"></i>Port: <span class="text-info fw-bold">${window._escapeHtml(String(meta.port))}</span></div>` : ''}
+            ${meta.service ? `<div class="extra-small text-muted"><i class="fas fa-server me-1"></i>Service: <span class="text-light">${window._escapeHtml(meta.service)}</span></div>` : ''}
+            ${meta.version ? `<div class="extra-small text-muted"><i class="fas fa-tag me-1"></i>Version: <span class="text-warning">${window._escapeHtml(meta.version)}</span></div>` : ''}
+        </div>
+
+        ${primaryCmd || reqExcerpt || resExcerpt ? `
+        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
+            <h6 class="extra-small text-uppercase text-muted mb-2">Reproductibilité</h6>
+            ${buildRow('Command', primaryCmd, true)}
+            ${buildRow('Request', reqExcerpt, true)}
+            ${buildRow('Response', resExcerpt, true)}
+        </div>` : ''}
+
+        ${evidence || rawOutput ? `
+        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
+            <h6 class="extra-small text-uppercase text-muted mb-2">Evidence / Raw Output</h6>
+            ${buildRow('Evidence', evidence, false)}
+            ${buildRow('Raw Output', rawOutput, false)}
+        </div>` : ''}
+
+        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
+            <h6 class="extra-small text-uppercase text-muted mb-2">Actions</h6>
+            <div class="d-flex flex-wrap gap-2">
+                ${primaryCmd ? `<button class="btn btn-sm btn-outline-warning" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(primaryCmd)}')); this.innerHTML='<i class=\\'fas fa-check me-1\\'></i>Copié!'"><i class="fas fa-copy me-1"></i>Copier commande</button>` : ''}
+                ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(primaryUrl)}')); this.innerHTML='<i class=\\'fas fa-check me-1\\'></i>Copié!'"><i class="fas fa-copy me-1"></i>Copier URL</button>` : ''}
+                ${!primaryCmd && !primaryUrl ? '<span class="small text-muted fst-italic">Observation uniquement — pas de commande de reproduction disponible.</span>' : ''}
+            </div>
+        </div>`;
+
+        panel.innerHTML = html;
+    };
+
+    // 4. showPortAudit — opens a modal with the NSE raw data for the given port
+    window.showPortAudit = function(port) {
+        const modalEl = document.getElementById('portAuditModal');
+        if (!modalEl) return;
+        document.getElementById('port-audit-modal-port').textContent = port;
+
+        const results = window.scanResults || {};
+        const nseData = (((results.phases || {}).recon || {}).nse_results || {});
+        const cmdLog = (((results.phases || {}).recon || {}).commands_log || []);
+
+        const portData = nseData[String(port)];
+        const content = document.getElementById('port-audit-modal-content');
+
+        if (portData) {
+            let text = `=== Port ${port} — NSE Audit ===\n\n`;
+            if (typeof portData === 'string') {
+                text += portData;
+            } else if (typeof portData === 'object') {
+                Object.entries(portData).forEach(([script, output]) => {
+                    text += `[${script}]\n${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}\n\n`;
+                });
+            }
+            // Try to find related command from log
+            const relCmd = Array.isArray(cmdLog) ? cmdLog.find(c => String(c).includes(`-p ${port}`)) : null;
+            if (relCmd) text = `Command: ${relCmd}\n\n` + text;
+            content.textContent = text;
+        } else {
+            content.textContent = `Aucune donnée NSE disponible pour le port ${port}.\n\nLes données NSE sont collectées pendant la phase de reconnaissance.`;
+        }
+
+        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        modal.show();
+    };
+
+    // 5. openFindingDrawer alias (for NSE results click in the dashboard)
+    window.openFindingDrawer = function(findId) {
+        window.showFindingDetail(findId);
+    };
+
+    // 6. updateFindingsList — keep rawFindingsData in sync when new findings arrive via socket
+    window.updateFindingsList = function(newFindings) {
+        if (!newFindings) return;
+        newFindings.forEach(function(f) {
+            const fid = f.id_stable || f.id;
+            const prev = window.rawFindingsData[fid] || {};
+            window.rawFindingsData[fid] = Object.assign({}, prev, f, {
+                metadata: Object.assign({}, prev.metadata || {}, f.metadata || {})
+            });
+            const idx = window.findingsList.findIndex(x => (x.id_stable || x.id) === fid);
+            if (idx === -1) window.findingsList.push(window.rawFindingsData[fid]);
+            else window.findingsList[idx] = window.rawFindingsData[fid];
+        });
+    };
+
+    // 7. Initialize ScanDashboard controller
+    document.addEventListener("DOMContentLoaded", function () {
+        const dashboard = new ScanDashboard("{{ scan.id }}", "{{ scan.target.identifier }}");
+        {% if results %}
+        window.scanResults = {{ results | tojson | safe }};
+        window.updateUI = function(res) { dashboard.updateUI(res); };
+        {% endif %}
+    });
+</script>
+{% endblock %}

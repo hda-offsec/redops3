@@ -148,11 +148,12 @@
         </div>
         <div class="card-body p-0">
             <div id="port-audit-container" class="p-3" style="max-height: 600px; overflow-y: auto;">
+
+                {# ── Source 1 : orchestrateur JSON (scans classiques) ── #}
                 {% if results.phases.recon.nse_results or results.phases.recon.commands_log %}
                     <div class="row g-3">
                         {% set nse_data = results.phases.recon.nse_results|default({}) %}
-                        {% set cmd_log = results.phases.recon.commands_log|default({}) %}
-                        
+                        {% set cmd_log  = results.phases.recon.commands_log|default({}) %}
                         {% for port_num, results_list in nse_data.items() %}
                         <div class="col-12 port-audit-block" data-port="{{ port_num }}">
                             <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-20">
@@ -160,7 +161,6 @@
                                     <div class="h6 mb-0 text-info fw-bold">Port {{ port_num }} (Audit)</div>
                                     <span class="x-small text-muted">Phase: Recon / Wave 5.5</span>
                                 </div>
-                                
                                 {% if cmd_log[port_num] %}
                                 <div class="mb-3">
                                     <small class="text-muted d-block text-uppercase x-small mb-1">Executed Command</small>
@@ -169,16 +169,13 @@
                                     </code>
                                 </div>
                                 {% endif %}
-
                                 <div>
                                     <small class="text-muted d-block text-uppercase x-small mb-1">NSE Script Results</small>
                                     <div class="extra-small font-monospace p-2 bg-dark bg-opacity-50 rounded border border-secondary border-opacity-10 text-white-50" style="white-space: pre-wrap;">
                                         {% if results_list is string %}
                                             {{ results_list }}
                                         {% else %}
-                                            {% for line in results_list %}
-                                                {{ line }}
-                                            {% endfor %}
+                                            {% for line in results_list %}{{ line }}{% endfor %}
                                         {% endif %}
                                     </div>
                                 </div>
@@ -186,6 +183,83 @@
                         </div>
                         {% endfor %}
                     </div>
+
+                {# ── Source 2 : findings DB scannmap (category = nse_result / service_detection) ── #}
+                {% elif findings %}
+                    {# Regrouper les findings NSE par port #}
+                    {% set ns = namespace(ports={}) %}
+                    {% for f in findings %}
+                        {% if f.category in ['nse_result', 'service_detection'] %}
+                            {% set meta = f.metadata if f.metadata is mapping else {} %}
+                            {% set port_key = meta.get('port', f.endpoint)|string %}
+                            {% if port_key not in ns.ports %}
+                                {% set _ = ns.ports.update({port_key: {'service': meta.get('service','?'), 'host': meta.get('host_ip', f.target), 'command': meta.get('command', f.repro_command or ''), 'scripts': []}}) %}
+                            {% endif %}
+                            {% if f.category == 'nse_result' %}
+                                {% set _ = ns.ports[port_key]['scripts'].append({'id': meta.get('script_id', f.title), 'output': meta.get('script_output', '') or f.description or '', 'severity': f.severity}) %}
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if ns.ports %}
+                    <div class="row g-3">
+                        {% for port_num, pdata in ns.ports.items()|sort %}
+                        <div class="col-12 port-audit-block" data-port="{{ port_num }}">
+                            <div class="p-3 rounded bg-black bg-opacity-40 border border-secondary border-opacity-20">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="h6 mb-0 text-info fw-bold">
+                                        Port {{ port_num }}
+                                        {% if pdata.service and pdata.service != '?' %}
+                                        <span class="small text-muted fw-normal ms-2">{{ pdata.service }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <span class="x-small text-muted">{{ pdata.host }} — ScanNmap</span>
+                                </div>
+
+                                {% if pdata.command %}
+                                <div class="mb-3">
+                                    <small class="text-muted d-block text-uppercase x-small mb-1">Nmap Command</small>
+                                    <code class="d-block p-2 bg-dark rounded border border-secondary text-success extra-small" style="white-space:pre-wrap;word-break:break-all;">{{ pdata.command }}</code>
+                                </div>
+                                {% endif %}
+
+                                {% if pdata.scripts %}
+                                <div>
+                                    <small class="text-muted d-block text-uppercase x-small mb-2">NSE Script Results</small>
+                                    {% for script in pdata.scripts %}
+                                    <div class="mb-2">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="badge border extra-small
+                                                {% if script.severity in ['critical','high'] %}bg-danger bg-opacity-20 border-danger text-danger
+                                                {% elif script.severity == 'medium' %}bg-warning bg-opacity-20 border-warning text-warning
+                                                {% else %}bg-secondary bg-opacity-10 border-secondary text-muted{% endif %}">
+                                                {{ script.severity|upper }}
+                                            </span>
+                                            <code class="extra-small text-info">{{ script.id }}</code>
+                                        </div>
+                                        {% if script.output %}
+                                        <div class="extra-small font-monospace p-2 bg-dark bg-opacity-50 rounded border border-secondary border-opacity-10 text-white-50" style="white-space:pre-wrap;max-height:200px;overflow-y:auto;">{{ script.output }}</div>
+                                        {% else %}
+                                        <div class="extra-small text-muted fst-italic ps-1">Aucun output capturé pour ce script.</div>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <div class="extra-small text-muted fst-italic">Aucun script NSE lancé sur ce port (service non reconnu ou profil de scan sans NSE).</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="p-5 text-center text-muted">
+                        <i class="fas fa-search fa-3x mb-3 opacity-25"></i>
+                        <p>No NSE Audit data available for this scan.</p>
+                        <small>Les scripts NSE sont déclenchés automatiquement par l'Intelligence Engine sur les services détectés.</small>
+                    </div>
+                    {% endif %}
+
                 {% else %}
                     <div class="p-5 text-center text-muted">
                         <i class="fas fa-search fa-3x mb-3 opacity-25"></i>
@@ -197,6 +271,7 @@
         </div>
     </div>
 </div>
+
 
 <script>
     function showPortAudit(port) {

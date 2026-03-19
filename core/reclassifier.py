@@ -65,6 +65,18 @@ class PostDetectionReclassifier:
         elif tool == "correlation_engine":
             self._handle_correlation_hygiene(f, ev)
             
+        # 7) Deserialization
+        elif "deserialization" in title_lower or "node-serialize" in title_lower:
+            self._handle_deserialization(f, ev)
+
+        # 8) Decision Cortex (Suggestions)
+        elif tool == "decision_cortex" or "cortex" in tool:
+            self._handle_cortex_suggestion(f, ev)
+
+        # 9) Generic Secret Cleanup
+        elif "secret" in title_lower and "generic" in title_lower:
+            self._handle_generic_secret(f, ev, res)
+            
         else:
             # Default fallback for unhandled types
             if f.severity.lower() == "critical":
@@ -72,6 +84,18 @@ class PostDetectionReclassifier:
                 f.severity = "high"
                 ev.verification_required = True
                 ev.level = EvidenceLevel.PROBABLE
+
+        # 10) Global Endpoint Sanity Check (V12)
+        endpoint = str(f.endpoint or "").lower()
+        target = str(f.target or "").lower()
+        if not endpoint or endpoint.startswith("port:") or not target or target.startswith("port:"):
+            # Only demote if BOTH carry no real address info
+            has_no_addr = (not endpoint or endpoint.startswith("port:")) and (not target or target.startswith("port:"))
+            if has_no_addr:
+                if f.severity.lower() in ["critical", "high"]:
+                    f.severity = "info"
+                    f.description = (f.description or "") + "\n\n[Reclassifier] Demoted: No target URL or endpoint captured (contextless port reference); finding is tactical debris."
+                    ev.level = EvidenceLevel.HEURISTIC
 
     def _handle_ssti(self, f: Finding, ev: EvidenceModel, req: str, res: str, repro: str):
         # Current logic: '7*7=49' alone shouldn't be CRITICAL
@@ -208,6 +232,65 @@ class PostDetectionReclassifier:
             f.severity = "info"
             ev.level = EvidenceLevel.HEURISTIC
             f.description = (f.description or "") + "\n\n[Reclassifier] Public IP banner only."
+
+    def _handle_cortex_suggestion(self, f: Finding, ev: EvidenceModel):
+        f.severity = "info"
+        f.confidence = "medium"
+        ev.level = EvidenceLevel.HEURISTIC
+        ev.verification_required = True
+        
+        if "[cortex" not in f.title.lower():
+            f.title = f"[Cortex Hypothèse] {f.title}"
+        
+        f.description = (f.description or "") + "\n\n[Reclassifier] Categorized as automated attack surface reasoning. This is NOT a confirmed vulnerability."
+
+    def _handle_generic_secret(self, f: Finding, ev: EvidenceModel, res: str):
+        # Many generic secrets are just placeholders in HTML, e.g. placeholder="password"
+        # We look for a real string in the response that doesn't look like a placeholder
+        body = self._extract_body(res).lower()
+        # Heuristic: if it's "password":"Password" or placeholder="password" - it's noise
+        is_placeholder = re.search(r'(placeholder|label|title|value|id|name)["\']?\s*[=:]\s*["\']?password["\']?', body)
+        
+        if is_placeholder:
+            f.severity = "info"
+            ev.level = EvidenceLevel.HEURISTIC
+            f.description = (f.description or "") + "\n\n[Reclassifier] Demoted: Secret match appears to be a UX placeholder or label, not a live credential."
+        else:
+            # Check for high-entropy matches
+            ev.level = EvidenceLevel.PROBABLE
+            # Keep original severity (often low/medium)
+
+    def _handle_deserialization(self, f: Finding, ev: EvidenceModel):
+        desc = (f.description or "").lower()
+        title = (f.title or "").lower()
+        
+        # Check if it's just timing-based
+        is_timing = "baseline" in desc and "attack" in desc and "sleep" in desc
+        has_callback = any(x in desc for x in ["callback", "oast", "dns", "ping", "nslookup", "curl", "wget"])
+        
+        if is_timing and not has_callback:
+            # Cap severity and confidence for unvalidated timing findings
+            if f.severity.lower() in ["critical", "high"]:
+                f.severity = "medium"
+            
+            f.confidence = "low"
+            
+            if "suspected" not in title and "hypothesis" not in title:
+                f.title = f"Suspected Deserialization: {f.title} (Timing Only)"
+            
+            ev.level = EvidenceLevel.HEURISTIC
+            ev.verification_required = True
+            f.description = (f.description or "") + "\n\n[Reclassifier] Demoted: Purely timing-based detection without OAST/Callback proof."
+            
+            # Integrate state signals for UI
+            meta = (f.metadata_json or {}) if isinstance(f.metadata_json, dict) else {}
+            f.metadata_json = {**meta, "result_state": "hypothesis", "validation_status": "not_run"}
+        
+        elif not has_callback and f.severity.lower() == "critical":
+            # Even if it's not timing, if it's a claim of critical without callback evidence
+            f.severity = "high"
+            ev.level = EvidenceLevel.PROBABLE
+            ev.verification_required = True
 
     def _handle_correlation_hygiene(self, f: Finding, ev: EvidenceModel):
         title_lower = f.title.lower() if f.title else ""

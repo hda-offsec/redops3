@@ -35,13 +35,16 @@ class DeserializationScanner:
                 suspects.append("PHP Object in Body")
                 
             if suspects:
-                findings.append({
-                    "title": "High: Insecure Deserialization Risk",
-                    "description": f"Potential serialized objects detected: {', '.join(suspects)}. If these are untrusted, it can lead to RCE.",
-                    "severity": "high",
-                    "tool_source": "deserialization_scanner",
-                    "raw_loot": base_url
-                })
+                from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                findings.append(FindingNormalizer.from_response(
+                    r,
+                    title="High: Insecure Deserialization Risk",
+                    description=f"Potential serialized objects detected: {', '.join(suspects)}. If these are untrusted, it can lead to RCE.",
+                    severity="high",
+                    tool_source="deserialization_scanner",
+                    category="vuln",
+                    evidence={"suspects": suspects}
+                ))
         except Exception:
             pass
         return findings

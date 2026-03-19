@@ -253,12 +253,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         if gs_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('git', gs_findings)))
             for f in gs_findings:
-                orch.add_finding(
-                    title=f['title'],
-                    description=f['description'],
-                    severity=f['severity'],
-                    tool_source="git_scanner"
-                )
+                orch.add_finding(**f)
             orch.save_results(orch.scan_id, results)
         
         orch.mark_module("git_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
@@ -274,12 +269,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         if bs_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('backups', bs_findings)))
             for f in bs_findings:
-                orch.add_finding(
-                    title=f['title'],
-                    description=f['description'],
-                    severity=f['severity'],
-                    tool_source="backup_expert"
-                )
+                orch.add_finding(**f)
                 if orch.add_loot and f.get('raw_loot'):
                     orch.add_loot(
                         loot_type=f.get('loot_type', 'Backup/Archive'),
@@ -302,12 +292,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         if gs_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('graphql', gs_findings)))
             for f in gs_findings:
-                orch.add_finding(
-                    title=f['title'],
-                    description=f['description'],
-                    severity=f['severity'],
-                    tool_source="graphql_expert"
-                )
+                orch.add_finding(**f)
             orch.save_results(orch.scan_id, results)
         
         orch.mark_module("graphql_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
@@ -705,10 +690,22 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('ssrf', ssrf_findings)))
                 for f in ssrf_findings:
                     orch.add_finding(
-                        title=f['title'],
-                        description=f['description'],
-                        severity=f['severity'],
-                        tool_source="ssrf_expert"
+                        title=f.get('title', 'SSRF Vulnerability'),
+                        description=f.get('description', ''),
+                        severity=f.get('severity', 'high'),
+                        tool_source="ssrf_expert",
+                        category=f.get('category', 'ssrf'),
+                        endpoint=f.get('url') or f.get('endpoint') or f.get('target') or f"{proto}://{target}:{port}",
+                        parameter=f.get('parameter') or f.get('param', ''),
+                        payload=f.get('payload') or f.get('poison', ''),
+                        evidence=f.get('evidence') or f.get('response', ''),
+                        raw_output=f.get('raw_output') or f.get('response', ''),
+                        repro_command=f.get('repro_command') or f.get('reproduction') or (
+                            f"curl -ik '{f.get('url') or f.get('endpoint', '')}' -H 'Host: {target}'" if f.get('url') or f.get('endpoint') else ''
+                        ),
+                        request=f.get('request', ''),
+                        response=f.get('response', ''),
+                        metadata=f.get('metadata', {}),
                     )
                     if orch.add_loot and f.get('raw_loot'):
                         orch.add_loot(
@@ -736,10 +733,20 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             
             for f in js_findings:
                 orch.add_finding(
-                    title=f['title'],
-                    description=f['description'],
-                    severity=f['severity'],
-                    tool_source="js_vuln_audit"
+                    title=f.get('title', 'JS Vulnerability'),
+                    description=f.get('description', ''),
+                    severity=f.get('severity', 'medium'),
+                    tool_source=f.get('tool_source', 'js_vuln_audit'),
+                    category=f.get('category', 'vulnerability'),
+                    endpoint=f.get('endpoint') or f.get('target') or f.get('url') or url,
+                    parameter=f.get('parameter') or f.get('param', ''),
+                    payload=f.get('payload') or f.get('poison', ''),
+                    evidence=f.get('evidence') or f.get('response', ''),
+                    raw_output=f.get('raw_output') or f.get('response', ''),
+                    repro_command=f.get('repro_command') or f.get('reproduction', ''),
+                    request=f.get('request', ''),
+                    response=f.get('response', ''),
+                    metadata=f.get('metadata', {}),
                 )
             orch.save_results(orch.scan_id, results)
         
@@ -882,11 +889,29 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                 _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('redirects', or_findings)))
                 
                 for f in or_findings:
+                    _or_url = f.get('url') or f.get('endpoint', '')
+                    _or_dest = f.get('destination') or f.get('redirect_to', '')
                     orch.add_finding(
-                        title=f"Open Redirect Vulnerability ({port})",
-                        description=f"Vulnerable URL: {f.get('url')}\nDestination: {f.get('destination')}",
-                        severity="medium",
-                        tool_source="redirect_scanner"
+                        title=f.get('title') or f"Open Redirect Vulnerability (port {port})",
+                        description=(
+                            f"Vulnerable URL: `{_or_url}`\n"
+                            f"Injected Destination: `{_or_dest}`\n\n"
+                            + (f.get('description') or '')
+                        ).strip(),
+                        severity=f.get('severity', 'medium'),
+                        tool_source="redirect_scanner",
+                        category=f.get('category', 'open_redirect'),
+                        endpoint=_or_url,
+                        parameter=f.get('parameter') or f.get('param', ''),
+                        payload=f.get('payload') or _or_dest,
+                        evidence=f.get('evidence') or f.get('response', ''),
+                        raw_output=f.get('raw_output') or f.get('response', ''),
+                        repro_command=f.get('repro_command') or (
+                            f"curl -ik '{_or_url}'" if _or_url else ''
+                        ),
+                        request=f.get('request', ''),
+                        response=f.get('response', ''),
+                        metadata=f.get('metadata', {}),
                     )
                 orch.save_results(orch.scan_id, results)
         
@@ -1154,19 +1179,35 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
                     # V10: Public data ≠ leak. Classify by type.
                     SECRET_TYPES = {'api_keys', 'aws_keys', 'jwt_tokens', 'google_api',
                                     'private_keys', 'stripe_keys', 'slack_tokens'}
-                    ftype = f['type']
+                    ftype = f.get('type', 'unknown')
                     if ftype in SECRET_TYPES:
                         sev = "high"
                     elif ftype in ('emails', 'ip_addresses'):
                         sev = "info"  # Public data visible in HTML
                     else:
                         sev = "low"
+                    _matches = f.get('matches', [])
+                    _sample = ', '.join(str(m) for m in _matches[:5])
+                    _evidence_lines = '\n'.join(str(m) for m in _matches[:20])
+                    _miner_endpoint = f"{proto}://{target}:{port}"
                     orch.add_finding(
                         title=f"Data Exposure: {ftype.upper()}",
-                        description=f"Found {f['count']} matches in response. Sample: {', '.join(f['matches'])}",
+                        description=(
+                            f"Found **{f.get('count', len(_matches))}** matches of type `{ftype}` in response body.\n\n"
+                            f"**Sample**: `{_sample}`"
+                        ),
                         severity=sev,
                         tool_source="data_miner",
-                        endpoint=f"{proto}://{target}:{port}"
+                        category=f"data_exposure_{ftype}",
+                        endpoint=_miner_endpoint,
+                        evidence=_evidence_lines,
+                        raw_output=_evidence_lines,
+                        repro_command=f"curl -sk '{_miner_endpoint}' | grep -Eo '...'",
+                        metadata={
+                            "leak_type": ftype,
+                            "match_count": f.get('count', len(_matches)),
+                            "sample_matches": _matches[:10],
+                        },
                     )
                 orch.save_results(orch.scan_id, results)
     except Exception as e: log(f"Data Miner Error: {e}", "DEBUG")

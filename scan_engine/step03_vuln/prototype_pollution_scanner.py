@@ -42,13 +42,17 @@ class PrototypePollutionScanner:
                     # Real PP detection is better with JS execution, but we check for "object" reflections.
                     if r.status_code == 500:
                         # Some servers crash when prototype is polluted with junk
-                        findings.append({
-                            "title": "Low: Potential Prototype Pollution (Behavioral)",
-                            "description": f"Server returned 500 error when receiving PP payload on `{param}`: `{payload}`. This might indicate a server-side crash during object merger.",
-                            "severity": "low",
-                            "tool_source": "prototype_expert",
-                            "url": target_url
-                        })
+                        from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                        findings.append(FindingNormalizer.from_response(
+                            r,
+                            title="Low: Potential Prototype Pollution (Behavioral)",
+                            description=f"Server returned 500 error when receiving PP payload on `{param}`: `{payload}`. This might indicate a server-side crash during object merger.",
+                            severity="low",
+                            tool_source="prototype_expert",
+                            category="vuln",
+                            payload=payload,
+                            method="GET"
+                        ))
                 except Exception: pass
 
         # 2. JSON Body Pollution (Common in APIs)
@@ -59,14 +63,18 @@ class PrototypePollutionScanner:
             json_payload = {"__proto__": {"redops_json_pp": "true"}}
             r = self.session.post(target_url, json=json_payload, timeout=3, verify=False)
             if r.status_code == 200 and "redops_json_pp" in r.text:
-                 findings.append({
-                    "title": "High: Server-Side Prototype Pollution (JSON Injection)",
-                    "description": f"The server reflected the injected prototype key in the response. This strongly suggests a vulnerable object merger (e.g., `lodash.merge` or `extend`).",
-                    "severity": "high",
-                    "confidence": "high",
-                    "tool_source": "prototype_expert",
-                    "url": target_url
-                })
+                     from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                     findings.append(FindingNormalizer.from_response(
+                        r,
+                        title="High: Server-Side Prototype Pollution (JSON Injection)",
+                        description=f"The server reflected the injected prototype key in the response. This strongly suggests a vulnerable object merger (e.g., `lodash.merge` or `extend`).",
+                        severity="high",
+                        confidence="high",
+                        tool_source="prototype_expert",
+                        category="vuln",
+                        payload=json_payload,
+                        method="POST"
+                    ))
         except Exception: pass
 
         return findings
@@ -96,15 +104,18 @@ class PrototypePollutionScanner:
                 resp = self.session.post(url, json=g, timeout=5)
                 # Check for RCE indicators in response
                 if any(k in resp.text for k in ["uid=", "gid=", "groups=", "Debugger listening on"]):
-                    findings.append({
-                        "title": "CRITICAL: Prototype Pollution to RCE Escalation",
-                        "description": f"Successfully escalated Prototype Pollution to RCE on {url} using custom gadget chain.\nEvidence: {resp.text[:100]}",
-                        "severity": "critical",
-                        "confidence": "certain",
-                        "tool_source": "prototype_expert",
-                        "url": url,
-                        "raw_loot": resp.text[:200]
-                    })
+                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                    findings.append(FindingNormalizer.from_response(
+                        resp,
+                        title="CRITICAL: Prototype Pollution to RCE Escalation",
+                        description=f"Successfully escalated Prototype Pollution to RCE on {url} using custom gadget chain.\nEvidence: {resp.text[:100]}",
+                        severity="critical",
+                        confidence="certain",
+                        tool_source="prototype_expert",
+                        category="rce",
+                        payload=g,
+                        method="POST"
+                    ))
                     if logger: logger(f"CRITICAL: Prototype Pollution RCE confirmed at {url}", "CRITICAL")
                     break
             except Exception:

@@ -1,87 +1,111 @@
-/* dt_inspired.css - Overridden to mimic flat Dependency-Track style natively */
-:root {
-    --dt-sidebar-bg: #495057;
-    /* $grey-700 */
-    --dt-main-bg: #343a40;
-    /* $grey-800 */
-    --dt-card-bg: #495057;
-    /* $grey-700 */
-    --dt-border-color: #212529;
-    /* $grey-900 */
-    --dt-text-primary: #e9ecef;
-    /* $grey-200 */
-    --dt-text-secondary: #adb5bd;
-    /* $grey-500 */
+/**
+ * REDOPS3 — Offensive Intelligence Color Palette
+ * Harmonized Severity & Integrity System
+ */
 
-    /* DT Severity Colors */
-    --sev-critical: #f86c6b;
-    --sev-high: #fd8c00;
-    --sev-medium: #ffc107;
-    --sev-low: #4dbd74;
-    --sev-info: #20a8d8;
-
-    --dt-accent: #20a8d8;
+ :root {
+    /* DT-Compatible Severity Colors (Harmonized) */
+    --sev-critical: #ff3b30;
+    --sev-high: #ff9500;
+    --sev-medium: #ffcc00;
+    --sev-low: #34c759;
+    --sev-info: #007aff;
+    
+    /* System Accents */
+    --dt-sidebar-bg: #0d0d0f;
+    --dt-main-bg: #050507;
+    --dt-card-bg: rgba(18, 18, 22, 0.6);
+    --dt-border: rgba(255, 255, 255, 0.08);
+    --dt-accent: #5271ff;
+    
+    --dt-text-primary: #f5f5f7;
+    --dt-text-secondary: #9ea4b0;
 }
 
-/* Remove glass and glows */
-body.app-shell {
-    background-color: var(--dt-main-bg);
-    color: var(--dt-text-primary);
-}
+/* Severity Badges & Backgrounds */
+.bg-critical { background-color: var(--sev-critical) !important; color: #fff !important; }
+.bg-high     { background-color: var(--sev-high) !important; color: #fff !important; }
+.bg-medium   { background-color: var(--sev-medium) !important; color: #000 !important; }
+.bg-low      { background-color: var(--sev-low) !important; color: #fff !important; }
+.bg-info     { background-color: var(--sev-info) !important; color: #fff !important; }
 
-.card {
-    background-color: var(--dt-card-bg);
-    border: 1px solid var(--dt-border-color);
-    box-shadow: none !important;
-    border-radius: 0.25rem;
-}
-
-.card-header {
-    background-color: rgba(0, 0, 0, 0.1) !important;
-    border-bottom: 1px solid var(--dt-border-color);
-    color: var(--dt-text-primary) !important;
-}
-
-#sidebar {
-    background-color: var(--dt-sidebar-bg) !important;
-    border-right: 1px solid var(--dt-border-color) !important;
-    box-shadow: none !important;
-}
-
-.top-bar {
-    background-color: var(--dt-sidebar-bg);
-    border-bottom: 1px solid var(--dt-border-color);
-}
-
-/* Badges */
+/* Badge Severity Styling */
 .badge-severity {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.65rem;
+    padding: 0.4em 0.8em;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+/* Glass Panels */
+.glass-panel {
+    background: var(--dt-card-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+.glass-header {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.5rem;
     font-weight: 600;
-    font-size: 0.75rem;
-    padding: 0.25em 0.5em;
-    border-radius: 0.25rem;
 }
 
-.bg-critical {
-    background-color: var(--sev-critical) !important;
-    color: white !important;
+/* Data Table Overrides */
+.table-cyber {
+    border-collapse: separate;
+    border-spacing: 0 4px;
+    background: transparent;
 }
 
-.bg-high {
-    background-color: var(--sev-high) !important;
-    color: white !important;
+.table-cyber tr {
+    background: rgba(255, 255, 255, 0.02);
+    transition: background 0.2s;
 }
 
-.bg-medium {
-    background-color: var(--sev-medium) !important;
-    color: black !important;
+.table-cyber tr:hover {
+    background: rgba(255, 255, 255, 0.05);
 }
 
-.bg-low {
-    background-color: var(--sev-low) !important;
-    color: white !important;
+.table-cyber td {
+    border: none;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
 }
 
-.bg-info {
-    background-color: var(--sev-info) !important;
-    color: white !important;
+.table-cyber td:first-child {
+    border-left: 1px solid var(--border);
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+
+.table-cyber td:last-child {
+    border-right: 1px solid var(--border);
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+/* Cyber Utilities */
+.text-cyber-glow {
+    color: var(--dt-accent);
+    text-shadow: 0 0 8px rgba(82, 113, 255, 0.4);
+}
+
+@keyframes pulse-subtle {
+    0% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.02); }
+    100% { opacity: 0.8; transform: scale(1); }
+}
+
+.scan-pulse {
+    animation: pulse-subtle 2s infinite ease-in-out;
 }

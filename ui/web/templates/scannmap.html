@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}ScanNmap Advanced{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card animate__animated animate__fadeIn">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-satellite-dish me-2 text-danger"></i>Advanced Nmap Module</span>
+                <span class="badge bg-danger bg-opacity-25 border border-danger text-danger">Offensive Intelligence</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-4">
+                    Ce module permet de lancer des scans Nmap hautement configurés avec déclenchement intelligent de scripts NSE ciblés sur les services détectés.
+                </p>
+
+                <form action="{{ url_for('main.scannmap_launch') }}" method="POST" class="row g-3">
+                    <div class="col-12">
+                        <label for="target" class="extra-small text-muted text-uppercase mb-1">Cible</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-transparent border-secondary text-muted"><i class="fas fa-terminal"></i></span>
+                            <input type="text" class="form-control bg-transparent border-secondary text-light" id="target" name="target" placeholder="Ex: 192.168.1.10, scanme.nmap.org" required>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="extra-small text-muted text-uppercase mb-2 d-block">Profil de Scan</label>
+                        <div class="row g-2">
+                            {% for key, profile in nmap_profiles.items() %}
+                            <div class="col-md-6">
+                                <label class="profile-card-selector w-100">
+                                    <input type="radio" name="profile" value="{{ key }}" required {% if loop.first %}checked{% endif %}>
+                                    <div class="p-3 border border-secondary border-opacity-25 rounded bg-black bg-opacity-20 h-100">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <span class="fw-bold text-light">{{ profile.name }}</span>
+                                            <i class="fas fa-check-circle text-success check-icon"></i>
+                                        </div>
+                                        <div class="extra-small text-muted">{{ profile.description }}</div>
+                                        <div class="extra-small text-info font-monospace mt-2">{{ profile.args }}</div>
+                                    </div>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="col-12 mt-4">
+                        <div class="alert alert-info bg-opacity-10 border-info border-opacity-25 py-2">
+                            <i class="fas fa-brain me-2"></i>
+                            <span class="extra-small">L'<strong>Intelligence Engine</strong> analysera les services ouverts pour exécuter automatiquement des scripts NSE spécifiques.</span>
+                        </div>
+                        <button type="submit" class="btn btn-danger w-100 py-2">
+                            <i class="fas fa-bolt me-2"></i>ENGAGER LE SCAN
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-history me-2"></i>Recent Advanced Scans</span>
+                {% if recent_scans %}
+                <button type="button" class="btn btn-xs btn-outline-danger"
+                    data-bs-toggle="modal" data-bs-target="#purgeScansModal"
+                    title="Purger tous les scans ScanNmap">
+                    <i class="fas fa-trash-alt me-1"></i>Purger tout
+                </button>
+                {% endif %}
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th class="ps-3">ID</th>
+                            <th>Target</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th class="text-end pe-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for scan in recent_scans %}
+                        <tr>
+                            <td class="ps-3 text-muted">#{{ scan.id }}</td>
+                            <td class="fw-bold">{{ scan.target.identifier }}</td>
+                            <td>
+                                <span class="badge border bg-opacity-10 {{ 'bg-success border-success text-success' if scan.status == 'completed' else 'bg-warning border-warning text-warning' if scan.status == 'running' else 'bg-danger border-danger text-danger' }} extra-small">
+                                    {{ scan.status|upper }}
+                                </span>
+                            </td>
+                            <td class="extra-small text-muted">{{ scan.start_time.strftime('%Y-%m-%d %H:%M') if scan.start_time else 'N/A' }}</td>
+                            <td class="text-end pe-3">
+                                <div class="d-flex gap-1 justify-content-end">
+                                    <a href="{{ url_for('main.scannmap_results', scan_id=scan.id) }}" class="btn btn-xs btn-outline-info">
+                                        <i class="fas fa-search"></i>
+                                    </a>
+                                    <form action="{{ url_for('main.delete_scan', scan_id=scan.id) }}" method="POST" onsubmit="return confirm('Supprimer ce scan et toutes ses données ?');" style="display:inline;">
+                                        <button type="submit" class="btn btn-xs btn-outline-danger">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fas fa-info-circle me-2"></i>Nmap Capabilities
+            </div>
+            <div class="card-body">
+                <div class="capabilities-list">
+                    <div class="mb-4">
+                        <h6 class="text-info extra-small text-uppercase fw-bold mb-2">Service Discovery</h6>
+                        <p class="small text-muted">Utilisation de -sV avec intensité variable pour identifier précisément les versions et produits.</p>
+                    </div>
+                    <div class="mb-4">
+                        <h6 class="text-info extra-small text-uppercase fw-bold mb-2">NSE Intelligence</h6>
+                        <p class="small text-muted">Déclenchement automatique de catégories de scripts (HTTP, SMB, SSL, etc.) basé sur la reconnaissance.</p>
+                    </div>
+                    <div class="mb-4">
+                        <h6 class="text-info extra-small text-uppercase fw-bold mb-2">OS Fingerprinting</h6>
+                        <p class="small text-muted">Analyse de la pile TCP/IP pour déduire l'OS distant avec un score de confiance.</p>
+                    </div>
+                    <div class="mb-0">
+                        <h6 class="text-info extra-small text-uppercase fw-bold mb-2">Live Timeline</h6>
+                        <p class="small text-muted">Suivi en temps réel de chaque port découvert et de chaque script NSE lancé.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Purge all scannmap scans -->
+<div class="modal fade" id="purgeScansModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark border-danger border-opacity-50 shadow-lg">
+            <div class="modal-header border-danger border-opacity-25">
+                <h5 class="modal-title text-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Confirmer la purge
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-1">Cette action va supprimer <strong class="text-danger">définitivement</strong> :</p>
+                <ul class="small text-muted mb-3">
+                    <li>Tous les scans ScanNmap ({{ recent_scans|length }} affiché{{ 's' if recent_scans|length > 1 else '' }})</li>
+                    <li>Tous leurs findings, logs et suggestions associés</li>
+                    <li>Tous les fichiers de résultats JSON</li>
+                </ul>
+                <div class="alert alert-danger bg-danger bg-opacity-10 border-danger border-opacity-25 py-2 px-3 extra-small mb-0">
+                    <i class="fas fa-ban me-1"></i> Cette action est <strong>irréversible</strong>.
+                </div>
+            </div>
+            <div class="modal-footer border-danger border-opacity-25">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <form action="{{ url_for('main.scannmap_purge_all') }}" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-sm btn-danger">
+                        <i class="fas fa-trash-alt me-1"></i>Purger tous les scans
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .profile-card-selector input {
+        display: none;
+    }
+    .profile-card-selector div {
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+    }
+    .profile-card-selector div:hover {
+        border-color: rgba(255, 68, 68, 0.4) !important;
+        background: rgba(255, 68, 68, 0.05) !important;
+    }
+    .profile-card-selector input:checked + div {
+        border-color: #ff4444 !important;
+        background: rgba(255, 68, 68, 0.1) !important;
+    }
+    .profile-card-selector .check-icon {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    .profile-card-selector input:checked + div .check-icon {
+        opacity: 1;
+    }
+</style>
+{% endblock %}
+

@@ -192,14 +192,15 @@ class GraphQLScanner:
                         if analysis["admin_access"]:
                             desc += "\n\n⚠️ **CRITICAL SIGNAL**: Schema contains explicit 'Admin' management references."
 
-                        findings.append({
-                            "title": "GraphQL Introspection & Schema Leak",
-                            "description": desc,
-                            "severity": "high" if not analysis["admin_access"] else "critical",
-                            "tool_source": "graphql_expert",
-                            "raw_loot": json.dumps(schema_data)[:10000],
-                            "loot_type": "GraphQL Schema"
-                        })
+                        from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                        findings.append(FindingNormalizer.from_response(
+                            r_int,
+                            title="GraphQL Introspection & Schema Leak",
+                            description=desc,
+                            severity="high" if not analysis["admin_access"] else "critical",
+                            tool_source="graphql_expert",
+                            category="graphql"
+                        ))
                         
                         if logger: logger(f"📡 GRAPHQL VULN: Schema leaked at {url} ({types_count} types)", "WARN")
                     except Exception as e:
@@ -208,12 +209,15 @@ class GraphQLScanner:
                 # 3. Check for GraphiQL (IDE)
                 r_ide = http_client.get(url, options=getattr(self, "options", None), timeout=3)
                 if "GraphiQL" in r_ide.text or "graphql-playground" in r_ide.text.lower():
-                    findings.append({
-                        "title": "GraphQL IDE (GraphiQL/Playground) Exposed",
-                        "description": f"An interactive GraphQL IDE was found at `{url}`.\nAccess: {url}",
-                        "severity": "medium",
-                        "tool_source": "graphql_expert"
-                    })
+                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                    findings.append(FindingNormalizer.from_response(
+                        r_ide,
+                        title="GraphQL IDE (GraphiQL/Playground) Exposed",
+                        description=f"An interactive GraphQL IDE was found at `{url}`.\nAccess: {url}",
+                        severity="medium",
+                        tool_source="graphql_expert",
+                        category="graphql"
+                    ))
 
             except Exception:
                 continue

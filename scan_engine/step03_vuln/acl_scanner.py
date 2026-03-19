@@ -34,13 +34,17 @@ class AccessControlScanner:
                         # Or Request to ADMIN with IP Spoof
                         r_test = http_client.get(target_url, options=getattr(self, "options", None), headers={h: v}, timeout=3, allow_redirects=False)
                         if r_test.status_code == 200:
-                            findings.append({
-                                "title": "CRITICAL: 403 Bypass Successful",
-                                "description": f"Accessed protected resource `{protected_path}` (originally {r_base.status_code}) using header `{h}: {v}`. Status: 200 OK.",
-                                "severity": "critical",
-                                "tool_source": "acl_scanner",
-                                "raw_loot": target_url
-                            })
+                            from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                            findings.append(FindingNormalizer.from_response(
+                                r_test,
+                                title="CRITICAL: 403 Bypass Successful",
+                                description=f"Accessed protected resource `{protected_path}` (originally {r_base.status_code}) using header `{h}: {v}`. Status: 200 OK.",
+                                severity="critical",
+                                tool_source="acl_scanner",
+                                category="access_control",
+                                method="GET",
+                                metadata={"bypass_header": f"{h}: {v}"}
+                            ))
                             return findings # Return on first success
                     except Exception:
                         continue
@@ -53,13 +57,17 @@ class AccessControlScanner:
                     try:
                         r_var = http_client.get(url_var, options=getattr(self, "options", None), timeout=3, allow_redirects=False)
                         if r_var.status_code == 200:
-                             findings.append({
-                                "title": "High: ACL Bypass via URL Encoding",
-                                "description": f"Bypassed Access Control on `{protected_path}` using variation `{v}`. Status: 200 OK.",
-                                "severity": "high",
-                                "tool_source": "acl_scanner",
-                                "raw_loot": url_var
-                            })
+                             from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                             findings.append(FindingNormalizer.from_response(
+                                 r_var,
+                                 title="High: ACL Bypass via URL Encoding",
+                                 description=f"Bypassed Access Control on `{protected_path}` using variation `{v}`. Status: 200 OK.",
+                                 severity="high",
+                                 tool_source="acl_scanner",
+                                 category="access_control",
+                                 method="GET",
+                                 metadata={"variation": v}
+                             ))
                     except Exception:
                         continue
 

@@ -14,11 +14,45 @@
             <span class="extra-small text-muted fw-normal ms-2 opacity-50" id="findings-total-label">0 findings</span>
         </h5>
         
-        <div class="d-flex gap-2 flex-wrap justify-content-end">
-            <div class="input-group input-group-sm" style="max-width: 320px;">
-                <span class="input-group-text bg-black border-secondary text-muted"><i class="fas fa-search"></i></span>
+        <div class="d-flex gap-2 flex-wrap justify-content-end align-items-center">
+            <div class="btn-group btn-group-sm rounded-pill p-1 bg-black bg-opacity-40 border border-secondary border-opacity-25 shadow-sm">
+                <button type="button" class="btn btn-outline-cyber rounded-pill px-3 active" id="btn-show-vault" onclick="switchFindingsView('vault')">
+                    <i class="fas fa-list-ul me-1"></i> Vault
+                </button>
+                <button type="button" class="btn btn-outline-cyber rounded-pill px-3" id="btn-show-api-tree" onclick="switchFindingsView('api-tree')">
+                    <i class="fas fa-sitemap me-1"></i> Api Arborescence
+                </button>
+            </div>
+
+            <div class="input-group input-group-sm" style="max-width: 450px;">
+                <button class="btn btn-outline-secondary dropdown-toggle bg-black border-secondary text-muted px-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Search Filters Help">
+                    <i class="fas fa-filter"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-dark border-secondary shadow-lg p-2" style="min-width: 280px; font-size: 0.85rem; background: rgba(0,0,0,0.95); backdrop-filter: blur(10px);">
+                    <li class="px-3 py-2 text-primary-emphasis text-uppercase extra-small fw-bold border-bottom border-secondary border-opacity-25 mb-2">
+                        <i class="fas fa-lightbulb me-1"></i> Search Intelligence
+                    </li>
+                    <li><a class="dropdown-item rounded-1 py-2" href="javascript:void(0)" onclick="addSearchPrefix('findings-search', 'type:')">
+                        <span class="text-info fw-bold">type:</span> <span class="text-muted small">endpoint, vuln, leak...</span>
+                    </a></li>
+                    <li><a class="dropdown-item rounded-1 py-2" href="javascript:void(0)" onclick="addSearchPrefix('findings-search', 'sev:')">
+                        <span class="text-warning fw-bold">sev:</span> <span class="text-muted small">critical, high, medium...</span>
+                    </a></li>
+                    <li><a class="dropdown-item rounded-1 py-2" href="javascript:void(0)" onclick="addSearchPrefix('findings-search', 'tool:')">
+                        <span class="text-success fw-bold">tool:</span> <span class="text-muted small">nmap, nuclei, ffuf...</span>
+                    </a></li>
+                    <li><a class="dropdown-item rounded-1 py-2" href="javascript:void(0)" onclick="addSearchPrefix('findings-search', 'source:')">
+                        <span class="text-cyber fw-bold">source:</span> <span class="text-muted small">ffuf, katana, gau...</span>
+                    </a></li>
+                    <li class="dropdown-divider border-secondary border-opacity-25"></li>
+                    <li class="px-3 py-1"><div class="extra-small text-muted">Combine terms for complex filtering:</div></li>
+                    <li class="px-3 py-1"><code class="extra-small text-info">type:endpoint status:200</code></li>
+                </ul>
                 <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
-                    placeholder="Search by title, tool, or target..." onkeyup="filterFindings()">
+                    placeholder="Search detections..." onkeyup="filterFindings()">
+                <button class="btn btn-outline-secondary border-secondary text-muted px-2" type="button" onclick="clearSearch('findings-search', filterFindings)" title="Clear Search">
+                    <i class="fas fa-times-circle"></i>
+                </button>
             </div>
             
             <div class="d-flex gap-1 border-start border-secondary border-opacity-25 ps-2">
@@ -45,7 +79,7 @@
     </div>
 </div>
 
-<div class="col-lg-12">
+<div class="col-lg-12 findings-view" id="view-vault">
     <div class="card h-100 bg-transparent border-0">
         <div class="card-header border-0 pb-1 px-0 bg-transparent">
             <h6 class="extra-small text-muted text-uppercase d-flex align-items-center gap-2 mb-0">
@@ -55,6 +89,32 @@
         <div class="card-body p-0">
             <div id="findings-table-container" style="max-height: 700px; overflow-y: auto;">
                 {{ detection_table(findings) }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="col-lg-12 findings-view" id="view-api-tree" style="display: none;">
+    <div class="card h-100 bg-black bg-opacity-20 border border-secondary border-opacity-10 rounded">
+        <div class="card-header border-bottom border-secondary border-opacity-10 pb-2 bg-black bg-opacity-10">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="extra-small text-muted text-uppercase d-flex align-items-center gap-2 mb-0">
+                    <i class="fas fa-sitemap"></i> Structural Topology
+                </h6>
+                <div class="d-flex gap-3 extra-small text-muted">
+                    <div class="d-flex align-items-center gap-1"><span class="dot bg-success"></span> 200 OK</div>
+                    <div class="d-flex align-items-center gap-1"><span class="dot bg-warning"></span> 3xx/4xx</div>
+                    <div class="d-flex align-items-center gap-1"><span class="dot bg-danger"></span> 5xx/Auth</div>
+                    <div class="d-flex align-items-center gap-1 text-danger fw-bold"><i class="fas fa-biohazard"></i> Vuln</div>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-4">
+            <div id="api-tree-container" class="cyber-tree-container" style="max-height: 800px; overflow-y: auto;">
+                <div class="text-center p-5 opacity-50">
+                    <div class="spinner-border spinner-border-sm text-info mb-2" role="status"></div>
+                    <div class="extra-small text-muted">Reconstructing API landscape...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -113,6 +173,20 @@
         const categoryFilter = (document.getElementById('findings-category-filter')?.value || '').toLowerCase();
         const portStatusFilter = (document.getElementById('findings-port-status-filter')?.value || '').toLowerCase();
         const rows = document.querySelectorAll('#findings-table-body .finding-row');
+        
+        const terms = { global: [] };
+        if (query !== '') {
+            const clauses = query.split(/\s+/);
+            clauses.forEach(c => {
+                if (c.includes(':')) {
+                    const [k, v] = c.split(':');
+                    if (v) terms[k] = v;
+                } else {
+                    terms.global.push(c);
+                }
+            });
+        }
+
         let visibleCount = 0;
 
         rows.forEach(row => {
@@ -123,12 +197,28 @@
             const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
             const content = (row.getAttribute('data-content') || '').toLowerCase();
 
-            let textMatch = (query === '') || t.includes(query) || tool.includes(query) || category.includes(query) || content.includes(query);
-            const severityMatch = !severityFilter || s === severityFilter;
-            const categoryMatch = !categoryFilter || category === categoryFilter;
-            const portStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
+            // 1. Dropdown Filters (must all match)
+            const dropdownSeverityMatch = !severityFilter || s === severityFilter;
+            const dropdownCategoryMatch = !categoryFilter || category === categoryFilter;
+            const dropdownPortStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
 
-            const isVisible = textMatch && severityMatch && categoryMatch && portStatusMatch;
+            // 2. Prefixed Query Filters (must all match)
+            let prefixMatch = true;
+            if (terms.type && !category.includes(terms.type)) prefixMatch = false;
+            // Support 'sev:' and 'severity:'
+            const sevTerm = terms.sev || terms.severity;
+            if (sevTerm && !s.includes(sevTerm)) prefixMatch = false;
+            if (terms.tool && !tool.includes(terms.tool)) prefixMatch = false;
+            if (terms.source && !(row.getAttribute('data-source') || tool).includes(terms.source)) prefixMatch = false;
+
+            // 3. Global Text Terms (must all match individually)
+            let globalMatch = true;
+            if (terms.global.length > 0) {
+                const searchable = `${t} ${tool} ${category} ${content}`.toLowerCase();
+                globalMatch = terms.global.every(word => searchable.includes(word));
+            }
+
+            const isVisible = dropdownSeverityMatch && dropdownCategoryMatch && dropdownPortStatusMatch && prefixMatch && globalMatch;
             row.style.display = isVisible ? '' : 'none';
             if (isVisible) visibleCount++;
         });
@@ -219,7 +309,11 @@
         if (value === null || value === undefined) return false;
         if (typeof value === 'object') return Object.keys(value).length > 0;
         const normalized = String(value).trim().toLowerCase();
-        return normalized !== '' && !['n/a', 'na', 'none', 'null', 'manual', 'todo', 'ui', '-'].includes(normalized);
+        // Skip empty strings, junk words, and also JSON serialized empty objects/arrays
+        if (normalized === '' || ['n/a', 'na', 'none', 'null', 'manual', 'todo', 'ui', '-', '{}', '[]'].includes(normalized)) return false;
+        // Reject synthetic internal port references
+        if (normalized.startsWith('port:')) return false;
+        return true;
     }
 
     function getFindingValidation(finding) {
@@ -241,11 +335,34 @@
         return isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
     }
 
+    function isReproCommand(value) {
+        if (!isMeaningfulValue(value)) return false;
+        const v = String(value).trim().toLowerCase();
+        const commonTools = ['curl', 'nmap', 'dalfox', 'ffuf', 'katana', 'nuclei', 'subfinder', 'wpscan', 'nikto', 'sqlmap', 'gobuster', 'dig', 'nslookup', 'whois', 'ghauri', 'python', 'bash', 'sh', './'];
+        // Check if it starts with a common tool or a shell marker
+        if (commonTools.some(tool => v.startsWith(tool))) return true;
+        // If it starts with an uppercase letter and contains a lot of spaces, it's likely prose
+        const raw = String(value).trim();
+        if (/^[A-Z]/.test(raw) && raw.split(' ').length > 4 && !raw.includes('-')) return false;
+        // Default to true if it's short and contains symbols like - or @
+        return v.length < 50 && (v.includes('-') || v.includes('@') || v.includes('/'));
+    }
+
     function getFindingPrimaryCommand(finding) {
         const validation = getFindingValidation(finding);
         const reproducibility = getFindingReproducibility(finding);
-        const candidate = validation.command || reproducibility.command || finding?.repro_command || finding?.reproduction || '';
-        return isMeaningfulValue(candidate) ? candidate : '';
+        const candidates = [
+            validation.command,
+            reproducibility.command,
+            finding?.repro_command
+        ];
+        // Try real commands first
+        for (let c of candidates) {
+            if (isReproCommand(c)) return c;
+        }
+        // Fallback to reproduction text only if it looks like a command
+        if (isReproCommand(finding?.reproduction)) return finding.reproduction;
+        return '';
     }
 
     function getFindingPrimaryUrl(finding) {
@@ -454,9 +571,9 @@
     }
 
     // Global helper for other tabs to open findings
-    window.openFindingDrawer = function (findId, titleQuery) {
+    window.openFindingDrawer = function (findId, titleQuery, stayOnTab = false) {
         const tabBtn = document.getElementById('findings-tab');
-        if (tabBtn) {
+        if (tabBtn && !stayOnTab) {
             const tab = new bootstrap.Tab(tabBtn);
             tab.show();
             // Wait for tab animation 
@@ -483,6 +600,133 @@
     window.filterFindings = filterFindings;
     window.showFindingDetail = showFindingDetail;
 
+    // --- API RECONSTITUTION LOGIC ---
+    let apiTreeData = null;
+
+    function switchFindingsView(view) {
+        document.querySelectorAll('.findings-view').forEach(v => v.style.display = 'none');
+        document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+        
+        if (view === 'vault') {
+            document.getElementById('view-vault').style.display = '';
+            document.getElementById('btn-show-vault').classList.add('active');
+        } else {
+            document.getElementById('view-api-tree').style.display = '';
+            document.getElementById('btn-show-api-tree').classList.add('active');
+            if (!apiTreeData) {
+                fetchApiTree();
+            }
+        }
+    }
+
+    async function fetchApiTree() {
+        const scanId = "{{ scan.id }}";
+        const container = document.getElementById('api-tree-container');
+        try {
+            const response = await fetch(`/api/scans/${scanId}/api-tree`);
+            const data = await response.json();
+            apiTreeData = data;
+            renderApiTree(data, container);
+        } catch (error) {
+            container.innerHTML = `<div class="alert alert-danger extra-small">Reconstitution Error: ${error.message}</div>`;
+        }
+    }
+
+    function renderApiTree(node, container) {
+        container.innerHTML = '';
+        const rootUl = document.createElement('ul');
+        rootUl.className = 'tree-root';
+        
+        // Root node is often the target name
+        const li = createTreeNode(node, true);
+        rootUl.appendChild(li);
+        container.appendChild(rootUl);
+    }
+
+    function createTreeNode(node, isExpanded = false) {
+        const li = document.createElement('li');
+        li.className = 'tree-node';
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'tree-node-wrapper';
+        
+        // Icon logic
+        let iconHtml = '';
+        if (node.type === 'root') iconHtml = '<i class="fas fa-globe text-primary me-2"></i>';
+        else if (node.type === 'port') iconHtml = '<i class="fas fa-plug text-cyber me-2"></i>';
+        else if (node.children && node.children.length > 0) iconHtml = '<i class="fas fa-folder text-warning me-2"></i>';
+        else iconHtml = '<i class="far fa-file-code text-muted me-2"></i>';
+
+        // Status dot logic
+        let statusHtml = '';
+        if (node.status) {
+            let colorClass = 'bg-secondary';
+            if (node.status >= 200 && node.status < 300) colorClass = 'bg-success';
+            else if (node.status >= 300 && node.status < 500) colorClass = 'bg-warning';
+            else if (node.status >= 500) colorClass = 'bg-danger';
+            statusHtml = `<span class="dot ${colorClass} ms-2" title="Status: ${node.status}"></span>`;
+        }
+
+        // Findings marker
+        let findingsHtml = '';
+        if (node.findings && node.findings.length > 0) {
+            const maxSev = node.findings.sort((a,b) => {
+                const order = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
+                return order[a.severity] - order[b.severity];
+            })[0].severity;
+            
+            let badgeClass = 'text-warning';
+            if (maxSev === 'critical' || maxSev === 'high') badgeClass = 'text-danger animate-pulse';
+            
+            findingsHtml = `<span class="ms-2 ${badgeClass}" title="${node.findings.length} findings detected here"><i class="fas fa-biohazard"></i></span>`;
+            
+            wrapper.onclick = (e) => {
+                e.stopPropagation();
+                // Open first finding if multiple
+                openFindingDrawer(node.findings[0].id, null, true);
+            };
+            wrapper.classList.add('cursor-pointer', 'hover-bright');
+        } else if (node.url) {
+            wrapper.onclick = (e) => {
+                e.stopPropagation();
+                window.open(node.url, '_blank');
+            };
+            wrapper.classList.add('cursor-pointer', 'hover-bright');
+        }
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tree-node-name';
+        nameSpan.innerHTML = `${iconHtml}${escapeHtml(node.name)}${statusHtml}${findingsHtml}`;
+        
+        wrapper.appendChild(nameSpan);
+        li.appendChild(wrapper);
+
+        if (node.children && node.children.length > 0) {
+            const ul = document.createElement('ul');
+            ul.className = 'tree-children';
+            if (!isExpanded) ul.style.display = 'none';
+            
+            node.children.forEach(child => {
+                ul.appendChild(createTreeNode(child));
+            });
+            
+            li.appendChild(ul);
+            
+            // Toggle logic for folders
+            const toggleIcon = document.createElement('i');
+            toggleIcon.className = `fas fa-caret-${isExpanded ? 'down' : 'right'} tree-toggle text-muted me-1`;
+            wrapper.prepend(toggleIcon);
+            
+            wrapper.onclick = (e) => {
+                e.stopPropagation();
+                const isHidden = ul.style.display === 'none';
+                ul.style.display = isHidden ? 'block' : 'none';
+                toggleIcon.className = `fas fa-caret-${isHidden ? 'down' : 'right'} tree-toggle text-muted me-1`;
+            };
+        }
+
+        return li;
+    }
     window.updateFindingsList = function (newFindings) {
         if (newFindings) {
             newFindings.forEach(f => {
@@ -503,4 +747,71 @@
         }
         filterFindings();
     };
+
 </script>
+
+<style>
+    .findings-view {
+        transition: opacity 0.3s ease;
+    }
+    
+    .cyber-tree-container {
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 0.85rem;
+    }
+
+    .tree-root, .tree-children {
+        list-style: none;
+        padding-left: 20px;
+        margin: 0;
+        border-left: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    .tree-root { border-left: none; padding-left: 0; }
+
+    .tree-node {
+        margin: 4px 0;
+        position: relative;
+    }
+
+    .tree-node-wrapper {
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background 0.2s;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+    }
+
+    .tree-node-wrapper:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tree-node-name {
+        color: rgba(255, 255, 255, 0.8);
+    }
+
+    .tree-toggle {
+        width: 12px;
+        cursor: pointer;
+    }
+
+    .dot {
+        height: 8px;
+        width: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    }
+
+    @keyframes pulse-red {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.7; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    
+    .animate-pulse {
+        animation: pulse-red 2s infinite;
+        filter: drop-shadow(0 0 2px red);
+    }
+</style>

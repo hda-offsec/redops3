@@ -457,6 +457,7 @@ class ScanDashboard {
                 tr.setAttribute("data-severity", severity);
                 tr.setAttribute("data-title", escapedTitle.toLowerCase());
                 tr.setAttribute("data-tool", escapedTool.toLowerCase());
+                tr.setAttribute("data-source", escapedTool.toLowerCase());
                 tr.setAttribute("data-category", this.escapeHtml(data.category || "").toLowerCase());
                 tr.setAttribute("data-exploit", data.exploit_score || "");
                 tr.setAttribute("data-port-status", (data.metadata?.port_state || "").toLowerCase());
@@ -894,6 +895,20 @@ class ScanDashboard {
             const severityFilter = (findingsSeverity.value || '').toLowerCase();
             const categoryFilter = (findingsCategory.value || '').toLowerCase();
             const portStatusFilter = (findingsPortStatus.value || '').toLowerCase();
+            
+            const terms = { global: [] };
+            if (query !== '') {
+                const clauses = query.split(/\s+/);
+                clauses.forEach(c => {
+                    if (c.includes(':')) {
+                        const [k, v] = c.split(':');
+                        if (v) terms[k] = v;
+                    } else {
+                        terms.global.push(c);
+                    }
+                });
+            }
+
             const rows = document.querySelectorAll('#findings-table-body .finding-row');
             let visibleCount = 0;
 
@@ -905,12 +920,27 @@ class ScanDashboard {
                 const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
                 const content = (row.getAttribute('data-content') || '').toLowerCase();
 
-                const textMatch = !query || title.includes(query) || tool.includes(query) || category.includes(query) || content.includes(query);
-                const severityMatch = !severityFilter || severity === severityFilter;
-                const categoryMatch = !categoryFilter || category === categoryFilter;
-                const portStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
+                // 1. Dropdown Filters
+                const dropdownSeverityMatch = !severityFilter || severity === severityFilter;
+                const dropdownCategoryMatch = !categoryFilter || category === categoryFilter;
+                const dropdownPortStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
 
-                const isVisible = textMatch && severityMatch && categoryMatch && portStatusMatch;
+                // 2. Prefixed Query Filters
+                let prefixMatch = true;
+                if (terms.type && !category.includes(terms.type)) prefixMatch = false;
+                const sevTerm = terms.sev || terms.severity;
+                if (sevTerm && !severity.includes(sevTerm)) prefixMatch = false;
+                if (terms.tool && !tool.includes(terms.tool)) prefixMatch = false;
+                if (terms.source && !(row.getAttribute('data-source') || tool).includes(terms.source)) prefixMatch = false;
+
+                // 3. Global Text Terms
+                let globalMatch = true;
+                if (terms.global.length > 0) {
+                    const searchable = `${title} ${tool} ${category} ${content}`.toLowerCase();
+                    globalMatch = terms.global.every(word => searchable.includes(word));
+                }
+
+                const isVisible = dropdownSeverityMatch && dropdownCategoryMatch && dropdownPortStatusMatch && prefixMatch && globalMatch;
                 row.style.display = isVisible ? '' : 'none';
                 if (isVisible) visibleCount++;
             });
@@ -923,15 +953,22 @@ class ScanDashboard {
             return;
         }
 
-        const search = (document.getElementById('findingSearch')?.value || '').toLowerCase();
+        const search = (document.getElementById('findingSearch')?.value || '').toLowerCase().trim();
         const checkedSeverities = Array.from(document.querySelectorAll('.form-check-input:checked')).map(cb => cb.value);
         const rows = document.querySelectorAll('.finding-row');
         let visibleCount = 0;
 
+        const globalTerms = search !== '' ? search.split(/\s+/) : [];
+
         rows.forEach(row => {
             const severity = row.getAttribute('data-severity') || row.getAttribute('data-sev') || '';
             const content = (row.getAttribute('data-content') || '').toLowerCase();
-            const matchesSearch = content.includes(search);
+            
+            let matchesSearch = true;
+            if (globalTerms.length > 0) {
+                matchesSearch = globalTerms.every(word => content.includes(word));
+            }
+            
             const matchesSev = checkedSeverities.length === 0 || checkedSeverities.includes(severity);
 
             if (matchesSearch && matchesSev) {
@@ -2203,4 +2240,35 @@ window.applyTacticalFilter = function (targetTab, filterValue) {
         // Scroll to top of results
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 150);
+};
+
+// --- SEARCH INTEL HELPERS ---
+window.addSearchPrefix = function (inputId, prefix) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    let currentVal = input.value.trim();
+    // Check if the prefix is already there to avoid duplicates
+    if (!currentVal.includes(prefix)) {
+        input.value = currentVal ? currentVal + ' ' + prefix : prefix;
+    }
+
+    input.focus();
+
+    // Trigger localized filter functions
+    if (inputId === 'surface-filter' && typeof window.applySurfaceFilter === 'function') {
+        window.applySurfaceFilter();
+    } else if (typeof filterFindings === 'function') {
+        filterFindings();
+    }
+};
+
+window.clearSearch = function (inputId, callback) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.value = '';
+    input.focus();
+    if (typeof callback === 'function') {
+        callback();
+    }
 };

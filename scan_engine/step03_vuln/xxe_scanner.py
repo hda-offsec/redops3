@@ -49,17 +49,18 @@ class XXEScanner:
                         break
 
                 if hit:
-                    findings.append({
-                        "title": "Critical XXE Injection",
-                        "description": f"The XML parser at `{target_url}` is vulnerable to External Entity Injection.\nSuccessfully read system files via differential analysis.",
-                        "severity": "critical",
-                        "confidence": "high",
-                        "tool_source": "xxe_expert",
-                        "method": "POST",
-                        "payload": payload,
-                        "url": target_url,
-                        "raw_loot": r.text[:1000]
-                    })
+                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                    findings.append(FindingNormalizer.from_response(
+                        r,
+                        title="Critical XXE Injection",
+                        description=f"The XML parser at `{target_url}` is vulnerable to External Entity Injection.\nSuccessfully read system files via differential analysis.",
+                        severity="critical",
+                        confidence="high",
+                        tool_source="xxe_scanner",
+                        category="vuln",
+                        payload=payload,
+                        method="POST"
+                    ))
                     if logger: logger(f"💀 XXE CONFIRMED: {target_url}", "CRITICAL")
             except Exception:
                 pass

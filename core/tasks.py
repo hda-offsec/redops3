@@ -136,9 +136,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 cleaned_reproduction = cap_text(sanitize_evidence(kwargs.get('reproduction') or cleaned_repro))
 
                 evidence_value = kwargs.get('evidence')
-                if isinstance(evidence_value, (dict, list)):
+                # Treat empty containers as absent to avoid storing '{}' or '[]' as evidence
+                if isinstance(evidence_value, dict) and not evidence_value:
+                    evidence_value = None
+                elif isinstance(evidence_value, list) and not evidence_value:
+                    evidence_value = None
+                elif isinstance(evidence_value, (dict, list)):
                     evidence_value = cap_text(sanitize_evidence(json.dumps(evidence_value, default=str)))
-                elif isinstance(evidence_value, str):
+                elif isinstance(evidence_value, str) and evidence_value.strip():
                     evidence_value = cap_text(sanitize_evidence(evidence_value))
                 else:
                     evidence_value = cap_text(sanitize_evidence(kwargs.get('description')))
@@ -170,20 +175,53 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 # Deduplication Check: avoid duplicate findings in the same scan
                 existing = Finding.query.filter_by(scan_id=scan_id, id_stable=id_stable).first()
                 if existing:
-                    # Update potentially mission-critical fields if the new finding is on HTTPS while old was HTTP
+                    # Instead of silent discard, enrich the existing finding with
+                    # any new non-empty fields that were missing on the first write.
+                    updated = False
                     current_url = kwargs.get('target') or kwargs.get('url') or ""
-                    if current_url.startswith('https://') and not str(existing.target).startswith('https://'):
+                    # Upgrade HTTP -> HTTPS target
+                    if current_url.startswith('https://') and not str(existing.target or '').startswith('https://'):
                         existing.target = current_url
                         existing.endpoint = kwargs.get('endpoint') or current_url
+                        updated = True
+                    # Back-fill fields that were empty on first write
+                    for field, kw_key in [
+                        ('endpoint',     'endpoint'),
+                        ('parameter',    'parameter'),
+                        ('payload',      'payload'),
+                        ('evidence',     'evidence'),
+                        ('raw_output',   'raw_output'),
+                        ('repro_command','repro_command'),
+                        ('request',      'request'),
+                        ('response',     'response'),
+                        ('remediation',  'remediation'),
+                        ('category',     'category'),
+                    ]:
+                        if not getattr(existing, field, None) and kwargs.get(kw_key):
+                            setattr(existing, field, kwargs[kw_key])
+                            updated = True
+                    # Merge metadata JSON additively
+                    incoming_meta = kwargs.get('metadata') if isinstance(kwargs.get('metadata'), dict) else {}
+                    if incoming_meta:
+                        existing_meta = existing.metadata_json or {}
+                        merged_meta = {**incoming_meta, **existing_meta}  # existing wins on conflict
+                        if merged_meta != (existing.metadata_json or {}):
+                            existing.metadata_json = merged_meta
+                            updated = True
+                    if updated:
                         db.session.commit()
                     return
+
+                # Resolve `url` kwarg: some scanners use `url` as their primary key
+                _resolved_target = kwargs.get('target') or kwargs.get('url')
+                _resolved_endpoint = kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url')
 
                 finding = Finding(
                     scan_id=scan_id,
                     severity=severity,
                     confidence=kwargs.get('confidence', 'medium'),
                     signal_ids=kwargs.get('signal_ids') if isinstance(kwargs.get('signal_ids'), list) else None,
-                    target=kwargs.get('target') or kwargs.get('url'),
+                    target=_resolved_target,
                     tool=kwargs.get('tool') or kwargs.get('tool_source', 'orchestrator'),
                     module=kwargs.get('module') or kwargs.get('tool_source', 'orchestrator'),
                     category=kwargs.get('category'),
@@ -191,7 +229,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     title=title,
                     description=kwargs.get('description'),
                     tool_source=kwargs.get('tool_source', 'orchestrator'),
-                    endpoint=kwargs.get('endpoint') or kwargs.get('target') or kwargs.get('url'),
+                    endpoint=_resolved_endpoint,
                     parameter=kwargs.get('parameter') or kwargs.get('param'),
                     payload=kwargs.get('payload') or kwargs.get('poison'),
                     evidence=evidence_value,
@@ -255,7 +293,9 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                     })
             except Exception as e:
                 db.session.rollback()
-                print(f"Finding Save/Emit Error: {e}")
+                import traceback
+                print(f"Finding Save/Emit Error [{kwargs.get('tool_source','?')}] '{kwargs.get('title','?')}': {e}")
+                print(traceback.format_exc())
 
         def add_loot_cb(loot_type, content, context=None):
             try:
@@ -594,6 +634,16 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 run_attack_chain_correlation(scan_id)
             except Exception as corr_err:
                 logger.warning(f"correlation_failed scan_id={scan_id} err={corr_err}")
+
+            # V12: Final Evidence Reclassification & Deduplication
+            try:
+                from core.reclassifier import PostDetectionReclassifier
+                _log_and_emit(scan_id, "Running Evidence-Based Reclassifier (V12)...", "INFO")
+                reclassifier = PostDetectionReclassifier(scan_id)
+                reclassifier.process()
+                _log_and_emit(scan_id, "Reclassification and deduplication complete.", "SUCCESS")
+            except Exception as reclass_err:
+                _log_and_emit(scan_id, f"Reclassifier failed: {reclass_err}", "WARN")
         except Exception as e:
             _log_and_emit(scan_id, f"Pipeline Error: {str(e)}", "ERROR")
             scan = Scan.query.get(scan_id)

@@ -18,32 +18,38 @@ class CORSScanner:
         try:
             r = http_client.get(base_url, options=getattr(self, "options", None), headers=headers, timeout=3, allow_redirects=True)
             
+            from scan_engine.helpers.finding_normalizer import FindingNormalizer
             acao = r.headers.get("Access-Control-Allow-Origin")
             acac = r.headers.get("Access-Control-Allow-Credentials")
 
             if acao:
                 if acao == origin_payload and acac == 'true':
-                    findings.append({
-                        "title": "High: Critical CORS Misconfiguration (Reflection)",
-                        "description": f"Server reflects arbitrary Origin `{origin_payload}` with `Access-Control-Allow-Credentials: true`. This allows authenticated data theft.",
-                        "severity": "high",
-                        "tool_source": "cors_scanner",
-                        "raw_loot": base_url
-                    })
+                    findings.append(FindingNormalizer.from_response(
+                        r,
+                        title="High: Critical CORS Misconfiguration (Reflection)",
+                        description=f"Server reflects arbitrary Origin `{origin_payload}` with `Access-Control-Allow-Credentials: true`. This allows authenticated data theft.",
+                        severity="high",
+                        tool_source="cors_scanner",
+                        category="cors"
+                    ))
                 elif acao == "*" and acac == 'true':
-                     findings.append({
-                        "title": "High: CORS Misconfiguration (Wildcard + Creds)",
-                        "description": "Server allows Wildcard Origin with Credentials. (Note: Browsers block this, but it indicates poor config).",
-                        "severity": "medium",
-                        "tool_source": "cors_scanner"
-                    })
+                     findings.append(FindingNormalizer.from_response(
+                        r,
+                        title="High: CORS Misconfiguration (Wildcard + Creds)",
+                        description="Server allows Wildcard Origin with Credentials. (Note: Browsers block this, but it indicates poor config).",
+                        severity="medium",
+                        tool_source="cors_scanner",
+                        category="cors"
+                    ))
                 elif acao == "null":
-                     findings.append({
-                        "title": "Medium: CORS Null Origin Allowed",
-                        "description": "Server accepts `null` origin. Vulnerable to sandboxed iframe attacks.",
-                        "severity": "medium",
-                        "tool_source": "cors_scanner"
-                    })
+                     findings.append(FindingNormalizer.from_response(
+                        r,
+                        title="Medium: CORS Null Origin Allowed",
+                        description="Server accepts `null` origin. Vulnerable to sandboxed iframe attacks.",
+                        severity="medium",
+                        tool_source="cors_scanner",
+                        category="cors"
+                    ))
         except Exception:
             pass
         return findings

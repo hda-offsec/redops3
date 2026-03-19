@@ -40,17 +40,22 @@ def sanitize_evidence(text: str) -> str:
 def cap_text(text: str, max_bytes: int = None) -> str:
     """
     Truncates text if it exceeds max_bytes.
-    Default limit is 64KB unless specified.
+    Default limit is 256KB (up from 64KB) to avoid silently dropping
+    critical evidence such as cloud metadata SSRF responses or LFI file contents.
+    Override via REDOPS_EVIDENCE_MAX_BYTES env var or Flask EVIDENCE_MAX_BYTES config.
     """
     if not text or not isinstance(text, str):
         return text
-    
+
     if max_bytes is None:
         try:
             from flask import current_app
-            max_bytes = current_app.config.get('EVIDENCE_MAX_BYTES', 65536)
-        except:
-            max_bytes = 65536
+            max_bytes = current_app.config.get('EVIDENCE_MAX_BYTES', None)
+        except Exception:
+            max_bytes = None
+        if max_bytes is None:
+            import os
+            max_bytes = int(os.getenv('REDOPS_EVIDENCE_MAX_BYTES', 262144))  # 256 KB default
 
     if len(text.encode('utf-8', errors='ignore')) > max_bytes:
         # Truncate by character to avoid breaking UTF-8 sequences as much as possible
@@ -58,8 +63,8 @@ def cap_text(text: str, max_bytes: int = None) -> str:
         truncated = text[:max_bytes]
         while len(truncated.encode('utf-8', errors='ignore')) > max_bytes:
             truncated = truncated[:-1]
-        return truncated + "\n\n[CONTENT TRUNCATED FOR PERFORMANCE]"
-    
+        return truncated + "\n\n[CONTENT TRUNCATED — set REDOPS_EVIDENCE_MAX_BYTES to increase limit]"
+
     return text
 
 def get_setting(key, default=None):

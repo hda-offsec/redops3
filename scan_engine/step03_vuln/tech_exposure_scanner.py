@@ -84,13 +84,15 @@ class TechExposureScanner:
                         
                         if is_likely:
                             if logger: logger(f"🔥 EXPOSURE FOUND: {url} ({content_len} bytes)", "CRITICAL")
-                            findings.append({
-                                "title": f"Technical File Exposure: {file} ({port})",
-                                "description": f"A sensitive technical file was found publicly accessible: {url}\nSize: {content_len} bytes.",
-                                "severity": "critical" if any(x in file for x in ['.env', '.ssh', 'aws', 'docker']) else "high",
-                                "tool_source": "tech_audit",
-                                "url": url
-                            })
+                            from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                            findings.append(FindingNormalizer.from_response(
+                                r,
+                                title=f"Technical File Exposure: {file} ({port})",
+                                description=f"A sensitive technical file was found publicly accessible: {url}\nSize: {content_len} bytes.",
+                                severity="critical" if any(x in file for x in ['.env', '.ssh', 'aws', 'docker']) else "high",
+                                tool_source="tech_audit",
+                                category="vuln"
+                            ))
             except Exception:
                 continue
 
@@ -125,21 +127,22 @@ class TechExposureScanner:
                                 for dl in disallow_lines[:20]:
                                     extra_intel += f"  {dl}\n"
                         
-                        findings.append({
-                            "title": f"Web Discovery: {meta['label']} ({port})",
-                            "description": (
+                        from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                        findings.append(FindingNormalizer.from_response(
+                            r,
+                            title=f"Web Discovery: {meta['label']} ({port})",
+                            description=(
                                 f"{meta['desc']}\n\n"
                                 f"**URL**: {url}\n"
                                 f"**Size**: {len(r.content)} bytes\n\n"
                                 f"**Content Preview**:\n```\n{snippet}\n```"
                                 f"{extra_intel}"
                             ),
-                            "severity": "info",
-                            "tool_source": "tech_audit",
-                            "url": url
-                        })
+                            severity="info",
+                            tool_source="tech_audit",
+                            category="discovery",
+                            method="GET"
+                        ))
             except Exception:
                 continue
-                
         return findings
-

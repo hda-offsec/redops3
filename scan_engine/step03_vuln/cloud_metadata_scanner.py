@@ -85,23 +85,24 @@ class CloudMetadataScanner:
                             if len(content) > 2 and "/" not in content: is_verified = True # Usually returns role name
                         
                         if is_verified:
-                            findings.append({
-                                "title": f"Critical Cloud Metadata Leak: {provider.upper()} IMDS Exposed",
-                                "description": (
+                            from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                            findings.append(FindingNormalizer.from_response(
+                                r,
+                                title=f"Critical Cloud Metadata Leak: {provider.upper()} IMDS Exposed",
+                                description=(
                                     f"The server is misconfigured as a proxy or vulnerable to SSRF, exposing the internal {provider.upper()} Cloud Metadata Service.\n\n"
                                     f"**Vulnerable URL**: {url}\n"
                                     f"**Impact**: This allows an attacker to steal IAM credentials, instance metadata, and potentially compromise the entire cloud account."
                                 ),
-                                "severity": "critical",
-                                "tool_source": "cloud_metadata_scanner",
-                                "endpoint": url,
-                                "repro_command": f"curl -ik -H 'Metadata: true' {url}",
-                                "metadata": {
+                                severity="critical",
+                                tool_source="cloud_metadata_scanner",
+                                category="ssrf",
+                                method="GET",
+                                metadata={
                                     "provider": provider,
-                                    "imds_version": "v2" if aws_token else "v1",
-                                    "leak_preview": content[:200]
+                                    "imds_version": "v2" if aws_token else "v1"
                                 }
-                            })
+                            ))
                             if logger: logger(f"🔥 CONFIRMED: {provider.upper()} Metadata Leak at {url}", "CRITICAL")
                             # We keep scanning other providers/paths because we want 360 view, 
                             # but we stop for this provider if we found a verified hit.

@@ -1,0 +1,289 @@
+<!-- SCANNMAP SPECIALIZED DASHBOARD -->
+<div class="col-12 animate__animated animate__fadeIn">
+    <div class="row g-4">
+        <!-- 1. KEY METRICS -->
+        <div class="col-md-3">
+            <div class="card h-100 border-secondary border-opacity-25 bg-black bg-opacity-20 cursor-pointer hover-bright" onclick="scrollToElement('scannmap-services-tbody')">
+                <div class="card-body text-center d-flex flex-column justify-content-center">
+                    <div class="extra-small text-muted text-uppercase mb-2">Ports Ouverts</div>
+                    {% set nmap_findings = findings | selectattr('tool', 'equalto', 'nmap') | list %}
+                    {% set open_ports = findings | selectattr('category', 'equalto', 'service_detection') | list %}
+                    <div class="display-5 fw-bold text-info">{{ open_ports|length }}</div>
+                    <div class="extra-small text-info opacity-75 mt-2">
+                        <i class="fas fa-network-wired me-1"></i>Surface Exposée
+                        <i class="fas fa-search ms-2 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-secondary border-opacity-25 bg-black bg-opacity-20 cursor-pointer hover-bright" onclick="scrollToElement('scannmap-nse-container')">
+                <div class="card-body text-center d-flex flex-column justify-content-center">
+                    <div class="extra-small text-muted text-uppercase mb-2">NSE Scripts</div>
+                    {% set nse_findings = findings | selectattr('category', 'equalto', 'nse_result') | list %}
+                    <div class="display-5 fw-bold text-warning">{{ nse_findings|length }}</div>
+                    <div class="extra-small text-warning opacity-75 mt-2">
+                        <i class="fas fa-microchip me-1"></i>Audit Inteligente
+                        <i class="fas fa-search ms-2 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-secondary border-opacity-25 bg-black bg-opacity-20">
+                <div class="card-body text-center d-flex flex-column justify-content-center">
+                    <div class="extra-small text-muted text-uppercase mb-2">Sévérité Max</div>
+                    {% set max_sev = namespace(val='info') %}
+                    {% for f in findings %}
+                        {% if f.severity == 'critical' %}{% set max_sev.val = 'critical' %}
+                        {% elif f.severity == 'high' and max_sev.val != 'critical' %}{% set max_sev.val = 'high' %}
+                        {% elif f.severity == 'medium' and max_sev.val not in ['critical', 'high'] %}{% set max_sev.val = 'medium' %}
+                        {% endif %}
+                    {% endfor %}
+                    <div class="h3 fw-bold text-uppercase {{ 'text-danger' if max_sev.val in ['critical', 'high'] else 'text-info' }}">{{ max_sev.val }}</div>
+                    <div class="extra-small text-muted mt-2">Threat Level</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-secondary border-opacity-25 bg-black bg-opacity-20">
+                <div class="card-body text-center d-flex flex-column justify-content-center">
+                    <div class="extra-small text-muted text-uppercase mb-2">OS Guess</div>
+                    {% set os_guess = "Unknown" %}
+                    {% for f in open_ports %}
+                        {% if f.metadata and f.metadata.os and f.metadata.os != 'Unknown' %}
+                            {% set os_guess = f.metadata.os %}
+                        {% endif %}
+                    {% endfor %}
+                    <div class="h5 fw-bold text-light truncate-1">{{ os_guess }}</div>
+                    <div class="extra-small text-muted mt-2"><i class="fas fa-server me-1"></i>Fingerprint</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. SERVICE LIST -->
+        <div class="col-lg-7">
+            <div class="card border-secondary border-opacity-25 h-100">
+                <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                    <div><i class="fas fa-plug me-2 text-info"></i>Services & Versions Detected</div>
+                    <select id="scannmap-status-filter" class="form-select form-select-sm bg-black border-secondary text-light w-auto extra-small" onchange="filterScanNmapServices()">
+                        <option value="">All Status</option>
+                        <option value="open">Open</option>
+                        <option value="filtered">Filtered</option>
+                        <option value="closed">Closed</option>
+                    </select>
+                </div>
+                <div class="card-body p-0 overflow-auto" style="max-height: 500px;">
+                    <table class="table table-hover mb-0">
+                        <thead class="bg-black bg-opacity-20">
+                            <tr>
+                                <th class="ps-3 border-0">Port</th>
+                                <th class="border-0">Target</th>
+                                <th class="border-0">Service</th>
+                                <th class="border-0">Version/Product</th>
+                                <th class="border-0 text-end pe-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scannmap-services-tbody">
+                            {% for port in open_ports | sort(attribute='metadata.port') %}
+                            {% set p_meta = port.metadata if port.metadata else {} %}
+                            <tr id="scannmap-port-{{ p_meta.host_ip or 'N/A' }}-{{ p_meta.port or 'N/A' }}" data-status="{{ (p_meta.port_state or 'open').lower() }}" 
+                                class="cursor-pointer hover-bright-subtle" onclick="showFindingDetail('{{ port.id_stable or port.id }}')">
+                                <td class="ps-3"><span class="badge bg-info bg-opacity-10 border border-info text-info">{{ p_meta.port }}</span></td>
+                                <td class="small font-monospace text-info">{{ p_meta.host_ip or 'N/A' }}</td>
+                                <td class="fw-bold text-light">
+                                    {{ (p_meta.service|default('N/A'))|upper }}
+                                    {% if p_meta.port_state == 'filtered' %}
+                                    <i class="fas fa-shield-alt text-warning extra-small ms-1" title="Filtered"></i>
+                                    {% endif %}
+                                </td>
+                                <td class="small text-muted">
+                                    {{ p_meta.version if p_meta.version else 'N/A' }}
+                                    {% if p_meta.confidence_score %}
+                                    <div class="progress mt-1" style="height: 2px; width: 60px; background: rgba(255,255,255,0.05);" title="Trust Index: {{ p_meta.confidence_score }}%">
+                                        <div class="progress-bar bg-success" style="width: {{ p_meta.confidence_score }}%"></div>
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end pe-3">
+                                    <div class="btn-group">
+                                        <button class="btn btn-xs btn-outline-info" 
+                                            onclick="event.stopPropagation(); showFindingDetail('{{ port.id_stable or port.id }}')" 
+                                            title="Quick View Finding Detail">
+                                            <i class="fas fa-search"></i>
+                                        </button>
+                                        <button class="btn btn-xs btn-outline-warning" 
+                                            onclick="event.stopPropagation(); if(typeof showPortAudit === 'function') { showPortAudit('{{ p_meta.port }}'); } else { alert('Audit Trace not available yet.'); }" 
+                                            title="View Expert Audit & Nmap Trace">
+                                            <i class="fas fa-terminal"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-5 text-muted fst-italic">Waiting for service detection...</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. NSE AUDIT LOGS -->
+        <div class="col-lg-5">
+            <div class="card border-secondary border-opacity-25 h-100">
+                <div class="card-header glass-header">
+                    <i class="fas fa-scroll me-2 text-warning"></i>NSE Intelligence Results
+                </div>
+                <div class="card-body p-0 overflow-auto" style="max-height: 500px;" id="scannmap-nse-container">
+                    {% for nse in nse_findings %}
+                    <div class="p-3 border-bottom border-secondary border-opacity-10 hover-bg-light cursor-pointer" onclick="openFindingDrawer('{{ nse.id_stable or nse.id }}', null, true)">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="extra-small fw-bold text-warning text-uppercase">{{ nse.metadata.script_id }}</span>
+                            <span class="badge severity-badge {{ nse.severity }} text-uppercase">{{ nse.severity }}</span>
+                        </div>
+                        <div class="small text-light text-truncate">{{ nse.title }}</div>
+                        <div class="extra-small text-muted mt-1">
+                            <i class="fas fa-link me-1"></i>Port: {{ nse.metadata.port }} 
+                            <span class="mx-1">|</span> 
+                            <i class="fas fa-bullseye me-1 text-danger"></i>Target: {{ nse.metadata.host_ip or 'N/A' }}
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="p-5 text-center text-muted fst-italic">No NSE findings yet.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const socket = io();
+        const scanId = "{{ scan.id }}";
+        
+        socket.on('connect', () => {
+            socket.emit('join_scan', { scan_id: scanId });
+        });
+
+        socket.on('new_finding', function (data) {
+            if (data.scan_id != scanId) return;
+            
+            // Handle Service Detection
+            if (data.category === 'service_detection') {
+                const tbody = document.querySelector("#scannmap-services-tbody");
+                if (tbody) {
+                    const noRow = tbody.querySelector(".py-5");
+                    if (noRow) noRow.closest('tr').remove();
+                    
+                    const port = data.metadata.port;
+                    const service = data.metadata.service.toUpperCase();
+                    const version = data.metadata.version || 'N/A';
+                    
+                    const tr = document.createElement("tr");
+                    tr.className = "cursor-pointer hover-bright-subtle animate__animated animate__fadeInLeft";
+                    tr.onclick = () => openFindingDrawer(data.id_stable || data.id, null, true);
+                    const portState = (data.metadata.port_state || 'open').toLowerCase();
+                    tr.setAttribute('data-status', portState);
+                    
+                    let serviceHtml = service;
+                    if (portState === 'filtered') {
+                        serviceHtml += ' <i class="fas fa-shield-alt text-warning extra-small ms-1" title="Filtered"></i>';
+                    }
+
+                    tr.innerHTML = `
+                        <td class="ps-3"><span class="badge bg-info bg-opacity-10 border border-info text-info">${port}</span></td>
+                        <td class="small font-monospace text-info">${data.metadata.host_ip || 'N/A'}</td>
+                        <td class="fw-bold text-light">${serviceHtml}</td>
+                        <td class="small text-muted">${version}</td>
+                        <td class="text-end pe-3">
+                            <div class="btn-group">
+                                <button class="btn btn-xs btn-outline-info" 
+                                    onclick="event.stopPropagation(); openFindingDrawer('${data.id_stable || data.id}', null, true)" 
+                                    title="Quick View Finding Detail">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                                <button class="btn btn-xs btn-outline-warning" 
+                                    onclick="event.stopPropagation(); if(typeof showPortAudit === 'function') { showPortAudit('${data.metadata.port}'); } else { alert('Audit Trace not available yet.'); }" 
+                                    title="View Expert Audit & Nmap Trace">
+                                    <i class="fas fa-terminal"></i>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                    filterScanNmapServices(); // Apply current filter
+                    
+                    // Update counter
+                    const counter = document.querySelector(".display-5.text-info");
+                    if (counter) counter.innerText = tbody.querySelectorAll("tr").length;
+                }
+            }
+            
+            // Handle NSE Result
+            if (data.category === 'nse_result') {
+                const container = document.querySelector("#scannmap-nse-container");
+                if (container) {
+                    const empty = container.querySelector(".fst-italic");
+                    if (empty) empty.remove();
+                    
+                    const div = document.createElement("div");
+                    div.className = "p-3 border-bottom border-secondary border-opacity-10 hover-bg-light cursor-pointer animate__animated animate__fadeInRight";
+                    div.onclick = () => openFindingDrawer(data.id_stable || data.id, null, true);
+                    
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="extra-small fw-bold text-warning text-uppercase">${data.metadata.script_id}</span>
+                            <span class="badge severity-badge ${data.severity.toLowerCase()} text-uppercase">${data.severity}</span>
+                        </div>
+                        <div class="small text-light text-truncate">${data.title}</div>
+                        <div class="extra-small text-muted mt-1">
+                            <i class="fas fa-link me-1"></i>Port: ${data.metadata.port}
+                            <span class="mx-1">|</span>
+                            <i class="fas fa-bullseye me-1 text-danger"></i>Target: ${data.metadata.host_ip || 'N/A'}
+                        </div>
+                    `;
+                    container.prepend(div);
+                    
+                    // Update counter
+                    const counter = document.querySelector(".display-5.text-warning");
+                    if (counter) counter.innerText = container.querySelectorAll(".cursor-pointer").length;
+                }
+            }
+
+            // Shared: ensure local findings cache is updated for the drawer
+            if (typeof updateFindingsList === 'function') {
+                updateFindingsList([data]);
+            }
+        });
+
+        window.filterScanNmapServices = function() {
+            const filterVal = document.getElementById('scannmap-status-filter').value.toLowerCase();
+            const rows = document.querySelectorAll('#scannmap-services-tbody tr');
+            rows.forEach(row => {
+                if (row.querySelector('td[colspan]')) return; // skip empty state
+                const status = row.getAttribute('data-status') || '';
+                if (!filterVal || status === filterVal) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        };
+
+        window.scrollToElement = function(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Highlight target
+                const originalBg = el.style.backgroundColor;
+                el.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                setTimeout(() => { el.style.backgroundColor = originalBg; }, 2000);
+            }
+        };
+
+    });
+</script>

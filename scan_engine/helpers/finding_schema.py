@@ -119,6 +119,9 @@ def _normalize_locator_value(*candidates):
             continue
         if normalized.lower() in INVALID_TEXT_MARKERS:
             continue
+        # Reject synthetic internal port references — not real network locators
+        if normalized.lower().startswith("port:"):
+            continue
         return normalized
     return ""
 

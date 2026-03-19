@@ -4,10 +4,27 @@
         class="d-flex justify-content-between align-items-center  bg-opacity-20 p-3 rounded border border-secondary border-opacity-10">
         <h5 class="mb-0 text-light fw-bold"><i class="fas fa-search me-2 text-primary"></i>Universal Explorer</h5>
         <div class="input-group input-group-sm" style="max-width: 450px;">
-            <span class="input-group-text bg-transparent border-secondary text-muted"><i
-                    class="fas fa-filter"></i></span>
+            <button class="btn btn-outline-secondary dropdown-toggle bg-transparent border-secondary text-muted px-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Filter Helpers">
+                <i class="fas fa-filter"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-dark border-secondary shadow-lg p-2" style="min-width: 250px; font-size: 0.85rem; background: rgba(0,0,0,0.95); backdrop-filter: blur(10px);">
+                <li class="px-3 py-2 text-primary text-uppercase extra-small fw-bold border-bottom border-secondary border-opacity-25 mb-2">
+                    <i class="fas fa-map-marked-alt me-1"></i> Surface Filters
+                </li>
+                <li><a class="dropdown-item rounded-1 py-2" href="javascript:void(0)" onclick="addSearchPrefix('surface-filter', 'type:')">
+                    <span class="text-info fw-bold">type:</span> <span class="text-muted small">endpoint, waf, secret...</span>
+                </a></li>
+                <li><a class="dropdown-item rounded-1 py-2" href="javascript:void(0)" onclick="addSearchPrefix('surface-filter', 'source:')">
+                    <span class="text-cyber fw-bold">source:</span> <span class="text-muted small">ffuf, katana, gau...</span>
+                </a></li>
+                <li class="dropdown-divider border-secondary border-opacity-25"></li>
+                <li class="px-3 py-1"><div class="extra-small text-muted">Example: <code class="text-info">type:endpoint logout</code></div></li>
+            </ul>
             <input type="text" id="surface-filter" class="form-control bg-transparent border-secondary text-light"
-                placeholder="e.g. type:endpoint source:ffuf" onkeyup="window.applySurfaceFilter()">
+                placeholder="Search tactical surface..." onkeyup="window.applySurfaceFilter()">
+            <button class="btn btn-outline-secondary border-secondary text-muted px-2" type="button" onclick="clearSearch('surface-filter', window.applySurfaceFilter)" title="Clear Filter">
+                <i class="fas fa-times-circle"></i>
+            </button>
         </div>
     </div>
 </div>
@@ -303,27 +320,37 @@
     }
 
     window.applySurfaceFilter = function() {
-        const query = document.getElementById('surface-filter').value.toLowerCase();
-        let terms = {};
+        const query = document.getElementById('surface-filter').value.toLowerCase().trim();
+        const terms = { global: [] };
 
-        if (query.trim() === '') {
+        if (query === '') {
             filteredSurfaceData = [...window.rawSurfaceData];
         } else {
-            const clauses = query.split(' ');
+            // Split by regex for multiple spaces
+            const clauses = query.split(/\s+/);
             clauses.forEach(c => {
                 if (c.includes(':')) {
                     const [k, v] = c.split(':');
-                    terms[k] = v;
+                    if (v) terms[k] = v;
                 } else {
-                    terms['global'] = (terms['global'] || '') + c + ' ';
+                    terms.global.push(c);
                 }
             });
 
             filteredSurfaceData = window.rawSurfaceData.filter(row => {
                 let match = true;
+                
+                // 1. Prefixed Filters (must all match)
                 if (terms.type && !row.type.includes(terms.type)) match = false;
                 if (terms.source && !(row.source || '').includes(terms.source)) match = false;
-                if (terms.global && !row.value.toLowerCase().includes(terms.global.trim())) match = false;
+                
+                // 2. Global Terms (must all match, but can be in any order and across multiple fields)
+                if (match && terms.global.length > 0) {
+                    const searchable = `${row.value} ${row.type} ${row.source}`.toLowerCase();
+                    const allGlobalMatch = terms.global.every(word => searchable.includes(word));
+                    if (!allGlobalMatch) match = false;
+                }
+                
                 return match;
             });
         }

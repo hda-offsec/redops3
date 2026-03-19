@@ -20,6 +20,7 @@
                 data-sev="{{ f.severity|lower }}" 
                 data-severity="{{ f.severity|lower }}" 
                 data-tool="{{ f.tool_source|lower }}"
+                data-source="{{ f.tool_source|lower }}"
                 data-category="{{ f.category|default('')|lower }}" 
                 data-exploit="{{ f.exploit_score|default('') }}"
                 data-port-status="{{ f.metadata.port_state|default('')|lower if f.metadata else '' }}"
@@ -71,7 +72,7 @@
                 </td>
 
                 <td class="font-monospace extra-small">
-                    {% if primary_url %}
+                    {% if primary_url and not primary_url.lower().startswith('port:') %}
                         <div class="text-info text-truncate" title="{{ primary_url }}"><i class="fas fa-link me-1 opacity-50"></i>{{ primary_url }}</div>
                     {% else %}
                         <span class="text-muted opacity-25">N/A</span>

@@ -66,8 +66,8 @@ class DetectionAdapter:
             s = "".join(char for char in s if char.isprintable() or char in "\n\r\t")
             return s.strip()
 
-        title = clean_terminal_noise(title)
-        description = clean_terminal_noise(description)
+        title = clean_terminal_noise(title) or ""
+        description = clean_terminal_noise(description) or ""
         
         # Clean extra fields
         for field in ["endpoint", "target", "parameter", "payload", "raw_output"]:
@@ -149,7 +149,7 @@ class DetectionAdapter:
         m_json = extra.get("metadata", {}) or {}
         if not m_json.get("port_state"):
             # Try to extract from description if it's there
-            state_match = re.search(r"State:\s*([a-z+|]+)", description, re.IGNORECASE)
+            state_match = re.search(r"State:\s*([a-z+|]+)", str(description or ""), re.IGNORECASE)
             if state_match:
                 m_json["port_state"] = state_match.group(1).lower()
             elif (extra.get("category") == "service_detection" or extra.get("category") == "nse_result"):
@@ -267,35 +267,53 @@ class DetectionAdapter:
             DetectionAdapter._add(
                 normalized,
                 fid,
-                title=f"Missing Security Headers ({port})",
+                title=f"Missing Security Headers (port {port})",
                 severity="low",
                 description="\n".join(missing),
                 tool_source="header_audit",
                 confidence="high",
-                endpoint=f"port:{port}"
+                endpoint=""
             )
 
     @staticmethod
     def _synth_js_secrets(enum_data, normalized):
         js = enum_data.get("js_secrets", {})
 
-        for port, secrets in js.items():
-            if not isinstance(secrets, list):
+        for port, secrets_raw in js.items():
+            # Handle both formats:
+            #   - flat list: [{type, match, line_context, ...}, ...]
+            #   - dict keyed by URL: {url: [{type, match, ...}, ...]}
+            if isinstance(secrets_raw, dict):
+                # JS Expert format: {url: [secrets]}
+                items_iter = []
+                for url_key, url_secrets in secrets_raw.items():
+                    if isinstance(url_secrets, list):
+                        for s in url_secrets:
+                            if isinstance(s, dict):
+                                s = dict(s)  # copy
+                                s.setdefault('endpoint', url_key)
+                                items_iter.append(s)
+            elif isinstance(secrets_raw, list):
+                items_iter = secrets_raw
+            else:
                 continue
 
-            for s in secrets:
+            for s in items_iter:
                 if not isinstance(s, dict):
                     continue
 
                 typ = s.get("type", "Secret")
                 match = s.get("match", "")
-                
+
                 title = s.get("title", f"Secret Found: {typ}")
                 context = s.get("line_context", "")
                 description = s.get("description", f"Match Preview: `{match}`\nContext: {context}")
                 severity = s.get("severity", "medium")
                 confidence = s.get("confidence", "medium")
-                endpoint = s.get("endpoint") or f"port:{port}"
+                # Only use endpoint if it's a real URL, never use synthetic port: values
+                endpoint = s.get("endpoint", "")
+                if endpoint.startswith("port:"):
+                    endpoint = ""
 
                 fid = DetectionAdapter._make_id(
                     "js_secret",
@@ -382,7 +400,7 @@ class DetectionAdapter:
                 tool_source="wpscan",
                 confidence="high",
                 category="wordpress",
-                endpoint=f"port:{port}",
+                endpoint="",
                 repro_command=f"wpscan --url {info.get('url', 'http://TARGET')} --enumerate p,t,u --disable-tls-checks",
             )
 
@@ -403,7 +421,7 @@ class DetectionAdapter:
                             tool_source="wpscan",
                             confidence="high",
                             category="vulnerability",
-                            endpoint=f"port:{port}",
+                            endpoint="",
                             evidence=v.get("reference", ""),
                             repro_command=f"# Refer to: {v.get('reference', 'CVE details')}",
                         )
@@ -443,7 +461,7 @@ class DetectionAdapter:
             )
 
     @staticmethod
-    def _synth_intel_vectors(intel_data, normalized):
+    def _synth_intel_vectors(intel_data, normalized, phases=None):
         """Synthesize findings from intel.attack_vectors list."""
         vectors = intel_data.get("attack_vectors", [])
         if not isinstance(vectors, list):
@@ -460,16 +478,37 @@ class DetectionAdapter:
         for v in vectors:
             if not isinstance(v, dict):
                 continue
-
+ 
             name = v.get("name", "Attack Vector")
             risk = v.get("risk", "INFO").upper()
             description = v.get("description", "")
             action = v.get("action", "")
             category = v.get("category", "intel")
-
+            version = v.get("service_version") or v.get("matched_version")
+            port = v.get("port")
+ 
             severity = risk_to_sev.get(risk, "info")
-
-            fid = DetectionAdapter._make_id("intel_vector", name, category)
+            
+            # Use metadata to store structured lineage
+            metadata = {
+                "version": version,
+                "port": port,
+                "vector_score": v.get("score"),
+                "matched_rule": v.get("matched_version"),
+                "suggested_action": action
+            }
+ 
+            # Screenshot association
+            screenshot = None
+            if phases and "recon" in phases and port:
+                recon = phases["recon"]
+                open_ports = recon.get("open_ports", [])
+                for p in open_ports:
+                    if p.get("port") == port and p.get("screenshot_path"):
+                        screenshot = p.get("screenshot_path")
+                        break
+ 
+            fid = DetectionAdapter._make_id("intel_vector", f"Intel: {name}", endpoint=f"port:{port}" if port else "", severity=severity)
             DetectionAdapter._add(
                 normalized,
                 fid,
@@ -479,6 +518,13 @@ class DetectionAdapter:
                 tool_source="attack_intel",
                 confidence="medium",
                 category="intel_vector",
+                reproduction=action, # Mapping action to reproduction command
+                repro_command=action,
+                endpoint="",
+                metadata=metadata,
+                raw_output=f"Vector matched for service version: {version}\nRule: {name}\nAction: {action}",
+                evidence=description,
+                screenshot_path=screenshot
             )
 
     @staticmethod
@@ -541,9 +587,23 @@ class DetectionAdapter:
                 category="osint_historic",
             )
 
+    # Cortex recommendations that are generic/unconditional (triggered for ALL HTTP ports).
+    # These create noise without adding signal — filtered to avoid false brief pollution.
+    _CORTEX_NOISE_PREFIXES = (
+        "http smuggling",
+        "virtual host brute",
+        "waf & ips behavioral",
+        "waf fingerprint",
+        "h2c smuggling",
+    )
+
     @staticmethod
     def _synth_cortex_recommendations(enum_data, normalized):
-        """Synthesize findings from enum.derived.cortex_recommendations."""
+        """Synthesize findings from enum.derived.cortex_recommendations.
+
+        Filters out generic unconditional recommendations (noise) and clearly labels
+        the remaining ones as Cortex suggestions, not confirmed findings.
+        """
         derived = enum_data.get("derived", {})
         if not isinstance(derived, dict):
             return
@@ -560,18 +620,39 @@ class DetectionAdapter:
             confidence = item.get("confidence", 50)
             port = item.get("port", "")
             category = item.get("category", "cortex")
+            rec_id = item.get("id", "")
 
-            fid = DetectionAdapter._make_id("cortex_rec", title, port)
+            # Skip generic noise recommendations that fire unconditionally on every HTTP port
+            title_lower = title.lower()
+            if any(title_lower.startswith(prefix) for prefix in DetectionAdapter._CORTEX_NOISE_PREFIXES):
+                continue
+
+            # Skip low-confidence suggestions (< 65) when no concrete signal is in the reason
+            if confidence < 65:
+                continue
+
+            port_label = f" (port {port})" if port else ""
+            port_note = f"\n\n> **Port**: `{port}`" if port else ""
+
+            description = (
+                f"**🔎 Cortex Suggestion** — *This is an automated scan recommendation, not a confirmed finding.*\n\n"
+                f"{reason}{port_note}\n\n"
+                f"**Confidence**: {confidence}%  \n"
+                f"**Category**: `{category}`"
+            )
+
+            fid = DetectionAdapter._make_id("cortex_rec", rec_id or title, port)
             DetectionAdapter._add(
                 normalized,
                 fid,
-                title=f"Cortex: {title}",
+                title=f"[Cortex Tip] {title}",
                 severity="info",
-                description=f"{reason}" if reason else title,
+                description=description,
                 tool_source="decision_cortex",
-                confidence="high" if confidence >= 70 else "medium",
+                confidence="high" if confidence >= 80 else "medium",
                 category="cortex_recommendation",
-                endpoint=f"port:{port}" if port else "",
+                endpoint="",  # Never inject synthetic port: values
+                repro_command="",  # No repro command — these are suggestions, not proved findings
             )
 
     @staticmethod
@@ -702,7 +783,7 @@ class DetectionAdapter:
                     tool_source="enum_seed_factory",
                     confidence="medium",
                     category="threat_surface",
-                    endpoint=f"port:{port}",
+                    endpoint="",
                     metadata={"classification": "candidate"},
                     repro_command=f"# Use burp or ffuf to fuzz parameters for these URLs:\n# {candidates[0]}",
                 )
@@ -720,7 +801,7 @@ class DetectionAdapter:
                     tool_source="enum_seed_factory",
                     confidence="low",
                     category="parameterized_surface",
-                    endpoint=f"port:{port}",
+                    endpoint="",
                     metadata={"classification": "low_risk"}
                 )
 
@@ -743,7 +824,7 @@ class DetectionAdapter:
                 desc = v.get("description", "")
                 sev = v.get("severity", "medium")
                 tool = v.get("tool_source", "js_vuln_audit")
-                endpoint = v.get("endpoint") or v.get("target") or f"port:{port}"
+                endpoint = v.get("endpoint") or v.get("target") or ""
 
                 fid = DetectionAdapter._make_id(tool, title, endpoint=endpoint, severity=sev)
                 DetectionAdapter._add(
@@ -983,7 +1064,7 @@ class DetectionAdapter:
                     tool_source="nse_scanner",
                     confidence="high",
                     category="recon",
-                    endpoint=f"port:{port}",
+                    endpoint="",
                     repro_command=f"nmap -sV -p {port} --script {script_name} TARGET",
                 )
 
@@ -1120,7 +1201,7 @@ class DetectionAdapter:
             DetectionAdapter._synth_js_vulns(phases["vuln"], normalized)
 
         if "intel" in phases:
-            DetectionAdapter._synth_intel_vectors(phases["intel"], normalized)
+            DetectionAdapter._synth_intel_vectors(phases["intel"], normalized, phases=phases)
 
         if "osint" in phases:
             DetectionAdapter._synth_osint_summary(phases["osint"], normalized)

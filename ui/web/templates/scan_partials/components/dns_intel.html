@@ -5,18 +5,12 @@
         <div class="card-body" id="dns-results">
             {% if results and results.phases and results.phases.dns and results.phases.dns.subdomains %}
             <div class="d-flex flex-wrap gap-2 mb-3">
-                {% for sub in results.phases.dns.subdomains[:500] %}
+                {% for sub in results.phases.dns.subdomains %}
                 <div
                     class="tag-item px-2 py-1  border border-secondary rounded small  text-info">
                     {{ sub }}
                 </div>
                 {% endfor %}
-                {% if results.phases.dns.subdomains|length > 500 %}
-                <div
-                    class="tag-item px-2 py-1  border border-secondary rounded small  text-muted">
-                    + {{ results.phases.dns.subdomains|length - 500 }} more...
-                </div>
-                {% endif %}
             </div>
             {% endif %}
 

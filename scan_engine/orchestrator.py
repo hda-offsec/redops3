@@ -207,6 +207,9 @@ class ScanOrchestrator:
                     continue
                 if normalized.lower() in invalid_markers:
                     continue
+                # Reject synthetic internal port references — not real network locators
+                if normalized.lower().startswith("port:"):
+                    continue
                 return normalized
             return ""
 
@@ -214,9 +217,27 @@ class ScanOrchestrator:
         metadata_validation = metadata_payload.get("validation") if isinstance(metadata_payload.get("validation"), dict) else {}
         metadata_repro = metadata_payload.get("reproducibility") if isinstance(metadata_payload.get("reproducibility"), dict) else {}
 
+        def _looks_like_command(s):
+            """Heuristic: a real repro command starts with a known tool or path, not prose."""
+            if not s:
+                return False
+            s_stripped = s.strip()
+            # Reject pure human-prose remediation advice (sentence structure)
+            if s_stripped[0].isupper() and '.' in s_stripped and len(s_stripped) > 40:
+                return False
+            known_prefixes = (
+                'curl', 'wget', 'http', 'nmap', 'sqlmap', 'ffuf', 'gobuster', 'burp',
+                'python', 'python3', 'ruby', 'node', 'bash', 'sh', 'zsh',
+                'dalfox', 'nuclei', 'wpscan', 'hydra', 'nikto', 'dirb', 'wfuzz',
+                'openssl', 'ssh', 'nc ', 'ncat', 'socat', 'aws ', 'docker', 'kubectl',
+                '/', './', '#', '\\',
+            )
+            return any(s_stripped.lower().startswith(p) for p in known_prefixes)
+
         normalized_command = _normalize_command_value(
             kwargs.get("repro_command"),
-            kwargs.get("reproduction"),
+            # Only use `reproduction` as a command if it actually looks like a command
+            kwargs.get("reproduction") if _looks_like_command(kwargs.get("reproduction")) else None,
             kwargs.get("command"),
             metadata_repro.get("command"),
             metadata_validation.get("command"),
@@ -273,7 +294,12 @@ class ScanOrchestrator:
         signal_id = None
 
         evidence_value = kwargs.get("evidence")
-        if isinstance(evidence_value, (dict, list)):
+        # Treat empty containers as absent — don't serialize {} or [] as string noise
+        if isinstance(evidence_value, dict) and not evidence_value:
+            evidence_value = None
+        elif isinstance(evidence_value, list) and not evidence_value:
+            evidence_value = None
+        elif isinstance(evidence_value, (dict, list)):
             try:
                 evidence_value = json.dumps(evidence_value, default=str)
             except Exception:
@@ -599,7 +625,8 @@ class ScanOrchestrator:
                                 description=str(output)[:2000],
                                 severity=severity,
                                 tool_source="nse_scanner",
-                                category="nse_script",
+                                category="nse_result",
+                                repro_command=next((c for c in executed_commands if f"-p {port_num}" in c or f"-p {port_num}," in c or f",{port_num}" in c), "")
                             )
                 return nse_results
 
