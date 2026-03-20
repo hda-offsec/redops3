@@ -25,6 +25,7 @@ CANONICAL_FINDING_DEFAULTS = {
     "response": "",
     "repro_command": "",
     "raw_output": "",
+    "command": "",
     "metadata": {},
     "signal_ids": [],
     "created_at": "",
@@ -37,7 +38,9 @@ CANONICAL_FINDING_DEFAULTS = {
     "component": None,
     "version": None,
     "source": "",
+    "impact": "",
     "remediation": "",
+    "references": [],
     "risk_scorecard": {},
     "impact_area": "Web Application",
     "chain_metadata": {
@@ -60,7 +63,7 @@ SEVERITY_MAP = {
     "warning": "medium",
 }
 
-CONFIDENCE_MAP = {"high": "high", "medium": "medium", "low": "low"}
+CONFIDENCE_MAP = {"certain": "high", "high": "high", "medium": "medium", "low": "low"}
 
 RESULT_STATE_MAP = {
     "observation": "observation",
@@ -146,6 +149,22 @@ def _normalize_arguments(value):
     if isinstance(value, str) and value.strip():
         return {"raw": value.strip()}
     return {}
+
+
+def _normalize_references(value):
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            text = _clean_text(item)
+            if not text:
+                continue
+            if text not in out:
+                out.append(text)
+        return out
+    if isinstance(value, str):
+        text = _clean_text(value)
+        return [text] if text else []
+    return []
 
 
 def _to_evidence_string(value):
@@ -301,6 +320,22 @@ def normalize_finding_shape(payload, *, source=None):
         or normalized.get("description")
         or normalized["evidence"]
     )
+    normalized["command"] = _normalize_command_value(
+        normalized.get("command"),
+        normalized.get("repro_command"),
+        normalized.get("reproduction"),
+    )
+    normalized["impact"] = _clean_text(
+        normalized.get("impact")
+        or normalized.get("impact_area")
+        or raw.get("impact")
+        or raw.get("impact_area")
+    )
+    normalized["references"] = _normalize_references(
+        normalized.get("references")
+        or raw.get("references")
+        or (normalized.get("metadata") or {}).get("references")
+    )
     normalized["reproduction"] = normalized.get("reproduction") or normalized.get("repro_command")
     normalized["created_at"] = normalized.get("created_at") or datetime.utcnow().isoformat() + "Z"
 
@@ -383,6 +418,8 @@ def normalize_finding_shape(payload, *, source=None):
         "request_excerpt": _clean_text(reproducibility.get("request_excerpt") or normalized.get("request")),
         "response_excerpt": _clean_text(reproducibility.get("response_excerpt") or normalized.get("response")),
     }
+    if normalized["command"] and not metadata["reproducibility"]["command"]:
+        metadata["reproducibility"]["command"] = normalized["command"]
 
     metadata["field_sources"] = merge_field_sources(
         metadata.get("field_sources"),
@@ -419,11 +456,17 @@ def normalize_finding_shape(payload, *, source=None):
         metadata["validation"]["downgrade_reason"] = "confirmed_without_artifact"
 
     normalized["signal_count"] = len(normalized["signal_ids"])
-    normalized["chain_length"] = (
-        len(metadata.get("chain", []))
-        if isinstance(metadata.get("chain"), list)
-        else int(normalized.get("chain_length") or 0)
-    )
+    if isinstance(metadata.get("chain"), list):
+        normalized["chain_length"] = len(metadata.get("chain", []))
+    else:
+        try:
+            normalized["chain_length"] = int(
+                metadata.get("chain_length")
+                or normalized.get("chain_length")
+                or 0
+            )
+        except (TypeError, ValueError):
+            normalized["chain_length"] = int(normalized.get("chain_length") or 0)
 
     for key in [
         "exploit_score",
@@ -432,11 +475,23 @@ def normalize_finding_shape(payload, *, source=None):
         "provider",
         "component",
         "version",
+        "impact",
         "remediation",
         "risk_scorecard",
+        "references",
     ]:
         if normalized.get(key) is None and key in metadata:
             normalized[key] = metadata.get(key)
+
+    if not normalized["command"]:
+        normalized["command"] = _normalize_command_value(
+            metadata.get("validation", {}).get("command") if isinstance(metadata.get("validation"), dict) else "",
+            metadata.get("reproducibility", {}).get("command") if isinstance(metadata.get("reproducibility"), dict) else "",
+            normalized.get("repro_command"),
+            normalized.get("reproduction"),
+        )
+    if not normalized["references"]:
+        normalized["references"] = _normalize_references(metadata.get("references"))
 
     metadata.setdefault("signal_count", normalized["signal_count"])
     metadata.setdefault("chain_length", normalized["chain_length"])

@@ -438,6 +438,27 @@ class PassiveIntelligenceEngine:
                     endpoint,
                 )
 
+        git_path = results.get("git_path") if isinstance(results, dict) else ""
+        if isinstance(git_path, str) and git_path.strip():
+            git_lower = git_path.lower()
+            if "/.git/" in git_lower or git_lower.endswith("/.git"):
+                add(
+                    "Potential Git Repository Exposure",
+                    "high",
+                    "high",
+                    git_path,
+                    "git_exposure",
+                    "Telemetry includes a direct Git metadata path, indicating potential repository disclosure.",
+                    git_path,
+                    metadata={
+                        "target": target,
+                        "source": "git_path_hint",
+                        "path": git_path,
+                        "validation_hint": "Confirm with safe HEAD/GET request and avoid destructive Git operations.",
+                    },
+                    source="git_path_hint",
+                )
+
         phases = results.get("phases", {}) if isinstance(results, dict) else {}
         enum = phases.get("enum", {}) if isinstance(phases, dict) else {}
         headers_map = enum.get("headers", {}) if isinstance(enum, dict) else {}

@@ -129,22 +129,33 @@ class SQLiExpert:
                     resp = self.session.get(target_url, timeout=5, verify=False)
                     if magic_str in resp.text:
                         if logger: logger(f"🔥 SQLi SIGNAL (Union): Data reflection confirmed on col {pos} of {col_count}", "SUCCESS")
+                        param_evidence = "Unknown"
+                        try:
+                            param_evidence = [line.strip()[:150] for line in resp.text.split('\n') if magic_str in line][0]
+                        except Exception: pass
+                        
                         return {
                             "title": "SQL Injection Detected (UNION-Based)",
                             "severity": "critical",
-                            "confidence": "critical",
-                            "description": f"Confirmed UNION-based SQL injection on the '{param}' parameter.\n"
-                                           f"- Column Count: {col_count}\n"
-                                           f"- Reflective Column: {pos}\n"
-                                           f"- Proof of Concept: '{magic_str}' reflected in response body.",
+                            "confidence": "certain",
+                            "description": f"Confirmed UNION-based SQL injection on the `{param}` parameter.\nAn attacker can use UNION SELECT statements to extract arbitrary data from the database.\n\n- **Column Count:** {col_count}\n- **Reflective Column:** {pos}\n- **Proof:** `{magic_str}` was successfully reflected in the HTML response.",
                             "url": target_url,
+                            "endpoint": target_url,
                             "payload": p,
+                            "parameter": param,
                             "tool_source": "sqli_expert",
+                            "category": "sqli",
+                            "repro_command": f"curl -ik \"{target_url}\"",
+                            "evidence": {
+                                "proof_string": magic_str,
+                                "matched_snippet": param_evidence
+                            },
                             "metadata": {
                                 "technique": "union_based",
                                 "columns": col_count,
                                 "reflective_pos": pos,
-                                "oscp_safe": True
+                                "oscp_safe": True,
+                                "validation_status": "success"
                             }
                         }
                 except: pass
@@ -168,18 +179,52 @@ class SQLiExpert:
                     for sig in sigs:
                         # Success condition: Signature matches AND wasn't there before
                         if re.search(sig, resp.text, re.IGNORECASE):
-                            if not re.search(sig, baseline_text, re.IGNORECASE):
-                                if logger: logger(f"🔥 SQLi SIGNAL (Error): {db_type} error detected on param '{param}'", "SUCCESS")
-                                return {
-                                    "title": f"SQL Injection Detected (Error-Based) - {db_type}",
-                                    "severity": "critical",
-                                    "confidence": "high",
-                                    "description": f"A database error confirming {db_type} backend was triggered by injecting '{p}' into the '{param}' parameter.",
-                                    "url": target_url,
-                                    "payload": p,
-                                    "tool_source": "sqli_expert",
-                                    "metadata": {"db_type": db_type, "technique": "error_based"}
+                            baseline_has_signature = bool(re.search(sig, baseline_text, re.IGNORECASE))
+                            if logger:
+                                logger(
+                                    f"🔥 SQLi SIGNAL (Error): {db_type} signature observed on param '{param}'",
+                                    "SUCCESS",
+                                )
+                            proof_snippet = "Unknown"
+                            try:
+                                proof_snippet = [line.strip()[:150] for line in resp.text.split('\n') if re.search(sig, line, re.IGNORECASE)][0]
+                            except:
+                                pass
+
+                            if baseline_has_signature:
+                                baseline_diff = "Signature was already present in baseline response; manual confirmation required."
+                                confidence = "medium"
+                                severity = "critical"
+                                validation_status = "needs_manual_validation"
+                            else:
+                                baseline_diff = "Signature was absent in the clean baseline request."
+                                confidence = "certain"
+                                severity = "critical"
+                                validation_status = "success"
+
+                            return {
+                                "title": f"SQL Injection Detected (Error-Based) - {db_type}",
+                                "severity": severity,
+                                "confidence": confidence,
+                                "description": f"A database error confirming a {db_type} backend was triggered by injecting the character `{p}` into the `{param}` parameter.\n\nThis indicates the application is insecurely concatenating user input directly into SQL queries.",
+                                "url": target_url,
+                                "endpoint": target_url,
+                                "payload": p,
+                                "parameter": param,
+                                "tool_source": "sqli_expert",
+                                "category": "sqli",
+                                "repro_command": f"curl -ik \"{target_url}\"",
+                                "evidence": {
+                                    "signature_matched": sig,
+                                    "proof_snippet": proof_snippet,
+                                    "baseline_diff": baseline_diff
+                                },
+                                "metadata": {
+                                    "db_type": db_type,
+                                    "technique": "error_based",
+                                    "validation_status": validation_status,
                                 }
+                            }
             except Exception: pass
         return None
 
@@ -230,15 +275,29 @@ class SQLiExpert:
                 if true_to_baseline_diff < (baseline_len * 0.01) and false_to_true_diff > (len_true * 0.03):
                     if logger: logger(f"🔥 SQLi SIGNAL (Boolean): Deterministic differential on param '{param}'", "SUCCESS")
                     return {
-                        "title": "SQL Injection Detected (Boolean-Based)",
+                        "title": "SQL Injection Detected (Boolean-Based Inferential)",
                         "severity": "critical",
-                        "confidence": "high",
-                        "description": f"The application logic confirms SQL injection via boolean differential analysis on the '{param}' parameter. "
-                                       f"The TRUE condition ({p_true}) matches baseline, while the FALSE condition ({p_false}) alters response content.",
+                        "confidence": "certain",
+                        "description": f"The application logic confirms SQL injection via rigorous boolean differential analysis on the `{param}` parameter.\n\n- The TRUE condition (`{p_true}`) returned a response matching the baseline.\n- The FALSE condition (`{p_false}`) substantially altered the response content, proving the injection modifies query logic execution.",
                         "url": url,
-                        "payload": f"TRUE: {p_true} | FALSE: {p_false}",
+                        "endpoint": url,
+                        "payload": p_true, # Using TRUE payload as the main one
+                        "parameter": param,
                         "tool_source": "sqli_expert",
-                        "metadata": {"technique": "boolean_based", "diff_bytes": false_to_true_diff, "stable": True}
+                        "category": "sqli",
+                        "repro_command": f"# Compare these two requests:\ncurl -ik \"{url_true}\"\ncurl -ik \"{url_false}\"",
+                        "evidence": {
+                            "baseline_bytes": baseline_len,
+                            "true_bytes": len_true,
+                            "false_bytes": len_false,
+                            "byte_difference_anomaly": false_to_true_diff
+                        },
+                        "metadata": {
+                            "technique": "boolean_based", 
+                            "diff_bytes": false_to_true_diff, 
+                            "stable": True,
+                            "validation_status": "success"
+                        }
                     }
             except Exception: pass
         return None
@@ -291,12 +350,25 @@ class SQLiExpert:
                                 "title": f"SQL Injection Detected (Time-Based) - Probable {db_hint}",
                                 "severity": "critical",
                                 "confidence": "high",
-                                "description": f"Verified time-based SQL injection on the '{param}' parameter using multi-sample temporal analysis. "
-                                               f"Injected 5s delay (took {dur_s1:.1f}s) and 2s delay (took {dur_s2:.1f}s) while baseline remained fast ({dur_last:.1f}s).",
+                                "description": f"Verified time-based SQL injection on the `{param}` parameter using multi-sample temporal analysis.\n\n- Injected a **5s delay** which took `{dur_s1:.1f}s`.\n- Injected a **2s delay** which took `{dur_s2:.1f}s`.\n- The **baseline** request remained fast at `{dur_last:.1f}s`.\n\nThis confirms the database is executing dynamic time delay functions.",
                                 "url": target_url,
+                                "endpoint": target_url,
                                 "payload": p,
+                                "parameter": param,
                                 "tool_source": "sqli_expert",
-                                "metadata": {"technique": "time_based", "samples": {"s1": dur_s1, "s2": dur_s2, "last": dur_last}, "db_hint": db_hint}
+                                "category": "sqli",
+                                "repro_command": f"time curl -ik \"{target_url}\"",
+                                "evidence": {
+                                    "baseline_response_time": dur_last,
+                                    "payload_5_sec_delay_time": dur_s1,
+                                    "payload_2_sec_delay_time": dur_s2
+                                },
+                                "metadata": {
+                                    "technique": "time_based", 
+                                    "samples": {"s1": dur_s1, "s2": dur_s2, "last": dur_last}, 
+                                    "db_hint": db_hint,
+                                    "validation_status": "success"
+                                }
                             }
             except Exception: pass
         return None

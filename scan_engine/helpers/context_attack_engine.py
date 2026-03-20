@@ -246,12 +246,28 @@ class APIIntelligenceEngine:
                             body_low = body.lower()
                             is_hit = False
                             evidence = ""
+                            
+                            # V12: Hardened Signal Detection
                             if test_type == "idor" and resp.status_code == 200 and param.lower() == "id":
-                                is_hit = True
-                                evidence = f"ID parameter accepted with status={resp.status_code}."
-                            elif test_type == "ssrf" and any(x in body_low for x in ["localhost", "127.0.0.1", "metadata"]):
-                                is_hit = True
-                                evidence = "Response contains internal-host indicators after remote URL parameter injection."
+                                # Very basic heuristic: if it looks like JSON or it's not a standard error page
+                                if any(x in body_low for x in ['"id":', '"username":', '"user":', '"email":']):
+                                    is_hit = True
+                                    evidence = f"ID parameter accepted with status={resp.status_code} and potential internal resource metadata in response."
+                                elif "error" not in body_low and len(body) > 100:
+                                    # Still a bit weak but better than any 200
+                                    is_hit = True
+                                    evidence = f"ID parameter accepted with status={resp.status_code}. Response appears legitimate but unvalidated."
+                             
+                            elif test_type == "ssrf":
+                                # Must find actual meta-data content, not just the keywords in error messages
+                                if any(x in body_low for x in ["instance-id", "latest/meta-data", "ami-id", "root:x:0:0"]):
+                                    is_hit = True
+                                    evidence = "Response contains high-confidence internal or cloud metadata signatures."
+                                elif "127.0.0.1" in body_low and resp.status_code == 200 and len(body) > 50:
+                                    # Heuristic for generic localhost reflection
+                                    is_hit = True
+                                    evidence = "Localhost indicator found in 200 OK response."
+
                             elif test_type == "command_injection" and re.search(r"(uid=\d+|gid=\d+|root:x:)", body_low):
                                 is_hit = True
                                 evidence = "Response includes command execution indicators."

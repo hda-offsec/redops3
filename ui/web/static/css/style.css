@@ -29,7 +29,8 @@
     --border-glow: rgba(82, 113, 255, 0.2);
     
     /* Typography */
-    --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-sans: var(--font-primary);
     --font-mono: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, monospace;
     
     /* Effects */
@@ -42,12 +43,13 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    font-family: inherit; /* V12: ensure font inheritance from body */
 }
 
 body {
     background-color: var(--bg-darker);
     color: var(--text-primary);
-    font-family: var(--font-sans);
+    font-family: var(--font-primary);
     font-size: 0.9rem;
     line-height: 1.6;
     overflow-x: hidden;
@@ -191,6 +193,12 @@ body {
     color: #000;
 }
 
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em; /* V12: More professional/tight headers */
+}
 .form-control, .form-select {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border);

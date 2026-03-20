@@ -146,7 +146,11 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 elif isinstance(evidence_value, str) and evidence_value.strip():
                     evidence_value = cap_text(sanitize_evidence(evidence_value))
                 else:
-                    evidence_value = cap_text(sanitize_evidence(kwargs.get('description')))
+                    if str(severity).strip().lower() in {"critical", "high", "medium"}:
+                        # Do not auto-promote generic descriptions as hard evidence for higher severities.
+                        evidence_value = None
+                    else:
+                        evidence_value = cap_text(sanitize_evidence(kwargs.get('description')))
 
                 id_stable = kwargs.get('id_stable')
                 if not id_stable:
@@ -497,7 +501,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 from scan_engine.helpers.passive_intel_engine import PassiveIntelligenceEngine
                 passive_findings = PassiveIntelligenceEngine.derive_findings(orchestrator.results, scan.target.identifier)
                 for pf in passive_findings:
-                    add_finding_cb(**pf)
+                    orchestrator.add_finding(**pf)
                 all_synth_findings.extend(passive_findings)
                 if passive_findings:
                     _log_and_emit(scan_id, f"Passive intelligence synthesized {len(passive_findings)} findings from existing telemetry.", "INFO")
@@ -508,14 +512,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 from scan_engine.helpers.context_attack_engine import APIIntelligenceEngine
                 api_findings, api_inventory = APIIntelligenceEngine.derive_surface(orchestrator.results, scan.target.identifier)
                 for af in api_findings:
-                    add_finding_cb(**af)
+                    orchestrator.add_finding(**af)
                 all_synth_findings.extend(api_findings)
                 if api_findings:
                     _log_and_emit(scan_id, f"API intelligence discovered {len(api_findings)} API surface findings.", "INFO")
 
                 api_fuzz_findings = APIIntelligenceEngine.fuzz_surface(api_inventory, options=scan_options)
                 for ff in api_fuzz_findings:
-                    add_finding_cb(**ff)
+                    orchestrator.add_finding(**ff)
                 all_synth_findings.extend(api_fuzz_findings)
                 if api_fuzz_findings:
                     _log_and_emit(scan_id, f"API fuzzing generated {len(api_fuzz_findings)} high-signal findings.", "INFO")
@@ -543,7 +547,7 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                 
                 validation_findings = ExploitValidationEngine.validate(validation_candidates, options=scan_options)
                 for vf in validation_findings:
-                    add_finding_cb(**vf)
+                    orchestrator.add_finding(**vf)
                 if validation_findings:
                     _log_and_emit(scan_id, f"Rigorous Validation: Confirmed & badge-pinned {len(validation_findings)} findings via differential audit.", "SUCCESS")
             except Exception as val_err:
@@ -551,8 +555,8 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
 
             try:
                 from core.analysis import run_signal_correlation, run_cortex_attack_reasoning
-                run_signal_correlation(scan_id, add_finding_cb)
-                cortex_created = run_cortex_attack_reasoning(scan_id, add_finding_cb)
+                run_signal_correlation(scan_id, orchestrator.add_finding)
+                cortex_created = run_cortex_attack_reasoning(scan_id, orchestrator.add_finding)
                 if cortex_created:
                     _log_and_emit(scan_id, f"Cortex reasoning generated {cortex_created} attack path findings.", "INFO")
 

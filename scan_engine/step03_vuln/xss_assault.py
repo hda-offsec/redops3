@@ -55,11 +55,11 @@ class XssAssaultScanner:
         for f in findings:
             if finding_callback:
                 finding_callback(
-                    title=f['title'],
-                    description=f['description'],
-                    severity=f['severity'],
+                    title=f.get('title', 'XSS Found'),
+                    description=f.get('description', ''),
+                    severity=f.get('severity', 'high'),
                     tool_source="Dalfox [Assault]",
-                    raw_loot=f['url']
+                    raw_loot=f.get('endpoint', f.get('url', ''))
                 )
         
         return findings
@@ -100,12 +100,34 @@ class XssAssaultScanner:
                     for line in f:
                         try:
                             vuln = json.loads(line)
-                            findings.append({
-                                "title": f"XSS Found: {vuln.get('message_str', 'Reflected XSS')}",
-                                "description": f"Payload: `{vuln.get('payload')}`\nURL: {vuln.get('url')}\nMethod: {vuln.get('method')}",
-                                "severity": "critical",
-                                "url": vuln.get('url')
-                            })
+                            url = vuln.get("url", "")
+                            param = vuln.get("param", "unknown_param")
+                            payload = vuln.get("payload", "")
+                            method = vuln.get("method", "GET")
+                            
+                            from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                            findings.append(FindingNormalizer.normalize({
+                                "title": f"Cross-Site Scripting (XSS) via '{param}' parameter",
+                                "description": f"Dalfox successfully confirmed reflected Cross-Site Scripting (XSS) on the `{param}` parameter using `{method}`.\n\nArbitrary JavaScript can be executed in the context of the victim's browser session by tricking them into clicking a crafted link.",
+                                "severity": "high",
+                                "confidence": "certain",
+                                "tool_source": "Dalfox [Assault]",
+                                "category": "xss",
+                                "endpoint": url,
+                                "parameter": param,
+                                "payload": payload,
+                                "evidence": {
+                                    "dalfox_proof": vuln.get('evidence', ''),
+                                    "injection_point": vuln.get('inject_point', ''),
+                                    "bav": vuln.get('bav', '')
+                                },
+                                "repro_command": f"curl -ik \"{url}\"",
+                                "metadata": {
+                                    "validation_status": "success",
+                                    "technique": vuln.get('type', 'reflected'),
+                                    "method": method
+                                }
+                            }))
                         except Exception:
                             continue
                         

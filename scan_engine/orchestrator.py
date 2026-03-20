@@ -49,6 +49,7 @@ class ScanOrchestrator:
         self.target = target
         self.log = logger_func
         self._finding_callback = finding_func
+        self._signal_callback = kwargs.get('signal_func')
         self.add_suggestion = suggestion_func
         self.save_results = results_func
         self._loot_callback = loot_func
@@ -304,6 +305,74 @@ class ScanOrchestrator:
                 evidence_value = json.dumps(evidence_value, default=str)
             except Exception:
                 evidence_value = str(evidence_value)
+
+        def _has_meaningful_artifact(value):
+            text = _clean_text(value)
+            if not text:
+                return False
+            if text.lower() in invalid_markers:
+                return False
+            if text in {"{}", "[]", '""'}:
+                return False
+            return True
+
+        severity_norm = str(kwargs.get("severity", "info")).strip().lower()
+        title_norm = _clean_text(kwargs.get("title")).lower()
+        is_generic_title = title_norm in {"", "finding", "untitled finding", "unknown finding", "candidate finding"}
+
+        repro_command_value = _normalize_command_value(kwargs.get("repro_command"), normalized_command)
+        if not repro_command_value:
+            endpoint_hint = _normalize_locator_value(kwargs.get("endpoint"), kwargs.get("target"), kwargs.get("url"))
+            if isinstance(endpoint_hint, str) and endpoint_hint.startswith("http"):
+                repro_command_value = f"curl -ik '{endpoint_hint}'"
+                kwargs["repro_command"] = repro_command_value
+                metadata_payload["reproducibility"]["command"] = repro_command_value
+                if not metadata_payload.get("validation", {}).get("command"):
+                    metadata_payload["validation"]["command"] = repro_command_value
+
+        has_proof_artifact = any(
+            [
+                _has_meaningful_artifact(evidence_value),
+                _has_meaningful_artifact(kwargs.get("raw_output")),
+                _has_meaningful_artifact(kwargs.get("response")),
+                _has_meaningful_artifact(kwargs.get("request")),
+                _has_meaningful_artifact(metadata_payload.get("validation", {}).get("artifact")),
+                _has_meaningful_artifact(metadata_payload.get("reproducibility", {}).get("response_excerpt")),
+            ]
+        )
+
+        quality_gate_cfg = self.options.get("quality_gates") if isinstance(self.options.get("quality_gates"), dict) else {}
+        strict_quality_gates = bool(quality_gate_cfg.get("strict", self.options.get("strict_quality_gates", True)))
+        reject_high_without_proof = bool(quality_gate_cfg.get("reject_high_without_proof", True))
+
+        should_reject = False
+        reject_reason = ""
+        if strict_quality_gates and reject_high_without_proof:
+            if severity_norm in {"critical", "high"} and not has_proof_artifact:
+                should_reject = True
+                reject_reason = "missing_evidence_artifact"
+            elif severity_norm in {"critical", "high", "medium"} and is_generic_title:
+                should_reject = True
+                reject_reason = "generic_title"
+
+        if should_reject:
+            def _inc_rejected():
+                metrics = self.results.setdefault("metrics", {})
+                metrics["quality_gate_rejected"] = metrics.get("quality_gate_rejected", 0) + 1
+
+            self.thread_safe_results_update(_inc_rejected)
+            self.emit_event(
+                "FINDING_REJECTED",
+                "quality_gate",
+                level="INFO",
+                data={
+                    "title": kwargs.get("title", "Unknown"),
+                    "severity": severity_norm,
+                    "reason": reject_reason,
+                    "tool_source": kwargs.get("tool_source", "unknown"),
+                },
+            )
+            return
 
         signal_payload = {
             "tool": kwargs.get("tool_source") or kwargs.get("tool") or "orchestrator",

@@ -72,6 +72,7 @@ from scan_engine.helpers.mutation_engine import MutationEngine
 from scan_engine.helpers.budget_manager import BudgetManager
 from scan_engine.helpers.finding_normalizer import FindingNormalizer
 from scan_engine.helpers.discovery_accumulator import DiscoveryAccumulator
+from scan_engine.helpers.vuln_execution_plan import derive_vuln_execution_plan
 
 def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     """
@@ -110,6 +111,29 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     # Retrieve pre-computed intelligence from Strategic Analysis (Phase 2.5)
     mutation_strategy = results.get('phases', {}).get('enum', {}).get('mutation_strategy', {}).get(str(port), {})
     execution_hints = (results.get('phases', {}).get('enum', {}).get('derived', {}).get('execution_hints', {}) or {})
+    adaptive_module_gates = bool(orch.options.get("adaptive_module_gates", True))
+    execution_plan = derive_vuln_execution_plan(
+        results,
+        port,
+        profile=profile,
+        execution_hints=execution_hints,
+    ) if adaptive_module_gates else {}
+
+    if adaptive_module_gates:
+        def _store_plan():
+            derived = results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})
+            by_port = derived.setdefault("vuln_execution_plan", {})
+            by_port[str(port)] = execution_plan
+        _ts(_store_plan)
+        orch.save_results(orch.scan_id, results)
+
+    def _module_gate(module_name):
+        if not adaptive_module_gates:
+            return True, "adaptive_gates_disabled"
+        gate = execution_plan.get(module_name, {}) if isinstance(execution_plan, dict) else {}
+        enabled = bool(gate.get("enabled", True))
+        reason = str(gate.get("reason") or ("enabled" if enabled else "adaptive_gate"))
+        return enabled, reason
     
     # --- PHASE 3: INITIAL INTELLIGENCE POOLING ---
     # Gather everything found in Phase 1 & 2
@@ -285,26 +309,30 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         orch.mark_module("backup_scanner", port, "failed")
 
     # --- EXPERT: GraphQL Audit ---
-    try:
-        _set_cortex_status(f"GraphQL Schema Audit (Port {port})...")
-        gs = GraphQLScanner(target)
-        gs_findings = gs.audit_graphql(port, proto, logger=log)
-        if gs_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('graphql', gs_findings)))
-            for f in gs_findings:
-                orch.add_finding(**f)
-            orch.save_results(orch.scan_id, results)
-        
-        orch.mark_module("graphql_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
+    graphql_enabled, graphql_reason = _module_gate("graphql_scanner")
+    if not graphql_enabled:
+        orch.mark_module("graphql_scanner", port, "skipped", reason=graphql_reason)
+    else:
+        try:
+            _set_cortex_status(f"GraphQL Schema Audit (Port {port})...")
+            gs = GraphQLScanner(target)
+            gs_findings = gs.audit_graphql(port, proto, logger=log)
+            if gs_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('graphql', gs_findings)))
+                for f in gs_findings:
+                    orch.add_finding(**f)
+                orch.save_results(orch.scan_id, results)
+            
+            orch.mark_module("graphql_scanner", port, "executed", artifacts=len(gs_findings) if gs_findings else 0)
 
-        # --- REFRESH ACCUMULATOR ---
-        # Capture discoveries from Git/Backups/GraphQL before intensive fuzzing
-        intel_pool = DiscoveryAccumulator.gather(results, port, target, proto=proto)
-        log(f"Intelligence Accumulator: Refreshed pool. Now tracking {len(intel_pool)} unique seeds.", "DEBUG")
+            # --- REFRESH ACCUMULATOR ---
+            # Capture discoveries from Git/Backups/GraphQL before intensive fuzzing
+            intel_pool = DiscoveryAccumulator.gather(results, port, target, proto=proto)
+            log(f"Intelligence Accumulator: Refreshed pool. Now tracking {len(intel_pool)} unique seeds.", "DEBUG")
 
-    except Exception as e:
-        log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
-        orch.mark_module("graphql_scanner", port, "failed")
+        except Exception as e:
+            log(f"GraphQL audit failed on port {port}: {e}", "DEBUG")
+            orch.mark_module("graphql_scanner", port, "failed")
 
     # --- EXPERT: JWT Security Audit (Point 1) ---
     try:
@@ -405,35 +433,43 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         log(f"Dependency Expert Error: {e}", "DEBUG")
 
     # --- EXPERT: Hidden Parameter Mining (New) ---
-    try:
-        _set_cortex_status(f"Parameter Mining (Port {port})...")
-        miner = ParameterMiner(options=orch.options)
-        # Mine on main URL and some discovered endpoints
-        miner_findings = []
-        for u in intel_pool[:10]:
-            miner_findings.extend(miner.mine(u, logger=log))
-        if miner_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('parameters', []).extend(miner_findings)))
-            for f in miner_findings:
-                orch.add_finding(**f)
-            orch.save_results(orch.scan_id, results)
-    except Exception as e:
-        log(f"Parameter Miner Error: {e}", "DEBUG")
+    parameter_miner_enabled, parameter_miner_reason = _module_gate("parameter_miner")
+    if not parameter_miner_enabled:
+        log(f"Parameter Miner skipped on port {port}: {parameter_miner_reason}", "DEBUG")
+    else:
+        try:
+            _set_cortex_status(f"Parameter Mining (Port {port})...")
+            miner = ParameterMiner(options=orch.options)
+            # Mine on main URL and some discovered endpoints
+            miner_findings = []
+            for u in intel_pool[:10]:
+                miner_findings.extend(miner.mine(u, logger=log))
+            if miner_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('parameters', []).extend(miner_findings)))
+                for f in miner_findings:
+                    orch.add_finding(**f)
+                orch.save_results(orch.scan_id, results)
+        except Exception as e:
+            log(f"Parameter Miner Error: {e}", "DEBUG")
 
     # --- EXPERT: API Logic Fuzzing (New) ---
-    try:
-        _set_cortex_status(f"API Logic Fuzzing (Port {port})...")
-        api_fuzzer = APIFuzzer(options=orch.options)
-        api_urls = [u for u in intel_pool if "api" in u.lower() or "v1" in u.lower() or "v2" in u.lower() or "graphql" in u.lower()]
-        for u in api_urls[:10]:
-            fuzz_res = api_fuzzer.fuzz_endpoint(u, logger=log)
-            if fuzz_res:
-                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('api_logic', []).extend(fuzz_res)))
-                for f in fuzz_res:
-                    orch.add_finding(**f)
-        orch.save_results(orch.scan_id, results)
-    except Exception as e:
-        log(f"API Fuzzer Error: {e}", "DEBUG")
+    api_fuzzer_enabled, api_fuzzer_reason = _module_gate("api_fuzzer")
+    if not api_fuzzer_enabled:
+        log(f"API Fuzzer skipped on port {port}: {api_fuzzer_reason}", "DEBUG")
+    else:
+        try:
+            _set_cortex_status(f"API Logic Fuzzing (Port {port})...")
+            api_fuzzer = APIFuzzer(options=orch.options)
+            api_urls = [u for u in intel_pool if "api" in u.lower() or "v1" in u.lower() or "v2" in u.lower() or "graphql" in u.lower()]
+            for u in api_urls[:10]:
+                fuzz_res = api_fuzzer.fuzz_endpoint(u, logger=log)
+                if fuzz_res:
+                    _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('api_logic', []).extend(fuzz_res)))
+                    for f in fuzz_res:
+                        orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+        except Exception as e:
+            log(f"API Fuzzer Error: {e}", "DEBUG")
 
     # --- V6 WAVE 2: ADVANCED LOGIC & INFRA EXPERTS ---
 
@@ -647,234 +683,246 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e: log(f"H2C Expert Error: {e}", "DEBUG")
 
     # --- EXPERT: SSRF Probing (Cloud Metadata) ---
-    try:
-        discovered_endpoints = []
-        
-        api = results.get('phases', {}).get('enum', {}).get('api', {})
-        seed = []
+    ssrf_enabled, ssrf_reason = _module_gate("ssrf_expert")
+    if not ssrf_enabled:
+        orch.mark_module("ssrf_expert", port, "skipped", reason=ssrf_reason)
+    else:
+        try:
+            discovered_endpoints = []
+            
+            api = results.get('phases', {}).get('enum', {}).get('api', {})
+            seed = []
 
-        seed.extend([x for x in api.get("discovered_endpoints", []) if isinstance(x, str)])
+            seed.extend([x for x in api.get("discovered_endpoints", []) if isinstance(x, str)])
 
-        for k, v in api.items():
-            if k == "discovered_endpoints":
-                continue
-            if isinstance(v, list):
-                for item in v:
-                    if isinstance(item, dict) and item.get("url"):
-                        seed.append(item["url"])
-                    elif isinstance(item, str):
-                        seed.append(item)
+            for k, v in api.items():
+                if k == "discovered_endpoints":
+                    continue
+                if isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, dict) and item.get("url"):
+                            seed.append(item["url"])
+                        elif isinstance(item, str):
+                            seed.append(item)
 
-        discovered_endpoints_raw = list(dict.fromkeys(seed))
-        discovered_endpoints = []
-        variant_meta = {}  # url -> variant metadata for telemetry
-        
-        # MUTATION: Apply SSRF specific mutations
-        for u in intel_pool[:100]: # Saturated SSRF surface
-            vars = mutation_engine.generate_variants(u, attack_type="ssrf", strategy=mutation_strategy)
-            for v in vars:
-                discovered_endpoints.append(v['url'])
-                variant_meta[v['url']] = {
-                    "attack_type": v.get("attack_type"),
-                    "mutation_type": v.get("mutation_type"),
-                    "payload_hash": v.get("payload_hash"),
-                    "source_seed": v.get("source_seed"),
-                }
-        
-        log(f"Mutation Engine: Generated {len(discovered_endpoints)} SSRF variants.", "DEBUG")
-        
-        if discovered_endpoints:
-            ssrf = SSRFScanner(target)
-            ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=log)
-            if ssrf_findings:
-                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('ssrf', ssrf_findings)))
-                for f in ssrf_findings:
+            discovered_endpoints_raw = list(dict.fromkeys(seed))
+            discovered_endpoints = []
+            variant_meta = {}  # url -> variant metadata for telemetry
+            
+            # MUTATION: Apply SSRF specific mutations
+            for u in intel_pool[:100]: # Saturated SSRF surface
+                vars = mutation_engine.generate_variants(u, attack_type="ssrf", strategy=mutation_strategy)
+                for v in vars:
+                    discovered_endpoints.append(v['url'])
+                    variant_meta[v['url']] = {
+                        "attack_type": v.get("attack_type"),
+                        "mutation_type": v.get("mutation_type"),
+                        "payload_hash": v.get("payload_hash"),
+                        "source_seed": v.get("source_seed"),
+                    }
+            
+            log(f"Mutation Engine: Generated {len(discovered_endpoints)} SSRF variants.", "DEBUG")
+            
+            if discovered_endpoints:
+                ssrf = SSRFScanner(target)
+                ssrf_findings = ssrf.scan_endpoints(discovered_endpoints, logger=log)
+                if ssrf_findings:
+                    _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('ssrf', ssrf_findings)))
+                    for f in ssrf_findings:
+                        orch.add_finding(
+                            title=f.get('title', 'SSRF Vulnerability'),
+                            description=f.get('description', ''),
+                            severity=f.get('severity', 'high'),
+                            tool_source="ssrf_expert",
+                            category=f.get('category', 'ssrf'),
+                            endpoint=f.get('url') or f.get('endpoint') or f.get('target') or f"{proto}://{target}:{port}",
+                            parameter=f.get('parameter') or f.get('param', ''),
+                            payload=f.get('payload') or f.get('poison', ''),
+                            evidence=f.get('evidence') or f.get('response', ''),
+                            raw_output=f.get('raw_output') or f.get('response', ''),
+                            repro_command=f.get('repro_command') or f.get('reproduction') or (
+                                f"curl -ik '{f.get('url') or f.get('endpoint', '')}' -H 'Host: {target}'" if f.get('url') or f.get('endpoint') else ''
+                            ),
+                            request=f.get('request', ''),
+                            response=f.get('response', ''),
+                            metadata=f.get('metadata', {}),
+                        )
+                        if orch.add_loot and f.get('raw_loot'):
+                            orch.add_loot(
+                                loot_type=f.get('loot_type', 'Cloud Asset'),
+                                content=f['raw_loot'],
+                                context=f"Discovered via SSRF on {target}"
+                            )
+                    orch.save_results(orch.scan_id, results)
+            
+            orch.mark_module("ssrf_expert", port, "executed", artifacts=len(discovered_endpoints))
+            # SSRF is technically global for found endpoints, but we attribute to current port loop for visibility or mark it once?
+            # Since it runs per port loop if new endpoints are found, marking it 'executed' per port is fine.
+
+        except Exception as e:
+            log(f"SSRF Expert probe failed: {e}", "DEBUG")
+            orch.mark_module("ssrf_expert", port, "failed", reason=str(e))
+
+    # --- JS VULNERABILITY AUDIT ---
+    js_enabled, js_reason = _module_gate("js_vuln_audit")
+    if not js_enabled:
+        orch.mark_module("js_vuln_audit", port, "skipped", reason=js_reason)
+    else:
+        try:
+            url = f"{proto}://{target}:{port}"
+            js_scanner = JSVulnScanner(target)
+            js_findings = js_scanner.audit_js_endpoints(url, logger=log)
+            if js_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('js_vulns', {}), results['phases']['vuln']['js_vulns'].__setitem__(str(port), js_findings)))
+                
+                for f in js_findings:
                     orch.add_finding(
-                        title=f.get('title', 'SSRF Vulnerability'),
+                        title=f.get('title', 'JS Vulnerability'),
                         description=f.get('description', ''),
-                        severity=f.get('severity', 'high'),
-                        tool_source="ssrf_expert",
-                        category=f.get('category', 'ssrf'),
-                        endpoint=f.get('url') or f.get('endpoint') or f.get('target') or f"{proto}://{target}:{port}",
+                        severity=f.get('severity', 'medium'),
+                        tool_source=f.get('tool_source', 'js_vuln_audit'),
+                        category=f.get('category', 'vulnerability'),
+                        endpoint=f.get('endpoint') or f.get('target') or f.get('url') or url,
                         parameter=f.get('parameter') or f.get('param', ''),
                         payload=f.get('payload') or f.get('poison', ''),
                         evidence=f.get('evidence') or f.get('response', ''),
                         raw_output=f.get('raw_output') or f.get('response', ''),
-                        repro_command=f.get('repro_command') or f.get('reproduction') or (
-                            f"curl -ik '{f.get('url') or f.get('endpoint', '')}' -H 'Host: {target}'" if f.get('url') or f.get('endpoint') else ''
-                        ),
+                        repro_command=f.get('repro_command') or f.get('reproduction', ''),
                         request=f.get('request', ''),
                         response=f.get('response', ''),
                         metadata=f.get('metadata', {}),
                     )
-                    if orch.add_loot and f.get('raw_loot'):
-                        orch.add_loot(
-                            loot_type=f.get('loot_type', 'Cloud Asset'),
-                            content=f['raw_loot'],
-                            context=f"Discovered via SSRF on {target}"
-                        )
                 orch.save_results(orch.scan_id, results)
-        
-        orch.mark_module("ssrf_expert", port, "executed", artifacts=len(discovered_endpoints))
-        # SSRF is technically global for found endpoints, but we attribute to current port loop for visibility or mark it once?
-        # Since it runs per port loop if new endpoints are found, marking it 'executed' per port is fine.
-
-    except Exception as e:
-        log(f"SSRF Expert probe failed: {e}", "DEBUG")
-        orch.mark_module("ssrf_expert", port, "failed", reason=str(e))
-
-    # --- JS VULNERABILITY AUDIT ---
-    try:
-        url = f"{proto}://{target}:{port}"
-        js_scanner = JSVulnScanner(target)
-        js_findings = js_scanner.audit_js_endpoints(url, logger=log)
-        if js_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('js_vulns', {}), results['phases']['vuln']['js_vulns'].__setitem__(str(port), js_findings)))
             
-            for f in js_findings:
-                orch.add_finding(
-                    title=f.get('title', 'JS Vulnerability'),
-                    description=f.get('description', ''),
-                    severity=f.get('severity', 'medium'),
-                    tool_source=f.get('tool_source', 'js_vuln_audit'),
-                    category=f.get('category', 'vulnerability'),
-                    endpoint=f.get('endpoint') or f.get('target') or f.get('url') or url,
-                    parameter=f.get('parameter') or f.get('param', ''),
-                    payload=f.get('payload') or f.get('poison', ''),
-                    evidence=f.get('evidence') or f.get('response', ''),
-                    raw_output=f.get('raw_output') or f.get('response', ''),
-                    repro_command=f.get('repro_command') or f.get('reproduction', ''),
-                    request=f.get('request', ''),
-                    response=f.get('response', ''),
-                    metadata=f.get('metadata', {}),
-                )
-            orch.save_results(orch.scan_id, results)
-        
-        orch.mark_module("js_vuln_audit", port, "executed", artifacts=len(js_findings) if js_findings else 0)
+            orch.mark_module("js_vuln_audit", port, "executed", artifacts=len(js_findings) if js_findings else 0)
 
-    except Exception as e:
-         log(f"JS Vuln audit failed: {e}", "DEBUG")
-         orch.mark_module("js_vuln_audit", port, "failed", reason=str(e))
+        except Exception as e:
+             log(f"JS Vuln audit failed: {e}", "DEBUG")
+             orch.mark_module("js_vuln_audit", port, "failed", reason=str(e))
 
     # --- DALFOX (XSS) ---
-    try:
-        dalfox = DalfoxScanner(target)
-        if dalfox.check_tools():
-            log(f"Checking for XSS on {proto}://{target}:{port}...", "INFO")
+    dalfox_enabled, dalfox_reason = _module_gate("dalfox")
+    if not dalfox_enabled:
+        orch.mark_module("dalfox", port, "skipped", reason=dalfox_reason)
+    else:
+        try:
+            dalfox = DalfoxScanner(target)
+            if dalfox.check_tools():
+                log(f"Checking for XSS on {proto}://{target}:{port}...", "INFO")
 
-            # SEED MUTATION & DISPATCH
-            raw_seeds = intel_pool
-            hinted_seeds = execution_hints.get('dalfox', {}).get('seed_priority', []) if isinstance(execution_hints, dict) else []
-            if hinted_seeds:
-                hinted_for_port = [
-                    u for u in hinted_seeds
-                    if isinstance(u, str) and (
-                        f":{port}" in u or
-                        u.startswith(f"{proto}://{target}")
-                    )
-                ]
-                if hinted_for_port:
-                    raw_seeds = hinted_for_port
-            
-            # Mutation loop
-            mutated_seeds = []
-            for rs in raw_seeds[:200]: # Expanded budget for exhaustive XSS
-                variants = mutation_engine.generate_variants(rs, attack_type="xss", strategy=mutation_strategy)
-                for v in variants:
-                    # Skip noise: null-payload non-original variants
-                    if v.get("payload") is None and v.get("mutation_type") != "original":
-                        continue
-                    mutated_seeds.append(v['url'])
-            
-            log(f"Mutation Engine: Generated {len(mutated_seeds)} XSS variants for Dalfox.", "DEBUG")
+                # SEED MUTATION & DISPATCH
+                raw_seeds = intel_pool
+                hinted_seeds = execution_hints.get('dalfox', {}).get('seed_priority', []) if isinstance(execution_hints, dict) else []
+                if hinted_seeds:
+                    hinted_for_port = [
+                        u for u in hinted_seeds
+                        if isinstance(u, str) and (
+                            f":{port}" in u or
+                            u.startswith(f"{proto}://{target}")
+                        )
+                    ]
+                    if hinted_for_port:
+                        raw_seeds = hinted_for_port
+                
+                # Mutation loop
+                mutated_seeds = []
+                for rs in raw_seeds[:200]: # Expanded budget for exhaustive XSS
+                    variants = mutation_engine.generate_variants(rs, attack_type="xss", strategy=mutation_strategy)
+                    for v in variants:
+                        # Skip noise: null-payload non-original variants
+                        if v.get("payload") is None and v.get("mutation_type") != "original":
+                            continue
+                        mutated_seeds.append(v['url'])
+                
+                log(f"Mutation Engine: Generated {len(mutated_seeds)} XSS variants for Dalfox.", "DEBUG")
 
-            # Batch scan: feed ALL mutated URLs to Dalfox via file mode
-            capped_seeds = mutated_seeds[:200]
-            xss_found = []
-            dalfox_max_seconds = int(os.getenv("REDOPS_DALFOX_MAX_SECONDS", "900"))
-            dalfox_max_findings = int(os.getenv("REDOPS_DALFOX_MAX_FINDINGS", "30"))
-            dalfox_start = time.time()
-            stop_reason = None
+                # Batch scan: feed ALL mutated URLs to Dalfox via file mode
+                capped_seeds = mutated_seeds[:200]
+                xss_found = []
+                dalfox_max_seconds = int(os.getenv("REDOPS_DALFOX_MAX_SECONDS", "900"))
+                dalfox_max_findings = int(os.getenv("REDOPS_DALFOX_MAX_FINDINGS", "30"))
+                dalfox_start = time.time()
+                stop_reason = None
 
-            if capped_seeds:
-                _ts(lambda: results['commands'].append({
-                    'tool': 'dalfox',
-                    'cmd': f'dalfox file <{len(capped_seeds)} mutated URLs>'
-                }))
+                if capped_seeds:
+                    _ts(lambda: results['commands'].append({
+                        'tool': 'dalfox',
+                        'cmd': f'dalfox file <{len(capped_seeds)} mutated URLs>'
+                    }))
 
-                df_stream = dalfox.stream_scan_pipe(capped_seeds)
-                for event in df_stream:
-                    if (time.time() - dalfox_start) > dalfox_max_seconds:
-                        stop_reason = "time_budget_exceeded"
-                        try:
-                            if hasattr(df_stream, "terminate"):
-                                df_stream.terminate()
-                            elif hasattr(df_stream, "process") and df_stream.process:
-                                try:
-                                    df_stream.process.terminate()
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                        break
-                    if event["type"] == "stdout":
-                        line = event["line"].strip()
-                        if "[V]" in line or "PoC" in line:
-                             log(f"XSS Discovered: {line}", "SUCCESS")
-                             
-                             # Parse Dalfox line into structured object for UI template
-                             xss_obj = {"url": "", "method": "GET", "payload": line, "evidence": line, "port": port}
-                             method_match = re.search(r'\[(GET|POST|PUT|DELETE)\]', line)
-                             if method_match:
-                                 xss_obj["method"] = method_match.group(1)
-                             url_match = re.search(r'(https?://[^\s\[\]]+)', line)
-                             if url_match:
-                                 xss_obj["url"] = url_match.group(1)
-                             poc_match = re.search(r'PoC:\s*(.+)', line)
-                             if poc_match:
-                                 xss_obj["payload"] = poc_match.group(1).strip()
-                             
-                             xss_found.append(xss_obj)
+                    df_stream = dalfox.stream_scan_pipe(capped_seeds)
+                    for event in df_stream:
+                        if (time.time() - dalfox_start) > dalfox_max_seconds:
+                            stop_reason = "time_budget_exceeded"
+                            try:
+                                if hasattr(df_stream, "terminate"):
+                                    df_stream.terminate()
+                                elif hasattr(df_stream, "process") and df_stream.process:
+                                    try:
+                                        df_stream.process.terminate()
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            break
+                        if event["type"] == "stdout":
+                            line = event["line"].strip()
+                            if "[V]" in line or "PoC" in line:
+                                 log(f"XSS Discovered: {line}", "SUCCESS")
+                                 
+                                 # Parse Dalfox line into structured object for UI template
+                                 xss_obj = {"url": "", "method": "GET", "payload": line, "evidence": line, "port": port}
+                                 method_match = re.search(r'\[(GET|POST|PUT|DELETE)\]', line)
+                                 if method_match:
+                                     xss_obj["method"] = method_match.group(1)
+                                 url_match = re.search(r'(https?://[^\s\[\]]+)', line)
+                                 if url_match:
+                                     xss_obj["url"] = url_match.group(1)
+                                 poc_match = re.search(r'PoC:\s*(.+)', line)
+                                 if poc_match:
+                                     xss_obj["payload"] = poc_match.group(1).strip()
+                                 
+                                 xss_found.append(xss_obj)
 
-                             if len(xss_found) >= dalfox_max_findings:
-                                stop_reason = "findings_budget_exceeded"
-                                try:
-                                    df_stream.close()
-                                except Exception:
-                                    pass
-                                break
-                             
-                             # NORMALIZED FINDING
-                             normalized_f = normalizer.normalize({"url": xss_obj["url"], "param": "", "poison": xss_obj["payload"], "evidence": line}, "dalfox")
-                             
-                             # Build rich evidence for XSS
-                             req_dump = f"{xss_obj['method']} {xss_obj['url']} HTTP/1.1\nHost: {target}\n"
-                             
-                             orch.add_finding(
-                                title=normalized_f["title"],
-                                description=normalized_f["description"] + f"\n\n**Validation Evidence**:\n- Dalfox confirmed execution via PoC: `{xss_obj['payload']}`",
-                                severity=normalized_f["severity"],
-                                tool_source="dalfox",
-                                url=xss_obj["url"],
-                                request=req_dump,
-                                response=f"HTTP/1.1 200 OK\n\n[PoC Reflects in body]",
-                                repro_command=f"dalfox url '{xss_obj['url']}' --no-color --silence"
-                             )
-            
-            if xss_found:
-                def _store_xss():
-                    if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
-                    # Flatten: append to single list (template iterates vuln.xss directly)
-                    if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = []
-                    results['phases']['vuln']['xss'].extend(xss_found)
-                _ts(_store_xss)
-                orch.save_results(orch.scan_id, results)
-            
-            orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found), reason=stop_reason)
-            
-    except Exception as e:
-        log(f"Dalfox failed: {e}", "ERROR")
-        orch.mark_module("dalfox", port, "failed", reason=str(e))
+                                 if len(xss_found) >= dalfox_max_findings:
+                                    stop_reason = "findings_budget_exceeded"
+                                    try:
+                                        df_stream.close()
+                                    except Exception:
+                                        pass
+                                    break
+                                 
+                                 # NORMALIZED FINDING
+                                 normalized_f = normalizer.normalize({"url": xss_obj["url"], "param": "", "poison": xss_obj["payload"], "evidence": line}, "dalfox")
+                                 
+                                 # Build rich evidence for XSS
+                                 req_dump = f"{xss_obj['method']} {xss_obj['url']} HTTP/1.1\nHost: {target}\n"
+                                 
+                                 orch.add_finding(
+                                    title=normalized_f["title"],
+                                    description=normalized_f["description"] + f"\n\n**Validation Evidence**:\n- Dalfox confirmed execution via PoC: `{xss_obj['payload']}`",
+                                    severity=normalized_f["severity"],
+                                    tool_source="dalfox",
+                                    url=xss_obj["url"],
+                                    request=req_dump,
+                                    response=f"HTTP/1.1 200 OK\n\n[PoC Reflects in body]",
+                                    repro_command=f"dalfox url '{xss_obj['url']}' --no-color --silence"
+                                 )
+                
+                if xss_found:
+                    def _store_xss():
+                        if 'vuln' not in results['phases']: results['phases']['vuln'] = {}
+                        # Flatten: append to single list (template iterates vuln.xss directly)
+                        if 'xss' not in results['phases']['vuln']: results['phases']['vuln']['xss'] = []
+                        results['phases']['vuln']['xss'].extend(xss_found)
+                    _ts(_store_xss)
+                    orch.save_results(orch.scan_id, results)
+                
+                orch.mark_module("dalfox", port, "executed", artifacts=len(xss_found), reason=stop_reason)
+                
+        except Exception as e:
+            log(f"Dalfox failed: {e}", "ERROR")
+            orch.mark_module("dalfox", port, "failed", reason=str(e))
 
     # --- OPEN REDIRECT ---
     try:

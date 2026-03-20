@@ -1,4 +1,9 @@
-from fpdf import FPDF
+try:
+    from fpdf import FPDF
+except Exception:  # pragma: no cover - import guard for environments without fpdf
+    class FPDF:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("fpdf_not_installed")
 import os
 import json
 from datetime import datetime
@@ -156,14 +161,24 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.ln()
 
     # Timeline highlights
-    if results and results.get('events'):
+    timeline_events = []
+    if isinstance(results, dict):
+        if isinstance(results.get("timeline"), list):
+            timeline_events = list(results.get("timeline") or [])
+        elif isinstance(results.get("events"), list):
+            timeline_events = list(results.get("events") or [])
+
+    if timeline_events:
         pdf.ln(5)
         pdf.set_font("helvetica", "B", 10)
         pdf.cell(0, 7, "Mission Chronology (Key Events):")
         pdf.ln(5)
         pdf.set_font("helvetica", "", 8)
-        # Sort and take recent/important events
-        important_events = [e for e in results['events'] if e.get('type') != 'LOG'][:15]
+        # Deterministic sort + cap
+        important_events = sorted(
+            [e for e in timeline_events if isinstance(e, dict) and e.get("type") != "LOG"],
+            key=lambda item: (str(item.get("ts") or ""), str(item.get("type") or ""), str(item.get("module") or "")),
+        )[:15]
         for e in important_events:
             ts = e.get('ts', '').split('T')[-1].split('.')[0] if 'T' in e.get('ts', '') else ''
             module = str(e.get('module', 'engine'))

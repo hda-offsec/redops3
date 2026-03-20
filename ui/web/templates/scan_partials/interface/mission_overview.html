@@ -2,10 +2,10 @@
 
 <!-- Red Team Tactical Board (New) -->
 {% set chain_count = results.get('tactical_summary', {}).get('active_chains_count', 0) %}
-{% set theme_color = 'danger' if chain_count > 0 else 'info' %}
+{% set theme_color = 'danger' if chain_count > 0 else 'secondary' %}
 <div class="col-12 mb-4">
-    <div class="card border border-{{ theme_color }} border-opacity-25 bg-{{ theme_color }} bg-opacity-5 shadow-sm">
-        <div class="card-header bg-{{ theme_color }} bg-opacity-10 py-2 d-flex justify-content-between align-items-center">
+    <div class="card border border-{{ theme_color }} border-opacity-25 {% if theme_color == 'danger' %}bg-danger bg-opacity-5{% endif %} shadow-sm">
+        <div class="card-header {% if theme_color == 'danger' %}bg-danger bg-opacity-10{% else %}bg-black bg-opacity-20{% endif %} py-2 d-flex justify-content-between align-items-center">
             <span class="text-{{ theme_color }} fw-bold x-small text-uppercase tracking-wider">
                 <i class="fas fa-radar me-2"></i>Mission Command: Tactical Board
             </span>
@@ -552,17 +552,24 @@
             </div>
         </div>
 
-        <!-- Delta Timeline -->
+        <!-- Live Execution Timeline / Terminal -->
         <div class="col-12">
-            <div class="card  opacity-75">
-                <div class="card-header glass-header">
-                    <i class="fas fa-history me-2"></i>Delta History
+            <div class="card border-info border-opacity-25 shadow-sm">
+                <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
+                    <span class="text-info x-small fw-bold text-uppercase" style="letter-spacing: 1px;"><i class="fas fa-terminal me-2"></i>Live Operation Timeline</span>
+                    <div class="spinner-grow text-info spinner-grow-sm {% if scan.status != 'running' %}d-none{% endif %}" role="status" id="live-terminal-spinner"></div>
                 </div>
-                <div class="card-body p-4 text-center">
-                    <i class="fas fa-clock fa-2x text-muted mb-2"></i>
-                    <p class="small text-muted mb-0">Delta tracking not enabled for this target.</p>
-                    <span
-                        class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 mt-2">N/A</span>
+                <div class="card-body p-0 log-console font-monospace small" style="background: #050505; color: #a8b2c1; max-height: 400px; min-height: 250px; overflow-y: auto;">
+                    <div class="p-3 text-muted fst-italic border-bottom border-dark {% if logs %}d-none{% endif %}" id="timeline-empty-msg"><i class="fas fa-plug me-2"></i>Connecting to execution stream...</div>
+                    {% if logs %}
+                        {% for log in logs[-50:] %}
+                        <div class="px-3 py-1 border-bottom border-dark hover-bg-dark animate__animated animate__fadeIn">
+                            <span class="text-secondary opacity-50">[{{ log.timestamp.strftime('%H:%M:%S') }}]</span>
+                            <span class="{% if log.level == 'INFO' %}text-info{% elif log.level == 'SUCCESS' %}text-success{% elif log.level == 'WARN' %}text-warning{% elif log.level == 'ERROR' %}text-danger{% else %}text-secondary{% endif %} fw-bold mx-2">[{{ log.level }}]</span>
+                            <span class="text-light">{{ log.message }}</span>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
                 </div>
             </div>
         </div>

@@ -167,7 +167,8 @@ class DetectionAdapter:
             "secret": "Revoke the exposed credential immediately and rotate all related keys. Implement secret scanning in CI/CD."
         }
         
-        remediation = extra.get("reproduction") or ""
+        reproduction_text = extra.get("reproduction") or extra.get("repro_command") or ""
+        remediation = extra.get("remediation") or ""
         if not remediation:
             cat_lower = (extra.get("category") or "").lower()
             for k, v in remediations.items():
@@ -201,7 +202,11 @@ class DetectionAdapter:
             "signal_ids": extra.get("signal_ids", []),
             "category": extra.get("category", ""),
             "evidence": extra.get("evidence", ""),
-            "reproduction": remediation,
+            "reproduction": reproduction_text,
+            "command": extra.get("command", ""),
+            "impact": extra.get("impact", ""),
+            "references": extra.get("references", []),
+            "remediation": remediation,
             "module": extra.get("module", tool_source),
             "metadata": extra.get("metadata", {}),
             "source": extra.get("source", tool_source or "unknown"),
@@ -420,10 +425,11 @@ class DetectionAdapter:
                             description=v.get("description", ""),
                             tool_source="wpscan",
                             confidence="high",
-                            category="vulnerability",
+                            category="wordpress_vuln",
                             endpoint="",
                             evidence=v.get("reference", ""),
                             repro_command=f"# Refer to: {v.get('reference', 'CVE details')}",
+                            references=[v.get("reference")] if v.get("reference") else [],
                         )
 
     @staticmethod
@@ -590,7 +596,6 @@ class DetectionAdapter:
     # Cortex recommendations that are generic/unconditional (triggered for ALL HTTP ports).
     # These create noise without adding signal — filtered to avoid false brief pollution.
     _CORTEX_NOISE_PREFIXES = (
-        "http smuggling",
         "virtual host brute",
         "waf & ips behavioral",
         "waf fingerprint",
@@ -624,7 +629,10 @@ class DetectionAdapter:
 
             # Skip generic noise recommendations that fire unconditionally on every HTTP port
             title_lower = title.lower()
-            if any(title_lower.startswith(prefix) for prefix in DetectionAdapter._CORTEX_NOISE_PREFIXES):
+            if (
+                any(title_lower.startswith(prefix) for prefix in DetectionAdapter._CORTEX_NOISE_PREFIXES)
+                and not reason
+            ):
                 continue
 
             # Skip low-confidence suggestions (< 65) when no concrete signal is in the reason
@@ -645,7 +653,7 @@ class DetectionAdapter:
             DetectionAdapter._add(
                 normalized,
                 fid,
-                title=f"[Cortex Tip] {title}",
+                title=f"Cortex: {title}",
                 severity="info",
                 description=description,
                 tool_source="decision_cortex",
@@ -725,7 +733,7 @@ class DetectionAdapter:
                 description=f"Accessible endpoint discovered at `{url}` returned HTTP {status}.",
                 tool_source="api_scanner",
                 confidence="high",
-                category="api",
+                category="api_endpoint",
                 endpoint=url,
                 repro_command=f"curl -ik {url}",
             )
@@ -777,12 +785,12 @@ class DetectionAdapter:
                 DetectionAdapter._add(
                     normalized,
                     fid,
-                    title=f"Candidate Input Surface: {len(candidates)} Parameterized Endpoints (port {port})",
+                    title=f"Injection Points: {len(candidates)} Candidate Endpoints (port {port})",
                     severity="info",
                     description=f"Discovered {len(candidates)} URLs with high-potential input parameters:\n{urls_display}" + (f"\n...and {len(candidates)-10} more" if len(candidates) > 10 else ""),
                     tool_source="enum_seed_factory",
                     confidence="medium",
-                    category="threat_surface",
+                    category="injection_surface",
                     endpoint="",
                     metadata={"classification": "candidate"},
                     repro_command=f"# Use burp or ffuf to fuzz parameters for these URLs:\n# {candidates[0]}",

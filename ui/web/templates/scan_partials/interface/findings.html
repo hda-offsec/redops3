@@ -494,63 +494,77 @@
         ].filter(([, value]) => isMeaningfulValue(value));
 
         let html = `
-            <div class="mb-4">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="badge-severity bg-${(f.severity || 'info').toLowerCase()}">${(f.severity || 'info').toUpperCase()}</span>
-                        <span class="badge bg-secondary bg-opacity-20 text-muted extra-small">CONF: ${(f.confidence || 'medium').toUpperCase()}</span>
-                        <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 extra-small">VALIDATION: ${validationStatus.toUpperCase()}</span>
-                        ${isValidated ? '<span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-25 extra-small">VERIFIED</span>' : ''}
-                        <span class="badge bg-${alertTone} bg-opacity-10 text-${alertTone} border border-${alertTone} border-opacity-25 extra-small">STATE: ${resultState.toUpperCase()}</span>
-                    </div>
-                </div>
-                <h4 class="finding-detail-title text-light mb-2">${escapeHtml(f.title || 'Untitled finding')}</h4>
-                <div class="extra-small text-muted mb-3 d-flex flex-wrap gap-2">
-                    <span class="badge bg-dark border border-secondary text-secondary">${escapeHtml((f.tool_source || f.tool || 'n/a').toUpperCase())}</span>
-                    ${f.category ? `<span class="badge bg-secondary bg-opacity-10 text-light border border-secondary border-opacity-25">${escapeHtml(f.category.toUpperCase())}</span>` : ''}
-                    ${provider ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">PROVIDER: ${escapeHtml(provider)}</span>` : ''}
-                    ${component ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">COMPONENT: ${escapeHtml(component)}</span>` : ''}
-                    ${versionInfo ? `<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">VERSION: ${escapeHtml(versionInfo)}</span>` : ''}
-                </div>
-                ${f.description ? `<div class="small text-muted border border-secondary border-opacity-10 rounded p-2 mb-3">${escapeHtml(f.description)}</div>` : ''}
-
-                <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
-                    <h6 class="extra-small text-uppercase text-muted mb-2">Section B — Localisation / vecteur</h6>
-                    ${primaryUrl ? `<div class="small font-monospace text-info mb-1">${escapeHtml(primaryUrl)}${buildCopyButton(primaryUrl, 'Copy URL')}</div>` : '<div class="small text-muted">No target URL available.</div>'}
-                    ${isMeaningfulValue(f.endpoint) && f.endpoint !== primaryUrl ? `<div class="small text-muted">Endpoint: <span class="font-monospace">${escapeHtml(f.endpoint)}</span></div>` : ''}
-                    ${isMeaningfulValue(f.target) && f.target !== primaryUrl ? `<div class="small text-muted">Target: <span class="font-monospace">${escapeHtml(f.target)}</span></div>` : ''}
-                    ${isMeaningfulValue(f.parameter) ? `<div class="small text-info">Parameter: <span class="font-monospace">${escapeHtml(f.parameter)}</span></div>` : ''}
-                    ${isMeaningfulValue(f.payload) ? `<div class="small text-info">Payload: <span class="font-monospace">${escapeHtml(f.payload)}</span></div>` : ''}
-                </div>
-
-                <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
-                    <h6 class="extra-small text-uppercase text-muted mb-2">Section C — Validation</h6>
-                    ${validationRows.length ? validationRows.map(([label, value]) => `<div class="small mb-1"><span class="text-muted">${label}:</span> <span class="${label.toLowerCase().includes('command') ? 'font-monospace text-warning' : 'text-light'}">${escapeHtml(value)}</span>${label === 'Command' ? buildCopyButton(value, 'Copy command') : ''}</div>`).join('') : '<div class="small text-muted">No structured validation metadata.</div>'}
-                </div>
-
-                <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
-                    <h6 class="extra-small text-uppercase text-muted mb-2">Section D — Reproductibilité</h6>
-                    ${reproducibilityRows.length ? reproducibilityRows.map(([label, value]) => `<div class="small mb-2"><div class="text-muted">${label}</div><pre class="evidence-block mb-1">${escapeHtml(value)}</pre>${label === 'Command' ? buildCopyButton(value, 'Copy command') : ''}${label === 'URL' ? buildCopyButton(value, 'Copy URL') : ''}${(label === 'Request excerpt' || label === 'Response excerpt') ? buildCopyButton(value, 'Copy') : ''}</div>`).join('') : '<div class="small text-muted">No reproducibility payload available.</div>'}
-                </div>
-
-                <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
-                    <h6 class="extra-small text-uppercase text-muted mb-2">Section E — Preuve</h6>
-                    ${proofRows.length ? proofRows.map(([label, value]) => `<div class="small mb-2"><div class="text-muted">${label}</div><pre class="evidence-block mb-1">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre>${buildCopyButton(typeof value === 'string' ? value : JSON.stringify(value, null, 2), 'Copy')}</div>`).join('') : '<div class="small text-muted">No meaningful proof artifact available.</div>'}
-                    ${f.screenshot_path ? `<div class="mt-2"><img src="/static/${escapeHtml(f.screenshot_path)}" class="img-fluid border border-secondary rounded shadow-sm" style="max-height: 250px; cursor: pointer" onclick="window.open(this.src)"></div>` : ''}
-                </div>
-
-                <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-25">
-                    <h6 class="extra-small text-uppercase text-muted mb-2">Section F — Actions</h6>
-                    <div class="d-flex flex-wrap gap-2">
-                        ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn" data-command="${encodeURIComponent(primaryCommand)}"><i class="fas fa-play me-1"></i>Verify</button>` : '<button class="btn btn-sm btn-outline-secondary" disabled><i class="fas fa-play me-1"></i>Verify unavailable</button>'}
-                        ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(primaryCommand)}"><i class="fas fa-copy me-1"></i>Copy command</button>` : ''}
-                        ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(primaryUrl)}"><i class="fas fa-copy me-1"></i>Copy URL</button>` : ''}
-                        ${evidence.request ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(evidence.request)}"><i class="fas fa-copy me-1"></i>Copy request</button>` : ''}
-                        ${evidence.response ? `<button class="btn btn-sm btn-outline-secondary copy-inline" data-copy-encoded="${encodeURIComponent(evidence.response)}"><i class="fas fa-copy me-1"></i>Copy response</button>` : ''}
+            <div class="mb-4" style="font-family: 'Inter', Helvetica, sans-serif;">
+                <div class="d-flex align-items-center justify-content-between mb-4 border-bottom border-secondary border-opacity-25 pb-3">
+                    <h4 class="finding-detail-title text-light mb-0 fw-bold d-flex align-items-center gap-3">
+                        <span class="badge bg-${(f.severity || 'info').toLowerCase()} fs-6 px-3 py-2 border border-${(f.severity || 'info').toLowerCase()} bg-opacity-25 shadow-sm text-uppercase" style="letter-spacing: 1px;">
+                            ${(f.severity || 'info').toUpperCase()}
+                        </span>
+                        ${escapeHtml(f.title || 'Untitled finding')}
+                    </h4>
+                    <div class="text-end d-none d-md-block">
+                        <span class="text-muted extra-small d-block text-uppercase fw-bold mb-1" style="letter-spacing: 1px;">Detection Level</span>
+                        <span class="badge bg-secondary bg-opacity-20 text-light border border-secondary shadow-sm px-2 py-1">${(f.confidence || 'medium').toUpperCase()} CONFIDENCE</span>
                     </div>
                 </div>
 
-                ${!hasMeaningfulProof(f) && !primaryCommand ? '<div class="small text-muted fst-italic">This finding currently carries observation-only data.</div>' : ''}
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="p-3 h-100 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm" style="border-left: 3px solid #17a2b8 !important;">
+                            <h6 class="extra-small text-uppercase text-info mb-3 fw-bold"><i class="fas fa-crosshairs me-2"></i>Affected Scope & Vector</h6>
+                            ${primaryUrl ? `<div class="small fw-bold text-light mb-2 text-break"><i class="fas fa-link me-2 text-muted"></i>${escapeHtml(primaryUrl)}${buildCopyButton(primaryUrl, 'Copy')}</div>` : '<div class="small text-muted fst-italic mb-2">No target URL identified.</div>'}
+                            ${isMeaningfulValue(f.parameter) ? `<div class="small text-muted mt-2">Parameter / Input: <span class="text-warning fw-bold font-monospace bg-dark p-1 rounded">${escapeHtml(f.parameter)}</span></div>` : ''}
+                            ${provider ? `<div class="small text-muted mt-2">Tech Provider: <span class="text-light fw-bold">${escapeHtml(provider)}</span></div>` : ''}
+                            ${component ? `<div class="small text-muted mt-2">Component Component: <span class="text-light fw-bold">${escapeHtml(component)}</span></div>` : ''}
+                            ${versionInfo ? `<div class="small text-muted mt-2">Version Identified: <span class="badge bg-secondary text-light">${escapeHtml(versionInfo)}</span></div>` : ''}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="p-3 h-100 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm" style="border-left: 3px solid #ffc107 !important;">
+                            <h6 class="extra-small text-uppercase text-warning mb-3 fw-bold"><i class="fas fa-shield-alt me-2"></i>Status & Intelligence Source</h6>
+                            <div class="small text-muted mb-2">Analysis Engine: <span class="badge bg-dark border border-secondary text-light fw-bold text-uppercase">${escapeHtml((f.tool_source || f.tool || 'n/a'))}</span></div>
+                            <div class="small text-muted mb-2">Threat Category: <span class="text-light fw-bold text-capitalize">${f.category ? escapeHtml(f.category.replace(/_/g, ' ')) : 'N/A'}</span></div>
+                            <div class="small text-muted d-flex align-items-center gap-2 mt-3">
+                                <span class="fw-bold text-uppercase extra-small">VALIDATION:</span>
+                                <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 px-2 py-1">${validationStatus.toUpperCase()}</span>
+                                ${isValidated ? '<span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-25 px-2 py-1"><i class="fas fa-check-circle me-1"></i>VERIFIED</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                ${f.description ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-align-left me-2"></i>Executive Details</h6>
+                    <div class="small text-light bg-black bg-opacity-20 p-4 rounded border border-secondary border-opacity-10 lh-lg shadow-sm" style="white-space: pre-wrap; font-size: 0.9rem;">${escapeHtml(f.description)}</div>
+                </div>` : ''}
+
+                ${proofRows.length || reproducibilityRows.length || f.screenshot_path ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-microscope me-2"></i>Technical Evidence & Proof</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${validationRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-shield-alt me-1"></i> Section C — Validation</div>${validationRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
+                        ${reproducibilityRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-code me-1"></i> Section D — Reproductibilité</div>${reproducibilityRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(value)}</pre></div>`).join('')}</div>` : ''}
+                        ${proofRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-file-alt me-1"></i> Section E — Preuve</div>${proofRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
+                        
+                        ${f.screenshot_path ? `<div class="mt-4 pt-3 border-top border-secondary border-opacity-25"><div class="text-info fw-bold mb-3 text-uppercase extra-small"><i class="fas fa-image me-1"></i> Visual Evidence</div><img src="/static/${escapeHtml(f.screenshot_path)}" class="img-fluid border border-secondary border-opacity-25 rounded shadow-lg hover-zoom" style="max-height: 400px; cursor: pointer; transition: transform 0.2s;" onclick="window.open(this.src)" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"></div>` : ''}
+                    </div>
+                </div>` : ''}
+
+                ${f.reproduction || primaryCommand ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-tools me-2"></i>Remediation & Actions</h6>
+                    <div class="p-4 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm" style="border-left: 3px solid #6c757d !important;">
+                        ${f.reproduction && !isReproCommand(f.reproduction) ? `<div class="small text-light mb-4 p-3 bg-secondary bg-opacity-10 rounded border border-secondary border-opacity-25"><strong class="text-success d-block mb-2"><i class="fas fa-lightbulb me-2"></i>Guidance:</strong><div class="lh-base">${escapeHtml(f.reproduction)}</div></div>` : ''}
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn fw-bold px-3 py-2" data-command="${encodeURIComponent(primaryCommand)}"><i class="fas fa-play me-2"></i>Verify / Reproduce</button>` : ''}
+                            ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${encodeURIComponent(primaryCommand)}"><i class="fas fa-copy me-2"></i>Copy command</button>` : ''}
+                            ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${encodeURIComponent(primaryUrl)}"><i class="fas fa-copy me-2"></i>Copy Target URL</button>` : ''}
+                        </div>
+                    </div>
+                </div>` : ''}
+                
+                ${!hasMeaningfulProof(f) && !primaryCommand && !f.description ? '<div class="small text-muted fst-italic p-4 text-center border border-secondary border-opacity-10 rounded bg-black bg-opacity-20 shadow-sm"><i class="fas fa-info-circle fa-2x mb-2 opacity-50 d-block"></i>This finding currently carries observation-only data without explicit proof artifacts.</div>' : ''}
             </div>
         `;
 

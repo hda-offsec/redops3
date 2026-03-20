@@ -36,8 +36,28 @@ class SupplyChainExpert:
             try:
                 r = http_client.get(url, timeout=5, allow_redirects=False)
                 if r.status_code == 200 and len(r.text) > 10:
-                    # Potential leak discovered
                     content = r.text
+                    
+                    # V12: Validation check to avoid generic 200 error pages
+                    is_valid = False
+                    if filename.endswith(".json"):
+                        try:
+                            data = json.loads(content)
+                            if any(k in data for k in ["dependencies", "devDependencies", "require", "name"]):
+                                is_valid = True
+                        except: pass
+                    elif filename == "build.gradle":
+                        if any(x in content for x in ["plugins {", "dependencies {", "repositories {", "implementation '"]):
+                            is_valid = True
+                    elif filename in ["requirements.txt", "Gemfile", "go.mod"]:
+                        # Simple non-empty check for these, but could be improved
+                        if len(content.splitlines()) > 2:
+                            is_valid = True
+                    
+                    if not is_valid:
+                        continue
+
+                    # Potential leak discovered
                     version_info = self._parse_manifest(filename, content)
                     
                     finding = {

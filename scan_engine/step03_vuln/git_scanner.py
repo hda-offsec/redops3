@@ -11,11 +11,12 @@ class GitExposureScanner:
         """
         Scans for exposed .git directory and analyzes its configuration.
         """
-        url = f"{protocol}://{self.target}:{port}/.git/config"
+        base_url = f"{protocol}://{self.target}:{port}/.git/"
+        url = f"{base_url}config"
         findings = []
         
         try:
-            if logger: logger(f"Advanced: Checking for .git exposure on {protocol}://{self.target}:{port}...", "INFO")
+            if logger: logger(f"Advanced: Checking for .git exposure on {base_url}...", "INFO")
             
             # 1. Check for .git/config
             r = http_client.get(url, options=getattr(self, "options", None), timeout=7, allow_redirects=False)
@@ -23,45 +24,63 @@ class GitExposureScanner:
                 config_content = r.text
                 
                 # Extract interesting info from config
-                # 1. Remotes (URLs)
                 remotes = re.findall(r'url\s*=\s*(.*)', config_content)
+
+                curl_cmd = f"curl -ik {url}"
                 
-                desc = "The .git directory is publicly accessible! This is a critical vulnerability that typically leads to full source code disclosure.\n\n"
-                desc += "Exposed Config Content (Snippet):\n```ini\n" + config_content[:500] + "...\n```\n"
-                
-                if remotes:
-                    desc += "\nDiscovered Remotes:\n" + "\n".join([f"- {url}" for url in remotes])
-                    
                 from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                
                 findings.append(FindingNormalizer.from_response(
                     r,
-                    title=f"CRITICAL: .git Directory Exposed ({port})",
-                    description=desc,
+                    title="Exposed Git Repository (.git/config)",
+                    description="The `.git` directory is publicly accessible! This is a severe vulnerability that typically leads to full source code disclosure, API keys leakage, and intellectual property theft.",
                     severity="critical",
+                    confidence="certain",
                     tool_source="git_scanner",
-                    category="vuln"
+                    category="secret", # Maps to Secret/Intel icon
+                    evidence={
+                        "config_snippet": config_content[:500],
+                        "discovered_remotes": remotes
+                    },
+                    repro_command=curl_cmd,
+                    metadata={
+                        "validation_status": "success",
+                        "port": port,
+                        "protocol": protocol,
+                        "component": "Source Control"
+                    }
                 ))
                 
                 if logger: logger(f"🔥 CRITICAL: Exposed .git directory found on port {port}!", "CRITICAL")
 
                 # 2. Check for .git/HEAD to confirm
-                r_head = http_client.get(f"{protocol}://{self.target}:{port}/.git/HEAD", options=getattr(self, "options", None), timeout=5)
+                r_head = http_client.get(f"{base_url}HEAD", options=getattr(self, "options", None), timeout=5)
                 if r_head.status_code == 200 and "ref:" in r_head.text:
                     if logger: logger(f"Confirmed: Valid .git/HEAD found: {r_head.text.strip()}", "SUCCESS")
                     
                     # 3. EXPERT: Auto-Looting (Git Dumper)
                     loot_path = f"data/loot/git_{self.target}_{port}"
                     if logger: logger(f"⚔️  Attempting to dump source code to {loot_path}...", "WARN")
-                    self.dump_git(f"{protocol}://{self.target}:{port}/.git/", loot_path, logger)
+                    self.dump_git(base_url, loot_path, logger)
                     
-                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
                     findings.append(FindingNormalizer.from_response(
                         r_head,
-                        title="Git Source Code Dump Attempted",
-                        description=f"RedOps3 attempted to dump the repository to `{loot_path}`.\nCheck the `data/loot` directory for extracted source code.",
-                        severity="critical",
+                        title="Git Source Code Extracted (Auto-Loot)",
+                        description=f"RedOps3 successfully confirmed a valid `HEAD` and attempted to dump the repository locally.\n\nAll extracted source code has been saved to the secure loot vault.",
+                        severity="high",
+                        confidence="certain",
                         tool_source="git_dumper",
-                        category="vuln"
+                        category="intel",
+                        repro_command=f"git-dumper {base_url} /tmp/git_dump",
+                        evidence={
+                            "head_content": r_head.text.strip()[:100],
+                            "loot_destination": loot_path
+                        },
+                        metadata={
+                            "validation_status": "success",
+                            "port": port,
+                            "protocol": protocol,
+                        }
                     ))
 
         except Exception as e:

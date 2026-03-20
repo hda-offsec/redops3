@@ -36,30 +36,62 @@ class KubeDockerScanner:
                         if port == 6443: url = f"https://{self.target}:{port}/version"
                         
                         r = http_client.get(url, options=getattr(self, "options", None), timeout=3)
+                        
+                        from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                        
                         if r.status_code == 200:
-                            findings.append({
-                                "title": f"CRITICAL: Exposed {service}",
-                                "description": f"{service} is exposed on port {port} and accessible without auth. This allows full cluster takeover.",
-                                "severity": "critical",
-                                "tool_source": "kube_scanner",
-                                "raw_loot": url
-                            })
+                            findings.append(FindingNormalizer.from_response(
+                                r,
+                                title=f"Exposed {service}",
+                                description=f"The `{service}` is exposed on port {port} and is directly accessible without authentication.\n\nThis is a critical security risk that often allows an unauthenticated attacker to execute arbitrary commands, read sensitive secrets, or achieve full cluster takeover.",
+                                severity="critical",
+                                confidence="certain",
+                                tool_source="kube_scanner",
+                                category="cloud",
+                                evidence={
+                                    "proof": r.text[:500]
+                                },
+                                repro_command=f"curl -ik {url}",
+                                metadata={
+                                    "validation_status": "success",
+                                    "port": port,
+                                    "component": "Kubernetes/Docker"
+                                }
+                            ))
                             if logger: logger(f"🚨 CLUSTER BREACH: {service} on port {port}", "CRITICAL")
                         else:
-                             findings.append({
-                                "title": f"High: Exposed {service} Port",
-                                "description": f"{service} port {port} is open but returned {r.status_code}. It should not be exposed publicly.",
-                                "severity": "high",
-                                "tool_source": "kube_scanner"
-                            })
-                    except Exception:
+                             findings.append(FindingNormalizer.from_response(
+                                r,
+                                title=f"Exposed {service} Port",
+                                description=f"The `{service}` port ({port}) is open and reachable from the internet, though it returned an HTTP `{r.status_code}` response.\n\nWhile potentially authenticated, control plane ports should never be exposed to the public internet.",
+                                severity="high",
+                                confidence="high",
+                                tool_source="kube_scanner",
+                                category="cloud",
+                                repro_command=f"curl -ik {url}",
+                                metadata={
+                                    "validation_status": "success",
+                                    "port": port,
+                                    "component": "Kubernetes/Docker"
+                                }
+                            ))
+                    except Exception as e:
                         # Just open but timeout on HTTP
-                         findings.append({
-                                "title": f"Medium: Exposed Container Port {port}",
-                                "description": f"Port {port} ({service}) is open. Verify firewall rules.",
+                         from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                         findings.append(FindingNormalizer.normalize({
+                                "title": f"Exposed Container Port {port}",
+                                "description": f"Port {port} ({service}) is open at the network level, but did not respond to basic HTTP requests.\n\nVerify firewall rules and restrict access to trusted source IPs only.",
                                 "severity": "medium",
-                                "tool_source": "kube_scanner"
-                            })
+                                "confidence": "high",
+                                "tool_source": "kube_scanner",
+                                "category": "cloud",
+                                "endpoint": f"tcp://{self.target}:{port}",
+                                "reproduction": f"nmap -p {port} -sV {self.target}",
+                                "metadata": {
+                                    "port": port,
+                                    "component": "Kubernetes/Docker"
+                                }
+                            }))
 
             except Exception:
                 continue

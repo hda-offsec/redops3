@@ -29,6 +29,31 @@ class RiskScoringTests(unittest.TestCase):
         self.assertIn(risk_level, {"high", "critical"})
         self.assertIn(attack_priority, {"high", "critical"})
 
+    def test_scoring_supports_legacy_and_extended_return_contracts(self):
+        finding = SimpleNamespace(
+            severity="high",
+            confidence="certain",
+            endpoint="https://example.com/auth/login",
+            target="example.com",
+            metadata_json={"chain_length": 3, "exploit_validated": True},
+            id_stable="risk-2",
+            title="Exploit validation",
+            description="validated signal",
+            tool_source="exploit_validation_engine",
+        )
+        legacy_tuple = RiskScoringEngine.score_finding(finding, {"finding:db:risk-2"})
+        self.assertEqual(len(legacy_tuple), 6)
+        self.assertEqual(legacy_tuple[3], 3)
+
+        extended_tuple = RiskScoringEngine.score_finding(
+            finding,
+            {"finding:db:risk-2"},
+            include_factors=True,
+        )
+        self.assertEqual(len(extended_tuple), 7)
+        self.assertIsInstance(extended_tuple[6], dict)
+        self.assertIn("validation_bonus", extended_tuple[6])
+
 
 if __name__ == "__main__":
     unittest.main()

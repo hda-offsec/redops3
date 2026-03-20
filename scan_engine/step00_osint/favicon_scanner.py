@@ -1,8 +1,27 @@
 import scan_engine.helpers.http_client as http_client
 from scan_engine.helpers.http_client import get_session
-import mmh3
 import codecs
 import base64
+import hashlib
+
+try:
+    import mmh3
+except Exception:  # pragma: no cover - runtime fallback when mmh3 is unavailable
+    mmh3 = None
+
+
+def _hash_favicon(payload):
+    """
+    Produce a deterministic 32-bit signed hash compatible with existing storage
+    expectations even when the optional `mmh3` dependency is missing.
+    """
+    if mmh3 is not None:
+        return mmh3.hash(payload)
+    digest = hashlib.sha256(payload).digest()
+    value = int.from_bytes(digest[:4], byteorder="big", signed=False)
+    if value >= 2 ** 31:
+        value -= 2 ** 32
+    return value
 
 class FaviconScanner:
     def __init__(self, target, options=None):
@@ -14,7 +33,7 @@ class FaviconScanner:
             response = http_client.get(url, options=getattr(self, "options", None), timeout=10)
             if response.status_code == 200:
                 favicon = codecs.encode(response.content, 'base64')
-                hash_val = mmh3.hash(favicon)
+                hash_val = _hash_favicon(favicon)
                 return hash_val
         except Exception:
             pass

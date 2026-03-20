@@ -1,0 +1,148 @@
+{% set target_identifier = (scan.target.identifier if scan and scan.target else results.get('target', '')) %}
+{% set recon_ports = results.get('phases', {}).get('recon', {}).get('open_ports', []) %}
+{% set dns_subdomains = results.get('phases', {}).get('dns', {}).get('subdomains', []) %}
+{% set katana_map = results.get('phases', {}).get('enum', {}).get('katana', {}) %}
+{% set api_data = results.get('phases', {}).get('enum', {}).get('api', {}) %}
+{% set injection_map = results.get('phases', {}).get('enum', {}).get('injection_points', {}) %}
+{% set attack_plan = results.get('attack_plan', []) %}
+
+{% set enum_endpoints = namespace(count=0) %}
+{% if katana_map %}
+    {% for _port, _urls in katana_map.items() %}
+        {% if _urls is iterable and _urls is not string %}
+            {% set enum_endpoints.count = enum_endpoints.count + (_urls|length) %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+{% if api_data and api_data.endpoints %}
+    {% set enum_endpoints.count = enum_endpoints.count + (api_data.endpoints|length) %}
+{% endif %}
+{% if api_data and api_data.discovered_endpoints %}
+    {% set enum_endpoints.count = enum_endpoints.count + (api_data.discovered_endpoints|length) %}
+{% endif %}
+
+{% set audit_gates = namespace(
+    total=findings|length,
+    validated=0,
+    missing_proof=0,
+    missing_command=0,
+    correlated=0
+) %}
+{% for f in findings %}
+    {% set metadata = f.metadata if f.metadata else {} %}
+    {% set validation = metadata.validation if metadata.validation else {} %}
+    {% set reproducibility = metadata.reproducibility if metadata and metadata.reproducibility else {} %}
+    {% set validation_status = (validation.status if validation and validation.status else '')|lower %}
+    {% set result_state = (validation.result_state if validation and validation.result_state else (f.result_state or (metadata.result_state if metadata else '')))|lower %}
+    {% set command = validation.command or reproducibility.command or f.repro_command or f.reproduction %}
+    {% set has_proof = f.evidence or f.raw_output or f.request or f.response or validation.artifact or reproducibility.response_excerpt %}
+    {% set is_high = (f.severity or 'info')|lower in ['critical', 'high'] %}
+    {% if validation_status == 'success' or result_state in ['validated', 'confirmed', 'confirmed_active'] %}
+        {% set audit_gates.validated = audit_gates.validated + 1 %}
+    {% endif %}
+    {% if f.category == 'attack_chain' or (f.chain_metadata and (f.chain_metadata.related_findings or f.chain_metadata.attack_path_summary)) %}
+        {% set audit_gates.correlated = audit_gates.correlated + 1 %}
+    {% endif %}
+    {% if is_high and not has_proof %}
+        {% set audit_gates.missing_proof = audit_gates.missing_proof + 1 %}
+    {% endif %}
+    {% if is_high and not command %}
+        {% set audit_gates.missing_command = audit_gates.missing_command + 1 %}
+    {% endif %}
+{% endfor %}
+
+{% set scope_ready = target_identifier|length > 0 %}
+{% set recon_ready = (recon_ports|length > 0) or (dns_subdomains|length > 0) %}
+{% set enum_ready = (enum_endpoints.count > 0) or (injection_map|length > 0) %}
+{% set detection_ready = findings|length > 0 %}
+{% set validation_ready = audit_gates.validated > 0 %}
+{% set correlation_ready = audit_gates.correlated > 0 or attack_plan|length > 0 %}
+{% set reporting_ready = (scan.status == 'completed') and detection_ready %}
+{% set closure_ready = (scan.status == 'completed') and (audit_gates.missing_proof == 0) and (audit_gates.missing_command == 0) %}
+
+<div class="col-12 mb-4">
+    <div class="card border-secondary border-opacity-25 bg-black bg-opacity-20 audit-journey-panel">
+        <div class="card-header glass-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-route me-2 text-info"></i>Audit Journey</span>
+            <span class="badge bg-info bg-opacity-10 border border-info text-info x-small">RED TEAM WORKFLOW</span>
+        </div>
+        <div class="card-body">
+            <div class="audit-journey-track mb-4" id="audit-journey">
+                <div class="audit-stage {{ 'done' if scope_ready else 'pending' }}" id="audit-stage-cadrage" data-stage="cadrage">
+                    <div class="audit-stage-index">1</div>
+                    <div class="audit-stage-title">Cadrage</div>
+                    <div class="audit-stage-sub">Scope & RoE</div>
+                </div>
+                <div class="audit-stage {{ 'done' if recon_ready else 'pending' }}" id="audit-stage-recon" data-stage="recon">
+                    <div class="audit-stage-index">2</div>
+                    <div class="audit-stage-title">Recon</div>
+                    <div class="audit-stage-sub">Surface Discovery</div>
+                </div>
+                <div class="audit-stage {{ 'done' if enum_ready else 'pending' }}" id="audit-stage-enum" data-stage="enum">
+                    <div class="audit-stage-index">3</div>
+                    <div class="audit-stage-title">Énumération</div>
+                    <div class="audit-stage-sub">Service Mapping</div>
+                </div>
+                <div class="audit-stage {{ 'done' if detection_ready else 'pending' }}" id="audit-stage-detection" data-stage="detection">
+                    <div class="audit-stage-index">4</div>
+                    <div class="audit-stage-title">Détection</div>
+                    <div class="audit-stage-sub">Raw Findings</div>
+                </div>
+                <div class="audit-stage {{ 'done' if validation_ready else 'pending' }}" id="audit-stage-validation" data-stage="validation">
+                    <div class="audit-stage-index">5</div>
+                    <div class="audit-stage-title">Validation</div>
+                    <div class="audit-stage-sub">Evidence-backed</div>
+                </div>
+                <div class="audit-stage {{ 'done' if correlation_ready else 'pending' }}" id="audit-stage-correlation" data-stage="correlation">
+                    <div class="audit-stage-index">6</div>
+                    <div class="audit-stage-title">Corrélation</div>
+                    <div class="audit-stage-sub">Attack Paths</div>
+                </div>
+                <div class="audit-stage {{ 'done' if reporting_ready else 'pending' }}" id="audit-stage-reporting" data-stage="reporting">
+                    <div class="audit-stage-index">7</div>
+                    <div class="audit-stage-title">Reporting</div>
+                    <div class="audit-stage-sub">Decision-ready</div>
+                </div>
+                <div class="audit-stage {{ 'done' if closure_ready else 'pending' }}" id="audit-stage-closure" data-stage="closure">
+                    <div class="audit-stage-index">8</div>
+                    <div class="audit-stage-title">Clôture</div>
+                    <div class="audit-stage-sub">QA Sign-off</div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-8">
+                    <div class="audit-gates-grid">
+                        <div class="audit-gate">
+                            <div class="audit-gate-label">Findings Total</div>
+                            <div class="audit-gate-value text-info" id="audit-gate-total">{{ audit_gates.total }}</div>
+                        </div>
+                        <div class="audit-gate">
+                            <div class="audit-gate-label">Validated</div>
+                            <div class="audit-gate-value text-success" id="audit-gate-validated">{{ audit_gates.validated }}</div>
+                        </div>
+                        <div class="audit-gate">
+                            <div class="audit-gate-label">Missing Proof</div>
+                            <div class="audit-gate-value {{ 'text-danger' if audit_gates.missing_proof > 0 else 'text-success' }}" id="audit-gate-missing-proof">{{ audit_gates.missing_proof }}</div>
+                        </div>
+                        <div class="audit-gate">
+                            <div class="audit-gate-label">Missing Command</div>
+                            <div class="audit-gate-value {{ 'text-danger' if audit_gates.missing_command > 0 else 'text-success' }}" id="audit-gate-missing-command">{{ audit_gates.missing_command }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="goToAuditStage('recon')"><i class="fas fa-binoculars me-1"></i>Recon</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="goToAuditStage('detection')"><i class="fas fa-biohazard me-1"></i>Findings</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="goToAuditStage('correlation')"><i class="fas fa-project-diagram me-1"></i>Graph</button>
+                        <button class="btn btn-sm btn-outline-info" onclick="goToAuditStage('reporting')"><i class="fas fa-file-alt me-1"></i>Report</button>
+                    </div>
+                    <div class="extra-small text-muted mt-2 text-lg-end" id="audit-journey-current-phase">
+                        Current Phase: {{ results.get('progress', {}).get('current_phase', 'Initializing') }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

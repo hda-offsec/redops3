@@ -346,12 +346,15 @@ class ScanDashboard {
 
         const consoleDiv = document.querySelector(".log-console");
         if (consoleDiv) {
-            const emptyMsg = consoleDiv.querySelector(".text-muted");
-            if (emptyMsg && emptyMsg.innerText.includes("No logs")) emptyMsg.remove();
+            const legacyEmptyMsg = consoleDiv.querySelector(".text-muted");
+            if (legacyEmptyMsg && legacyEmptyMsg.innerText.includes("No logs")) legacyEmptyMsg.remove();
+            const newEmptyMsg = consoleDiv.querySelector("#timeline-empty-msg");
+            if (newEmptyMsg) newEmptyMsg.remove();
 
             const div = document.createElement("div");
+            div.className = "px-3 py-1 border-bottom border-dark hover-bg-dark animate__animated animate__fadeIn";
             const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
-            div.innerHTML = `<span class="text-muted">[${data.timestamp}]</span> <span class="${levelClass}">${data.level}</span> ${data.message}`;
+            div.innerHTML = `<span class="text-secondary opacity-50">[${data.timestamp}]</span> <span class="${levelClass} fw-bold mx-2">[${data.level}]</span> <span class="text-light">${data.message}</span>`;
             consoleDiv.appendChild(div);
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
         }
@@ -410,6 +413,7 @@ class ScanDashboard {
             const escapedTool = this.escapeHtml(data.tool_source || data.tool || 'core');
             const escapedDesc = this.escapeHtml(data.description || '');
             const validationStatus = this.getFindingValidationStatus(data);
+            const resultState = this.getFindingResultState(data);
             const primaryCommand = this.getFindingPrimaryCommand(data);
             const hasProof = this.hasMeaningfulProof(data);
 
@@ -464,6 +468,8 @@ class ScanDashboard {
                 tr.setAttribute("data-attack-priority", this.escapeHtml(data.attack_priority || "").toLowerCase());
                 tr.setAttribute("data-component", this.escapeHtml(data.component || data.metadata?.component || "").toLowerCase());
                 tr.setAttribute("data-provider", this.escapeHtml(data.provider || data.metadata?.provider || "").toLowerCase());
+                tr.setAttribute("data-validation-status", String(validationStatus || "").toLowerCase());
+                tr.setAttribute("data-result-state", String(resultState || "").toLowerCase());
                 tr.setAttribute("data-content", `${escapedTitle} ${escapedTool} ${this.escapeHtml(data.category || '')} ${this.escapeHtml(this.getFindingPrimaryUrl(data) || '')}`.toLowerCase());
 
                 // Set click handler for new UI
@@ -485,7 +491,6 @@ class ScanDashboard {
                     vectorHtml = `<span class="text-muted opacity-25">N/A</span>`;
                 }
 
-                const resultState = this.getFindingResultState(data);
                 const isValidated = validationStatus === 'success' || ['confirmed', 'confirmed_active', 'validated'].includes(resultState);
 
                 tr.innerHTML = `
@@ -726,6 +731,10 @@ class ScanDashboard {
         if (phaseText) {
             phaseText.innerText = phase;
             this.highlightPTES(phase);
+            const auditPhase = document.getElementById('audit-journey-current-phase');
+            if (auditPhase) {
+                auditPhase.innerText = `Current Phase: ${phase}`;
+            }
 
             // Real-time Discovery Highlight
             const phaseLower = phase.toLowerCase();
@@ -884,6 +893,108 @@ class ScanDashboard {
         }
     }
 
+    deriveAuditJourney(results) {
+        const phases = results?.phases || {};
+        const findings = Array.isArray(results?.findings) ? results.findings : [];
+        const progressPhase = String(results?.progress?.current_phase || '').toLowerCase();
+        const status = String(results?.status || '').toLowerCase();
+        const target = String(results?.target || this.targetIdentifier || '');
+
+        const reconPorts = Array.isArray(phases?.recon?.open_ports) ? phases.recon.open_ports : [];
+        const dnsSubs = Array.isArray(phases?.dns?.subdomains) ? phases.dns.subdomains : [];
+        const katana = (phases?.enum?.katana && typeof phases.enum.katana === 'object') ? phases.enum.katana : {};
+        const api = (phases?.enum?.api && typeof phases.enum.api === 'object') ? phases.enum.api : {};
+        const attackPlan = Array.isArray(results?.attack_plan) ? results.attack_plan : [];
+
+        let enumEndpointCount = 0;
+        Object.values(katana).forEach(urls => {
+            if (Array.isArray(urls)) enumEndpointCount += urls.length;
+        });
+        if (Array.isArray(api.endpoints)) enumEndpointCount += api.endpoints.length;
+        if (Array.isArray(api.discovered_endpoints)) enumEndpointCount += api.discovered_endpoints.length;
+
+        let validated = 0;
+        let correlated = 0;
+        let missingProof = 0;
+        let missingCommand = 0;
+
+        findings.forEach(f => {
+            const validation = this.getFindingValidation(f);
+            const state = this.getFindingResultState(f);
+            const validationStatus = String(this.getFindingValidationStatus(f) || '').toLowerCase();
+            const severity = String(f?.severity || 'info').toLowerCase();
+            const isHigh = severity === 'critical' || severity === 'high';
+            const command = this.getFindingPrimaryCommand(f);
+            const hasProof = this.hasMeaningfulProof(f);
+
+            if (validationStatus === 'success' || ['validated', 'confirmed', 'confirmed_active'].includes(state)) validated += 1;
+            if (String(f?.category || '').toLowerCase() === 'attack_chain') correlated += 1;
+            if (f?.chain_metadata && (f.chain_metadata.related_findings || f.chain_metadata.attack_path_summary)) correlated += 1;
+            if (isHigh && !hasProof) missingProof += 1;
+            if (isHigh && !this.isMeaningfulValue(command)) missingCommand += 1;
+        });
+
+        const scopeReady = target.length > 0;
+        const reconReady = reconPorts.length > 0 || dnsSubs.length > 0;
+        const enumReady = enumEndpointCount > 0;
+        const detectionReady = findings.length > 0;
+        const validationReady = validated > 0;
+        const correlationReady = correlated > 0 || attackPlan.length > 0;
+        const reportingReady = status === 'completed' && detectionReady;
+        const closureReady = status === 'completed' && missingProof === 0 && missingCommand === 0;
+
+        const stageMap = {
+            cadrage: scopeReady ? 'done' : 'pending',
+            recon: reconReady ? 'done' : (progressPhase.includes('recon') ? 'in-progress' : 'pending'),
+            enum: enumReady ? 'done' : (progressPhase.includes('enum') ? 'in-progress' : 'pending'),
+            detection: detectionReady ? 'done' : (progressPhase.includes('vuln') ? 'in-progress' : 'pending'),
+            validation: validationReady ? 'done' : (progressPhase.includes('validation') ? 'in-progress' : 'pending'),
+            correlation: correlationReady ? 'done' : (progressPhase.includes('correlation') ? 'in-progress' : 'pending'),
+            reporting: reportingReady ? 'done' : (progressPhase.includes('report') ? 'in-progress' : 'pending'),
+            closure: closureReady ? 'done' : (status === 'completed' ? 'in-progress' : 'pending')
+        };
+
+        return {
+            stageMap,
+            gates: {
+                total: findings.length,
+                validated,
+                missingProof,
+                missingCommand
+            }
+        };
+    }
+
+    setAuditStageState(stage, state) {
+        const node = document.getElementById(`audit-stage-${stage}`);
+        if (!node) return;
+        node.classList.remove('done', 'in-progress', 'pending');
+        node.classList.add(state);
+    }
+
+    updateAuditJourney(results) {
+        const summary = this.deriveAuditJourney(results || {});
+        Object.entries(summary.stageMap).forEach(([stage, state]) => this.setAuditStageState(stage, state));
+
+        const gateTotal = document.getElementById('audit-gate-total');
+        const gateValidated = document.getElementById('audit-gate-validated');
+        const gateMissingProof = document.getElementById('audit-gate-missing-proof');
+        const gateMissingCommand = document.getElementById('audit-gate-missing-command');
+
+        if (gateTotal) gateTotal.innerText = String(summary.gates.total);
+        if (gateValidated) gateValidated.innerText = String(summary.gates.validated);
+        if (gateMissingProof) {
+            gateMissingProof.innerText = String(summary.gates.missingProof);
+            gateMissingProof.classList.toggle('text-danger', summary.gates.missingProof > 0);
+            gateMissingProof.classList.toggle('text-success', summary.gates.missingProof === 0);
+        }
+        if (gateMissingCommand) {
+            gateMissingCommand.innerText = String(summary.gates.missingCommand);
+            gateMissingCommand.classList.toggle('text-danger', summary.gates.missingCommand > 0);
+            gateMissingCommand.classList.toggle('text-success', summary.gates.missingCommand === 0);
+        }
+    }
+
     filterFindings() {
         const findingsSearch = document.getElementById('findings-search');
         const findingsSeverity = document.getElementById('findings-severity-filter');
@@ -932,6 +1043,17 @@ class ScanDashboard {
                 if (sevTerm && !severity.includes(sevTerm)) prefixMatch = false;
                 if (terms.tool && !tool.includes(terms.tool)) prefixMatch = false;
                 if (terms.source && !(row.getAttribute('data-source') || tool).includes(terms.source)) prefixMatch = false;
+                const statusTerm = (terms.status || terms.validation || terms.state || '').toLowerCase();
+                if (statusTerm) {
+                    const validationState = (row.getAttribute('data-validation-status') || '').toLowerCase();
+                    const resultState = (row.getAttribute('data-result-state') || '').toLowerCase();
+                    const isValidated = ['validated', 'confirmed', 'confirmed_active'].includes(resultState);
+                    const statusMatch = validationState.includes(statusTerm)
+                        || resultState.includes(statusTerm)
+                        || (statusTerm === 'success' && (validationState === 'success' || isValidated))
+                        || (statusTerm === 'validated' && (validationState === 'success' || isValidated));
+                    if (!statusMatch) prefixMatch = false;
+                }
 
                 // 3. Global Text Terms
                 let globalMatch = true;
@@ -1026,6 +1148,7 @@ class ScanDashboard {
 
         // Keep a global copy for other tab scripts (like attack_graph)
         window.scanResults = results;
+        this.updateAuditJourney(results);
 
         // 0. Update Target Intelligence Dashboard
         this.updateCortexUI(results);
@@ -2199,7 +2322,15 @@ class ScanDashboard {
 
 // Global Routing & Filtering Helper
 window.applyTacticalFilter = function (targetTab, filterValue) {
-    const tabId = targetTab === 'findings' ? 'findings-tab' : 'surface-tab';
+    const tabMap = {
+        mission: 'mission-tab',
+        surface: 'surface-tab',
+        findings: 'findings-tab',
+        graph: 'graph-tab',
+        report: 'report-tab',
+        hood: 'hood-tab',
+    };
+    const tabId = tabMap[targetTab] || 'surface-tab';
     const tabBtn = document.getElementById(tabId);
     if (!tabBtn) return;
 
@@ -2240,6 +2371,21 @@ window.applyTacticalFilter = function (targetTab, filterValue) {
         // Scroll to top of results
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 150);
+};
+
+window.goToAuditStage = function (stage) {
+    const map = {
+        cadrage: { tab: 'mission', filter: '' },
+        recon: { tab: 'surface', filter: 'type:service' },
+        enum: { tab: 'surface', filter: 'type:endpoint' },
+        detection: { tab: 'findings', filter: '' },
+        validation: { tab: 'findings', filter: 'status:success' },
+        correlation: { tab: 'graph', filter: '' },
+        reporting: { tab: 'report', filter: '' },
+        closure: { tab: 'report', filter: '' },
+    };
+    const route = map[stage] || map.detection;
+    window.applyTacticalFilter(route.tab, route.filter);
 };
 
 // --- SEARCH INTEL HELPERS ---

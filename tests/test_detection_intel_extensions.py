@@ -1,5 +1,8 @@
 from scan_engine.helpers.passive_intel_engine import PassiveIntelligenceEngine
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
+from scan_engine.helpers.vuln_execution_plan import derive_vuln_execution_plan
+from scan_engine.orchestrator import ScanOrchestrator
+from types import SimpleNamespace
 
 
 def _sample_results():
@@ -79,3 +82,80 @@ def test_attack_graph_adds_new_surface_nodes_and_edges():
     assert "token_authenticates" in edge_types
     assert "depends_on" in edge_types
     assert "leads_to" in edge_types
+
+
+def test_vuln_execution_plan_enables_adaptive_modules_when_signals_exist():
+    plan = derive_vuln_execution_plan(
+        {
+            "phases": {
+                "enum": {
+                    "katana": {"443": ["https://example.com/app.js", "https://example.com/graphql"]},
+                    "injection_points": {"443": ["https://example.com/search?q=1"]},
+                    "api": {"discovered_endpoints": ["https://example.com/api/v1/users"]},
+                }
+            }
+        },
+        443,
+        profile="quick",
+        execution_hints={},
+    )
+
+    assert plan["graphql_scanner"]["enabled"] is True
+    assert plan["ssrf_expert"]["enabled"] is True
+    assert plan["dalfox"]["enabled"] is True
+    assert plan["js_vuln_audit"]["enabled"] is True
+    assert plan["parameter_miner"]["enabled"] is True
+    assert plan["api_fuzzer"]["enabled"] is True
+
+
+def test_orchestrator_quality_gate_rejects_unproven_critical():
+    persisted = []
+    orch = ScanOrchestrator(
+        scan_id=1,
+        target="example.com",
+        logger_func=lambda *_args, **_kwargs: None,
+        finding_func=lambda **kwargs: persisted.append(kwargs),
+        suggestion_func=lambda **_kwargs: None,
+        results_func=lambda *_args, **_kwargs: None,
+        signal_func=lambda **_kwargs: SimpleNamespace(id=55),
+        options={"strict_quality_gates": True},
+    )
+
+    orch.add_finding(
+        title="Potential RCE",
+        description="Generic high-level claim without evidence.",
+        severity="critical",
+        tool_source="unit",
+        confidence="high",
+    )
+
+    assert persisted == []
+    assert orch.results.get("metrics", {}).get("quality_gate_rejected") == 1
+
+
+def test_orchestrator_quality_gate_accepts_proven_critical():
+    persisted = []
+    orch = ScanOrchestrator(
+        scan_id=2,
+        target="example.com",
+        logger_func=lambda *_args, **_kwargs: None,
+        finding_func=lambda **kwargs: persisted.append(kwargs),
+        suggestion_func=lambda **_kwargs: None,
+        results_func=lambda *_args, **_kwargs: None,
+        signal_func=lambda **_kwargs: SimpleNamespace(id=77),
+        options={"strict_quality_gates": True},
+    )
+
+    orch.add_finding(
+        title="RCE validated",
+        description="Validated with deterministic proof.",
+        severity="critical",
+        tool_source="unit",
+        endpoint="https://example.com/api",
+        evidence="Server returned marker REDOPS_POC",
+        response="HTTP/1.1 200 OK",
+    )
+
+    assert len(persisted) == 1
+    assert 77 in (persisted[0].get("signal_ids") or [])
+    assert str(persisted[0].get("repro_command", "")).startswith("curl -ik")
