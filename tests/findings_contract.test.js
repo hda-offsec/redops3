@@ -13,15 +13,32 @@ function structuredFinding() {
         tool_source: "nuclei",
         tool: "nuclei",
         source: "nuclei",
+        module: "graphql_scanner",
         category: "api",
+        description: "Introspection is still reachable on the public GraphQL endpoint.",
         endpoint: "https://example.org/api/graphql",
         target: "https://example.org/api/graphql",
         parameter: "query",
+        raw_output: "HTTP/1.1 200 OK\n{\"data\":{\"__schema\":{\"queryType\":{\"name\":\"Query\"}}}}",
+        evidence: "Schema introspection returned the Query type.",
+        reproduction: "Validate that introspection stays enabled before blocking public access.",
+        remediation: "Disable introspection on public environments and restrict the endpoint.",
+        request: "GET /api/graphql?query={__schema} HTTP/1.1",
+        response: "HTTP/1.1 200 OK\ncontent-type: application/json",
+        impact: "Public schema exposure accelerates targeted abuse and enumeration.",
+        references: [
+            "https://owasp.org/www-project-graphql-security-cheat-sheet/",
+        ],
+        screenshot_path: "loot/graphql-proof.png",
         metadata: {
             provider: "aws",
             component: "apigateway",
             version: "2024.1",
+            versions: ["graphql-js 16.8.1"],
             port_state: "open",
+            impact_area: "API Gateway",
+            artifacts: [{ header: "x-powered-by", value: "graphql-js" }],
+            references: ["https://graphql.org/learn/security/"],
             validation: {
                 status: "success",
                 result_state: "confirmed",
@@ -33,7 +50,7 @@ function structuredFinding() {
                 command: "nuclei -u https://fallback.example.org/graphql",
                 url: "https://fallback.example.org/graphql",
                 request_excerpt: "GET /api/graphql HTTP/1.1",
-                response_excerpt: "HTTP/1.1 200 OK",
+                response_excerpt: "HTTP/1.1 200 OK\nx-powered-by: graphql-js",
             },
         },
     };
@@ -85,6 +102,25 @@ test("normalizes structured findings with canonical UI fields", () => {
         "parameter",
         "port_state",
     ]);
+    assert.deepEqual(findingsContract.constants.observedVersionFieldSources, [
+        "version",
+        "metadata.version",
+        "metadata.service_version",
+        "metadata.detected_version",
+        "metadata.component_version",
+    ]);
+    assert.deepEqual(findingsContract.constants.detailCommandBlockSources, [
+        "validation.command",
+        "reproducibility.command",
+        "repro_command",
+    ]);
+    assert.deepEqual(findingsContract.constants.detailEvidenceBlockSources, [
+        "validation.artifact",
+        "request",
+        "response",
+        "raw_output",
+        "evidence",
+    ]);
     assert.equal(typeof findingsContract.contract.matchesDataset, "function");
     assert.equal(typeof findingsContract.dom.applyTableFilters, "function");
     assert.equal(finding._ui.primaryCommand, "curl -isk 'https://example.org/api/graphql?query={__schema}'");
@@ -107,6 +143,49 @@ test("legacy flat exports remain available and aligned with namespaced helpers",
         Object.keys(findingsContract.buildFindingUiState(structuredFinding())),
         findingsContract.constants.canonicalUiFields
     );
+});
+
+test("builds rich detail state without dropping commands, versions, evidence, or references", () => {
+    const detail = findingsContract.contract.buildFindingDetailState(structuredFinding());
+
+    assert.equal(detail.commandExecuted, "curl -isk 'https://example.org/api/graphql?query={__schema}'");
+    assert.equal(detail.target, "https://example.org/api/graphql");
+    assert.deepEqual(detail.observedVersions, ["2024.1", "graphql-js 16.8.1"]);
+    assert.deepEqual(
+        detail.commandBlocks.map((block) => block.key),
+        ["validation_command", "reproducibility_command"]
+    );
+    assert.deepEqual(
+        detail.evidenceBlocks.map((block) => block.key),
+        ["validation_artifact", "request", "response", "raw_output", "evidence"]
+    );
+    assert.equal(
+        detail.validationGuidance,
+        "Validate that introspection stays enabled before blocking public access."
+    );
+    assert.equal(detail.remediation, "Disable introspection on public environments and restrict the endpoint.");
+    assert.deepEqual(detail.references, [
+        "https://owasp.org/www-project-graphql-security-cheat-sheet/",
+        "https://graphql.org/learn/security/",
+    ]);
+    assert.equal(detail.artifacts[0].kind, "image");
+    assert.equal(detail.artifacts[1].kind, "text");
+});
+
+test("renders shared finding detail html with analyst-first sections and copy-safe actions", () => {
+    const html = findingsContract.dom.buildFindingDetailHtml(structuredFinding());
+
+    assert.match(html, /Operational Summary/);
+    assert.match(html, /Technical Context/);
+    assert.match(html, /Command & Validation/);
+    assert.match(html, /Evidence/);
+    assert.match(html, /Raw Output/);
+    assert.match(html, /Remediation/);
+    assert.match(html, /References & Artifacts/);
+    assert.match(html, /Validate/);
+    assert.match(html, /Copy command/);
+    assert.match(html, /graphql-js 16\.8\.1/);
+    assert.match(html, /data-copy-encoded=/);
 });
 
 test("normalization is non mutating and preserves the input finding", () => {

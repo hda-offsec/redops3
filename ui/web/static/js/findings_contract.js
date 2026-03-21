@@ -109,6 +109,25 @@
         "parameter",
         "port_state",
     ];
+    const OBSERVED_VERSION_FIELD_SOURCES = [
+        "version",
+        "metadata.version",
+        "metadata.service_version",
+        "metadata.detected_version",
+        "metadata.component_version",
+    ];
+    const DETAIL_COMMAND_BLOCK_SOURCES = [
+        "validation.command",
+        "reproducibility.command",
+        "repro_command",
+    ];
+    const DETAIL_EVIDENCE_BLOCK_SOURCES = [
+        "validation.artifact",
+        "request",
+        "response",
+        "raw_output",
+        "evidence",
+    ];
 
     function asDict(value) {
         return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -118,6 +137,29 @@
         if (value === null || value === undefined) return "";
         if (typeof value === "string") return value.trim();
         return String(value).trim();
+    }
+
+    function serializeDetailValue(value) {
+        if (value === null || value === undefined) return "";
+        if (Array.isArray(value) || (value && typeof value === "object")) {
+            try {
+                return JSON.stringify(value, null, 2);
+            } catch (_) {
+                return String(value);
+            }
+        }
+        const normalized = cleanText(value);
+        if ((normalized.startsWith("{") && normalized.endsWith("}")) || (normalized.startsWith("[") && normalized.endsWith("]"))) {
+            try {
+                const parsed = JSON.parse(normalized);
+                if (parsed && typeof parsed === "object") {
+                    return JSON.stringify(parsed, null, 2);
+                }
+            } catch (_) {
+                return normalized;
+            }
+        }
+        return normalized;
     }
 
     function isMeaningfulText(value) {
@@ -248,6 +290,181 @@
             metadata.detected_version,
             metadata.component_version,
         ]);
+    }
+
+    function getFindingObservedVersions(finding) {
+        const metadata = asDict(finding.metadata);
+        const versions = [];
+        const seen = new Set();
+        const appendVersion = (value) => {
+            const serialized = serializeDetailValue(value);
+            if (!isMeaningfulText(serialized)) return;
+            if (seen.has(serialized)) return;
+            seen.add(serialized);
+            versions.push(serialized);
+        };
+
+        [
+            finding.version,
+            metadata.version,
+            metadata.service_version,
+            metadata.detected_version,
+            metadata.component_version,
+        ].forEach(appendVersion);
+
+        if (Array.isArray(metadata.versions)) {
+            metadata.versions.forEach(appendVersion);
+        }
+        return versions;
+    }
+
+    function getFindingReferences(finding) {
+        const metadata = asDict(finding.metadata);
+        const references = [];
+        const seen = new Set();
+        const appendReference = (value) => {
+            const normalized = cleanText(value);
+            if (!isMeaningfulText(normalized)) return;
+            if (seen.has(normalized)) return;
+            seen.add(normalized);
+            references.push(normalized);
+        };
+
+        [finding.references, metadata.references].forEach((source) => {
+            const values = Array.isArray(source) ? source : [source];
+            values.forEach(appendReference);
+        });
+        return references;
+    }
+
+    function getFindingCommandBlocks(finding) {
+        const validation = getValidation(finding);
+        const reproducibility = getReproducibility(finding);
+        const blocks = [];
+        const seen = new Set();
+        const appendBlock = (key, label, value) => {
+            const serialized = serializeDetailValue(value);
+            if (!isMeaningfulText(serialized)) return;
+            if (seen.has(serialized)) return;
+            seen.add(serialized);
+            blocks.push({ key, label, kind: "command", value: serialized });
+        };
+
+        appendBlock("validation_command", "Validation command", validation.command);
+        appendBlock("reproducibility_command", "Reproducibility command", reproducibility.command);
+        appendBlock("stored_repro_command", "Stored repro command", finding.repro_command);
+        return blocks;
+    }
+
+    function getFindingValidationGuidance(finding) {
+        const guidance = cleanText(finding.reproduction);
+        if (!isMeaningfulText(guidance)) return "";
+        const primaryCommand = getFindingPrimaryCommand(finding);
+        if (guidance === primaryCommand) return "";
+        return isSafeLegacyCommand(guidance) ? "" : guidance;
+    }
+
+    function getFindingArtifacts(finding) {
+        const metadata = asDict(finding.metadata);
+        const artifacts = [];
+        const screenshotPath = cleanText(finding.screenshot_path);
+        if (isMeaningfulText(screenshotPath)) {
+            artifacts.push({ label: "Screenshot", kind: "image", value: screenshotPath });
+        }
+        const rawArtifacts = metadata.artifacts;
+        if (Array.isArray(rawArtifacts)) {
+            rawArtifacts.forEach((item, index) => {
+                const serialized = serializeDetailValue(item);
+                if (!isMeaningfulText(serialized)) return;
+                artifacts.push({ label: `Artifact ${index + 1}`, kind: "text", value: serialized });
+            });
+        } else if (isMeaningfulText(rawArtifacts)) {
+            artifacts.push({ label: "Artifact", kind: "text", value: serializeDetailValue(rawArtifacts) });
+        }
+        return artifacts;
+    }
+
+    function buildFindingTechnicalContext(finding) {
+        const normalized = normalizeFindingRecord(finding);
+        const metadata = asDict(normalized.metadata);
+        const reproducibility = getReproducibility(normalized);
+        const ui = asDict(normalized._ui);
+        const rows = [];
+        const appendRow = (label, value) => {
+            const serialized = serializeDetailValue(value);
+            if (!isMeaningfulText(serialized)) return;
+            rows.push({ label, value: serialized });
+        };
+
+        const toolValue = firstMeaningful([normalized.tool_source, normalized.tool]);
+        const sourceValue = cleanText(normalized.source);
+        const moduleValue = cleanText(normalized.module);
+
+        appendRow("Tool", toolValue);
+        if (sourceValue && sourceValue !== toolValue) appendRow("Source", sourceValue);
+        if (moduleValue && moduleValue !== toolValue && moduleValue !== sourceValue) appendRow("Module", moduleValue);
+        appendRow("Category", normalized.category);
+        appendRow("Parameter", normalized.parameter);
+        appendRow("Provider", ui.provider);
+        appendRow("Component", ui.component);
+        appendRow("Port state", ui.portState);
+        appendRow("Validation status", ui.validationStatus);
+        appendRow("Result state", ui.resultState);
+        appendRow("Impact area", normalized.impact_area || metadata.impact_area);
+        appendRow("Arguments", reproducibility.arguments);
+        return rows;
+    }
+
+    function buildFindingEvidenceBlocks(finding) {
+        const normalized = normalizeFindingRecord(finding);
+        const validation = getValidation(normalized);
+        const reproducibility = getReproducibility(normalized);
+        const blocks = [];
+        const seen = new Set();
+        const appendBlock = (key, label, kind, value) => {
+            const serialized = serializeDetailValue(value);
+            if (!isMeaningfulText(serialized)) return;
+            if (seen.has(serialized)) return;
+            seen.add(serialized);
+            blocks.push({ key, label, kind, value: serialized });
+        };
+
+        appendBlock("validation_artifact", "Validation artifact", "proof", validation.artifact);
+        appendBlock("request", "Request excerpt", "request", reproducibility.request_excerpt || normalized.request);
+        appendBlock("response", "Response excerpt", "response", reproducibility.response_excerpt || normalized.response);
+        appendBlock("raw_output", "Raw output", "raw_output", normalized.raw_output);
+        appendBlock("evidence", "Evidence", "evidence", normalized.evidence);
+        return blocks;
+    }
+
+    function buildFindingDetailState(finding) {
+        const normalized = normalizeFindingRecord(finding);
+        const metadata = asDict(normalized.metadata);
+        const ui = asDict(normalized._ui);
+        const riskScorecard = asDict(normalized.risk_scorecard);
+
+        return {
+            summary: cleanText(normalized.description),
+            technicalContext: buildFindingTechnicalContext(normalized),
+            commandExecuted: cleanText(ui.primaryCommand),
+            commandBlocks: getFindingCommandBlocks(normalized),
+            validationGuidance: getFindingValidationGuidance(normalized),
+            target: cleanText(ui.primaryUrl),
+            observedVersions: getFindingObservedVersions(normalized),
+            evidenceBlocks: buildFindingEvidenceBlocks(normalized),
+            rawOutput: serializeDetailValue(normalized.raw_output),
+            interpretation: firstMeaningful([
+                normalized.impact,
+                metadata.impact,
+                riskScorecard.impact,
+                riskScorecard.summary,
+            ]),
+            severity: cleanText(normalized.severity || "info").toLowerCase() || "info",
+            confidence: cleanText(normalized.confidence || "medium").toLowerCase() || "medium",
+            remediation: firstMeaningful([normalized.remediation, metadata.remediation]),
+            references: getFindingReferences(normalized),
+            artifacts: getFindingArtifacts(normalized),
+        };
     }
 
     function hasMeaningfulEvidence(finding) {
@@ -508,15 +725,254 @@
         }
     }
 
+    function escapeHtml(value) {
+        return cleanText(value).replace(/[&<>'"]/g, (tag) => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            "'": "&#39;",
+            "\"": "&quot;",
+        }[tag]));
+    }
+
+    function resolveStaticAssetPath(value) {
+        const normalized = cleanText(value);
+        if (!normalized) return "";
+        if (normalized.startsWith("/")) return normalized;
+        return `/static/${normalized.replace(/^\/+/, "")}`;
+    }
+
+    function buildCopyButtonHtml(value, label, extraClass = "") {
+        if (!isMeaningfulText(value)) return "";
+        const className = `btn btn-xs btn-outline-secondary copy-inline ${extraClass}`.trim();
+        return `<button class="${className}" data-copy-encoded="${encodeDataValue(value)}"><i class="fas fa-copy me-1"></i>${escapeHtml(label)}</button>`;
+    }
+
+    function renderContextRows(rows) {
+        if (!Array.isArray(rows) || rows.length === 0) return "";
+        return rows.map((row) => `
+            <div class="small mb-2">
+                <div class="text-muted extra-small text-uppercase fw-bold mb-1">${escapeHtml(row.label)}</div>
+                <div class="text-light" style="white-space: pre-wrap;">${escapeHtml(row.value)}</div>
+            </div>
+        `).join("");
+    }
+
+    function renderEvidenceBlocks(blocks, accentMap = {}) {
+        if (!Array.isArray(blocks) || blocks.length === 0) return "";
+        return blocks.map((block) => {
+            const accent = accentMap[block.kind] || "secondary";
+            return `
+                <div class="small mb-3">
+                    <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                        <div class="text-${accent} fw-bold extra-small text-uppercase">${escapeHtml(block.label)}</div>
+                        ${buildCopyButtonHtml(block.value, "Copy")}
+                    </div>
+                    <pre class="evidence-block p-3 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace mb-0" style="max-height: 280px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(block.value)}</pre>
+                </div>
+            `;
+        }).join("");
+    }
+
+    function renderArtifactBlocks(artifacts) {
+        if (!Array.isArray(artifacts) || artifacts.length === 0) return "";
+        return artifacts.map((artifact) => {
+            if (artifact.kind === "image") {
+                const src = resolveStaticAssetPath(artifact.value);
+                return `
+                    <div class="small mb-3">
+                        <div class="text-info fw-bold extra-small text-uppercase mb-2">${escapeHtml(artifact.label)}</div>
+                        <img src="${escapeHtml(src)}" class="img-fluid border border-secondary border-opacity-25 rounded shadow-sm" style="max-height: 360px; cursor: pointer;" onclick="window.open(this.src)">
+                    </div>
+                `;
+            }
+            return `
+                <div class="small mb-3">
+                    <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                        <div class="text-info fw-bold extra-small text-uppercase">${escapeHtml(artifact.label)}</div>
+                        ${buildCopyButtonHtml(artifact.value, "Copy")}
+                    </div>
+                    <pre class="evidence-block p-3 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace mb-0" style="max-height: 220px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(artifact.value)}</pre>
+                </div>
+            `;
+        }).join("");
+    }
+
+    function buildFindingDetailHtml(finding) {
+        const normalized = normalizeFindingRecord(finding);
+        if (!normalized) {
+            return '<div class="small text-muted fst-italic p-4 text-center">Finding unavailable.</div>';
+        }
+
+        const ui = asDict(normalized._ui);
+        const detail = buildFindingDetailState(normalized);
+        const validationStatus = cleanText(ui.validationStatus || "not_run");
+        const resultState = cleanText(ui.resultState || "observation");
+        const statusToneMap = { success: "success", failed: "danger", uncertain: "warning", not_run: "secondary" };
+        const resultToneMap = { confirmed: "success", validation: "warning", correlation: "info", heuristic: "secondary", observation: "secondary", rejected: "danger" };
+        const statusTone = statusToneMap[validationStatus] || "secondary";
+        const resultTone = resultToneMap[resultState] || "secondary";
+        const proofBlocks = detail.evidenceBlocks.filter((block) => block.kind !== "raw_output");
+        const rawOutputBlocks = detail.evidenceBlocks.filter((block) => block.kind === "raw_output");
+        const hasSubstance = Boolean(
+            detail.summary
+            || detail.commandBlocks.length
+            || proofBlocks.length
+            || rawOutputBlocks.length
+            || detail.remediation
+            || detail.references.length
+            || detail.artifacts.length
+        );
+
+        return `
+            <div class="mb-4" style="font-family: 'Inter', Helvetica, sans-serif;">
+                <div class="d-flex align-items-center justify-content-between mb-4 border-bottom border-secondary border-opacity-25 pb-3">
+                    <h4 class="finding-detail-title text-light mb-0 fw-bold d-flex align-items-center gap-3">
+                        <span class="badge bg-${escapeHtml(detail.severity)} fs-6 px-3 py-2 border border-${escapeHtml(detail.severity)} bg-opacity-25 shadow-sm text-uppercase" style="letter-spacing: 1px;">
+                            ${escapeHtml(detail.severity.toUpperCase())}
+                        </span>
+                        ${escapeHtml(normalized.title || "Untitled finding")}
+                    </h4>
+                    <div class="text-end d-none d-md-block">
+                        <span class="text-muted extra-small d-block text-uppercase fw-bold mb-1" style="letter-spacing: 1px;">Confidence</span>
+                        <span class="badge bg-secondary bg-opacity-20 text-light border border-secondary shadow-sm px-2 py-1">${escapeHtml(detail.confidence.toUpperCase())}</span>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="p-3 h-100 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm">
+                            <h6 class="extra-small text-uppercase text-info mb-3 fw-bold"><i class="fas fa-crosshairs me-2"></i>Target</h6>
+                            ${detail.target ? `<div class="small fw-bold text-light mb-2 text-break"><i class="fas fa-link me-2 text-muted"></i>${escapeHtml(detail.target)} ${buildCopyButtonHtml(detail.target, "Copy target")}</div>` : '<div class="small text-muted fst-italic mb-2">No target URL identified.</div>'}
+                            ${detail.observedVersions.length ? `<div class="d-flex flex-wrap gap-2 mt-3">${detail.observedVersions.map((version) => `<span class="badge bg-secondary bg-opacity-20 text-light border border-secondary border-opacity-25">${escapeHtml(version)}</span>`).join("")}</div>` : ""}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="p-3 h-100 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm">
+                            <h6 class="extra-small text-uppercase text-warning mb-3 fw-bold"><i class="fas fa-shield-alt me-2"></i>Status</h6>
+                            <div class="small text-muted d-flex align-items-center gap-2 mt-2">
+                                <span class="fw-bold text-uppercase extra-small">Validation status:</span>
+                                <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 px-2 py-1">${escapeHtml(validationStatus.toUpperCase())}</span>
+                            </div>
+                            <div class="small text-muted d-flex align-items-center gap-2 mt-2">
+                                <span class="fw-bold text-uppercase extra-small">Result state:</span>
+                                <span class="badge bg-${resultTone} bg-opacity-20 text-${resultTone} border border-${resultTone} border-opacity-25 px-2 py-1">${escapeHtml(resultState.replace(/_/g, " ").toUpperCase())}</span>
+                                ${ui.isValidated ? '<span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-25 px-2 py-1"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>' : ""}
+                            </div>
+                            <div class="small text-muted mt-3">
+                                <span class="badge bg-dark border border-secondary text-light fw-bold text-uppercase">${escapeHtml(cleanText(normalized.tool_source || normalized.tool || "n/a"))}</span>
+                                ${isMeaningfulText(normalized.category) ? `<span class="ms-2 text-light">${escapeHtml(cleanText(normalized.category).replace(/_/g, " "))}</span>` : ""}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                ${detail.summary ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-align-left me-2"></i>Operational Summary</h6>
+                    <div class="small text-light bg-black bg-opacity-20 p-4 rounded border border-secondary border-opacity-10 lh-lg shadow-sm" style="white-space: pre-wrap; font-size: 0.9rem;">${escapeHtml(detail.summary)}</div>
+                </div>` : ""}
+
+                ${detail.technicalContext.length ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-network-wired me-2"></i>Technical Context</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${renderContextRows(detail.technicalContext)}
+                    </div>
+                </div>` : ""}
+
+                ${detail.commandBlocks.length || detail.validationGuidance ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-terminal me-2"></i>Command & Validation</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${detail.commandExecuted ? `<div class="d-flex flex-wrap gap-2 mb-3">
+                            <button class="btn btn-sm btn-outline-warning verify-btn fw-bold px-3 py-2" data-command="${encodeDataValue(detail.commandExecuted)}"><i class="fas fa-play me-2"></i>Validate</button>
+                            <button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${encodeDataValue(detail.commandExecuted)}"><i class="fas fa-copy me-2"></i>Copy command</button>
+                            ${detail.target ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${encodeDataValue(detail.target)}"><i class="fas fa-copy me-2"></i>Copy target</button>` : ""}
+                        </div>` : ""}
+                        ${renderEvidenceBlocks(detail.commandBlocks, { command: "warning" })}
+                        ${detail.validationGuidance ? `<div class="small mt-3"><div class="text-info fw-bold extra-small text-uppercase mb-2">Validation guidance</div><div class="text-light bg-black bg-opacity-20 p-3 rounded border border-secondary border-opacity-10" style="white-space: pre-wrap;">${escapeHtml(detail.validationGuidance)}</div></div>` : ""}
+                    </div>
+                </div>` : ""}
+
+                ${proofBlocks.length ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-microscope me-2"></i>Evidence</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${renderEvidenceBlocks(proofBlocks, { proof: "success", request: "info", response: "primary", evidence: "warning" })}
+                    </div>
+                </div>` : ""}
+
+                ${rawOutputBlocks.length ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-file-code me-2"></i>Raw Output</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${renderEvidenceBlocks(rawOutputBlocks, { raw_output: "secondary" })}
+                    </div>
+                </div>` : ""}
+
+                ${detail.interpretation ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-lightbulb me-2"></i>Interpretation</h6>
+                    <div class="small text-light bg-black bg-opacity-20 p-4 rounded border border-secondary border-opacity-10 lh-lg shadow-sm" style="white-space: pre-wrap;">${escapeHtml(detail.interpretation)}</div>
+                </div>` : ""}
+
+                ${detail.remediation ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-wrench me-2"></i>Remediation</h6>
+                    <div class="small text-light bg-black bg-opacity-20 p-4 rounded border border-secondary border-opacity-10 lh-lg shadow-sm" style="white-space: pre-wrap;">${escapeHtml(detail.remediation)}</div>
+                </div>` : ""}
+
+                ${detail.references.length || detail.artifacts.length ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-paperclip me-2"></i>References & Artifacts</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${detail.references.length ? `<div class="small mb-4"><div class="text-info fw-bold extra-small text-uppercase mb-2">References</div><ul class="mb-0 ps-3">${detail.references.map((reference) => `<li class="text-light mb-2 text-break">${escapeHtml(reference)}</li>`).join("")}</ul></div>` : ""}
+                        ${renderArtifactBlocks(detail.artifacts)}
+                    </div>
+                </div>` : ""}
+
+                ${!hasSubstance ? '<div class="small text-muted fst-italic p-4 text-center border border-secondary border-opacity-10 rounded bg-black bg-opacity-20 shadow-sm"><i class="fas fa-info-circle fa-2x mb-2 opacity-50 d-block"></i>This finding is observation-only and does not include explicit technical evidence, a reproducible command, or remediation notes.</div>' : ""}
+            </div>
+        `;
+    }
+
+    function handleCopyButtonClick(event) {
+        const copyBtn = event && event.target ? event.target.closest(".copy-inline") : null;
+        if (!copyBtn) return false;
+        const encoded = copyBtn.getAttribute("data-copy-encoded") || "";
+        const value = decodeDataValue(encoded);
+        if (!isMeaningfulText(value)) return true;
+        if (global.navigator && global.navigator.clipboard && typeof global.navigator.clipboard.writeText === "function") {
+            global.navigator.clipboard.writeText(value);
+        }
+        const icon = copyBtn.querySelector("i");
+        if (icon) {
+            icon.className = "fas fa-check me-1";
+            global.setTimeout(() => {
+                icon.className = "fas fa-copy me-1";
+            }, 1500);
+        }
+        return true;
+    }
+
     const contractApi = {
         buildFilterState,
+        buildFindingDetailState,
+        buildFindingEvidenceBlocks,
         buildFindingSearchText,
         buildFindingSearchTextFields,
+        buildFindingTechnicalContext,
         buildFindingUiState,
         decodeDataValue,
         encodeDataValue,
+        getFindingArtifacts,
+        getFindingCommandBlocks,
+        getFindingObservedVersions,
         getFindingPrimaryCommand,
         getFindingPrimaryUrl,
+        getFindingReferences,
+        getFindingValidationGuidance,
         getFindingVersionInfo,
         getReproducibility,
         getRowDataset,
@@ -532,7 +988,9 @@
     const domApi = {
         applyRowDataset,
         applyTableFilters,
+        buildFindingDetailHtml,
         getDatasetFromRow,
+        handleCopyButtonClick,
         readTableFilterState,
         updateTableFilterUi,
     };
@@ -543,6 +1001,9 @@
         dom: domApi,
         constants: {
             canonicalUiFields: [...CANONICAL_UI_FIELDS],
+            detailCommandBlockSources: [...DETAIL_COMMAND_BLOCK_SOURCES],
+            detailEvidenceBlockSources: [...DETAIL_EVIDENCE_BLOCK_SOURCES],
+            observedVersionFieldSources: [...OBSERVED_VERSION_FIELD_SOURCES],
             searchTextFieldSources: [...SEARCH_TEXT_FIELD_SOURCES],
             validatedResultStates: [...VALIDATED_RESULT_STATES],
         },

@@ -34,3 +34,10 @@ The backend and frontend must keep this exact field set aligned:
 - `RedOpsFindings.dom`: DOM adapters for row datasets and table filter UI.
 - The legacy flat exports remain available for compatibility with existing templates and dashboard code.
 - Historical root helpers kept stable: `RedOpsFindings.normalizeFindingRecord(...)`, `RedOpsFindings.applyTableFilters(...)`, `RedOpsFindings.applyRowDataset(...)`.
+
+## Detail And Reporting Contract
+
+- `build_finding_detail_contract(...)` and `RedOpsFindings.contract.buildFindingDetailState(...)` mirror the richer findings detail semantics used by the drawer and reporting exports.
+- The shared detail model preserves, when present: operational summary, technical context, target, observed versions, command blocks, validation guidance, evidence blocks, interpretation, remediation, references, and artifacts.
+- `prepare_report_findings(...)` must keep using that shared detail contract so HTML/PDF exports do not become poorer than the interactive drawer.
+- Exported API endpoint rows must default to `Unverified` when no real status is available. They must not fall back to synthetic `200`.

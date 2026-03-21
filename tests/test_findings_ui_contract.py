@@ -2,15 +2,22 @@ import unittest
 from pathlib import Path
 import ast
 import re
+from datetime import datetime
+from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from core.findings_ui_contract import (
     CANONICAL_UI_FIELDS,
+    DETAIL_COMMAND_BLOCK_SOURCES,
+    DETAIL_EVIDENCE_BLOCK_SOURCES,
+    OBSERVED_VERSION_FIELD_SOURCES,
     SEARCH_TEXT_FIELD_SOURCES,
     attach_finding_ui_contract,
     attach_finding_ui_contracts,
+    build_finding_detail_contract,
 )
+from ui.web.views.main import _serialize_db_finding_payload
 
 
 def _structured_finding():
@@ -23,15 +30,34 @@ def _structured_finding():
         "tool_source": "nuclei",
         "tool": "nuclei",
         "source": "nuclei",
+        "module": "graphql_scanner",
         "category": "api",
+        "description": "Introspection is still reachable on the public GraphQL endpoint.",
         "endpoint": "https://example.org/api/graphql",
         "target": "https://example.org/api/graphql",
         "parameter": "query",
+        "raw_output": "HTTP/1.1 200 OK\n{\"data\":{\"__schema\":{\"queryType\":{\"name\":\"Query\"}}}}",
+        "evidence": "Schema introspection returned the Query type.",
+        "reproduction": "Validate that introspection stays enabled before blocking public access.",
+        "remediation": "Disable introspection on public environments and restrict the endpoint.",
+        "request": "GET /api/graphql?query={__schema} HTTP/1.1",
+        "response": "HTTP/1.1 200 OK\ncontent-type: application/json",
+        "impact": "Public schema exposure accelerates targeted abuse and enumeration.",
+        "references": [
+            "https://owasp.org/www-project-graphql-security-cheat-sheet/",
+        ],
+        "screenshot_path": "loot/graphql-proof.png",
         "metadata": {
             "provider": "aws",
             "component": "apigateway",
             "version": "2024.1",
+            "versions": ["graphql-js 16.8.1"],
             "port_state": "open",
+            "impact_area": "API Gateway",
+            "artifacts": [{"header": "x-powered-by", "value": "graphql-js"}],
+            "references": [
+                "https://graphql.org/learn/security/",
+            ],
             "validation": {
                 "status": "success",
                 "result_state": "confirmed",
@@ -43,7 +69,7 @@ def _structured_finding():
                 "command": "nuclei -u https://example.org/api/graphql",
                 "url": "https://fallback.example.org/graphql",
                 "request_excerpt": "GET /api/graphql HTTP/1.1",
-                "response_excerpt": "HTTP/1.1 200 OK",
+                "response_excerpt": "HTTP/1.1 200 OK\nx-powered-by: graphql-js",
             },
         },
     }
@@ -95,10 +121,50 @@ class FindingsUiContractTests(unittest.TestCase):
                 "port_state",
             ),
         )
+        self.assertEqual(
+            OBSERVED_VERSION_FIELD_SOURCES,
+            (
+                "version",
+                "metadata.version",
+                "metadata.service_version",
+                "metadata.detected_version",
+                "metadata.component_version",
+            ),
+        )
+        self.assertEqual(
+            DETAIL_COMMAND_BLOCK_SOURCES,
+            (
+                "validation.command",
+                "reproducibility.command",
+                "repro_command",
+            ),
+        )
+        self.assertEqual(
+            DETAIL_EVIDENCE_BLOCK_SOURCES,
+            (
+                "validation.artifact",
+                "request",
+                "response",
+                "raw_output",
+                "evidence",
+            ),
+        )
 
     def test_backend_and_frontend_constants_stay_in_sync(self):
         self.assertEqual(tuple(_extract_js_array_constant("CANONICAL_UI_FIELDS")), CANONICAL_UI_FIELDS)
         self.assertEqual(tuple(_extract_js_array_constant("SEARCH_TEXT_FIELD_SOURCES")), SEARCH_TEXT_FIELD_SOURCES)
+        self.assertEqual(
+            tuple(_extract_js_array_constant("OBSERVED_VERSION_FIELD_SOURCES")),
+            OBSERVED_VERSION_FIELD_SOURCES,
+        )
+        self.assertEqual(
+            tuple(_extract_js_array_constant("DETAIL_COMMAND_BLOCK_SOURCES")),
+            DETAIL_COMMAND_BLOCK_SOURCES,
+        )
+        self.assertEqual(
+            tuple(_extract_js_array_constant("DETAIL_EVIDENCE_BLOCK_SOURCES")),
+            DETAIL_EVIDENCE_BLOCK_SOURCES,
+        )
 
     def test_scan_dashboard_uses_shared_findings_contract(self):
         content = Path("ui/web/static/js/scan_dashboard.js").read_text()
@@ -124,6 +190,8 @@ class FindingsUiContractTests(unittest.TestCase):
             "const CANONICAL_UI_FIELDS = [",
             "const SEARCH_TEXT_FIELD_SOURCES = [",
             "buildFindingSearchTextFields",
+            "buildFindingDetailState",
+            "buildFindingDetailHtml",
         ]:
             self.assertIn(token, content)
 
@@ -131,12 +199,17 @@ class FindingsUiContractTests(unittest.TestCase):
         content = Path("ui/web/templates/scan_partials/interface/findings.html").read_text()
         for token in [
             "normalizeFindingRecord(finding)",
-            "findingsContract.encodeDataValue(primaryCommand)",
-            "Validation Actions",
-            "RESULT STATE:",
-            "VALIDATED",
-            "data-copy-encoded",
-            "decodeDataValue(encoded)",
+            "findingsContract.dom.buildFindingDetailHtml(f)",
+            "findingsContract.dom.handleCopyButtonClick(event)",
+            "panel.innerHTML = findingsContract.dom.buildFindingDetailHtml(f);",
+        ]:
+            self.assertIn(token, content)
+
+    def test_scannmap_results_uses_shared_findings_detail_renderer(self):
+        content = Path("ui/web/templates/scannmap_results.html").read_text()
+        for token in [
+            "findingsContract.dom.buildFindingDetailHtml(f)",
+            "findingsContract.dom.handleCopyButtonClick(event)",
         ]:
             self.assertIn(token, content)
 
@@ -156,6 +229,38 @@ class FindingsUiContractTests(unittest.TestCase):
             finding["_ui"]["searchText"],
             "graphql schema leak nuclei api https://example.org/api/graphql aws apigateway 2024.1 success confirmed validated query open",
         )
+
+    def test_build_finding_detail_contract_preserves_rich_evidence_and_context(self):
+        detail = build_finding_detail_contract(_structured_finding())
+
+        self.assertEqual(
+            detail["commandExecuted"],
+            "curl -isk 'https://example.org/api/graphql?query={__schema}'",
+        )
+        self.assertEqual(detail["target"], "https://example.org/api/graphql")
+        self.assertEqual(detail["observedVersions"], ["2024.1", "graphql-js 16.8.1"])
+        self.assertEqual(
+            [block["key"] for block in detail["commandBlocks"]],
+            ["validation_command", "reproducibility_command"],
+        )
+        self.assertEqual(
+            [block["key"] for block in detail["evidenceBlocks"]],
+            ["validation_artifact", "request", "response", "raw_output", "evidence"],
+        )
+        self.assertEqual(detail["validationGuidance"], "Validate that introspection stays enabled before blocking public access.")
+        self.assertEqual(detail["severity"], "high")
+        self.assertEqual(detail["confidence"], "high")
+        self.assertEqual(detail["remediation"], "Disable introspection on public environments and restrict the endpoint.")
+        self.assertEqual(
+            detail["references"],
+            [
+                "https://owasp.org/www-project-graphql-security-cheat-sheet/",
+                "https://graphql.org/learn/security/",
+            ],
+        )
+        self.assertEqual(detail["artifacts"][0]["kind"], "image")
+        self.assertEqual(detail["artifacts"][0]["value"], "loot/graphql-proof.png")
+        self.assertEqual(detail["artifacts"][1]["kind"], "text")
 
     def test_attach_finding_ui_contract_rejects_narrative_reproduction(self):
         finding = attach_finding_ui_contract(
@@ -209,8 +314,59 @@ class FindingsUiContractTests(unittest.TestCase):
             html,
         )
         self.assertIn("VALIDATED", html)
+        self.assertIn('id="findings-empty-state"', html)
+        self.assertIn('style="display: none;"', html)
         self.assertNotIn("data-provider=", html)
         self.assertNotIn("data-component=", html)
+
+    def test_serialize_db_finding_payload_preserves_api_contract_fields(self):
+        payload = _serialize_db_finding_payload(
+            SimpleNamespace(
+                id=42,
+                scan_id=7,
+                id_stable="stable-42",
+                severity="high",
+                confidence="high",
+                title="GraphQL schema leak",
+                description="Schema is exposed",
+                category="api",
+                tool_source="manual",
+                tool="manual",
+                module="graphql_review",
+                target="https://example.org/api/graphql",
+                endpoint="https://example.org/api/graphql",
+                parameter="query",
+                payload="{}",
+                evidence="Schema returned",
+                raw_output="HTTP/1.1 200 OK",
+                reproduction="Review the output carefully",
+                repro_command="curl -isk 'https://example.org/api/graphql?query={__schema}'",
+                request="GET /api/graphql HTTP/1.1",
+                response="HTTP/1.1 200 OK",
+                remediation="Disable introspection",
+                risk_scorecard={"impact": "Schema disclosure"},
+                screenshot_path="loot/graphql-proof.png",
+                signal_ids=[9, 7, 9],
+                metadata_json={
+                    "references": ["https://owasp.org/test"],
+                    "impact_area": "API Gateway",
+                    "validation": {"status": "success", "artifact": "HTTP/1.1 200 OK"},
+                    "provider": "aws",
+                },
+                created_at=datetime(2026, 3, 21, 12, 0, 0),
+            )
+        )
+
+        self.assertEqual(payload["tool_source"], "manual")
+        self.assertEqual(payload["source"], "manual")
+        self.assertEqual(payload["raw_output"], "HTTP/1.1 200 OK")
+        self.assertEqual(payload["repro_command"], "curl -isk 'https://example.org/api/graphql?query={__schema}'")
+        self.assertEqual(payload["remediation"], "Disable introspection")
+        self.assertEqual(payload["references"], ["https://owasp.org/test"])
+        self.assertEqual(payload["signal_ids"], [9, 7])
+        self.assertEqual(payload["metadata"]["validation"]["command"], "curl -isk 'https://example.org/api/graphql?query={__schema}'")
+        self.assertEqual(payload["metadata"]["reproducibility"]["url"], "https://example.org/api/graphql")
+        self.assertEqual(payload["created_at"], "2026-03-21T12:00:00")
 
     def test_audit_journey_component_is_wired_into_main_content(self):
         main_content = Path("ui/web/templates/scan_partials/main_content.html").read_text()

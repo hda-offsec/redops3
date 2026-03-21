@@ -28,7 +28,7 @@ from core.models import (
     db,
 )
 from core.results_store import load_results, save_results, delete_results
-from core.reporting import generate_scan_report, generate_html_report
+from core.reporting import generate_scan_report, generate_html_report, prepare_report_findings
 from core.findings_ui_contract import attach_finding_ui_contracts
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
@@ -60,6 +60,7 @@ from core.mission_intelligence import (
     aggregate_mission_quality_metrics,
 )
 from scan_engine.helpers.api_reconstructor import ApiReconstructor
+from scan_engine.helpers.finding_schema import normalize_finding_shape
 
 main_bp = Blueprint("main", __name__)
 
@@ -130,6 +131,49 @@ def _serialize_auth_identity_map(entry):
         "source": entry.source,
         "created_at": entry.created_at.isoformat() if entry.created_at else None,
     }
+
+
+def _serialize_db_finding_payload(finding):
+    metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
+    return normalize_finding_shape(
+        {
+            "id": finding.id,
+            "scan_id": finding.scan_id,
+            "id_stable": finding.id_stable,
+            "severity": finding.severity,
+            "confidence": finding.confidence,
+            "title": finding.title,
+            "description": finding.description,
+            "category": finding.category,
+            "tool_source": finding.tool_source,
+            "tool": finding.tool,
+            "module": finding.module,
+            "target": finding.target,
+            "endpoint": finding.endpoint,
+            "parameter": finding.parameter,
+            "payload": finding.payload,
+            "evidence": finding.evidence,
+            "raw_output": finding.raw_output,
+            "reproduction": finding.reproduction,
+            "repro_command": finding.repro_command,
+            "request": finding.request,
+            "response": finding.response,
+            "references": metadata.get("references") if isinstance(metadata.get("references"), list) else [],
+            "remediation": finding.remediation,
+            "risk_scorecard": finding.risk_scorecard if isinstance(finding.risk_scorecard, dict) else {},
+            "impact_area": metadata.get("impact_area") if isinstance(metadata, dict) else "Web Application",
+            "objective_type": metadata.get("objective_type"),
+            "action_priority": metadata.get("action_priority"),
+            "action_type": metadata.get("action_type"),
+            "estimated_value": metadata.get("estimated_value"),
+            "estimated_complexity": metadata.get("estimated_complexity"),
+            "screenshot_path": finding.screenshot_path,
+            "signal_ids": finding.signal_ids or [],
+            "metadata": metadata,
+            "created_at": finding.created_at.isoformat() if finding.created_at else None,
+        },
+        source=finding.tool_source,
+    )
 
 
 @main_bp.route("/scannmap")
@@ -271,44 +315,7 @@ def get_scan_findings(scan_id):
     total = findings_q.count()
     items = findings_q.limit(limit).offset(offset).all()
     
-    items_payload = [{
-        "exploit_score": (f.metadata_json or {}).get("exploit_score") if isinstance(f.metadata_json, dict) else None,
-        "risk_level": (f.metadata_json or {}).get("risk_level") if isinstance(f.metadata_json, dict) else None,
-        "attack_priority": (f.metadata_json or {}).get("attack_priority") if isinstance(f.metadata_json, dict) else None,
-        "action_priority": (f.metadata_json or {}).get("action_priority") if isinstance(f.metadata_json, dict) else None,
-        "action_type": (f.metadata_json or {}).get("action_type") if isinstance(f.metadata_json, dict) else None,
-        "estimated_value": (f.metadata_json or {}).get("estimated_value") if isinstance(f.metadata_json, dict) else None,
-        "estimated_complexity": (f.metadata_json or {}).get("estimated_complexity") if isinstance(f.metadata_json, dict) else None,
-        "provider": (f.metadata_json or {}).get("provider") if isinstance(f.metadata_json, dict) else None,
-        "component": (f.metadata_json or {}).get("component") if isinstance(f.metadata_json, dict) else None,
-        "version": (f.metadata_json or {}).get("version") if isinstance(f.metadata_json, dict) else None,
-        "objective_type": (f.metadata_json or {}).get("objective_type") if isinstance(f.metadata_json, dict) else None,
-        "id": f.id,
-        "id_stable": f.id_stable,
-        "severity": f.severity,
-        "confidence": f.confidence,
-        "title": f.title,
-        "description": f.description,
-        "tool": f.tool_source,
-        "target": f.target,
-        "endpoint": f.endpoint,
-        "parameter": f.parameter,
-        "payload": f.payload,
-        "category": f.category,
-        "module": f.module,
-        "evidence": f.evidence,
-        "reproduction": f.reproduction,
-        "raw_output": f.raw_output,
-        "metadata": f.metadata_json,
-        "signal_ids": f.signal_ids or [],
-        "screenshot_path": f.screenshot_path,
-        "request": f.request,
-        "response": f.response,
-        "repro_command": f.repro_command,
-        "impact_area": (f.metadata_json or {}).get("impact_area") if isinstance(f.metadata_json, dict) else "Web Application",
-        "risk_scorecard": (f.metadata_json or {}).get("risk_scorecard") if isinstance(f.metadata_json, dict) else {},
-        "created_at": f.created_at.isoformat() if f.created_at else None
-    } for f in items]
+    items_payload = [_serialize_db_finding_payload(f) for f in items]
 
     return jsonify({
         "scan_id": scan_id,
@@ -1160,6 +1167,7 @@ def scan_report(scan_id):
         normalized_findings.extend(c_norm)
         
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).all()
+    report_findings = prepare_report_findings(normalized_findings)
     
     format = request.args.get('format', 'html')
     if format == 'pdf':
@@ -1185,7 +1193,7 @@ def scan_report(scan_id):
         "reports/standard_report.html",
         scan=scan,
         results=results,
-        findings=normalized_findings,
+        findings=report_findings,
         suggestions=suggestions,
         generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         duration=duration
@@ -1736,4 +1744,3 @@ def mission_quality_metrics(mission_id):
         "mission_id": mission_id,
         "quality_metrics": payload,
     })
-

@@ -93,6 +93,14 @@
                 </td>
             </tr>
             {% endfor %}
+            <tr id="findings-empty-state" style="display: none;">
+                <td colspan="6" class="text-center py-5 text-muted">
+                    <div class="opacity-25 mb-3">
+                        <i class="fas fa-shield-alt fa-3x"></i>
+                    </div>
+                    <p class="small fw-light">No findings match the current view for this engagement.</p>
+                </td>
+            </tr>
             {% else %}
             <tr id="findings-empty-state">
                 <td colspan="6" class="text-center py-5 text-muted">

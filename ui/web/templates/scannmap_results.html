@@ -154,76 +154,12 @@
         }
         panel.scrollTop = 0;
         offcanvas.show();
-
-        const meta = (f.metadata && typeof f.metadata === 'object') ? f.metadata : {};
-        const sev = (f.severity || 'info').toLowerCase();
-        const sevColor = sev === 'critical' || sev === 'high' ? 'danger' : sev === 'medium' ? 'warning' : 'secondary';
-        const conf = (f.confidence || 'medium').toUpperCase();
-        const tool = (f.tool_source || f.tool || 'nmap').toUpperCase();
-        const category = (f.category || '').toUpperCase();
-
-        // Validation / reproducibility
-        const validation = (meta.validation && typeof meta.validation === 'object') ? meta.validation : {};
-        const repro = (meta.reproducibility && typeof meta.reproducibility === 'object') ? meta.reproducibility : {};
-        const primaryCmd = f?._ui?.primaryCommand || '';
-        const primaryUrl = f?._ui?.primaryUrl || '';
-
-        // Evidence
-        const evidence = f.evidence || '';
-        const rawOutput = f.raw_output || '';
-        const reqExcerpt = repro.request_excerpt || f.request || '';
-        const resExcerpt = repro.response_excerpt || f.response || '';
-
-        function buildRow(label, value, mono) {
-            if (!value) return '';
-            return `<div class="small mb-2"><div class="text-muted extra-small text-uppercase">${label}</div>
-                <pre class="p-2 rounded border border-secondary border-opacity-10 bg-black bg-opacity-30 mb-0 extra-small" style="white-space:pre-wrap;max-height:200px;overflow-y:auto;">${window._escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`;
-        }
-
-        let html = `
-        <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
-            <span class="badge bg-${sevColor} bg-opacity-20 text-${sevColor} border border-${sevColor} border-opacity-50 text-uppercase">${sev}</span>
-            <span class="badge bg-secondary bg-opacity-20 text-muted">CONF: ${conf}</span>
-            <span class="badge bg-dark border border-secondary text-secondary">${window._escapeHtml(tool)}</span>
-            ${category ? `<span class="badge bg-secondary bg-opacity-10 text-light border border-secondary border-opacity-25">${window._escapeHtml(category)}</span>` : ''}
-        </div>
-        <h5 class="text-light mb-2">${window._escapeHtml(f.title || 'Untitled Finding')}</h5>
-        ${f.description ? `<div class="small text-muted border border-secondary border-opacity-10 rounded p-2 mb-3" style="white-space:pre-wrap;">${window._escapeHtml(f.description)}</div>` : ''}
-
-        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
-            <h6 class="extra-small text-uppercase text-muted mb-2">Localisation / Vecteur</h6>
-            ${primaryUrl ? `<div class="small font-monospace text-info mb-1">${window._escapeHtml(primaryUrl)}</div>` : '<div class="small text-muted">Aucune URL cible disponible.</div>'}
-            ${meta.port ? `<div class="extra-small text-muted mt-1"><i class="fas fa-plug me-1 text-info"></i>Port: <span class="text-info fw-bold">${window._escapeHtml(String(meta.port))}</span></div>` : ''}
-            ${meta.service ? `<div class="extra-small text-muted"><i class="fas fa-server me-1"></i>Service: <span class="text-light">${window._escapeHtml(meta.service)}</span></div>` : ''}
-            ${meta.version ? `<div class="extra-small text-muted"><i class="fas fa-tag me-1"></i>Version: <span class="text-warning">${window._escapeHtml(meta.version)}</span></div>` : ''}
-        </div>
-
-        ${primaryCmd || reqExcerpt || resExcerpt ? `
-        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
-            <h6 class="extra-small text-uppercase text-muted mb-2">Reproductibilité</h6>
-            ${buildRow('Command', primaryCmd, true)}
-            ${buildRow('Request', reqExcerpt, true)}
-            ${buildRow('Response', resExcerpt, true)}
-        </div>` : ''}
-
-        ${evidence || rawOutput ? `
-        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
-            <h6 class="extra-small text-uppercase text-muted mb-2">Evidence / Raw Output</h6>
-            ${buildRow('Evidence', evidence, false)}
-            ${buildRow('Raw Output', rawOutput, false)}
-        </div>` : ''}
-
-        <div class="mb-3 p-3 rounded bg-black bg-opacity-30 border border-secondary border-opacity-20">
-            <h6 class="extra-small text-uppercase text-muted mb-2">Actions</h6>
-            <div class="d-flex flex-wrap gap-2">
-                ${primaryCmd ? `<button class="btn btn-sm btn-outline-warning" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(primaryCmd)}')); this.innerHTML='<i class=\\'fas fa-check me-1\\'></i>Copié!'"><i class="fas fa-copy me-1"></i>Copier commande</button>` : ''}
-                ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(primaryUrl)}')); this.innerHTML='<i class=\\'fas fa-check me-1\\'></i>Copié!'"><i class="fas fa-copy me-1"></i>Copier URL</button>` : ''}
-                ${!primaryCmd && !primaryUrl ? '<span class="small text-muted fst-italic">Observation uniquement — pas de commande de reproduction disponible.</span>' : ''}
-            </div>
-        </div>`;
-
-        panel.innerHTML = html;
+        panel.innerHTML = findingsContract.dom.buildFindingDetailHtml(f);
     };
+
+    document.addEventListener('click', function(event) {
+        findingsContract.dom.handleCopyButtonClick(event);
+    });
 
     // 4. showPortAudit — opens a modal with the NSE raw data for the given port
     window.showPortAudit = function(port) {

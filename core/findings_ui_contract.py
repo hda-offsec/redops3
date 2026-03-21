@@ -11,6 +11,7 @@ The backend enriches payloads with `_ui` for Jinja and API responses.
 The frontend mirrors the same logic for live websocket findings.
 """
 
+import json
 import re
 
 from scan_engine.helpers.finding_schema import (
@@ -98,6 +99,25 @@ SEARCH_TEXT_FIELD_SOURCES = (
     "parameter",
     "port_state",
 )
+OBSERVED_VERSION_FIELD_SOURCES = (
+    "version",
+    "metadata.version",
+    "metadata.service_version",
+    "metadata.detected_version",
+    "metadata.component_version",
+)
+DETAIL_COMMAND_BLOCK_SOURCES = (
+    "validation.command",
+    "reproducibility.command",
+    "repro_command",
+)
+DETAIL_EVIDENCE_BLOCK_SOURCES = (
+    "validation.artifact",
+    "request",
+    "response",
+    "raw_output",
+    "evidence",
+)
 
 
 def _as_dict(value):
@@ -110,6 +130,28 @@ def _clean_text(value):
     if isinstance(value, str):
         return value.strip()
     return str(value).strip()
+
+
+def _serialize_detail_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, default=str, indent=2, sort_keys=True)
+        except Exception:
+            return str(value)
+    text = _clean_text(value)
+    if text[:1] in "[{" and text[-1:] in "]}":
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return text
+        if isinstance(parsed, (dict, list)):
+            try:
+                return json.dumps(parsed, default=str, indent=2, sort_keys=True)
+            except Exception:
+                return text
+    return text
 
 
 def _is_meaningful_text(value):
@@ -252,6 +294,238 @@ def get_finding_version(finding):
         metadata.get("detected_version"),
         metadata.get("component_version"),
     )
+
+
+def get_finding_observed_versions(finding):
+    metadata = _as_dict(finding.get("metadata"))
+    versions = []
+    seen = set()
+    for candidate in (
+        finding.get("version"),
+        metadata.get("version"),
+        metadata.get("service_version"),
+        metadata.get("detected_version"),
+        metadata.get("component_version"),
+    ):
+        value = _serialize_detail_value(candidate)
+        if not _is_meaningful_text(value):
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        versions.append(value)
+    extra_versions = metadata.get("versions")
+    if isinstance(extra_versions, list):
+        for candidate in extra_versions:
+            value = _serialize_detail_value(candidate)
+            if not _is_meaningful_text(value):
+                continue
+            if value in seen:
+                continue
+            seen.add(value)
+            versions.append(value)
+    return versions
+
+
+def get_finding_references(finding):
+    metadata = _as_dict(finding.get("metadata"))
+    references = []
+    seen = set()
+    for source in (finding.get("references"), metadata.get("references")):
+        items = source if isinstance(source, list) else [source]
+        for item in items:
+            text = _clean_text(item)
+            if not _is_meaningful_text(text):
+                continue
+            if text in seen:
+                continue
+            seen.add(text)
+            references.append(text)
+    return references
+
+
+def get_finding_command_blocks(finding):
+    metadata = _as_dict(finding.get("metadata"))
+    validation = _as_dict(metadata.get("validation"))
+    reproducibility = _as_dict(metadata.get("reproducibility"))
+    blocks = []
+    seen = set()
+
+    def append_block(key, label, value):
+        serialized = _serialize_detail_value(value)
+        if not _is_meaningful_text(serialized):
+            return
+        if serialized in seen:
+            return
+        seen.add(serialized)
+        blocks.append(
+            {
+                "key": key,
+                "label": label,
+                "kind": "command",
+                "value": serialized,
+            }
+        )
+
+    append_block("validation_command", "Validation command", validation.get("command"))
+    append_block("reproducibility_command", "Reproducibility command", reproducibility.get("command"))
+    append_block("stored_repro_command", "Stored repro command", finding.get("repro_command"))
+    return blocks
+
+
+def get_finding_validation_guidance(finding):
+    guidance = _clean_text(finding.get("reproduction"))
+    if not _is_meaningful_text(guidance):
+        return ""
+    primary_command = get_finding_primary_command(finding)
+    if guidance == primary_command:
+        return ""
+    return "" if _is_safe_legacy_command(guidance) else guidance
+
+
+def get_finding_artifacts(finding):
+    metadata = _as_dict(finding.get("metadata"))
+    artifacts = []
+    screenshot_path = _clean_text(finding.get("screenshot_path"))
+    if _is_meaningful_text(screenshot_path):
+        artifacts.append(
+            {
+                "label": "Screenshot",
+                "kind": "image",
+                "value": screenshot_path,
+            }
+        )
+
+    raw_artifacts = metadata.get("artifacts")
+    if isinstance(raw_artifacts, list):
+        for index, item in enumerate(raw_artifacts, start=1):
+            serialized = _serialize_detail_value(item)
+            if not _is_meaningful_text(serialized):
+                continue
+            artifacts.append(
+                {
+                    "label": f"Artifact {index}",
+                    "kind": "text",
+                    "value": serialized,
+                }
+            )
+    elif _is_meaningful_text(raw_artifacts):
+        artifacts.append(
+            {
+                "label": "Artifact",
+                "kind": "text",
+                "value": _serialize_detail_value(raw_artifacts),
+            }
+        )
+    return artifacts
+
+
+def build_finding_technical_context(finding):
+    normalized = attach_finding_ui_contract(finding)
+    metadata = _as_dict(normalized.get("metadata"))
+    reproducibility = _as_dict(metadata.get("reproducibility"))
+    ui = _as_dict(normalized.get("_ui"))
+    rows = []
+
+    def append_row(label, value):
+        serialized = _serialize_detail_value(value)
+        if not _is_meaningful_text(serialized):
+            return
+        rows.append({"label": label, "value": serialized})
+
+    tool_value = _first_meaningful(normalized.get("tool_source"), normalized.get("tool"))
+    source_value = _clean_text(normalized.get("source"))
+    module_value = _clean_text(normalized.get("module"))
+
+    append_row("Tool", tool_value)
+    if source_value and source_value != tool_value:
+        append_row("Source", source_value)
+    if module_value and module_value not in {tool_value, source_value}:
+        append_row("Module", module_value)
+    append_row("Category", normalized.get("category"))
+    append_row("Parameter", normalized.get("parameter"))
+    append_row("Provider", ui.get("provider"))
+    append_row("Component", ui.get("component"))
+    append_row("Port state", ui.get("portState"))
+    append_row("Validation status", ui.get("validationStatus"))
+    append_row("Result state", ui.get("resultState"))
+    append_row(
+        "Impact area",
+        normalized.get("impact_area") or metadata.get("impact_area"),
+    )
+    append_row("Arguments", reproducibility.get("arguments"))
+    return rows
+
+
+def build_finding_evidence_blocks(finding):
+    normalized = attach_finding_ui_contract(finding)
+    metadata = _as_dict(normalized.get("metadata"))
+    validation = _as_dict(metadata.get("validation"))
+    reproducibility = _as_dict(metadata.get("reproducibility"))
+    blocks = []
+    seen = set()
+
+    def append_block(key, label, kind, value):
+        serialized = _serialize_detail_value(value)
+        if not _is_meaningful_text(serialized):
+            return
+        if serialized in seen:
+            return
+        seen.add(serialized)
+        blocks.append(
+            {
+                "key": key,
+                "label": label,
+                "kind": kind,
+                "value": serialized,
+            }
+        )
+
+    append_block("validation_artifact", "Validation artifact", "proof", validation.get("artifact"))
+    append_block(
+        "request",
+        "Request excerpt",
+        "request",
+        reproducibility.get("request_excerpt") or normalized.get("request"),
+    )
+    append_block(
+        "response",
+        "Response excerpt",
+        "response",
+        reproducibility.get("response_excerpt") or normalized.get("response"),
+    )
+    append_block("raw_output", "Raw output", "raw_output", normalized.get("raw_output"))
+    append_block("evidence", "Evidence", "evidence", normalized.get("evidence"))
+    return blocks
+
+
+def build_finding_detail_contract(finding):
+    normalized = attach_finding_ui_contract(finding)
+    metadata = _as_dict(normalized.get("metadata"))
+    ui = _as_dict(normalized.get("_ui"))
+    risk_scorecard = _as_dict(normalized.get("risk_scorecard"))
+    return {
+        "summary": _clean_text(normalized.get("description")),
+        "technicalContext": build_finding_technical_context(normalized),
+        "commandExecuted": ui.get("primaryCommand") or "",
+        "commandBlocks": get_finding_command_blocks(normalized),
+        "validationGuidance": get_finding_validation_guidance(normalized),
+        "target": ui.get("primaryUrl") or "",
+        "observedVersions": get_finding_observed_versions(normalized),
+        "evidenceBlocks": build_finding_evidence_blocks(normalized),
+        "rawOutput": _serialize_detail_value(normalized.get("raw_output")),
+        "interpretation": _first_meaningful(
+            normalized.get("impact"),
+            metadata.get("impact"),
+            risk_scorecard.get("impact"),
+            risk_scorecard.get("summary"),
+        ),
+        "severity": _clean_text(normalized.get("severity") or "info").lower() or "info",
+        "confidence": _clean_text(normalized.get("confidence") or "medium").lower() or "medium",
+        "remediation": _first_meaningful(normalized.get("remediation"), metadata.get("remediation")),
+        "references": get_finding_references(normalized),
+        "artifacts": get_finding_artifacts(normalized),
+    }
 
 
 def has_finding_evidence(finding):

@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from markdown import markdown
 from core.results_store import load_results
+from core.findings_ui_contract import attach_finding_ui_contract, build_finding_detail_contract
 
 REPORTS_DIR = "data/reports"
 
@@ -121,11 +122,28 @@ class RedOpsReport(FPDF):
         self.line(self.get_x(), self.get_y(), self.get_x() + 190, self.get_y())
         self.ln(5)
 
+
+def _truncate_report_block(value, limit=1600):
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "... [TRUNCATED FOR PDF EXPORT]"
+
+
+def prepare_report_findings(findings):
+    prepared = []
+    for finding in findings or []:
+        record = attach_finding_ui_contract(finding if isinstance(finding, dict) else {})
+        record["_detail"] = build_finding_detail_contract(record)
+        prepared.append(record)
+    return prepared
+
 def generate_scan_report(scan_id, scan_obj, findings):
     if not os.path.exists(REPORTS_DIR):
         os.makedirs(REPORTS_DIR, exist_ok=True)
         
     results = load_results(scan_id)
+    findings = prepare_report_findings(findings)
     pdf = RedOpsReport(scan_obj.target.identifier)
     
     # 1. Cover Page
@@ -509,9 +527,17 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.cell(155, 6, "URL / Path", border=1, fill=True, ln=True)
             
             for ep in api['endpoints'][:100]: # Limit to 100 to avoid 500 pages
+                url_value = ""
+                status_value = "Unverified"
+                if isinstance(ep, dict):
+                    url_value = str(ep.get('url') or ep.get('endpoint') or ep.get('path') or '')
+                    if ep.get('status') not in (None, ""):
+                        status_value = str(ep.get('status'))
+                else:
+                    url_value = str(ep)
                 pdf.cell(20, 6, "GET", border=1) # Katana usually GET
-                pdf.cell(15, 6, str(ep.get('status', '200')), border=1)
-                pdf.cell(155, 6, pdf.safe_text(ep.get('url', '')[:180]), border=1, ln=True)
+                pdf.cell(15, 6, pdf.safe_text(status_value), border=1)
+                pdf.cell(155, 6, pdf.safe_text(url_value[:180]), border=1, ln=True)
                 
             if len(api['endpoints']) > 100:
                 pdf.cell(0, 6, f"... and {len(api['endpoints']) - 100} more endpoints.", border=1, ln=True)
@@ -587,8 +613,19 @@ def generate_scan_report(scan_id, scan_obj, findings):
         
         title = f.get('title', 'Unknown') if isinstance(f, dict) else getattr(f, 'title', 'Unknown')
         tool_source = f.get('tool_source', 'Unknown') if isinstance(f, dict) else getattr(f, 'tool_source', 'Unknown')
-        description = f.get('description', '') if isinstance(f, dict) else getattr(f, 'description', '')
-        screenshot_path = f.get('screenshot_path', '') if isinstance(f, dict) else getattr(f, 'screenshot_path', '')
+        detail = f.get('_detail', {}) if isinstance(f, dict) else {}
+        description = detail.get('summary') or (f.get('description', '') if isinstance(f, dict) else getattr(f, 'description', ''))
+        confidence = (detail.get('confidence') or (f.get('confidence', '') if isinstance(f, dict) else getattr(f, 'confidence', '')) or 'medium').upper()
+        target = detail.get('target', '')
+        versions = detail.get('observedVersions', []) if isinstance(detail.get('observedVersions'), list) else []
+        command_blocks = detail.get('commandBlocks', []) if isinstance(detail.get('commandBlocks'), list) else []
+        evidence_blocks = detail.get('evidenceBlocks', []) if isinstance(detail.get('evidenceBlocks'), list) else []
+        technical_context = detail.get('technicalContext', []) if isinstance(detail.get('technicalContext'), list) else []
+        interpretation = detail.get('interpretation', '')
+        remediation = detail.get('remediation', '')
+        references = detail.get('references', []) if isinstance(detail.get('references'), list) else []
+        artifacts = detail.get('artifacts', []) if isinstance(detail.get('artifacts'), list) else []
+        validation_guidance = detail.get('validationGuidance', '')
         
         # Draw finding header
         pdf.set_fill_color(*bg_color)
@@ -601,7 +638,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         # Finding Details Section
         pdf.set_text_color(50, 50, 50)
         pdf.set_font("helvetica", "B", 8)
-        pdf.cell(0, 5, pdf.safe_text(f" Vector Source: {tool_source}"), ln=True)
+        pdf.cell(0, 5, pdf.safe_text(f" Vector Source: {tool_source} | Confidence: {confidence}"), ln=True)
         
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(60, 60, 65)
@@ -612,53 +649,116 @@ def generate_scan_report(scan_id, scan_obj, findings):
             description = description[:500] + "... [TRUNCATED]"
             
         pdf.multi_cell(190, 5, pdf.safe_text(description))
-        
-        if screenshot_path:
-            full_img_path = os.path.join("ui/web/static", screenshot_path)
-            if os.path.exists(full_img_path):
-                try:
-                    pdf.ln(2)
-                    pdf.image(full_img_path, w=150)
-                    pdf.ln(5)
-                except Exception: pass
 
-        # Technical Reproducibility Section
-        request_text = f.get('request', '') if isinstance(f, dict) else getattr(f, 'request', '')
-        response_text = f.get('response', '') if isinstance(f, dict) else getattr(f, 'response', '')
-        repro_cmd = f.get('repro_command', '') if isinstance(f, dict) else getattr(f, 'repro_command', '')
+        if target:
+            pdf.set_font("helvetica", "B", 7)
+            pdf.cell(0, 5, " Target:", ln=True)
+            pdf.set_font("courier", "", 7)
+            pdf.multi_cell(190, 3.5, pdf.safe_text(target), border=1)
 
-        if repro_cmd or request_text or response_text:
-            pdf.ln(2)
+        if versions:
+            pdf.set_font("helvetica", "B", 7)
+            pdf.cell(0, 5, " Observed Versions:", ln=True)
+            pdf.set_font("helvetica", "", 7)
+            pdf.multi_cell(190, 4, pdf.safe_text(", ".join(versions)), border=1)
+
+        if technical_context:
+            pdf.ln(1)
             pdf.set_fill_color(240, 240, 240)
             pdf.set_text_color(100, 100, 100)
             pdf.set_font("helvetica", "B", 8)
-            pdf.cell(0, 6, " TECHNICAL REPRODUCIBILITY & EVIDENCE", fill=True, ln=True)
-            
-            if repro_cmd:
-                if sev == 'high':
-                    pdf.set_text_color(180, 0, 0)
-                else:
-                    pdf.set_text_color(70, 70, 75)
-                pdf.set_font("courier", "B", 8)
-                pdf.multi_cell(190, 4, pdf.safe_text(f"Command: {repro_cmd}"), border='LRB')
-            
-            if request_text:
-                pdf.set_text_color(50, 50, 50)
+            pdf.cell(0, 6, " TECHNICAL CONTEXT", fill=True, ln=True)
+            for row in technical_context:
+                if not isinstance(row, dict):
+                    continue
+                label = row.get("label", "")
+                value = row.get("value", "")
+                if not label or not value:
+                    continue
                 pdf.set_font("helvetica", "B", 7)
-                pdf.cell(0, 5, " Offensive Request:", ln=True)
-                pdf.set_font("courier", "", 7)
-                # Cap request length for report
-                req_disp = request_text[:500] + ("..." if len(request_text) > 500 else "")
-                pdf.multi_cell(190, 3.5, pdf.safe_text(req_disp), border=1)
+                pdf.set_text_color(60, 60, 65)
+                pdf.cell(0, 5, pdf.safe_text(f" {label}:"), ln=True)
+                pdf.set_font("helvetica", "", 7)
+                pdf.multi_cell(190, 3.5, pdf.safe_text(_truncate_report_block(value, 500)), border=1)
 
-            if response_text:
-                pdf.set_text_color(50, 50, 50)
+        if command_blocks or validation_guidance:
+            pdf.ln(1)
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_text_color(100, 100, 100)
+            pdf.set_font("helvetica", "B", 8)
+            pdf.cell(0, 6, " COMMAND & VALIDATION", fill=True, ln=True)
+
+            for block in command_blocks:
+                if not isinstance(block, dict):
+                    continue
                 pdf.set_font("helvetica", "B", 7)
-                pdf.cell(0, 5, " Server Response Validation:", ln=True)
+                pdf.set_text_color(60, 60, 65)
+                pdf.cell(0, 5, pdf.safe_text(f" {block.get('label', 'Command')}:"), ln=True)
                 pdf.set_font("courier", "", 7)
-                # Cap response
-                res_disp = response_text[:500] + ("..." if len(response_text) > 500 else "")
-                pdf.multi_cell(190, 3.5, pdf.safe_text(res_disp), border=1)
+                pdf.multi_cell(190, 3.5, pdf.safe_text(_truncate_report_block(block.get("value"), 1200)), border=1)
+
+            if validation_guidance:
+                pdf.set_font("helvetica", "B", 7)
+                pdf.set_text_color(60, 60, 65)
+                pdf.cell(0, 5, " Validation Guidance:", ln=True)
+                pdf.set_font("helvetica", "", 7)
+                pdf.multi_cell(190, 4, pdf.safe_text(_truncate_report_block(validation_guidance, 900)), border=1)
+
+        if evidence_blocks:
+            pdf.ln(1)
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_text_color(100, 100, 100)
+            pdf.set_font("helvetica", "B", 8)
+            pdf.cell(0, 6, " EVIDENCE & RAW OUTPUT", fill=True, ln=True)
+
+            for block in evidence_blocks:
+                if not isinstance(block, dict):
+                    continue
+                pdf.set_font("helvetica", "B", 7)
+                pdf.set_text_color(60, 60, 65)
+                pdf.cell(0, 5, pdf.safe_text(f" {block.get('label', 'Evidence')}:"), ln=True)
+                pdf.set_font("courier", "", 7)
+                pdf.multi_cell(190, 3.5, pdf.safe_text(_truncate_report_block(block.get("value"), 1400)), border=1)
+
+        if interpretation:
+            pdf.set_font("helvetica", "B", 7)
+            pdf.set_text_color(60, 60, 65)
+            pdf.cell(0, 5, " Interpretation:", ln=True)
+            pdf.set_font("helvetica", "", 7)
+            pdf.multi_cell(190, 4, pdf.safe_text(_truncate_report_block(interpretation, 900)), border=1)
+
+        if remediation:
+            pdf.set_font("helvetica", "B", 7)
+            pdf.set_text_color(60, 60, 65)
+            pdf.cell(0, 5, " Remediation:", ln=True)
+            pdf.set_font("helvetica", "", 7)
+            pdf.multi_cell(190, 4, pdf.safe_text(_truncate_report_block(remediation, 900)), border=1)
+
+        if references:
+            pdf.set_font("helvetica", "B", 7)
+            pdf.set_text_color(60, 60, 65)
+            pdf.cell(0, 5, " References:", ln=True)
+            pdf.set_font("helvetica", "", 7)
+            pdf.multi_cell(190, 4, pdf.safe_text("\n".join(f"- {ref}" for ref in references)), border=1)
+
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            if artifact.get("kind") == "image":
+                full_img_path = os.path.join("ui/web/static", str(artifact.get("value", "")))
+                if os.path.exists(full_img_path):
+                    try:
+                        pdf.ln(2)
+                        pdf.image(full_img_path, w=150)
+                        pdf.ln(5)
+                    except Exception:
+                        pass
+                continue
+            pdf.set_font("helvetica", "B", 7)
+            pdf.set_text_color(60, 60, 65)
+            pdf.cell(0, 5, pdf.safe_text(f" {artifact.get('label', 'Artifact')}:"), ln=True)
+            pdf.set_font("courier", "", 7)
+            pdf.multi_cell(190, 3.5, pdf.safe_text(_truncate_report_block(artifact.get("value"), 1200)), border=1)
 
         pdf.ln(6)
 
@@ -734,7 +834,7 @@ def generate_html_report(scan_id, scan_obj, findings, suggestions):
         "reports/standard_report.html",
         scan=scan_obj,
         results=results,
-        findings=findings,
+        findings=prepare_report_findings(findings),
         suggestions=suggestions,
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         duration=duration

@@ -113,6 +113,76 @@
             font-family: monospace;
         }
 
+        .finding-card {
+            margin-bottom: 32px;
+            border-left: 4px solid #999;
+            padding-left: 18px;
+        }
+
+        .finding-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin: 16px 0 20px;
+        }
+
+        .finding-panel {
+            background: #f7f7f9;
+            border: 1px solid #e5e5ea;
+            border-radius: 6px;
+            padding: 14px 16px;
+        }
+
+        .finding-panel h5 {
+            margin: 0 0 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #4b5563;
+        }
+
+        .finding-section {
+            margin-top: 18px;
+        }
+
+        .finding-section h5 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #4b5563;
+            margin-bottom: 8px;
+        }
+
+        .finding-kv {
+            margin: 0 0 10px;
+        }
+
+        .finding-kv dt {
+            font-size: 11px;
+            font-weight: bold;
+            color: #6b7280;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .finding-kv dd {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+
+        .artifact-list,
+        .reference-list {
+            margin: 0;
+            padding-left: 18px;
+        }
+
+        .inline-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 10px 0 0;
+        }
+
         .footer {
             margin-top: 60px;
             font-size: 12px;
@@ -287,7 +357,10 @@
         <small>Port {{ port }}: {{ (summary[:100] + '...') if summary|length > 100 else summary }}</small><br>
         {% endfor %}
         {% endif %}
+        {% endif %}
     </div>
+    {% else %}
+    <p>No technology stack intelligence available.</p>
     {% endif %}
 
     <!-- 5. API & Web Analysis -->
@@ -304,11 +377,12 @@
         </thead>
         <tbody>
             {% for ep in api_list[:5000] %}
+            {% set ep_url = ep.url if ep is mapping else ep %}
+            {% set ep_status = ep.status if ep is mapping and ep.status not in [none, ''] else 'Unverified' %}
             <tr>
                 <td>GET</td>
-                <td>{{ ep.status if ep is mapping else '200' }}</td>
-                <td><a href="{{ ep.url if ep is mapping else ep }}" target="_blank">{{ ep.url if ep is mapping else ep
-                        }}</a></td>
+                <td>{{ ep_status }}</td>
+                <td><a href="{{ ep_url }}" target="_blank">{{ ep_url }}</a></td>
             </tr>
             {% endfor %}
         </tbody>
@@ -324,18 +398,142 @@
     <h2>6. Detailed Vulnerabilities</h2>
     {% if findings %}
     {% for finding in findings %}
-    <div
-        style="margin-bottom: 30px; border-left: 4px solid #{{ 'dc3545' if finding.severity == 'critical' else ('fd7e14' if finding.severity == 'high' else '17a2b8') }}; padding-left: 15px;">
-        <h4>
+    {% set detail = finding._detail if finding._detail else {} %}
+    {% set ui = finding._ui if finding._ui else {} %}
+    <div class="finding-card" style="border-left-color: #{{ 'dc3545' if finding.severity == 'critical' else ('b45f06' if finding.severity == 'high' else ('6c757d' if finding.severity == 'medium' else '17a2b8')) }};">
+        <h4 style="margin-bottom: 8px;">
             <span class="badge bg-{{ finding.severity|lower }}">{{ finding.severity|upper }}</span>
+            <span class="badge bg-info" style="margin-left: 6px;">{{ (detail.confidence or finding.confidence or 'medium')|upper }}</span>
             {{ finding.title }}
         </h4>
-        <p>{{ finding.description }}</p>
         <small class="text-muted">Source: {{ finding.tool_source }}</small>
-        {% if finding.screenshot_path %}
-        <div style="margin-top: 10px;">
-            <img src="{{ url_for('static', filename=finding.screenshot_path) }}"
-                style="max-width: 100%; max-height: 200px; border: 1px solid #ccc;">
+
+        {% if detail.summary %}
+        <div class="finding-section">
+            <h5>Operational Summary</h5>
+            <div class="finding-panel" style="white-space: pre-wrap;">{{ detail.summary }}</div>
+        </div>
+        {% endif %}
+
+        <div class="finding-grid">
+            <div class="finding-panel">
+                <h5>Target</h5>
+                {% if detail.target %}
+                <div style="font-family: monospace; color: #0c63e7; word-break: break-word;">{{ detail.target }}</div>
+                {% else %}
+                <div class="text-muted">No target URL recorded.</div>
+                {% endif %}
+                {% if detail.observedVersions %}
+                <div class="inline-badges">
+                    {% for version in detail.observedVersions %}
+                    <span class="badge bg-info">{{ version }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="finding-panel">
+                <h5>Status</h5>
+                <div class="inline-badges">
+                    <span class="badge bg-{{ 'high' if (ui.validationStatus or 'not_run') == 'failed' else ('medium' if (ui.validationStatus or 'not_run') == 'uncertain' else ('info' if (ui.validationStatus or 'not_run') == 'success' else 'low')) }}">
+                        Validation: {{ (ui.validationStatus or 'not_run')|upper }}
+                    </span>
+                    <span class="badge bg-info">State: {{ (ui.resultState or 'observation')|replace('_', ' ')|upper }}</span>
+                    {% if ui.isValidated %}
+                    <span class="badge bg-info">Validated</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if detail.technicalContext %}
+        <div class="finding-section">
+            <h5>Technical Context</h5>
+            <div class="finding-panel">
+                {% for row in detail.technicalContext %}
+                <dl class="finding-kv">
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value }}</dd>
+                </dl>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if detail.commandBlocks or detail.validationGuidance %}
+        <div class="finding-section">
+            <h5>Command & Validation</h5>
+            <div class="finding-panel">
+                {% for block in detail.commandBlocks %}
+                <div style="margin-bottom: 12px;">
+                    <div class="text-muted" style="font-size: 11px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">{{ block.label }}</div>
+                    <pre class="code-block" style="margin: 0;">{{ block.value }}</pre>
+                </div>
+                {% endfor %}
+                {% if detail.validationGuidance %}
+                <dl class="finding-kv">
+                    <dt>Validation Guidance</dt>
+                    <dd>{{ detail.validationGuidance }}</dd>
+                </dl>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if detail.evidenceBlocks %}
+        <div class="finding-section">
+            <h5>Evidence & Raw Output</h5>
+            <div class="finding-panel">
+                {% for block in detail.evidenceBlocks %}
+                <div style="margin-bottom: 12px;">
+                    <div class="text-muted" style="font-size: 11px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">{{ block.label }}</div>
+                    <pre class="code-block" style="margin: 0;">{{ block.value }}</pre>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if detail.interpretation %}
+        <div class="finding-section">
+            <h5>Interpretation</h5>
+            <div class="finding-panel" style="white-space: pre-wrap;">{{ detail.interpretation }}</div>
+        </div>
+        {% endif %}
+
+        {% if detail.remediation %}
+        <div class="finding-section">
+            <h5>Remediation</h5>
+            <div class="finding-panel" style="white-space: pre-wrap;">{{ detail.remediation }}</div>
+        </div>
+        {% endif %}
+
+        {% if detail.references or detail.artifacts %}
+        <div class="finding-section">
+            <h5>References & Artifacts</h5>
+            <div class="finding-panel">
+                {% if detail.references %}
+                <ul class="reference-list">
+                    {% for ref in detail.references %}
+                    <li>{{ ref }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% for artifact in detail.artifacts or [] %}
+                {% if artifact.kind == 'image' %}
+                <div style="margin-top: 12px;">
+                    <div class="text-muted" style="font-size: 11px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">{{ artifact.label }}</div>
+                    <img src="{{ url_for('static', filename=artifact.value) }}"
+                        style="max-width: 100%; max-height: 260px; border: 1px solid #ccc;">
+                </div>
+                {% elif artifact.kind == 'text' %}
+                <div style="margin-top: 12px;">
+                    <div class="text-muted" style="font-size: 11px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">{{ artifact.label }}</div>
+                    <pre class="code-block" style="margin: 0;">{{ artifact.value }}</pre>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
         </div>
         {% endif %}
     </div>
