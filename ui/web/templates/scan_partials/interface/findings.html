@@ -46,10 +46,10 @@
                     </a></li>
                     <li class="dropdown-divider border-secondary border-opacity-25"></li>
                     <li class="px-3 py-1"><div class="extra-small text-muted">Combine terms for complex filtering:</div></li>
-                    <li class="px-3 py-1"><code class="extra-small text-info">type:endpoint status:200</code></li>
+                    <li class="px-3 py-1"><code class="extra-small text-info">type:api status:validated</code></li>
                 </ul>
                 <input type="text" id="findings-search" class="form-control bg-transparent border-secondary text-light"
-                    placeholder="Search detections..." onkeyup="filterFindings()">
+                    placeholder="Search findings..." onkeyup="filterFindings()">
                 <button class="btn btn-outline-secondary border-secondary text-muted px-2" type="button" onclick="clearSearch('findings-search', filterFindings)" title="Clear Search">
                     <i class="fas fa-times-circle"></i>
                 </button>
@@ -105,6 +105,7 @@
                     <div class="d-flex align-items-center gap-1"><span class="dot bg-success"></span> 200 OK</div>
                     <div class="d-flex align-items-center gap-1"><span class="dot bg-warning"></span> 3xx/4xx</div>
                     <div class="d-flex align-items-center gap-1"><span class="dot bg-danger"></span> 5xx/Auth</div>
+                    <div class="d-flex align-items-center gap-1"><span class="dot bg-secondary"></span> Unverified</div>
                     <div class="d-flex align-items-center gap-1 text-danger fw-bold"><i class="fas fa-biohazard"></i> Vuln</div>
                 </div>
             </div>
@@ -133,33 +134,25 @@
     <div class="offcanvas-body" id="finding-detail-panel">
         <div class="text-center p-5 text-muted fst-italic">
             <div class="mb-3"><i class="fas fa-hand-pointer fa-3x opacity-10"></i></div>
-            <p class="small">Select a discovery record from the identification matrix to retrieve intelligence.</p>
+            <p class="small">Select a finding from the identification matrix to retrieve intelligence.</p>
         </div>
     </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/findings_contract.js') }}"></script>
 <script id="findings-json-data" type="application/json">
 {{ findings | tojson }}
 </script>
 <script>
-    // Deserialize JSON natively to avoid parsing and IDE formatter conflict issues
-    const findingsList = JSON.parse(document.getElementById('findings-json-data').textContent);
+    const findingsContract = window.RedOpsFindings;
+    const findingsList = JSON.parse(document.getElementById('findings-json-data').textContent).map(
+        finding => findingsContract.normalizeFindingRecord(finding)
+    );
     window.findingsList = findingsList;
     window.rawFindingsData = {};
 
     function normalizeFindingRecord(finding) {
-        if (!finding || typeof finding !== 'object') return finding;
-        const metadata = (finding.metadata && typeof finding.metadata === 'object') ? finding.metadata : {};
-        finding.metadata = metadata;
-        finding._ui = {
-            primaryCommand: getFindingPrimaryCommand(finding),
-            primaryUrl: getFindingPrimaryUrl(finding),
-            provider: finding.provider || metadata.provider || '',
-            component: finding.component || metadata.component || '',
-            version: getFindingVersionInfo(finding),
-            resultState: getFindingResultState(finding),
-        };
-        return finding;
+        return findingsContract.normalizeFindingRecord(finding);
     }
 
     findingsList.forEach(f => {
@@ -168,67 +161,7 @@
     });
 
     function filterFindings() {
-        const query = document.getElementById('findings-search').value.toLowerCase().trim();
-        const severityFilter = (document.getElementById('findings-severity-filter')?.value || '').toLowerCase();
-        const categoryFilter = (document.getElementById('findings-category-filter')?.value || '').toLowerCase();
-        const portStatusFilter = (document.getElementById('findings-port-status-filter')?.value || '').toLowerCase();
-        const rows = document.querySelectorAll('#findings-table-body .finding-row');
-        
-        const terms = { global: [] };
-        if (query !== '') {
-            const clauses = query.split(/\s+/);
-            clauses.forEach(c => {
-                if (c.includes(':')) {
-                    const [k, v] = c.split(':');
-                    if (v) terms[k] = v;
-                } else {
-                    terms.global.push(c);
-                }
-            });
-        }
-
-        let visibleCount = 0;
-
-        rows.forEach(row => {
-            const t = row.getAttribute('data-title') || '';
-            const s = (row.getAttribute('data-severity') || row.getAttribute('data-sev') || '').toLowerCase();
-            const tool = row.getAttribute('data-tool') || '';
-            const category = (row.getAttribute('data-category') || '').toLowerCase();
-            const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
-            const content = (row.getAttribute('data-content') || '').toLowerCase();
-
-            // 1. Dropdown Filters (must all match)
-            const dropdownSeverityMatch = !severityFilter || s === severityFilter;
-            const dropdownCategoryMatch = !categoryFilter || category === categoryFilter;
-            const dropdownPortStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
-
-            // 2. Prefixed Query Filters (must all match)
-            let prefixMatch = true;
-            if (terms.type && !category.includes(terms.type)) prefixMatch = false;
-            // Support 'sev:' and 'severity:'
-            const sevTerm = terms.sev || terms.severity;
-            if (sevTerm && !s.includes(sevTerm)) prefixMatch = false;
-            if (terms.tool && !tool.includes(terms.tool)) prefixMatch = false;
-            if (terms.source && !(row.getAttribute('data-source') || tool).includes(terms.source)) prefixMatch = false;
-
-            // 3. Global Text Terms (must all match individually)
-            let globalMatch = true;
-            if (terms.global.length > 0) {
-                const searchable = `${t} ${tool} ${category} ${content}`.toLowerCase();
-                globalMatch = terms.global.every(word => searchable.includes(word));
-            }
-
-            const isVisible = dropdownSeverityMatch && dropdownCategoryMatch && dropdownPortStatusMatch && prefixMatch && globalMatch;
-            row.style.display = isVisible ? '' : 'none';
-            if (isVisible) visibleCount++;
-        });
-
-        const label = document.getElementById('findings-total-label');
-        if (label) label.textContent = `${visibleCount} discoveries`;
-        
-        // Hide/Show empty state
-        const emptyState = document.getElementById('findings-empty-state');
-        if (emptyState) emptyState.style.display = visibleCount === 0 ? '' : 'none';
+        return findingsContract.applyTableFilters();
     }
 
     function populateCategoryFilter() {
@@ -247,10 +180,10 @@
         });
         el.value = currentCat;
         
-        updateTacticalSummary(categories);
+        updateTacticalSummary();
     }
 
-    function updateTacticalSummary(categories) {
+    function updateTacticalSummary() {
         const statsEl = document.getElementById('findings-category-stats');
         if (!statsEl) return;
         statsEl.innerHTML = '';
@@ -306,70 +239,31 @@
 
 
     function isMeaningfulValue(value) {
-        if (value === null || value === undefined) return false;
-        if (typeof value === 'object') return Object.keys(value).length > 0;
-        const normalized = String(value).trim().toLowerCase();
-        // Skip empty strings, junk words, and also JSON serialized empty objects/arrays
-        if (normalized === '' || ['n/a', 'na', 'none', 'null', 'manual', 'todo', 'ui', '-', '{}', '[]'].includes(normalized)) return false;
-        // Reject synthetic internal port references
-        if (normalized.startsWith('port:')) return false;
-        return true;
+        return findingsContract.isMeaningfulText(value);
     }
 
     function getFindingValidation(finding) {
-        return finding?.metadata?.validation || {};
+        return findingsContract.getValidation(finding);
     }
 
     function getFindingReproducibility(finding) {
-        return finding?.metadata?.reproducibility || {};
+        return findingsContract.getReproducibility(finding);
     }
 
     function getFindingValidationStatus(finding) {
-        const validation = getFindingValidation(finding);
-        return validation.status || finding?.metadata?.validation_status || 'not_run';
+        return normalizeFindingRecord(finding)?._ui?.validationStatus || 'not_run';
     }
 
     function getFindingResultState(finding) {
-        const validation = getFindingValidation(finding);
-        const candidate = validation.result_state || finding?.result_state || finding?.metadata?.result_state || 'observation';
-        return isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
-    }
-
-    function isReproCommand(value) {
-        if (!isMeaningfulValue(value)) return false;
-        const v = String(value).trim().toLowerCase();
-        const commonTools = ['curl', 'nmap', 'dalfox', 'ffuf', 'katana', 'nuclei', 'subfinder', 'wpscan', 'nikto', 'sqlmap', 'gobuster', 'dig', 'nslookup', 'whois', 'ghauri', 'python', 'bash', 'sh', './'];
-        // Check if it starts with a common tool or a shell marker
-        if (commonTools.some(tool => v.startsWith(tool))) return true;
-        // If it starts with an uppercase letter and contains a lot of spaces, it's likely prose
-        const raw = String(value).trim();
-        if (/^[A-Z]/.test(raw) && raw.split(' ').length > 4 && !raw.includes('-')) return false;
-        // Default to true if it's short and contains symbols like - or @
-        return v.length < 50 && (v.includes('-') || v.includes('@') || v.includes('/'));
+        return normalizeFindingRecord(finding)?._ui?.resultState || 'observation';
     }
 
     function getFindingPrimaryCommand(finding) {
-        const validation = getFindingValidation(finding);
-        const reproducibility = getFindingReproducibility(finding);
-        const candidates = [
-            validation.command,
-            reproducibility.command,
-            finding?.repro_command
-        ];
-        // Try real commands first
-        for (let c of candidates) {
-            if (isReproCommand(c)) return c;
-        }
-        // Fallback to reproduction text only if it looks like a command
-        if (isReproCommand(finding?.reproduction)) return finding.reproduction;
-        return '';
+        return normalizeFindingRecord(finding)?._ui?.primaryCommand || '';
     }
 
     function getFindingPrimaryUrl(finding) {
-        const validation = getFindingValidation(finding);
-        const reproducibility = getFindingReproducibility(finding);
-        const candidate = validation.target || reproducibility.url || finding?.endpoint || finding?.target || '';
-        return isMeaningfulValue(candidate) ? candidate : '';
+        return normalizeFindingRecord(finding)?._ui?.primaryUrl || '';
     }
 
     function getFindingEvidence(finding) {
@@ -385,19 +279,11 @@
     }
 
     function getFindingVersionInfo(finding) {
-        const candidates = [
-            finding?.version,
-            finding?.metadata?.version,
-            finding?.metadata?.service_version,
-            finding?.metadata?.detected_version,
-            finding?.metadata?.component_version,
-        ];
-        return candidates.find(isMeaningfulValue) || '';
+        return normalizeFindingRecord(finding)?._ui?.version || findingsContract.getFindingVersionInfo(finding) || '';
     }
 
     function hasMeaningfulProof(finding) {
-        const ev = getFindingEvidence(finding);
-        return [ev.evidence, ev.rawOutput, ev.request, ev.response, ev.artifact].some(isMeaningfulValue);
+        return normalizeFindingRecord(finding)?._ui?.hasEvidence || false;
     }
 
     function getFindingAlertTone(finding) {
@@ -409,17 +295,12 @@
 
     function buildCopyButton(value, label) {
         if (!isMeaningfulValue(value)) return '';
-        const encoded = encodeURIComponent(value);
+        const encoded = findingsContract.encodeDataValue(value);
         return `<button class="btn btn-xs btn-outline-secondary ms-2 copy-inline" data-copy-encoded="${encoded}"><i class="fas fa-copy me-1"></i>${label}</button>`;
     }
 
     function decodeDataValue(value) {
-        if (!value) return '';
-        try {
-            return decodeURIComponent(value);
-        } catch (_) {
-            return value;
-        }
+        return findingsContract.decodeDataValue(value);
     }
 
     document.addEventListener('click', (event) => {
@@ -439,7 +320,7 @@
     });
 
     function showFindingDetail(findId) {
-        const f = rawFindingsData[findId];
+        const f = normalizeFindingRecord(rawFindingsData[findId]);
         if (!f) return;
 
         const panel = document.getElementById('finding-detail-panel');
@@ -451,24 +332,26 @@
         const offcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl) || new bootstrap.Offcanvas(offcanvasEl);
         offcanvas.show();
 
+        const ui = f?._ui || {};
         const validation = getFindingValidation(f);
         const reproducibility = getFindingReproducibility(f);
-        const validationStatus = getFindingValidationStatus(f);
-        const primaryCommand = getFindingPrimaryCommand(f);
-        const primaryUrl = getFindingPrimaryUrl(f);
-        const versionInfo = f?._ui?.version || getFindingVersionInfo(f);
+        const validationStatus = ui.validationStatus || getFindingValidationStatus(f);
+        const primaryCommand = ui.primaryCommand || getFindingPrimaryCommand(f);
+        const primaryUrl = ui.primaryUrl || getFindingPrimaryUrl(f);
+        const versionInfo = ui.version || getFindingVersionInfo(f);
         const evidence = getFindingEvidence(f);
-        const alertTone = getFindingAlertTone(f);
-        const resultState = f?._ui?.resultState || getFindingResultState(f);
-        const provider = f?._ui?.provider || '';
-        const component = f?._ui?.component || '';
+        const resultState = ui.resultState || getFindingResultState(f);
+        const provider = ui.provider || '';
+        const component = ui.component || '';
 
         const statusToneMap = { success: 'success', failed: 'danger', uncertain: 'warning', not_run: 'secondary' };
         const statusTone = statusToneMap[validationStatus] || 'secondary';
-        const isValidated = validationStatus === 'success' || ['confirmed', 'confirmed_active', 'validated'].includes(resultState);
+        const resultToneMap = { confirmed: 'success', validation: 'warning', correlation: 'info', heuristic: 'secondary', observation: 'secondary', rejected: 'danger' };
+        const resultTone = resultToneMap[resultState] || 'secondary';
+        const resultStateLabel = (resultState || 'observation').replace(/_/g, ' ').toUpperCase();
+        const isValidated = ui.isValidated === true;
 
         const validationRows = [
-            ['Status', validationStatus],
             ['Target', validation.target || ''],
             ['Command', validation.command || ''],
             ['Expected', validation.expected || ''],
@@ -514,9 +397,9 @@
                             <h6 class="extra-small text-uppercase text-info mb-3 fw-bold"><i class="fas fa-crosshairs me-2"></i>Affected Scope & Vector</h6>
                             ${primaryUrl ? `<div class="small fw-bold text-light mb-2 text-break"><i class="fas fa-link me-2 text-muted"></i>${escapeHtml(primaryUrl)}${buildCopyButton(primaryUrl, 'Copy')}</div>` : '<div class="small text-muted fst-italic mb-2">No target URL identified.</div>'}
                             ${isMeaningfulValue(f.parameter) ? `<div class="small text-muted mt-2">Parameter / Input: <span class="text-warning fw-bold font-monospace bg-dark p-1 rounded">${escapeHtml(f.parameter)}</span></div>` : ''}
-                            ${provider ? `<div class="small text-muted mt-2">Tech Provider: <span class="text-light fw-bold">${escapeHtml(provider)}</span></div>` : ''}
-                            ${component ? `<div class="small text-muted mt-2">Component Component: <span class="text-light fw-bold">${escapeHtml(component)}</span></div>` : ''}
-                            ${versionInfo ? `<div class="small text-muted mt-2">Version Identified: <span class="badge bg-secondary text-light">${escapeHtml(versionInfo)}</span></div>` : ''}
+                            ${provider ? `<div class="small text-muted mt-2">Provider: <span class="text-light fw-bold">${escapeHtml(provider)}</span></div>` : ''}
+                            ${component ? `<div class="small text-muted mt-2">Component: <span class="text-light fw-bold">${escapeHtml(component)}</span></div>` : ''}
+                            ${versionInfo ? `<div class="small text-muted mt-2">Version: <span class="badge bg-secondary text-light">${escapeHtml(versionInfo)}</span></div>` : ''}
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -525,9 +408,13 @@
                             <div class="small text-muted mb-2">Analysis Engine: <span class="badge bg-dark border border-secondary text-light fw-bold text-uppercase">${escapeHtml((f.tool_source || f.tool || 'n/a'))}</span></div>
                             <div class="small text-muted mb-2">Threat Category: <span class="text-light fw-bold text-capitalize">${f.category ? escapeHtml(f.category.replace(/_/g, ' ')) : 'N/A'}</span></div>
                             <div class="small text-muted d-flex align-items-center gap-2 mt-3">
-                                <span class="fw-bold text-uppercase extra-small">VALIDATION:</span>
+                                <span class="fw-bold text-uppercase extra-small">VALIDATION STATUS:</span>
                                 <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 px-2 py-1">${validationStatus.toUpperCase()}</span>
-                                ${isValidated ? '<span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-25 px-2 py-1"><i class="fas fa-check-circle me-1"></i>VERIFIED</span>' : ''}
+                            </div>
+                            <div class="small text-muted d-flex align-items-center gap-2 mt-2">
+                                <span class="fw-bold text-uppercase extra-small">RESULT STATE:</span>
+                                <span class="badge bg-${resultTone} bg-opacity-20 text-${resultTone} border border-${resultTone} border-opacity-25 px-2 py-1">${resultStateLabel}</span>
+                                ${isValidated ? '<span class="badge bg-success bg-opacity-20 text-success border border-success border-opacity-25 px-2 py-1"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>' : ''}
                             </div>
                         </div>
                     </div>
@@ -541,11 +428,11 @@
 
                 ${proofRows.length || reproducibilityRows.length || f.screenshot_path ? `
                 <div class="mb-4">
-                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-microscope me-2"></i>Technical Evidence & Proof</h6>
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-microscope me-2"></i>Technical Evidence</h6>
                     <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
-                        ${validationRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-shield-alt me-1"></i> Section C — Validation</div>${validationRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
-                        ${reproducibilityRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-code me-1"></i> Section D — Reproductibilité</div>${reproducibilityRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(value)}</pre></div>`).join('')}</div>` : ''}
-                        ${proofRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-file-alt me-1"></i> Section E — Preuve</div>${proofRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
+                        ${validationRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-shield-alt me-1"></i>Validation</div>${validationRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
+                        ${reproducibilityRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-code me-1"></i>Reproducibility</div>${reproducibilityRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
+                        ${proofRows.length ? `<div class="small mb-4"><div class="text-warning fw-bold mb-2 text-uppercase extra-small"><i class="fas fa-file-alt me-1"></i>Evidence Artifacts</div>${proofRows.map(([label, value]) => `<div class="small mb-2"><div class="text-info fw-bold mb-1 text-uppercase extra-small">${escapeHtml(label)}</div><pre class="evidence-block p-2 bg-dark border border-secondary border-opacity-25 rounded text-light shadow-sm font-monospace" style="max-height: 180px; overflow-y: auto; font-size: 0.78rem;">${escapeHtml(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre></div>`).join('')}</div>` : ''}
                         
                         ${f.screenshot_path ? `<div class="mt-4 pt-3 border-top border-secondary border-opacity-25"><div class="text-info fw-bold mb-3 text-uppercase extra-small"><i class="fas fa-image me-1"></i> Visual Evidence</div><img src="/static/${escapeHtml(f.screenshot_path)}" class="img-fluid border border-secondary border-opacity-25 rounded shadow-lg hover-zoom" style="max-height: 400px; cursor: pointer; transition: transform 0.2s;" onclick="window.open(this.src)" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"></div>` : ''}
                     </div>
@@ -553,18 +440,18 @@
 
                 ${f.reproduction || primaryCommand ? `
                 <div class="mb-4">
-                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-tools me-2"></i>Remediation & Actions</h6>
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-tools me-2"></i>Validation Actions</h6>
                     <div class="p-4 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm" style="border-left: 3px solid #6c757d !important;">
-                        ${f.reproduction && !isReproCommand(f.reproduction) ? `<div class="small text-light mb-4 p-3 bg-secondary bg-opacity-10 rounded border border-secondary border-opacity-25"><strong class="text-success d-block mb-2"><i class="fas fa-lightbulb me-2"></i>Guidance:</strong><div class="lh-base">${escapeHtml(f.reproduction)}</div></div>` : ''}
+                        ${f.reproduction && !primaryCommand ? `<div class="small text-light mb-4 p-3 bg-secondary bg-opacity-10 rounded border border-secondary border-opacity-25"><strong class="text-success d-block mb-2"><i class="fas fa-lightbulb me-2"></i>Guidance:</strong><div class="lh-base">${escapeHtml(f.reproduction)}</div></div>` : ''}
                         <div class="d-flex flex-wrap gap-2 mt-2">
-                            ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn fw-bold px-3 py-2" data-command="${encodeURIComponent(primaryCommand)}"><i class="fas fa-play me-2"></i>Verify / Reproduce</button>` : ''}
-                            ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${encodeURIComponent(primaryCommand)}"><i class="fas fa-copy me-2"></i>Copy command</button>` : ''}
-                            ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${encodeURIComponent(primaryUrl)}"><i class="fas fa-copy me-2"></i>Copy Target URL</button>` : ''}
+                            ${primaryCommand ? `<button class="btn btn-sm btn-outline-warning verify-btn fw-bold px-3 py-2" data-command="${findingsContract.encodeDataValue(primaryCommand)}"><i class="fas fa-play me-2"></i>Validate</button>` : ''}
+                            ${primaryCommand ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${findingsContract.encodeDataValue(primaryCommand)}"><i class="fas fa-copy me-2"></i>Copy command</button>` : ''}
+                            ${primaryUrl ? `<button class="btn btn-sm btn-outline-secondary copy-inline fw-bold px-3 py-2" data-copy-encoded="${findingsContract.encodeDataValue(primaryUrl)}"><i class="fas fa-copy me-2"></i>Copy target</button>` : ''}
                         </div>
                     </div>
                 </div>` : ''}
                 
-                ${!hasMeaningfulProof(f) && !primaryCommand && !f.description ? '<div class="small text-muted fst-italic p-4 text-center border border-secondary border-opacity-10 rounded bg-black bg-opacity-20 shadow-sm"><i class="fas fa-info-circle fa-2x mb-2 opacity-50 d-block"></i>This finding currently carries observation-only data without explicit proof artifacts.</div>' : ''}
+                ${!hasMeaningfulProof(f) && !primaryCommand && !f.description ? '<div class="small text-muted fst-italic p-4 text-center border border-secondary border-opacity-10 rounded bg-black bg-opacity-20 shadow-sm"><i class="fas fa-info-circle fa-2x mb-2 opacity-50 d-block"></i>This finding is observation-only and does not include explicit evidence artifacts or a reproducible command.</div>' : ''}
             </div>
         `;
 
@@ -673,12 +560,18 @@
 
         // Status dot logic
         let statusHtml = '';
-        if (node.status) {
+        let templateHtml = '';
+        if (node.status !== null && node.status !== undefined) {
             let colorClass = 'bg-secondary';
             if (node.status >= 200 && node.status < 300) colorClass = 'bg-success';
+            else if (node.status >= 500 || node.status === 401 || node.status === 403) colorClass = 'bg-danger';
             else if (node.status >= 300 && node.status < 500) colorClass = 'bg-warning';
-            else if (node.status >= 500) colorClass = 'bg-danger';
             statusHtml = `<span class="dot ${colorClass} ms-2" title="Status: ${node.status}"></span>`;
+        } else if (node.status_source === 'unverified') {
+            statusHtml = '<span class="dot bg-secondary ms-2" title="Status: Unverified (heuristic/discovery only)"></span>';
+        }
+        if (node.templated) {
+            templateHtml = '<span class="ms-2 text-secondary" title="Parameterized route template. Replace placeholders before manual check."><i class="fas fa-code"></i></span>';
         }
 
         // Findings marker
@@ -700,6 +593,8 @@
                 openFindingDrawer(node.findings[0].id, null, true);
             };
             wrapper.classList.add('cursor-pointer', 'hover-bright');
+        } else if (node.url && node.clickable === false) {
+            wrapper.classList.add('opacity-75');
         } else if (node.url) {
             wrapper.onclick = (e) => {
                 e.stopPropagation();
@@ -710,7 +605,7 @@
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tree-node-name';
-        nameSpan.innerHTML = `${iconHtml}${escapeHtml(node.name)}${statusHtml}${findingsHtml}`;
+        nameSpan.innerHTML = `${iconHtml}${escapeHtml(node.name)}${statusHtml}${templateHtml}${findingsHtml}`;
         
         wrapper.appendChild(nameSpan);
         li.appendChild(wrapper);
@@ -756,7 +651,7 @@
                     findingsList[existingIndex] = rawFindingsData[fid];
                 }
             });
-            // Re-populate categories to include new discoveries
+            // Re-populate categories to include new findings
             populateCategoryFilter();
         }
         filterFindings();

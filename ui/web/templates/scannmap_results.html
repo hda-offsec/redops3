@@ -84,6 +84,7 @@
 </script>
 
 <!-- Specialized scripts for ScanNmap results -->
+<script src="{{ url_for('static', filename='js/findings_contract.js') }}"></script>
 <script src="{{ url_for('static', filename='js/scan_dashboard.js') }}"></script>
 <script>
     // ===== SCANNMAP RESULT PAGE BOOTSTRAP =====
@@ -92,14 +93,16 @@
     // 1. Findings data store (mirrors findings.html rawFindingsData for compatibility)
     window.rawFindingsData = window.rawFindingsData || {};
     window.findingsList = window.findingsList || [];
+    const findingsContract = window.RedOpsFindings;
 
     (function _preloadFindingsData() {
         try {
             const raw = JSON.parse(document.getElementById('scannmap-findings-json').textContent);
             raw.forEach(function(f) {
-                const fid = f.id_stable || f.id;
-                window.rawFindingsData[fid] = f;
-                window.findingsList.push(f);
+                const normalized = findingsContract.normalizeFindingRecord(f);
+                const fid = normalized.id_stable || normalized.id;
+                window.rawFindingsData[fid] = normalized;
+                window.findingsList.push(normalized);
             });
         } catch(e) {
             console.warn('[ScanNmap] Failed to pre-load findings JSON:', e);
@@ -116,7 +119,7 @@
 
     // 3. Core showFindingDetail — renders the offcanvas from rawFindingsData
     window.showFindingDetail = function(findId) {
-        const f = window.rawFindingsData[findId];
+        const f = findingsContract.normalizeFindingRecord(window.rawFindingsData[findId]);
         const panel = document.getElementById('finding-detail-panel');
         const idBadge = document.getElementById('detail-id');
         if (!panel) return;
@@ -162,8 +165,8 @@
         // Validation / reproducibility
         const validation = (meta.validation && typeof meta.validation === 'object') ? meta.validation : {};
         const repro = (meta.reproducibility && typeof meta.reproducibility === 'object') ? meta.reproducibility : {};
-        const primaryCmd = validation.command || repro.command || f.repro_command || f.reproduction || '';
-        const primaryUrl = validation.target || repro.url || f.endpoint || f.target || '';
+        const primaryCmd = f?._ui?.primaryCommand || '';
+        const primaryUrl = f?._ui?.primaryUrl || '';
 
         // Evidence
         const evidence = f.evidence || '';
@@ -267,9 +270,9 @@
         newFindings.forEach(function(f) {
             const fid = f.id_stable || f.id;
             const prev = window.rawFindingsData[fid] || {};
-            window.rawFindingsData[fid] = Object.assign({}, prev, f, {
+            window.rawFindingsData[fid] = findingsContract.normalizeFindingRecord(Object.assign({}, prev, f, {
                 metadata: Object.assign({}, prev.metadata || {}, f.metadata || {})
-            });
+            }));
             const idx = window.findingsList.findIndex(x => (x.id_stable || x.id) === fid);
             if (idx === -1) window.findingsList.push(window.rawFindingsData[fid]);
             else window.findingsList[idx] = window.rawFindingsData[fid];

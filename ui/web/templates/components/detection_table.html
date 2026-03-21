@@ -14,20 +14,23 @@
         <tbody id="findings-table-body">
             {% if findings %}
             {% for f in findings %}
+            {% set ui = f._ui if f._ui is defined and f._ui else {} %}
+            {% set primary_command = ui.primaryCommand if ui.primaryCommand is defined else '' %}
+            {% set primary_url = ui.primaryUrl if ui.primaryUrl is defined else '' %}
+            {% set has_evidence = ui.hasEvidence if ui.hasEvidence is defined else false %}
+            {% set is_validated = ui.isValidated if ui.isValidated is defined else false %}
             <tr id="finding-row-{{ f.id_stable or f.id }}" class="finding-row cursor-pointer"
                 onclick="showFindingDetail('{{ f.id_stable or f.id }}')" 
                 data-title="{{ f.title|lower }}"
                 data-sev="{{ f.severity|lower }}" 
                 data-severity="{{ f.severity|lower }}" 
-                data-tool="{{ f.tool_source|lower }}"
-                data-source="{{ f.tool_source|lower }}"
+                data-tool="{{ (f.tool_source or f.tool or '')|lower }}"
+                data-source="{{ (f.source or f.tool_source or f.tool or '')|lower }}"
                 data-category="{{ f.category|default('')|lower }}" 
-                data-exploit="{{ f.exploit_score|default('') }}"
-                data-port-status="{{ f.metadata.port_state|default('')|lower if f.metadata else '' }}"
-                data-attack-priority="{{ f.attack_priority|default('')|lower }}"
-                data-component="{{ (f.component or (f.metadata.component if f.metadata else ''))|default('')|lower }}" 
-                data-provider="{{ (f.provider or (f.metadata.provider if f.metadata else ''))|default('')|lower }}"
-                data-content="{{ ((f.title or '') ~ ' ' ~ (f.tool_source or f.tool or '') ~ ' ' ~ (f.category or '') ~ ' ' ~ (f.endpoint or f.target or ''))|lower }}">
+                data-port-status="{{ (ui.portState if ui.portState is defined else '')|lower }}"
+                data-validation-status="{{ (ui.validationStatus if ui.validationStatus is defined else 'not_run')|lower }}"
+                data-result-state="{{ (ui.resultState if ui.resultState is defined else 'observation')|lower }}"
+                data-content="{{ (ui.searchText if ui.searchText is defined else '')|lower }}">
                 
                 <td class="ps-3">
                     <span class="badge-severity bg-{{ f.severity|default('info')|lower }} w-100 text-center d-block rounded-1 py-1">
@@ -38,14 +41,10 @@
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <div class="fw-bold text-light text-truncate" title="{{ f.title }}">{{ f.title }}</div>
-                        {% set validation = f.metadata.validation if f.metadata and f.metadata.validation else {} %}
-                        {% set reproducibility = f.metadata.reproducibility if f.metadata and f.metadata.reproducibility else {} %}
-                        {% set primary_command = validation.command or reproducibility.command or f.repro_command or f.reproduction %}
-                        {% set primary_url = validation.target or reproducibility.url or f.endpoint or f.target %}
-                        {% if primary_command and primary_command|lower not in ['n/a','na','none','null','manual','todo','ui','-'] %}
-                            <i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>
+                        {% if primary_command %}
+                            <i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>
                         {% endif %}
-                        {% if f.request or f.response or reproducibility.request_excerpt or reproducibility.response_excerpt or f.evidence or f.raw_output or validation.artifact or f.artifact %}
+                        {% if has_evidence %}
                             <i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>
                         {% endif %}
                         {% set chain = f.chain_metadata if f.chain_metadata else {} %}
@@ -56,9 +55,7 @@
                         {% if has_chain_links or has_chain_path or has_chain_root or has_chain_pivot %}
                             <i class="fas fa-link text-warning extra-small" title="Part of Attack Chain"></i>
                         {% endif %}
-                        {% set validation_status = (validation.status if validation and validation.status else (f.metadata.validation_status if f.metadata else '')) %}
-                        {% set result_state = (validation.result_state if validation and validation.result_state else (f.result_state or (f.metadata.result_state if f.metadata else ''))) %}
-                        {% if validation_status == 'success' or result_state in ['confirmed', 'confirmed_active', 'validated'] %}
+                        {% if is_validated %}
                             <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small">
                                 <i class="fas fa-check-circle me-1"></i>VALIDATED
                             </span>
@@ -72,7 +69,7 @@
                 </td>
 
                 <td class="font-monospace extra-small">
-                    {% if primary_url and not primary_url.lower().startswith('port:') %}
+                    {% if primary_url %}
                         <div class="text-info text-truncate" title="{{ primary_url }}"><i class="fas fa-link me-1 opacity-50"></i>{{ primary_url }}</div>
                     {% else %}
                         <span class="text-muted opacity-25">N/A</span>

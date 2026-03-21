@@ -153,68 +153,48 @@ class ScanDashboard {
             .replace(/'/g, "&#039;");
     }
 
+    getFindingsContract() {
+        return window.RedOpsFindings;
+    }
+
+    normalizeFindingRecord(finding) {
+        return this.getFindingsContract().normalizeFindingRecord(finding);
+    }
+
     isMeaningfulValue(value) {
-        if (value === null || value === undefined) return false;
-        if (typeof value === 'object') return Object.keys(value).length > 0;
-        const normalized = String(value).trim().toLowerCase();
-        return normalized !== '' && !['n/a', 'na', 'none', 'null', 'manual', 'todo', 'ui', '-'].includes(normalized);
+        return this.getFindingsContract().isMeaningfulText(value);
     }
 
     getFindingValidation(finding) {
-        return finding?.metadata?.validation || {};
+        return this.getFindingsContract().getValidation(finding);
     }
 
     getFindingReproducibility(finding) {
-        return finding?.metadata?.reproducibility || {};
+        return this.getFindingsContract().getReproducibility(finding);
     }
 
     getFindingValidationStatus(finding) {
-        const validation = this.getFindingValidation(finding);
-        return validation.status || finding?.metadata?.validation_status || 'not_run';
+        return this.normalizeFindingRecord(finding)?._ui?.validationStatus || 'not_run';
     }
 
     getFindingResultState(finding) {
-        const validation = this.getFindingValidation(finding);
-        const candidate = validation.result_state || finding?.result_state || finding?.metadata?.result_state || 'observation';
-        return this.isMeaningfulValue(candidate) ? String(candidate).toLowerCase() : 'observation';
+        return this.normalizeFindingRecord(finding)?._ui?.resultState || 'observation';
     }
 
     getFindingPrimaryCommand(finding) {
-        const validation = this.getFindingValidation(finding);
-        const reproducibility = this.getFindingReproducibility(finding);
-        const candidate = validation.command || reproducibility.command || finding?.repro_command || finding?.reproduction || '';
-        return this.isMeaningfulValue(candidate) ? candidate : '';
+        return this.normalizeFindingRecord(finding)?._ui?.primaryCommand || '';
     }
 
     getFindingPrimaryUrl(finding) {
-        const validation = this.getFindingValidation(finding);
-        const reproducibility = this.getFindingReproducibility(finding);
-        const candidate = validation.target || reproducibility.url || finding?.endpoint || finding?.target || '';
-        return this.isMeaningfulValue(candidate) ? candidate : '';
+        return this.normalizeFindingRecord(finding)?._ui?.primaryUrl || '';
     }
 
     decodeDataValue(value) {
-        if (!value) return '';
-        try {
-            return decodeURIComponent(value);
-        } catch (_) {
-            return value;
-        }
+        return this.getFindingsContract().decodeDataValue(value);
     }
 
     hasMeaningfulProof(finding) {
-        const validation = this.getFindingValidation(finding);
-        const reproducibility = this.getFindingReproducibility(finding);
-        return [
-            finding?.request,
-            finding?.response,
-            finding?.evidence,
-            finding?.raw_output,
-            finding?.artifact,
-            validation.artifact,
-            reproducibility.request_excerpt,
-            reproducibility.response_excerpt,
-        ].some(v => this.isMeaningfulValue(v));
+        return this.normalizeFindingRecord(finding)?._ui?.hasEvidence || false;
     }
 
     getFindingAlertTone(finding) {
@@ -385,6 +365,7 @@ class ScanDashboard {
 
     handleNewFinding(data) {
         if (data.scan_id != this.scanId) return;
+        data = this.normalizeFindingRecord(data);
 
         // Deduplication Logic: Prioritize id_stable, then database id, then heuristic
         const fid = data.id_stable || data.id || `temp-${data.title}-${data.severity}-${data.tool}`;
@@ -412,10 +393,11 @@ class ScanDashboard {
             const escapedTitle = this.escapeHtml(data.title || 'Untitled finding');
             const escapedTool = this.escapeHtml(data.tool_source || data.tool || 'core');
             const escapedDesc = this.escapeHtml(data.description || '');
-            const validationStatus = this.getFindingValidationStatus(data);
-            const resultState = this.getFindingResultState(data);
-            const primaryCommand = this.getFindingPrimaryCommand(data);
-            const hasProof = this.hasMeaningfulProof(data);
+            const ui = data._ui || {};
+            const validationStatus = ui.validationStatus || this.getFindingValidationStatus(data);
+            const resultState = ui.resultState || this.getFindingResultState(data);
+            const primaryCommand = ui.primaryCommand || this.getFindingPrimaryCommand(data);
+            const hasProof = ui.hasEvidence === true;
 
             let innerHTML = `
                 <div class="d-flex w-100 justify-content-between mb-2">
@@ -457,20 +439,7 @@ class ScanDashboard {
                 const tr = document.createElement("tr");
                 tr.id = rowId;
                 tr.className = "finding-row cursor-pointer animate__animated animate__fadeIn";
-                tr.setAttribute("data-sev", severity);
-                tr.setAttribute("data-severity", severity);
-                tr.setAttribute("data-title", escapedTitle.toLowerCase());
-                tr.setAttribute("data-tool", escapedTool.toLowerCase());
-                tr.setAttribute("data-source", escapedTool.toLowerCase());
-                tr.setAttribute("data-category", this.escapeHtml(data.category || "").toLowerCase());
-                tr.setAttribute("data-exploit", data.exploit_score || "");
-                tr.setAttribute("data-port-status", (data.metadata?.port_state || "").toLowerCase());
-                tr.setAttribute("data-attack-priority", this.escapeHtml(data.attack_priority || "").toLowerCase());
-                tr.setAttribute("data-component", this.escapeHtml(data.component || data.metadata?.component || "").toLowerCase());
-                tr.setAttribute("data-provider", this.escapeHtml(data.provider || data.metadata?.provider || "").toLowerCase());
-                tr.setAttribute("data-validation-status", String(validationStatus || "").toLowerCase());
-                tr.setAttribute("data-result-state", String(resultState || "").toLowerCase());
-                tr.setAttribute("data-content", `${escapedTitle} ${escapedTool} ${this.escapeHtml(data.category || '')} ${this.escapeHtml(this.getFindingPrimaryUrl(data) || '')}`.toLowerCase());
+                this.getFindingsContract().applyRowDataset(tr, data);
 
                 // Set click handler for new UI
                 tr.onclick = () => {
@@ -483,7 +452,7 @@ class ScanDashboard {
                 const confidence = (data.confidence || 'med').toUpperCase().substring(0, 4);
                 const toolShow = (data.tool_source || 'CORE').toUpperCase();
                 
-                const primaryUrl = this.getFindingPrimaryUrl(data);
+                const primaryUrl = ui.primaryUrl || this.getFindingPrimaryUrl(data);
                 let vectorHtml = '';
                 if (primaryUrl) {
                     vectorHtml = `<div class="text-info text-truncate" title="${this.escapeHtml(primaryUrl)}"><i class="fas fa-link me-1 opacity-50"></i>${this.escapeHtml(primaryUrl)}</div>`;
@@ -491,7 +460,7 @@ class ScanDashboard {
                     vectorHtml = `<span class="text-muted opacity-25">N/A</span>`;
                 }
 
-                const isValidated = validationStatus === 'success' || ['confirmed', 'confirmed_active', 'validated'].includes(resultState);
+                const isValidated = ui.isValidated === true || validationStatus === 'success' || ['validation', 'confirmed'].includes(resultState);
 
                 tr.innerHTML = `
                     <td class="ps-3">
@@ -502,7 +471,7 @@ class ScanDashboard {
                     <td>
                         <div class="d-flex align-items-center gap-2">
                             <div class="fw-bold text-light text-truncate" title="${escapedTitle}">${escapedTitle}</div>
-                            ${primaryCommand ? `<i class="fas fa-terminal text-warning extra-small" title="Reproduction Command Available"></i>` : ''}
+                            ${primaryCommand ? `<i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>` : ''}
                             ${hasProof ? `<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>` : ''}
                             ${isValidated ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
                         </div>
@@ -919,7 +888,6 @@ class ScanDashboard {
         let missingCommand = 0;
 
         findings.forEach(f => {
-            const validation = this.getFindingValidation(f);
             const state = this.getFindingResultState(f);
             const validationStatus = String(this.getFindingValidationStatus(f) || '').toLowerCase();
             const severity = String(f?.severity || 'info').toLowerCase();
@@ -927,7 +895,7 @@ class ScanDashboard {
             const command = this.getFindingPrimaryCommand(f);
             const hasProof = this.hasMeaningfulProof(f);
 
-            if (validationStatus === 'success' || ['validated', 'confirmed', 'confirmed_active'].includes(state)) validated += 1;
+            if (validationStatus === 'success' || ['validation', 'confirmed'].includes(state)) validated += 1;
             if (String(f?.category || '').toLowerCase() === 'attack_chain') correlated += 1;
             if (f?.chain_metadata && (f.chain_metadata.related_findings || f.chain_metadata.attack_path_summary)) correlated += 1;
             if (isHigh && !hasProof) missingProof += 1;
@@ -1002,76 +970,7 @@ class ScanDashboard {
         const findingsPortStatus = document.getElementById('findings-port-status-filter');
 
         if (findingsSearch && findingsSeverity && findingsCategory && findingsPortStatus) {
-            const query = (findingsSearch.value || '').toLowerCase().trim();
-            const severityFilter = (findingsSeverity.value || '').toLowerCase();
-            const categoryFilter = (findingsCategory.value || '').toLowerCase();
-            const portStatusFilter = (findingsPortStatus.value || '').toLowerCase();
-            
-            const terms = { global: [] };
-            if (query !== '') {
-                const clauses = query.split(/\s+/);
-                clauses.forEach(c => {
-                    if (c.includes(':')) {
-                        const [k, v] = c.split(':');
-                        if (v) terms[k] = v;
-                    } else {
-                        terms.global.push(c);
-                    }
-                });
-            }
-
-            const rows = document.querySelectorAll('#findings-table-body .finding-row');
-            let visibleCount = 0;
-
-            rows.forEach(row => {
-                const title = (row.getAttribute('data-title') || '').toLowerCase();
-                const severity = (row.getAttribute('data-severity') || row.getAttribute('data-sev') || '').toLowerCase();
-                const tool = (row.getAttribute('data-tool') || '').toLowerCase();
-                const category = (row.getAttribute('data-category') || '').toLowerCase();
-                const portStatus = (row.getAttribute('data-port-status') || '').toLowerCase();
-                const content = (row.getAttribute('data-content') || '').toLowerCase();
-
-                // 1. Dropdown Filters
-                const dropdownSeverityMatch = !severityFilter || severity === severityFilter;
-                const dropdownCategoryMatch = !categoryFilter || category === categoryFilter;
-                const dropdownPortStatusMatch = !portStatusFilter || portStatus === portStatusFilter;
-
-                // 2. Prefixed Query Filters
-                let prefixMatch = true;
-                if (terms.type && !category.includes(terms.type)) prefixMatch = false;
-                const sevTerm = terms.sev || terms.severity;
-                if (sevTerm && !severity.includes(sevTerm)) prefixMatch = false;
-                if (terms.tool && !tool.includes(terms.tool)) prefixMatch = false;
-                if (terms.source && !(row.getAttribute('data-source') || tool).includes(terms.source)) prefixMatch = false;
-                const statusTerm = (terms.status || terms.validation || terms.state || '').toLowerCase();
-                if (statusTerm) {
-                    const validationState = (row.getAttribute('data-validation-status') || '').toLowerCase();
-                    const resultState = (row.getAttribute('data-result-state') || '').toLowerCase();
-                    const isValidated = ['validated', 'confirmed', 'confirmed_active'].includes(resultState);
-                    const statusMatch = validationState.includes(statusTerm)
-                        || resultState.includes(statusTerm)
-                        || (statusTerm === 'success' && (validationState === 'success' || isValidated))
-                        || (statusTerm === 'validated' && (validationState === 'success' || isValidated));
-                    if (!statusMatch) prefixMatch = false;
-                }
-
-                // 3. Global Text Terms
-                let globalMatch = true;
-                if (terms.global.length > 0) {
-                    const searchable = `${title} ${tool} ${category} ${content}`.toLowerCase();
-                    globalMatch = terms.global.every(word => searchable.includes(word));
-                }
-
-                const isVisible = dropdownSeverityMatch && dropdownCategoryMatch && dropdownPortStatusMatch && prefixMatch && globalMatch;
-                row.style.display = isVisible ? '' : 'none';
-                if (isVisible) visibleCount++;
-            });
-
-            const label = document.getElementById('findings-total-label');
-            if (label) label.textContent = `${visibleCount} discoveries`;
-
-            const emptyState = document.getElementById('findings-empty-state');
-            if (emptyState) emptyState.style.display = visibleCount === 0 ? '' : 'none';
+            this.getFindingsContract().applyTableFilters();
             return;
         }
 

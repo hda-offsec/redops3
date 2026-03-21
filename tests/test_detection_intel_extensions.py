@@ -1,5 +1,6 @@
 from scan_engine.helpers.passive_intel_engine import PassiveIntelligenceEngine
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
+from scan_engine.helpers.api_reconstructor import ApiReconstructor
 from scan_engine.helpers.vuln_execution_plan import derive_vuln_execution_plan
 from scan_engine.orchestrator import ScanOrchestrator
 from types import SimpleNamespace
@@ -159,3 +160,89 @@ def test_orchestrator_quality_gate_accepts_proven_critical():
     assert len(persisted) == 1
     assert 77 in (persisted[0].get("signal_ids") or [])
     assert str(persisted[0].get("repro_command", "")).startswith("curl -ik")
+
+
+def _api_tree_find_node(tree, port, path_parts):
+    port_node = next((node for node in tree.get("children", []) if node.get("type") == "port" and node.get("port") == port), None)
+    assert port_node is not None
+    children = port_node.get("children", [])
+    current = None
+    for part in path_parts:
+        current = next((node for node in children if node.get("name") == part), None)
+        assert current is not None
+        children = current.get("children", [])
+    return current
+
+
+def test_api_reconstructor_marks_unverified_templated_routes_as_non_clickable():
+    results = {
+        "target": "example.com",
+        "phases": {
+            "recon": {"open_ports": [{"port": 443}]},
+            "enum": {"api": {"discovered_endpoints": ["/locales/{{lng}}/{{ns}}.json"]}},
+        },
+    }
+
+    tree = ApiReconstructor.reconstruct(results, findings=[])
+    leaf = _api_tree_find_node(tree, 443, ["locales", "{{lng}}", "{{ns}}.json"])
+
+    assert leaf.get("status") is None
+    assert leaf.get("status_source") == "unverified"
+    assert leaf.get("templated") is True
+    assert leaf.get("clickable") is False
+
+
+def test_api_reconstructor_uses_dirbusting_status_when_present():
+    results = {
+        "target": "example.com",
+        "phases": {
+            "recon": {"open_ports": [{"port": 443}]},
+            "enum": {"api": {"discovered_endpoints": ["https://example.com/swagger.json"]}},
+            "dirbusting": {
+                "443": {
+                    "ffuf": {
+                        "endpoints": [
+                            {"url": "https://example.com/swagger.json", "status": 404, "source": "ffuf"}
+                        ]
+                    }
+                }
+            },
+        },
+    }
+
+    tree = ApiReconstructor.reconstruct(results, findings=[])
+    leaf = _api_tree_find_node(tree, 443, ["swagger.json"])
+
+    assert leaf.get("status") == 404
+    assert str(leaf.get("status_source", "")).startswith("dirbusting")
+    assert leaf.get("clickable") is True
+
+
+def test_api_reconstructor_normalizes_query_for_status_and_findings():
+    results = {
+        "target": "example.com",
+        "phases": {
+            "recon": {"open_ports": [{"port": 443}]},
+            "enum": {
+                "api": {
+                    "discovered_endpoints": ["https://example.com/graphql?query=%7Bme%7D"],
+                    "endpoints": [{"url": "https://example.com/graphql", "status": "401", "source": "api_discovery"}],
+                }
+            },
+        },
+    }
+    findings = [
+        {
+            "id_stable": "finding-graphql",
+            "severity": "high",
+            "title": "GraphQL auth bypass",
+            "endpoint": "https://example.com/graphql?operationName=IntrospectionQuery",
+        }
+    ]
+
+    tree = ApiReconstructor.reconstruct(results, findings=findings)
+    leaf = _api_tree_find_node(tree, 443, ["graphql"])
+
+    assert leaf.get("status") == 401
+    assert len(leaf.get("findings") or []) == 1
+    assert leaf["findings"][0]["id"] == "finding-graphql"

@@ -29,6 +29,7 @@ from core.models import (
 )
 from core.results_store import load_results, save_results, delete_results
 from core.reporting import generate_scan_report, generate_html_report
+from core.findings_ui_contract import attach_finding_ui_contracts
 from scan_engine.step01_recon.nmap_scanner import NmapScanner
 from scan_engine.helpers.output_parsers import parse_nmap_open_ports
 from scan_engine.orchestrator import ScanOrchestrator
@@ -182,7 +183,9 @@ def scannmap_results(scan_id):
     from core.mission_intelligence import aggregate_mission_intelligence
     
     db_findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
-    normalized_findings = DetectionAdapter.normalize_findings(db_findings, results_data)
+    normalized_findings = attach_finding_ui_contracts(
+        DetectionAdapter.normalize_findings(db_findings, results_data)
+    )
     
     results = deep_merge({}, results_data)
     results['findings'] = normalized_findings
@@ -268,47 +271,49 @@ def get_scan_findings(scan_id):
     total = findings_q.count()
     items = findings_q.limit(limit).offset(offset).all()
     
+    items_payload = [{
+        "exploit_score": (f.metadata_json or {}).get("exploit_score") if isinstance(f.metadata_json, dict) else None,
+        "risk_level": (f.metadata_json or {}).get("risk_level") if isinstance(f.metadata_json, dict) else None,
+        "attack_priority": (f.metadata_json or {}).get("attack_priority") if isinstance(f.metadata_json, dict) else None,
+        "action_priority": (f.metadata_json or {}).get("action_priority") if isinstance(f.metadata_json, dict) else None,
+        "action_type": (f.metadata_json or {}).get("action_type") if isinstance(f.metadata_json, dict) else None,
+        "estimated_value": (f.metadata_json or {}).get("estimated_value") if isinstance(f.metadata_json, dict) else None,
+        "estimated_complexity": (f.metadata_json or {}).get("estimated_complexity") if isinstance(f.metadata_json, dict) else None,
+        "provider": (f.metadata_json or {}).get("provider") if isinstance(f.metadata_json, dict) else None,
+        "component": (f.metadata_json or {}).get("component") if isinstance(f.metadata_json, dict) else None,
+        "version": (f.metadata_json or {}).get("version") if isinstance(f.metadata_json, dict) else None,
+        "objective_type": (f.metadata_json or {}).get("objective_type") if isinstance(f.metadata_json, dict) else None,
+        "id": f.id,
+        "id_stable": f.id_stable,
+        "severity": f.severity,
+        "confidence": f.confidence,
+        "title": f.title,
+        "description": f.description,
+        "tool": f.tool_source,
+        "target": f.target,
+        "endpoint": f.endpoint,
+        "parameter": f.parameter,
+        "payload": f.payload,
+        "category": f.category,
+        "module": f.module,
+        "evidence": f.evidence,
+        "reproduction": f.reproduction,
+        "raw_output": f.raw_output,
+        "metadata": f.metadata_json,
+        "signal_ids": f.signal_ids or [],
+        "screenshot_path": f.screenshot_path,
+        "request": f.request,
+        "response": f.response,
+        "repro_command": f.repro_command,
+        "impact_area": (f.metadata_json or {}).get("impact_area") if isinstance(f.metadata_json, dict) else "Web Application",
+        "risk_scorecard": (f.metadata_json or {}).get("risk_scorecard") if isinstance(f.metadata_json, dict) else {},
+        "created_at": f.created_at.isoformat() if f.created_at else None
+    } for f in items]
+
     return jsonify({
         "scan_id": scan_id,
         "total": total,
-        "items": [{
-            "exploit_score": (f.metadata_json or {}).get("exploit_score") if isinstance(f.metadata_json, dict) else None,
-            "risk_level": (f.metadata_json or {}).get("risk_level") if isinstance(f.metadata_json, dict) else None,
-            "attack_priority": (f.metadata_json or {}).get("attack_priority") if isinstance(f.metadata_json, dict) else None,
-            "action_priority": (f.metadata_json or {}).get("action_priority") if isinstance(f.metadata_json, dict) else None,
-            "action_type": (f.metadata_json or {}).get("action_type") if isinstance(f.metadata_json, dict) else None,
-            "estimated_value": (f.metadata_json or {}).get("estimated_value") if isinstance(f.metadata_json, dict) else None,
-            "estimated_complexity": (f.metadata_json or {}).get("estimated_complexity") if isinstance(f.metadata_json, dict) else None,
-            "provider": (f.metadata_json or {}).get("provider") if isinstance(f.metadata_json, dict) else None,
-            "component": (f.metadata_json or {}).get("component") if isinstance(f.metadata_json, dict) else None,
-            "version": (f.metadata_json or {}).get("version") if isinstance(f.metadata_json, dict) else None,
-            "objective_type": (f.metadata_json or {}).get("objective_type") if isinstance(f.metadata_json, dict) else None,
-            "id": f.id,
-            "id_stable": f.id_stable,
-            "severity": f.severity,
-            "confidence": f.confidence,
-            "title": f.title,
-            "description": f.description,
-            "tool": f.tool_source,
-            "target": f.target,
-            "endpoint": f.endpoint,
-            "parameter": f.parameter,
-            "payload": f.payload,
-            "category": f.category,
-            "module": f.module,
-            "evidence": f.evidence,
-            "reproduction": f.reproduction,
-            "raw_output": f.raw_output,
-            "metadata": f.metadata_json,
-            "signal_ids": f.signal_ids or [],
-            "screenshot_path": f.screenshot_path,
-            "request": f.request,
-            "response": f.response,
-            "repro_command": f.repro_command,
-            "impact_area": (f.metadata_json or {}).get("impact_area") if isinstance(f.metadata_json, dict) else "Web Application",
-            "risk_scorecard": (f.metadata_json or {}).get("risk_scorecard") if isinstance(f.metadata_json, dict) else {},
-            "created_at": f.created_at.isoformat() if f.created_at else None
-        } for f in items]
+        "items": attach_finding_ui_contracts(items_payload)
     })
 
 
@@ -642,7 +647,9 @@ def scan_detail(scan_id):
     db_findings = Finding.query.filter_by(scan_id=scan_id).order_by(Finding.id.desc()).all()
     
     from adapters.detection_adapter import DetectionAdapter
-    normalized_findings = DetectionAdapter.normalize_findings(db_findings, results)
+    normalized_findings = attach_finding_ui_contracts(
+        DetectionAdapter.normalize_findings(db_findings, results)
+    )
     
     suggestions = Suggestion.query.filter_by(scan_id=scan_id).order_by(Suggestion.id.desc()).all()
     logs = ScanLog.query.filter_by(scan_id=scan_id).order_by(ScanLog.timestamp.asc()).all()
@@ -1729,5 +1736,4 @@ def mission_quality_metrics(mission_id):
         "mission_id": mission_id,
         "quality_metrics": payload,
     })
-
 
