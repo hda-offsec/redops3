@@ -906,8 +906,8 @@ class ScanDashboard {
         const reconReady = reconPorts.length > 0 || dnsSubs.length > 0;
         const enumReady = enumEndpointCount > 0;
         const detectionReady = findings.length > 0;
-        const validationReady = validated > 0;
-        const correlationReady = correlated > 0 || attackPlan.length > 0;
+        const validationReady = validated > 0 || (status === 'completed' && detectionReady);
+        const correlationReady = (correlated > 0 || attackPlan.length > 0) || (status === 'completed' && detectionReady);
         const reportingReady = status === 'completed' && detectionReady;
         const closureReady = status === 'completed' && missingProof === 0 && missingCommand === 0;
 

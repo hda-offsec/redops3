@@ -118,6 +118,23 @@ DETAIL_EVIDENCE_BLOCK_SOURCES = (
     "raw_output",
     "evidence",
 )
+DETAIL_CONTRACT_FIELDS = (
+    "summary",
+    "technicalContext",
+    "commandExecuted",
+    "commandBlocks",
+    "validationGuidance",
+    "target",
+    "observedVersions",
+    "evidenceBlocks",
+    "rawOutput",
+    "interpretation",
+    "severity",
+    "confidence",
+    "remediation",
+    "references",
+    "artifacts",
+)
 
 
 def _as_dict(value):
@@ -355,9 +372,10 @@ def get_finding_command_blocks(finding):
         serialized = _serialize_detail_value(value)
         if not _is_meaningful_text(serialized):
             return
-        if serialized in seen:
+        dedupe_key = (key, serialized)
+        if dedupe_key in seen:
             return
-        seen.add(serialized)
+        seen.add(dedupe_key)
         blocks.append(
             {
                 "key": key,
@@ -469,9 +487,10 @@ def build_finding_evidence_blocks(finding):
         serialized = _serialize_detail_value(value)
         if not _is_meaningful_text(serialized):
             return
-        if serialized in seen:
+        dedupe_key = (key, serialized)
+        if dedupe_key in seen:
             return
-        seen.add(serialized)
+        seen.add(dedupe_key)
         blocks.append(
             {
                 "key": key,
@@ -504,7 +523,7 @@ def build_finding_detail_contract(finding):
     metadata = _as_dict(normalized.get("metadata"))
     ui = _as_dict(normalized.get("_ui"))
     risk_scorecard = _as_dict(normalized.get("risk_scorecard"))
-    return {
+    detail_contract = {
         "summary": _clean_text(normalized.get("description")),
         "technicalContext": build_finding_technical_context(normalized),
         "commandExecuted": ui.get("primaryCommand") or "",
@@ -513,6 +532,8 @@ def build_finding_detail_contract(finding):
         "target": ui.get("primaryUrl") or "",
         "observedVersions": get_finding_observed_versions(normalized),
         "evidenceBlocks": build_finding_evidence_blocks(normalized),
+        # `rawOutput` is the convenience shortcut for the canonical `raw_output`
+        # evidence block already exposed inside `evidenceBlocks`.
         "rawOutput": _serialize_detail_value(normalized.get("raw_output")),
         "interpretation": _first_meaningful(
             normalized.get("impact"),
@@ -526,6 +547,7 @@ def build_finding_detail_contract(finding):
         "references": get_finding_references(normalized),
         "artifacts": get_finding_artifacts(normalized),
     }
+    return {field_name: detail_contract[field_name] for field_name in DETAIL_CONTRACT_FIELDS}
 
 
 def has_finding_evidence(finding):

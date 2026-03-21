@@ -55,8 +55,8 @@
 {% set recon_ready = (recon_ports|length > 0) or (dns_subdomains|length > 0) %}
 {% set enum_ready = (enum_endpoints.count > 0) or (injection_map|length > 0) %}
 {% set detection_ready = findings|length > 0 %}
-{% set validation_ready = audit_gates.validated > 0 %}
-{% set correlation_ready = audit_gates.correlated > 0 or attack_plan|length > 0 %}
+{% set validation_ready = (audit_gates.validated > 0) or (scan.status == 'completed' and detection_ready) %}
+{% set correlation_ready = (audit_gates.correlated > 0 or attack_plan|length > 0) or (scan.status == 'completed' and detection_ready) %}
 {% set reporting_ready = (scan.status == 'completed') and detection_ready %}
 {% set closure_ready = (scan.status == 'completed') and (audit_gates.missing_proof == 0) and (audit_gates.missing_command == 0) %}
 

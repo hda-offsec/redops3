@@ -128,6 +128,23 @@
         "raw_output",
         "evidence",
     ];
+    const DETAIL_CONTRACT_FIELDS = [
+        "summary",
+        "technicalContext",
+        "commandExecuted",
+        "commandBlocks",
+        "validationGuidance",
+        "target",
+        "observedVersions",
+        "evidenceBlocks",
+        "rawOutput",
+        "interpretation",
+        "severity",
+        "confidence",
+        "remediation",
+        "references",
+        "artifacts",
+    ];
 
     function asDict(value) {
         return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -345,8 +362,9 @@
         const appendBlock = (key, label, value) => {
             const serialized = serializeDetailValue(value);
             if (!isMeaningfulText(serialized)) return;
-            if (seen.has(serialized)) return;
-            seen.add(serialized);
+            const dedupeKey = `${key}\u0000${serialized}`;
+            if (seen.has(dedupeKey)) return;
+            seen.add(dedupeKey);
             blocks.push({ key, label, kind: "command", value: serialized });
         };
 
@@ -424,8 +442,9 @@
         const appendBlock = (key, label, kind, value) => {
             const serialized = serializeDetailValue(value);
             if (!isMeaningfulText(serialized)) return;
-            if (seen.has(serialized)) return;
-            seen.add(serialized);
+            const dedupeKey = `${key}\u0000${serialized}`;
+            if (seen.has(dedupeKey)) return;
+            seen.add(dedupeKey);
             blocks.push({ key, label, kind, value: serialized });
         };
 
@@ -442,8 +461,7 @@
         const metadata = asDict(normalized.metadata);
         const ui = asDict(normalized._ui);
         const riskScorecard = asDict(normalized.risk_scorecard);
-
-        return {
+        const detailState = {
             summary: cleanText(normalized.description),
             technicalContext: buildFindingTechnicalContext(normalized),
             commandExecuted: cleanText(ui.primaryCommand),
@@ -452,6 +470,8 @@
             target: cleanText(ui.primaryUrl),
             observedVersions: getFindingObservedVersions(normalized),
             evidenceBlocks: buildFindingEvidenceBlocks(normalized),
+            // `rawOutput` mirrors the canonical `raw_output` evidence block and
+            // stays available for direct access in renderers and reports.
             rawOutput: serializeDetailValue(normalized.raw_output),
             interpretation: firstMeaningful([
                 normalized.impact,
@@ -465,6 +485,10 @@
             references: getFindingReferences(normalized),
             artifacts: getFindingArtifacts(normalized),
         };
+        return DETAIL_CONTRACT_FIELDS.reduce((orderedState, fieldName) => {
+            orderedState[fieldName] = detailState[fieldName];
+            return orderedState;
+        }, {});
     }
 
     function hasMeaningfulEvidence(finding) {
@@ -1002,6 +1026,7 @@
         constants: {
             canonicalUiFields: [...CANONICAL_UI_FIELDS],
             detailCommandBlockSources: [...DETAIL_COMMAND_BLOCK_SOURCES],
+            detailStateFields: [...DETAIL_CONTRACT_FIELDS],
             detailEvidenceBlockSources: [...DETAIL_EVIDENCE_BLOCK_SOURCES],
             observedVersionFieldSources: [...OBSERVED_VERSION_FIELD_SOURCES],
             searchTextFieldSources: [...SEARCH_TEXT_FIELD_SOURCES],

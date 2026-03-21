@@ -39,5 +39,8 @@ The backend and frontend must keep this exact field set aligned:
 
 - `build_finding_detail_contract(...)` and `RedOpsFindings.contract.buildFindingDetailState(...)` mirror the richer findings detail semantics used by the drawer and reporting exports.
 - The shared detail model preserves, when present: operational summary, technical context, target, observed versions, command blocks, validation guidance, evidence blocks, interpretation, remediation, references, and artifacts.
+- The canonical detail field order is fixed by `DETAIL_CONTRACT_FIELDS` / `detailStateFields`; backend and frontend must keep that list aligned.
+- Block deduplication is semantic, not value-only: two blocks with different `key` values must both survive even when their serialized payload is identical.
 - `prepare_report_findings(...)` must keep using that shared detail contract so HTML/PDF exports do not become poorer than the interactive drawer.
+- `evidenceBlocks` remains the canonical ordered collection for proof-oriented rendering, including the `raw_output` block when present. `rawOutput` stays as a convenience mirror for direct access and must not diverge from that underlying raw output content.
 - Exported API endpoint rows must default to `Unverified` when no real status is available. They must not fall back to synthetic `200`.

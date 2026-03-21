@@ -121,6 +121,23 @@ test("normalizes structured findings with canonical UI fields", () => {
         "raw_output",
         "evidence",
     ]);
+    assert.deepEqual(findingsContract.constants.detailStateFields, [
+        "summary",
+        "technicalContext",
+        "commandExecuted",
+        "commandBlocks",
+        "validationGuidance",
+        "target",
+        "observedVersions",
+        "evidenceBlocks",
+        "rawOutput",
+        "interpretation",
+        "severity",
+        "confidence",
+        "remediation",
+        "references",
+        "artifacts",
+    ]);
     assert.equal(typeof findingsContract.contract.matchesDataset, "function");
     assert.equal(typeof findingsContract.dom.applyTableFilters, "function");
     assert.equal(finding._ui.primaryCommand, "curl -isk 'https://example.org/api/graphql?query={__schema}'");
@@ -151,6 +168,7 @@ test("builds rich detail state without dropping commands, versions, evidence, or
     assert.equal(detail.commandExecuted, "curl -isk 'https://example.org/api/graphql?query={__schema}'");
     assert.equal(detail.target, "https://example.org/api/graphql");
     assert.deepEqual(detail.observedVersions, ["2024.1", "graphql-js 16.8.1"]);
+    assert.deepEqual(Object.keys(detail), findingsContract.constants.detailStateFields);
     assert.deepEqual(
         detail.commandBlocks.map((block) => block.key),
         ["validation_command", "reproducibility_command"]
@@ -170,6 +188,25 @@ test("builds rich detail state without dropping commands, versions, evidence, or
     ]);
     assert.equal(detail.artifacts[0].kind, "image");
     assert.equal(detail.artifacts[1].kind, "text");
+});
+
+test("keeps command blocks when validation and reproducibility share the same command text", () => {
+    const finding = structuredFinding();
+    finding.metadata.reproducibility.command = finding.metadata.validation.command;
+
+    const detail = findingsContract.contract.buildFindingDetailState(finding);
+
+    assert.deepEqual(
+        detail.commandBlocks.map((block) => block.key),
+        ["validation_command", "reproducibility_command"]
+    );
+    assert.deepEqual(
+        detail.commandBlocks.map((block) => block.value),
+        [
+            "curl -isk 'https://example.org/api/graphql?query={__schema}'",
+            "curl -isk 'https://example.org/api/graphql?query={__schema}'",
+        ]
+    );
 });
 
 test("renders shared finding detail html with analyst-first sections and copy-safe actions", () => {

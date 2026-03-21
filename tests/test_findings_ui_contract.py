@@ -10,6 +10,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from core.findings_ui_contract import (
     CANONICAL_UI_FIELDS,
     DETAIL_COMMAND_BLOCK_SOURCES,
+    DETAIL_CONTRACT_FIELDS,
     DETAIL_EVIDENCE_BLOCK_SOURCES,
     OBSERVED_VERSION_FIELD_SOURCES,
     SEARCH_TEXT_FIELD_SOURCES,
@@ -149,6 +150,26 @@ class FindingsUiContractTests(unittest.TestCase):
                 "evidence",
             ),
         )
+        self.assertEqual(
+            DETAIL_CONTRACT_FIELDS,
+            (
+                "summary",
+                "technicalContext",
+                "commandExecuted",
+                "commandBlocks",
+                "validationGuidance",
+                "target",
+                "observedVersions",
+                "evidenceBlocks",
+                "rawOutput",
+                "interpretation",
+                "severity",
+                "confidence",
+                "remediation",
+                "references",
+                "artifacts",
+            ),
+        )
 
     def test_backend_and_frontend_constants_stay_in_sync(self):
         self.assertEqual(tuple(_extract_js_array_constant("CANONICAL_UI_FIELDS")), CANONICAL_UI_FIELDS)
@@ -164,6 +185,10 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertEqual(
             tuple(_extract_js_array_constant("DETAIL_EVIDENCE_BLOCK_SOURCES")),
             DETAIL_EVIDENCE_BLOCK_SOURCES,
+        )
+        self.assertEqual(
+            tuple(_extract_js_array_constant("DETAIL_CONTRACT_FIELDS")),
+            DETAIL_CONTRACT_FIELDS,
         )
 
     def test_scan_dashboard_uses_shared_findings_contract(self):
@@ -243,6 +268,7 @@ class FindingsUiContractTests(unittest.TestCase):
             [block["key"] for block in detail["commandBlocks"]],
             ["validation_command", "reproducibility_command"],
         )
+        self.assertEqual(tuple(detail.keys()), DETAIL_CONTRACT_FIELDS)
         self.assertEqual(
             [block["key"] for block in detail["evidenceBlocks"]],
             ["validation_artifact", "request", "response", "raw_output", "evidence"],
@@ -367,6 +393,66 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertEqual(payload["metadata"]["validation"]["command"], "curl -isk 'https://example.org/api/graphql?query={__schema}'")
         self.assertEqual(payload["metadata"]["reproducibility"]["url"], "https://example.org/api/graphql")
         self.assertEqual(payload["created_at"], "2026-03-21T12:00:00")
+
+    def test_detail_evidence_blocks_keep_same_value_when_semantic_keys_differ(self):
+        detail = build_finding_detail_contract(
+            {
+                "title": "HTTP artifact parity",
+                "tool_source": "manual",
+                "endpoint": "https://example.org/api",
+                "metadata": {
+                    "validation": {"artifact": "HTTP/1.1 200 OK"},
+                    "reproducibility": {
+                        "request_excerpt": "GET /api HTTP/1.1",
+                        "response_excerpt": "HTTP/1.1 200 OK",
+                    },
+                },
+            }
+        )
+
+        response_blocks = [block for block in detail["evidenceBlocks"] if block["key"] in {"validation_artifact", "response"}]
+        self.assertEqual([block["key"] for block in response_blocks], ["validation_artifact", "response"])
+        self.assertEqual([block["value"] for block in response_blocks], ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"])
+
+    def test_serialize_db_finding_payload_handles_partial_metadata_and_duplicates(self):
+        payload = _serialize_db_finding_payload(
+            SimpleNamespace(
+                id=43,
+                scan_id=8,
+                id_stable="stable-43",
+                severity="medium",
+                confidence="medium",
+                title="Partial record",
+                description=None,
+                category="review",
+                tool_source="manual",
+                tool="manual",
+                module=None,
+                target=None,
+                endpoint=None,
+                parameter=None,
+                payload=None,
+                evidence=None,
+                raw_output=None,
+                reproduction=None,
+                repro_command=None,
+                request=None,
+                response=None,
+                remediation=None,
+                risk_scorecard="not-a-dict",
+                screenshot_path=None,
+                signal_ids=[5, 5, 3],
+                metadata_json={"references": "https://invalid.example/ref"},
+                created_at=None,
+            )
+        )
+
+        self.assertEqual(payload["references"], ["https://invalid.example/ref"])
+        self.assertEqual(payload["risk_scorecard"], {})
+        self.assertEqual(payload["signal_ids"], [5, 3])
+        self.assertRegex(payload["created_at"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertEqual(payload["metadata"]["validation"]["command"], "")
+        self.assertEqual(payload["metadata"]["reproducibility"]["url"], "")
 
     def test_audit_journey_component_is_wired_into_main_content(self):
         main_content = Path("ui/web/templates/scan_partials/main_content.html").read_text()
