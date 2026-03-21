@@ -99,6 +99,16 @@ test("normalizes structured findings with canonical UI fields", () => {
     );
 });
 
+test("legacy flat exports remain available and aligned with namespaced helpers", () => {
+    assert.equal(findingsContract.normalizeFindingRecord, findingsContract.contract.normalizeFindingRecord);
+    assert.equal(findingsContract.applyTableFilters, findingsContract.dom.applyTableFilters);
+    assert.equal(findingsContract.applyRowDataset, findingsContract.dom.applyRowDataset);
+    assert.deepEqual(
+        Object.keys(findingsContract.buildFindingUiState(structuredFinding())),
+        findingsContract.constants.canonicalUiFields
+    );
+});
+
 test("normalization is non mutating and preserves the input finding", () => {
     const original = structuredFinding();
     const snapshot = JSON.parse(JSON.stringify(original));

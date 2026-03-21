@@ -1,5 +1,7 @@
 import unittest
 from pathlib import Path
+import ast
+import re
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -47,6 +49,14 @@ def _structured_finding():
     }
 
 
+def _extract_js_array_constant(const_name):
+    source = Path("ui/web/static/js/findings_contract.js").read_text()
+    match = re.search(rf"const {const_name} = \[(.*?)\];", source, re.DOTALL)
+    if not match:
+        raise AssertionError(f"Missing JS constant {const_name}")
+    return ast.literal_eval(f"[{match.group(1)}]")
+
+
 class FindingsUiContractTests(unittest.TestCase):
     def test_backend_contract_constants_are_stable(self):
         self.assertEqual(
@@ -85,6 +95,10 @@ class FindingsUiContractTests(unittest.TestCase):
                 "port_state",
             ),
         )
+
+    def test_backend_and_frontend_constants_stay_in_sync(self):
+        self.assertEqual(tuple(_extract_js_array_constant("CANONICAL_UI_FIELDS")), CANONICAL_UI_FIELDS)
+        self.assertEqual(tuple(_extract_js_array_constant("SEARCH_TEXT_FIELD_SOURCES")), SEARCH_TEXT_FIELD_SOURCES)
 
     def test_scan_dashboard_uses_shared_findings_contract(self):
         content = Path("ui/web/static/js/scan_dashboard.js").read_text()

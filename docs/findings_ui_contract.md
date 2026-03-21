@@ -33,3 +33,4 @@ The backend and frontend must keep this exact field set aligned:
 - `RedOpsFindings.contract`: pure normalization, canonicalization, search, and matching helpers.
 - `RedOpsFindings.dom`: DOM adapters for row datasets and table filter UI.
 - The legacy flat exports remain available for compatibility with existing templates and dashboard code.
+- Historical root helpers kept stable: `RedOpsFindings.normalizeFindingRecord(...)`, `RedOpsFindings.applyTableFilters(...)`, `RedOpsFindings.applyRowDataset(...)`.
