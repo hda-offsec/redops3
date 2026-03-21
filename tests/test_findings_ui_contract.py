@@ -394,6 +394,41 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertEqual(payload["metadata"]["reproducibility"]["url"], "https://example.org/api/graphql")
         self.assertEqual(payload["created_at"], "2026-03-21T12:00:00")
 
+    def test_serialize_db_finding_payload_preserves_missing_created_at(self):
+        payload = _serialize_db_finding_payload(
+            SimpleNamespace(
+                id=44,
+                scan_id=8,
+                id_stable="stable-44",
+                severity="low",
+                confidence="low",
+                title="No timestamp",
+                description=None,
+                category="review",
+                tool_source="manual",
+                tool="manual",
+                module=None,
+                target=None,
+                endpoint=None,
+                parameter=None,
+                payload=None,
+                evidence=None,
+                raw_output=None,
+                reproduction=None,
+                repro_command=None,
+                request=None,
+                response=None,
+                remediation=None,
+                risk_scorecard={},
+                screenshot_path=None,
+                signal_ids=[],
+                metadata_json={},
+                created_at=None,
+            )
+        )
+
+        self.assertIsNone(payload["created_at"])
+
     def test_detail_evidence_blocks_keep_same_value_when_semantic_keys_differ(self):
         detail = build_finding_detail_contract(
             {
@@ -450,7 +485,7 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertEqual(payload["references"], ["https://invalid.example/ref"])
         self.assertEqual(payload["risk_scorecard"], {})
         self.assertEqual(payload["signal_ids"], [5, 3])
-        self.assertRegex(payload["created_at"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertIsNone(payload["created_at"])
         self.assertEqual(payload["metadata"]["validation"]["command"], "")
         self.assertEqual(payload["metadata"]["reproducibility"]["url"], "")
 
@@ -480,6 +515,32 @@ class FindingsUiContractTests(unittest.TestCase):
             'id="audit-journey-current-phase"',
         ]:
             self.assertIn(token, component)
+
+    def test_audit_journey_template_keeps_validation_and_correlation_visual_only_when_completed(self):
+        template_root = Path(__file__).resolve().parents[1] / "ui" / "web" / "templates"
+        env = Environment(
+            loader=FileSystemLoader(str(template_root)),
+            autoescape=select_autoescape(["html", "xml"]),
+        )
+        template = env.get_template("scan_partials/components/audit_journey.html")
+
+        html = template.render(
+            scan=SimpleNamespace(
+                status="completed",
+                target=SimpleNamespace(identifier="example.org"),
+            ),
+            results={
+                "target": "example.org",
+                "phases": {"recon": {}, "dns": {}, "enum": {}},
+                "attack_plan": [],
+            },
+            findings=[{"title": "Observed surface", "severity": "medium", "metadata": {}}],
+        )
+
+        self.assertIn('class="audit-stage in-progress" id="audit-stage-validation"', html)
+        self.assertIn('class="audit-stage in-progress" id="audit-stage-correlation"', html)
+        self.assertNotIn('class="audit-stage done" id="audit-stage-validation"', html)
+        self.assertNotIn('class="audit-stage done" id="audit-stage-correlation"', html)
 
 
 if __name__ == "__main__":

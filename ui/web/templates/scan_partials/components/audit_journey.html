@@ -55,8 +55,10 @@
 {% set recon_ready = (recon_ports|length > 0) or (dns_subdomains|length > 0) %}
 {% set enum_ready = (enum_endpoints.count > 0) or (injection_map|length > 0) %}
 {% set detection_ready = findings|length > 0 %}
-{% set validation_ready = (audit_gates.validated > 0) or (scan.status == 'completed' and detection_ready) %}
-{% set correlation_ready = (audit_gates.correlated > 0 or attack_plan|length > 0) or (scan.status == 'completed' and detection_ready) %}
+{% set validation_ready = audit_gates.validated > 0 %}
+{% set correlation_ready = audit_gates.correlated > 0 or attack_plan|length > 0 %}
+{% set validation_visual = 'done' if validation_ready else ('in-progress' if (scan.status == 'completed' and detection_ready) else 'pending') %}
+{% set correlation_visual = 'done' if correlation_ready else ('in-progress' if (scan.status == 'completed' and detection_ready) else 'pending') %}
 {% set reporting_ready = (scan.status == 'completed') and detection_ready %}
 {% set closure_ready = (scan.status == 'completed') and (audit_gates.missing_proof == 0) and (audit_gates.missing_command == 0) %}
 
@@ -88,12 +90,12 @@
                     <div class="audit-stage-title">Détection</div>
                     <div class="audit-stage-sub">Raw Findings</div>
                 </div>
-                <div class="audit-stage {{ 'done' if validation_ready else 'pending' }}" id="audit-stage-validation" data-stage="validation">
+                <div class="audit-stage {{ validation_visual }}" id="audit-stage-validation" data-stage="validation">
                     <div class="audit-stage-index">5</div>
                     <div class="audit-stage-title">Validation</div>
                     <div class="audit-stage-sub">Evidence-backed</div>
                 </div>
-                <div class="audit-stage {{ 'done' if correlation_ready else 'pending' }}" id="audit-stage-correlation" data-stage="correlation">
+                <div class="audit-stage {{ correlation_visual }}" id="audit-stage-correlation" data-stage="correlation">
                     <div class="audit-stage-index">6</div>
                     <div class="audit-stage-title">Corrélation</div>
                     <div class="audit-stage-sub">Attack Paths</div>

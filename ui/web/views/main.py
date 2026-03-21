@@ -135,7 +135,7 @@ def _serialize_auth_identity_map(entry):
 
 def _serialize_db_finding_payload(finding):
     metadata = finding.metadata_json if isinstance(finding.metadata_json, dict) else {}
-    return normalize_finding_shape(
+    payload = normalize_finding_shape(
         {
             "id": finding.id,
             "scan_id": finding.scan_id,
@@ -174,6 +174,12 @@ def _serialize_db_finding_payload(finding):
         },
         source=finding.tool_source,
     )
+    if finding.created_at is None:
+        # DB-backed payloads must preserve the distinction between "known
+        # timestamp" and "timestamp absent" instead of inheriting the generic
+        # normalization fallback used for transient findings.
+        payload["created_at"] = None
+    return payload
 
 
 @main_bp.route("/scannmap")
