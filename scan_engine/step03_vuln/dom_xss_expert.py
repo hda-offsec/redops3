@@ -22,18 +22,27 @@ class DOMXSSExpert:
     def __init__(self, options=None):
         self.options = options or {}
 
-    def scan_endpoints(self, urls, logger=None):
+    def scan(self, target, scan_id, urls=None, logger=None, quick=False):
         """
-        Scans a list of URLs for DOM-XSS indicators.
+        Scans for DOM-XSS indicators across provided URLs.
         """
-        if logger: logger(f"DOM-XSS Expert: Auditing {len(urls)} candidates for client-side sinks...", "INFO")
+        if logger: logger(f"DOM-XSS Expert: Auditing {len(urls) if urls else 0} candidates for client-side sinks...", "INFO")
         
         findings = []
         session = get_session(self.options)
         
-        # Limit to top 20 interesting URLs (HTML/JS)
-        targets = [u for u in urls if any(u.endswith(ext) for ext in [".html", ".htm", ".js", "/"])]
-        targets = list(set(targets))[:20]
+        # Combine target and pool
+        all_urls = [target]
+        if urls: all_urls.extend(urls)
+        
+        # Filter for URLs with interesting extensions or root paths
+        targets = [u for u in all_urls if any(u.split('?')[0].endswith(ext) for ext in [".html", ".htm", ".js", "/"])]
+        targets = list(set(targets))
+        
+        if quick:
+            targets = targets[:15]
+        else:
+            targets = targets[:40]
 
         for url in targets:
             try:
