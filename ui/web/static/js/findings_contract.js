@@ -1,3 +1,11 @@
+/*
+ * Mirrored Findings UI contract for live/frontend rendering.
+ *
+ * This file intentionally mirrors `core/findings_ui_contract.py`.
+ * Keep canonical `_ui` fields, searchText composition, and command/URL/
+ * validation priority rules aligned with the backend.
+ */
+
 (function (global) {
     const INVALID_TEXT_MARKERS = new Set(["", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"]);
     const RESULT_STATE_MAP = {
@@ -71,6 +79,36 @@
     ]);
     const COMMAND_SCRIPT_RE = /^[A-Za-z0-9_.-]+\.(?:pl|ps1|py|rb|sh)$/;
     const VALIDATED_RESULT_STATES = new Set(["validation", "confirmed"]);
+    const CANONICAL_UI_FIELDS = [
+        "validationStatus",
+        "resultState",
+        "primaryCommand",
+        "primaryUrl",
+        "provider",
+        "component",
+        "version",
+        "portState",
+        "hasEvidence",
+        "isValidated",
+        "searchText",
+    ];
+    const SEARCH_TEXT_FIELD_SOURCES = [
+        "title",
+        "tool_source",
+        "tool",
+        "source",
+        "category",
+        "primary_url",
+        "target",
+        "provider",
+        "component",
+        "version",
+        "validation_status",
+        "result_state",
+        "validated_token",
+        "parameter",
+        "port_state",
+    ];
 
     function asDict(value) {
         return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -228,7 +266,7 @@
         return evidenceCandidates.some((candidate) => isMeaningfulText(candidate));
     }
 
-    function buildFindingSearchText(finding) {
+    function buildFindingSearchTextFields(finding) {
         const metadata = asDict(finding.metadata);
         const validationStatus = normalizeValidationStatus(finding);
         const resultState = normalizeResultState(finding);
@@ -238,7 +276,7 @@
         const version = getFindingVersionInfo(finding);
         const portState = isMeaningfulText(metadata.port_state) ? cleanText(metadata.port_state).toLowerCase() : "";
         const isValidated = validationStatus === "success" || VALIDATED_RESULT_STATES.has(resultState);
-        const orderedFields = [
+        return [
             finding.title,
             finding.tool_source,
             finding.tool,
@@ -255,10 +293,12 @@
             finding.parameter,
             portState,
         ];
+    }
 
+    function buildFindingSearchText(finding) {
         const tokens = [];
         const seen = new Set();
-        for (const field of orderedFields) {
+        for (const field of buildFindingSearchTextFields(finding)) {
             const normalized = cleanText(field).toLowerCase();
             if (!isMeaningfulText(normalized)) continue;
             if (seen.has(normalized)) continue;
@@ -281,7 +321,7 @@
         const hasEvidence = hasMeaningfulEvidence(finding);
         const isValidated = validationStatus === "success" || VALIDATED_RESULT_STATES.has(resultState);
 
-        return {
+        const uiState = {
             validationStatus,
             resultState,
             primaryCommand,
@@ -294,12 +334,18 @@
             isValidated,
             searchText: buildFindingSearchText(finding),
         };
+        return CANONICAL_UI_FIELDS.reduce((orderedState, fieldName) => {
+            orderedState[fieldName] = uiState[fieldName];
+            return orderedState;
+        }, {});
     }
 
     function normalizeFindingRecord(finding) {
         if (!finding || typeof finding !== "object") return finding;
-        const normalized = finding;
-        normalized.metadata = asDict(normalized.metadata);
+        const normalized = {
+            ...finding,
+            metadata: { ...asDict(finding.metadata) },
+        };
         normalized._ui = buildFindingUiState(normalized);
         return normalized;
     }
@@ -353,11 +399,21 @@
         return terms;
     }
 
+    function buildFilterState(values = {}) {
+        return {
+            severityFilter: cleanText(values.severityFilter).toLowerCase(),
+            categoryFilter: cleanText(values.categoryFilter).toLowerCase(),
+            portStatusFilter: cleanText(values.portStatusFilter).toLowerCase(),
+            terms: values.terms || parseSearchQuery(values.query || ""),
+        };
+    }
+
     function matchesDataset(dataset, filters) {
-        const severityFilter = cleanText(filters.severityFilter).toLowerCase();
-        const categoryFilter = cleanText(filters.categoryFilter).toLowerCase();
-        const portStatusFilter = cleanText(filters.portStatusFilter).toLowerCase();
-        const terms = filters.terms || { global: [] };
+        const normalizedFilters = buildFilterState(filters);
+        const severityFilter = normalizedFilters.severityFilter;
+        const categoryFilter = normalizedFilters.categoryFilter;
+        const portStatusFilter = normalizedFilters.portStatusFilter;
+        const terms = normalizedFilters.terms;
 
         const dropdownSeverityMatch = !severityFilter || dataset.severity === severityFilter;
         const dropdownCategoryMatch = !categoryFilter || dataset.category === categoryFilter;
@@ -402,19 +458,30 @@
         };
     }
 
-    function applyTableFilters(options = {}) {
+    function readTableFilterState(options = {}) {
         const searchElement = global.document.getElementById(options.searchId || "findings-search");
         const severityElement = global.document.getElementById(options.severityId || "findings-severity-filter");
         const categoryElement = global.document.getElementById(options.categoryId || "findings-category-filter");
         const portStatusElement = global.document.getElementById(options.portStatusId || "findings-port-status-filter");
-        const rows = global.document.querySelectorAll(options.rowSelector || "#findings-table-body .finding-row");
-        const terms = parseSearchQuery(searchElement ? searchElement.value : "");
-        const filters = {
+        return buildFilterState({
+            query: searchElement ? searchElement.value : "",
             severityFilter: severityElement ? severityElement.value : "",
             categoryFilter: categoryElement ? categoryElement.value : "",
             portStatusFilter: portStatusElement ? portStatusElement.value : "",
-            terms,
-        };
+        });
+    }
+
+    function updateTableFilterUi(options = {}, visibleCount = 0) {
+        const label = global.document.getElementById(options.labelId || "findings-total-label");
+        if (label) label.textContent = `${visibleCount} findings`;
+
+        const emptyState = global.document.getElementById(options.emptyStateId || "findings-empty-state");
+        if (emptyState) emptyState.style.display = visibleCount === 0 ? "" : "none";
+    }
+
+    function applyTableFilters(options = {}) {
+        const rows = global.document.querySelectorAll(options.rowSelector || "#findings-table-body .finding-row");
+        const filters = readTableFilterState(options);
 
         let visibleCount = 0;
         rows.forEach((row) => {
@@ -423,12 +490,7 @@
             if (isVisible) visibleCount += 1;
         });
 
-        const label = global.document.getElementById(options.labelId || "findings-total-label");
-        if (label) label.textContent = `${visibleCount} findings`;
-
-        const emptyState = global.document.getElementById(options.emptyStateId || "findings-empty-state");
-        if (emptyState) emptyState.style.display = visibleCount === 0 ? "" : "none";
-
+        updateTableFilterUi(options, visibleCount);
         return visibleCount;
     }
 
@@ -446,10 +508,10 @@
         }
     }
 
-    const api = {
-        applyRowDataset,
-        applyTableFilters,
+    const contractApi = {
+        buildFilterState,
         buildFindingSearchText,
+        buildFindingSearchTextFields,
         buildFindingUiState,
         decodeDataValue,
         encodeDataValue,
@@ -466,6 +528,24 @@
         normalizeResultState,
         normalizeValidationStatus,
         parseSearchQuery,
+    };
+    const domApi = {
+        applyRowDataset,
+        applyTableFilters,
+        getDatasetFromRow,
+        readTableFilterState,
+        updateTableFilterUi,
+    };
+    const api = {
+        ...contractApi,
+        ...domApi,
+        contract: contractApi,
+        dom: domApi,
+        constants: {
+            canonicalUiFields: [...CANONICAL_UI_FIELDS],
+            searchTextFieldSources: [...SEARCH_TEXT_FIELD_SOURCES],
+            validatedResultStates: [...VALIDATED_RESULT_STATES],
+        },
     };
 
     global.RedOpsFindings = api;

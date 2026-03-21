@@ -1,3 +1,16 @@
+"""Mirrored Findings UI contract for server-rendered payloads.
+
+This module intentionally mirrors `ui/web/static/js/findings_contract.js`.
+Both sides must keep the same:
+- canonical `_ui` fields,
+- command and URL priority rules,
+- validation/result-state mapping,
+- `searchText` token order and deduplication rules.
+
+The backend enriches payloads with `_ui` for Jinja and API responses.
+The frontend mirrors the same logic for live websocket findings.
+"""
+
 import re
 
 from scan_engine.helpers.finding_schema import (
@@ -55,6 +68,36 @@ RESULT_STATE_ALIASES = {
     "confirmed_active": "confirmed",
 }
 VALIDATED_RESULT_STATES = {"validation", "confirmed"}
+CANONICAL_UI_FIELDS = (
+    "validationStatus",
+    "resultState",
+    "primaryCommand",
+    "primaryUrl",
+    "provider",
+    "component",
+    "version",
+    "portState",
+    "hasEvidence",
+    "isValidated",
+    "searchText",
+)
+SEARCH_TEXT_FIELD_SOURCES = (
+    "title",
+    "tool_source",
+    "tool",
+    "source",
+    "category",
+    "primary_url",
+    "target",
+    "provider",
+    "component",
+    "version",
+    "validation_status",
+    "result_state",
+    "validated_token",
+    "parameter",
+    "port_state",
+)
 
 
 def _as_dict(value):
@@ -228,7 +271,7 @@ def has_finding_evidence(finding):
     return any(_is_meaningful_text(candidate) for candidate in evidence_candidates)
 
 
-def build_finding_search_text(finding):
+def _build_search_text_fields(finding):
     metadata = _as_dict(finding.get("metadata"))
     validation_status = _normalize_validation_status(finding)
     result_state = _normalize_result_state(finding)
@@ -239,7 +282,7 @@ def build_finding_search_text(finding):
     port_state = _clean_text(metadata.get("port_state")).lower() if _is_meaningful_text(metadata.get("port_state")) else ""
     is_validated = validation_status == "success" or result_state in VALIDATED_RESULT_STATES
 
-    ordered_fields = [
+    return [
         finding.get("title"),
         finding.get("tool_source"),
         finding.get("tool"),
@@ -257,9 +300,12 @@ def build_finding_search_text(finding):
         port_state,
     ]
 
+
+def build_finding_search_text(finding):
+    """Build the stable lowercase token list used for Findings search/filter."""
     tokens = []
     seen = set()
-    for field in ordered_fields:
+    for field in _build_search_text_fields(finding):
         cleaned = _clean_text(field).lower()
         if not _is_meaningful_text(cleaned):
             continue
@@ -284,7 +330,7 @@ def build_finding_ui_contract(finding):
     has_evidence = has_finding_evidence(finding)
     is_validated = validation_status == "success" or result_state in VALIDATED_RESULT_STATES
 
-    return {
+    ui_contract = {
         "validationStatus": validation_status,
         "resultState": result_state,
         "primaryCommand": primary_command,
@@ -297,6 +343,7 @@ def build_finding_ui_contract(finding):
         "isValidated": is_validated,
         "searchText": build_finding_search_text(finding),
     }
+    return {field_name: ui_contract[field_name] for field_name in CANONICAL_UI_FIELDS}
 
 
 def attach_finding_ui_contract(finding):

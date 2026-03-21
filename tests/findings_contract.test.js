@@ -55,6 +55,38 @@ function makeRow() {
 test("normalizes structured findings with canonical UI fields", () => {
     const finding = findingsContract.normalizeFindingRecord(structuredFinding());
 
+    assert.deepEqual(findingsContract.constants.canonicalUiFields, [
+        "validationStatus",
+        "resultState",
+        "primaryCommand",
+        "primaryUrl",
+        "provider",
+        "component",
+        "version",
+        "portState",
+        "hasEvidence",
+        "isValidated",
+        "searchText",
+    ]);
+    assert.deepEqual(findingsContract.constants.searchTextFieldSources, [
+        "title",
+        "tool_source",
+        "tool",
+        "source",
+        "category",
+        "primary_url",
+        "target",
+        "provider",
+        "component",
+        "version",
+        "validation_status",
+        "result_state",
+        "validated_token",
+        "parameter",
+        "port_state",
+    ]);
+    assert.equal(typeof findingsContract.contract.matchesDataset, "function");
+    assert.equal(typeof findingsContract.dom.applyTableFilters, "function");
     assert.equal(finding._ui.primaryCommand, "curl -isk 'https://example.org/api/graphql?query={__schema}'");
     assert.equal(finding._ui.primaryUrl, "https://example.org/api/graphql");
     assert.equal(finding._ui.validationStatus, "success");
@@ -65,6 +97,18 @@ test("normalizes structured findings with canonical UI fields", () => {
         finding._ui.searchText,
         "graphql schema leak nuclei api https://example.org/api/graphql aws apigateway 2024.1 success confirmed validated query open"
     );
+});
+
+test("normalization is non mutating and preserves the input finding", () => {
+    const original = structuredFinding();
+    const snapshot = JSON.parse(JSON.stringify(original));
+
+    const normalized = findingsContract.normalizeFindingRecord(original);
+
+    assert.notStrictEqual(normalized, original);
+    assert.deepEqual(original, snapshot);
+    assert.ok(normalized._ui);
+    assert.equal(Object.prototype.hasOwnProperty.call(original, "_ui"), false);
 });
 
 test("does not promote narrative reproduction text into a validation command", () => {
@@ -78,6 +122,25 @@ test("does not promote narrative reproduction text into a validation command", (
 
     assert.equal(finding._ui.primaryCommand, "");
     assert.equal(finding._ui.isValidated, false);
+});
+
+test("pure matching keeps filter compatibility for status, tool, type, and severity", () => {
+    const dataset = findingsContract.contract.getRowDataset(structuredFinding());
+
+    assert.equal(
+        findingsContract.contract.matchesDataset(
+            dataset,
+            findingsContract.contract.buildFilterState({ query: "status:validated type:api sev:high" })
+        ),
+        true
+    );
+    assert.equal(
+        findingsContract.contract.matchesDataset(
+            dataset,
+            findingsContract.contract.buildFilterState({ query: "tool:manual" })
+        ),
+        false
+    );
 });
 
 test("encodes and decodes copy and validate values with special characters", () => {
@@ -127,7 +190,7 @@ test("applies canonical row datasets and toggles empty state deterministically",
             },
         };
 
-        const visible = findingsContract.applyTableFilters();
+        const visible = findingsContract.dom.applyTableFilters();
         assert.equal(visible, 1);
         assert.equal(matchingRow.style.display, "");
         assert.equal(narrativeRow.style.display, "none");
@@ -135,7 +198,7 @@ test("applies canonical row datasets and toggles empty state deterministically",
         assert.equal(emptyState.style.display, "none");
 
         searchInput.value = "status:validated tool:manual";
-        const noneVisible = findingsContract.applyTableFilters();
+        const noneVisible = findingsContract.dom.applyTableFilters();
         assert.equal(noneVisible, 0);
         assert.equal(label.textContent, "0 findings");
         assert.equal(emptyState.style.display, "");

@@ -3,7 +3,12 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from core.findings_ui_contract import attach_finding_ui_contract, attach_finding_ui_contracts
+from core.findings_ui_contract import (
+    CANONICAL_UI_FIELDS,
+    SEARCH_TEXT_FIELD_SOURCES,
+    attach_finding_ui_contract,
+    attach_finding_ui_contracts,
+)
 
 
 def _structured_finding():
@@ -43,6 +48,44 @@ def _structured_finding():
 
 
 class FindingsUiContractTests(unittest.TestCase):
+    def test_backend_contract_constants_are_stable(self):
+        self.assertEqual(
+            CANONICAL_UI_FIELDS,
+            (
+                "validationStatus",
+                "resultState",
+                "primaryCommand",
+                "primaryUrl",
+                "provider",
+                "component",
+                "version",
+                "portState",
+                "hasEvidence",
+                "isValidated",
+                "searchText",
+            ),
+        )
+        self.assertEqual(
+            SEARCH_TEXT_FIELD_SOURCES,
+            (
+                "title",
+                "tool_source",
+                "tool",
+                "source",
+                "category",
+                "primary_url",
+                "target",
+                "provider",
+                "component",
+                "version",
+                "validation_status",
+                "result_state",
+                "validated_token",
+                "parameter",
+                "port_state",
+            ),
+        )
+
     def test_scan_dashboard_uses_shared_findings_contract(self):
         content = Path("ui/web/static/js/scan_dashboard.js").read_text()
         for token in [
@@ -54,6 +97,19 @@ class FindingsUiContractTests(unittest.TestCase):
             "updateAuditJourney",
             "window.goToAuditStage",
             "window.applyTacticalFilter",
+        ]:
+            self.assertIn(token, content)
+
+    def test_shared_js_contract_exposes_pure_and_dom_namespaces(self):
+        content = Path("ui/web/static/js/findings_contract.js").read_text()
+        for token in [
+            "const contractApi = {",
+            "const domApi = {",
+            "contract: contractApi",
+            "dom: domApi",
+            "const CANONICAL_UI_FIELDS = [",
+            "const SEARCH_TEXT_FIELD_SOURCES = [",
+            "buildFindingSearchTextFields",
         ]:
             self.assertIn(token, content)
 
