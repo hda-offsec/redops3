@@ -21,7 +21,7 @@ class APIExpertScanner:
             "login", "register", "users", "admin", "status", "health", "config", "debug", "metrics"
         ]
         self.SQLI_PAYLOADS = [
-            "'", '"', "1' OR '1'='1", "admin'--", "' UNION SELECT 1--", "'; DROP TABLE users; --"
+            "'", '"', "1' OR '1'='1", "admin'--", "' UNION SELECT 'REDOPS_SQLI_PROOF'--", "'; SELECT 1; --"
         ]
         self.XSS_PAYLOADS = [
             '<script>alert("XSS")</script>', '"><script>alert(1)</script>', "javascript:alert('XSS')"

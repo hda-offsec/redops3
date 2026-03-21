@@ -19,8 +19,8 @@ class APIFuzzer:
         findings = []
         if logger: logger(f"📡 API Fuzzer: Auditing logic on {url}...", "INFO")
 
-        # 1. HTTP Method Fuzzing (Verb Tampering)
-        methods = ["PUT", "PATCH", "DELETE", "OPTIONS", "TRACE"]
+        # 1. HTTP Method Fuzzing (Verb Tampering) — Safe methods only
+        methods = ["OPTIONS", "TRACE"]
         for m in methods:
             try:
                 r = self.session.request(m, url, timeout=3, verify=False)

