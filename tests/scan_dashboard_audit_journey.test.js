@@ -4,20 +4,19 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-function loadScanDashboardClass() {
-    const source = fs.readFileSync(
-        path.join(__dirname, "../ui/web/static/js/scan_dashboard.js"),
-        "utf8"
-    );
-    const sandbox = {
+function createSandbox() {
+    const window = {};
+    const document = {
+        getElementById() { return null; },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        addEventListener() {},
+    };
+
+    return {
         console,
-        window: {},
-        document: {
-            getElementById() { return null; },
-            querySelectorAll() { return []; },
-            querySelector() { return null; },
-            addEventListener() {},
-        },
+        window,
+        document,
         navigator: { clipboard: { writeText() {} } },
         io() { return { on() {}, emit() {} }; },
         bootstrap: { Tab: { getOrCreateInstance() { return { show() {} }; } } },
@@ -25,10 +24,24 @@ function loadScanDashboardClass() {
         clearTimeout,
         fetch: async () => ({ ok: true, json: async () => ({ items: [], total: 0 }) }),
     };
+}
+
+function loadScanDashboardClass() {
+    const source = fs.readFileSync(
+        path.join(__dirname, "../ui/web/static/js/scan_dashboard.js"),
+        "utf8"
+    );
+    const sandbox = createSandbox();
+    sandbox.window.document = sandbox.document;
     sandbox.globalThis = sandbox;
     vm.runInNewContext(`${source}\nthis.__ScanDashboard = ScanDashboard;`, sandbox, {
         filename: "scan_dashboard.js",
     });
+    assert.equal(
+        typeof sandbox.__ScanDashboard,
+        "function",
+        "ScanDashboard class was not exposed after evaluating scan_dashboard.js"
+    );
     return sandbox.__ScanDashboard;
 }
 

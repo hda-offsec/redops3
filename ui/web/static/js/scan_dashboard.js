@@ -911,8 +911,8 @@ class ScanDashboard {
         // Keep the readiness booleans strict. Completed scans with detections can
         // show an in-progress visual tone without being marked as truly validated
         // or correlated.
-        const validationVisualReady = status === 'completed' && detectionReady && !validationReady;
-        const correlationVisualReady = status === 'completed' && detectionReady && !correlationReady;
+        const validationVisualInProgress = status === 'completed' && detectionReady && !validationReady;
+        const correlationVisualInProgress = status === 'completed' && detectionReady && !correlationReady;
         const reportingReady = status === 'completed' && detectionReady;
         const closureReady = status === 'completed' && missingProof === 0 && missingCommand === 0;
 
@@ -921,8 +921,8 @@ class ScanDashboard {
             recon: reconReady ? 'done' : (progressPhase.includes('recon') ? 'in-progress' : 'pending'),
             enum: enumReady ? 'done' : (progressPhase.includes('enum') ? 'in-progress' : 'pending'),
             detection: detectionReady ? 'done' : (progressPhase.includes('vuln') ? 'in-progress' : 'pending'),
-            validation: validationReady ? 'done' : ((validationVisualReady || progressPhase.includes('validation')) ? 'in-progress' : 'pending'),
-            correlation: correlationReady ? 'done' : ((correlationVisualReady || progressPhase.includes('correlation')) ? 'in-progress' : 'pending'),
+            validation: validationReady ? 'done' : ((validationVisualInProgress || progressPhase.includes('validation')) ? 'in-progress' : 'pending'),
+            correlation: correlationReady ? 'done' : ((correlationVisualInProgress || progressPhase.includes('correlation')) ? 'in-progress' : 'pending'),
             reporting: reportingReady ? 'done' : (progressPhase.includes('report') ? 'in-progress' : 'pending'),
             closure: closureReady ? 'done' : (status === 'completed' ? 'in-progress' : 'pending')
         };
