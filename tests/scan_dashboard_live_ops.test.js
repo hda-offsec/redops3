@@ -295,6 +295,123 @@ test('handlePipelineEvent continues to delegate to the extracted helper without 
     assert.doesNotMatch(container.children[0].innerHTML, /ERROR/);
 });
 
+test('log stream helper appends a warning entry, clears placeholders, and preserves the rendered log contract', () => {
+    const legacyEmpty = createElement('div');
+    legacyEmpty.innerText = 'No logs yet';
+    const timelineEmpty = createElement('div');
+    const appended = [];
+    const consoleDiv = {
+        scrollHeight: 64,
+        scrollTop: 0,
+        querySelector(selector) {
+            if (selector === '.text-muted') return legacyEmpty;
+            if (selector === '#timeline-empty-msg') return timelineEmpty;
+            return null;
+        },
+        appendChild(node) {
+            appended.push(node);
+        },
+    };
+
+    const document = {
+        getElementById() { return null; },
+        querySelector(selector) {
+            if (selector === '.log-console') return consoleDiv;
+            return null;
+        },
+        querySelectorAll() { return []; },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+    const appendedEntry = ScanDashboard.internals.logStream.appendLogEntry(document, {
+        timestamp: '09:10:11',
+        level: 'WARN',
+        message: 'Watch the edge',
+    });
+
+    assert.equal(appendedEntry, true);
+    assert.equal(legacyEmpty.removed, true);
+    assert.equal(timelineEmpty.removed, true);
+    assert.equal(appended.length, 1);
+    assert.match(appended[0].className, /animate__fadeIn/);
+    assert.match(appended[0].innerHTML, /\[09:10:11\]/);
+    assert.match(appended[0].innerHTML, /text-warning fw-bold/);
+    assert.match(appended[0].innerHTML, /Watch the edge/);
+    assert.equal(consoleDiv.scrollTop, 64);
+});
+
+test('handleNewLog delegates to the extracted helper and keeps trigger, toast, and finished-state flows compatible', () => {
+    const statusPill = createElement('span');
+    statusPill.className = 'badge status-pill status-running ms-2';
+    const logEntryNodes = [];
+    const discoveryButton = createElement('button');
+    discoveryButton.classList.add('discovery-btn', 'active');
+    const consoleDiv = {
+        scrollHeight: 41,
+        scrollTop: 0,
+        querySelector() { return null; },
+        appendChild(node) {
+            logEntryNodes.push(node);
+        },
+    };
+
+    const document = {
+        getElementById() { return null; },
+        querySelector(selector) {
+            if (selector === '.log-console') return consoleDiv;
+            if (selector === '.status-pill') return statusPill;
+            return null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.discovery-btn') return [discoveryButton];
+            return [];
+        },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+    const activated = [];
+    const toastStates = [];
+    const highlighted = [];
+    const dashboard = {
+        scanId: 7,
+        logTriggers: { Nuclei: 'vulns' },
+        highlightPTES(message) {
+            highlighted.push(message);
+        },
+        activateDiscovery(id, state) {
+            activated.push({ id, state });
+        },
+        toggleScanToast(show) {
+            toastStates.push(show);
+        },
+    };
+
+    ScanDashboard.prototype.handleNewLog.call(dashboard, {
+        scan_id: 7,
+        timestamp: '10:11:12',
+        level: 'SUCCESS',
+        message: 'Nuclei completed - Scan finished',
+    });
+
+    assert.equal(logEntryNodes.length, 1);
+    assert.match(logEntryNodes[0].innerHTML, /text-success fw-bold/);
+    assert.deepEqual(highlighted, ['Nuclei completed - Scan finished']);
+    assert.deepEqual(activated, [{ id: 'vulns', state: true }]);
+    assert.deepEqual(toastStates, [false]);
+    assert.equal(statusPill.innerText, 'finished');
+    assert.equal(statusPill.className, 'badge status-pill status-finished ms-2');
+    assert.equal(discoveryButton.classList.contains('active'), false);
+    assert.equal(discoveryButton.classList.contains('discovered'), true);
+});
+
 
 test('indicator helper matches keywords and updates the existing card contract without touching unrelated cards', () => {
     const xssCard = createIndicatorCard();
@@ -345,6 +462,139 @@ test('indicator helper matches keywords and updates the existing card contract w
 
     assert.equal(untouchedCard.card.classList.contains('border-success'), true);
     assert.equal(untouchedCard.status.innerText, 'Monitoring');
+});
+
+test('loot stream helper increments counters and appends a deterministic vault entry without changing the markup contract', async () => {
+    const counterA = createElement('span');
+    counterA.innerText = '2';
+    const counterB = createElement('span');
+    counterB.innerText = '0';
+    const emptyState = createElement('div');
+    const entries = [];
+    const vault = {
+        querySelector(selector) {
+            if (selector === '.text-center') return emptyState;
+            return null;
+        },
+        prepend(node) {
+            entries.unshift(node);
+        },
+    };
+
+    const document = {
+        getElementById() { return null; },
+        querySelector(selector) {
+            if (selector === '#loot-vault-container .list-group') return vault;
+            return null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.loot-counter-val') return [counterA, counterB];
+            return [];
+        },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+    const stamp = ScanDashboard.internals.lootStream.formatTimestamp({
+        getHours() { return 5; },
+        getMinutes() { return 7; },
+    });
+
+    assert.equal(stamp, '05:07');
+
+    ScanDashboard.internals.lootStream.incrementCounters(document);
+    const appended = ScanDashboard.internals.lootStream.appendVaultEntry(
+        document,
+        ScanDashboard.internals.lootStream.ensureVaultList(document),
+        {
+            type: 'token',
+            content: 'AKIA-123',
+            context: 's3',
+        },
+        (value) => String(value).replace(/</g, '&lt;'),
+        stamp
+    );
+
+    assert.equal(appended, true);
+    assert.equal(counterA.innerText, 3);
+    assert.equal(counterB.innerText, 1);
+    assert.equal(counterA.classList.contains('animate__bounceIn'), true);
+    assert.equal(counterB.classList.contains('text-success'), true);
+    assert.equal(emptyState.removed, true);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0].className, /animate__fadeInDown/);
+    assert.match(entries[0].innerHTML, /token/);
+    assert.match(entries[0].innerHTML, /05:07/);
+    assert.match(entries[0].innerHTML, /AKIA-123/);
+    assert.match(entries[0].innerHTML, /s3/);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.equal(counterA.classList.contains('animate__bounceIn'), false);
+    assert.equal(counterB.classList.contains('animate__bounceIn'), false);
+});
+
+test('handleNewLoot keeps the public orchestration intact after delegating to the extracted helper', () => {
+    const counter = createElement('span');
+    counter.innerText = '4';
+    const entries = [];
+    const vault = {
+        querySelector() { return null; },
+        prepend(node) {
+            entries.unshift(node);
+        },
+    };
+
+    const document = {
+        getElementById() { return null; },
+        querySelector(selector) {
+            if (selector === '#loot-vault-container .list-group') return vault;
+            return null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.loot-counter-val') return [counter];
+            return [];
+        },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const FakeDate = class extends Date {
+        constructor() {
+            super('2026-03-22T13:09:00Z');
+        }
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document, Date: FakeDate });
+    const activated = [];
+    const dashboard = {
+        scanId: 9,
+        activateDiscovery(id, state) {
+            activated.push({ id, state });
+        },
+        escapeHtml(value) {
+            return String(value).replace(/&/g, '&amp;');
+        },
+    };
+
+    ScanDashboard.prototype.handleNewLoot.call(dashboard, {
+        scan_id: 9,
+        type: 'secret',
+        content: 'alpha&beta',
+        context: 'headers',
+    });
+
+    assert.deepEqual(activated, [{ id: 'loot', state: true }]);
+    assert.equal(counter.innerText, 5);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0].innerHTML, /secret/);
+    assert.match(entries[0].innerHTML, /13:09/);
+    assert.match(entries[0].innerHTML, /alpha&amp;beta/);
+    assert.match(entries[0].innerHTML, /headers/);
 });
 
 test('handleProgressUpdate delegates to the extracted progress view and preserves running/completed UI states', () => {
