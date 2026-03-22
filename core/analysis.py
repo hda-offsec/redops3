@@ -1,3 +1,5 @@
+from typing import Any, Dict, List, Sequence, Set, Tuple
+
 from core.models import db, Finding, Suggestion, Signal
 from scan_engine.helpers.finding_schema import (
     deep_merge_metadata,
@@ -132,6 +134,25 @@ def run_signal_correlation(scan_id, add_finding_cb):
 class CortexEngine:
     """Reason over findings/signals to generate deterministic attack path intelligence."""
 
+    CATEGORY_SORT = {
+        "attack_path": 0,
+        "attack_plan": 1,
+        "next_step": 2,
+    }
+    SEVERITY_SORT = {
+        "critical": 4,
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+        "info": 0,
+    }
+    CONFIDENCE_SORT = {
+        "high": 3,
+        "certain": 3,
+        "medium": 2,
+        "low": 1,
+    }
+
     @staticmethod
     def _mk_text(f):
         return (
@@ -140,139 +161,355 @@ class CortexEngine:
             f"{(getattr(f, 'category', '') or '').lower()}"
         )
 
+    @staticmethod
+    def _metadata_dict(finding):
+        metadata = getattr(finding, "metadata_json", None)
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    @classmethod
+    def _finding_entry(cls, finding):
+        text = cls._mk_text(finding)
+        category = (getattr(finding, "category", "") or "").lower()
+        markers: Set[str] = set()
+
+        def mark(marker, condition):
+            if condition:
+                markers.add(marker)
+
+        mark(
+            "auth_surface",
+            "auth" in text
+            or category in {"authentication_surface", "auth_surface"},
+        )
+        mark(
+            "token_surface",
+            "token" in text
+            or "jwt" in text
+            or category in {"api_key_exposure", "jwt_exposure", "secret_exposure", "token_leakage"},
+        )
+        mark(
+            "upload_surface",
+            "upload" in text or category == "upload_surface",
+        )
+        mark(
+            "dangerous_http_methods",
+            "dangerous http methods" in text or category == "http_method_exposure",
+        )
+        mark(
+            "ssrf_surface",
+            "ssrf" in text or category in {"metadata_service_exposure", "ssrf_surface"},
+        )
+        mark(
+            "metadata_service",
+            "169.254.169.254" in text
+            or "metadata service" in text
+            or category == "metadata_service_exposure",
+        )
+        mark(
+            "javascript_surface",
+            "javascript" in text
+            or "hidden route" in text
+            or category in {"api_surface", "hidden_route", "internal_api", "js_intelligence"},
+        )
+        mark(
+            "api_surface",
+            "api" in text
+            or "graphql" in text
+            or category in {"api_surface", "graphql", "hidden_route", "internal_api"},
+        )
+        mark(
+            "graphql_surface",
+            "graphql" in text or category == "graphql",
+        )
+        mark(
+            "oauth_surface",
+            any(token in text for token in ("oauth", "oidc", "openid", "callback", "authorize")),
+        )
+        mark(
+            "object_reference_surface",
+            any(token in text for token in ("bola", "idor", "object access", "object reference", "owner_id", "account_id", "tenant_id", "user_id")),
+        )
+        mark(
+            "admin_surface",
+            any(token in text for token in ("admin", "dashboard", "internal", "manage", "swagger", "debug")),
+        )
+
+        signal_ids_raw = getattr(finding, "signal_ids", None)
+        signal_ids = sorted({int(item) for item in signal_ids_raw if isinstance(item, int)}) if isinstance(signal_ids_raw, list) else []
+
+        return {
+            "finding": finding,
+            "id": getattr(finding, "id", None),
+            "title": getattr(finding, "title", "") or "",
+            "category": category,
+            "text": text,
+            "markers": markers,
+            "signal_ids": signal_ids,
+            "metadata": cls._metadata_dict(finding),
+        }
+
+    @staticmethod
+    def _available_markers(entries: Sequence[Dict[str, Any]]) -> Set[str]:
+        markers: Set[str] = set()
+        for entry in entries:
+            markers.update(entry.get("markers", set()))
+        return markers
+
+    @classmethod
+    def _matching_entries(
+        cls,
+        entries: Sequence[Dict[str, Any]],
+        *,
+        required_all: Sequence[str],
+        required_any: Sequence[str] = (),
+    ) -> List[Dict[str, Any]]:
+        available = cls._available_markers(entries)
+        if not set(required_all).issubset(available):
+            return []
+        if required_any and not (set(required_any) & available):
+            return []
+
+        relevant_markers = set(required_all).union(required_any)
+        relevant = [entry for entry in entries if entry.get("markers", set()) & relevant_markers]
+        return sorted(
+            relevant,
+            key=lambda entry: (
+                str(entry.get("category") or ""),
+                str(entry.get("title") or ""),
+                int(entry.get("id") or 0),
+            ),
+        )
+
+    @classmethod
+    def _build_metadata(
+        cls,
+        *,
+        description: str,
+        related_entries: Sequence[Dict[str, Any]],
+        chain: Sequence[str],
+        reason_tags: Sequence[str],
+        metadata_extra: Dict[str, Any] = None,
+        likely_next_action: str = "",
+    ) -> Dict[str, Any]:
+        metadata = dict(metadata_extra or {})
+        related_finding_ids = sorted({entry["id"] for entry in related_entries if isinstance(entry.get("id"), int)})
+        related_signal_ids = sorted({signal_id for entry in related_entries for signal_id in entry.get("signal_ids", [])})
+        trigger_titles = sorted({str(entry.get("title") or "") for entry in related_entries if str(entry.get("title") or "").strip()})
+        trigger_categories = sorted({str(entry.get("category") or "") for entry in related_entries if str(entry.get("category") or "").strip()})
+
+        metadata["chain"] = list(chain)
+        metadata["reason_tags"] = sorted(set(metadata.get("reason_tags", [])).union(reason_tags))
+        metadata["trigger_titles"] = trigger_titles[:12]
+        metadata["trigger_categories"] = trigger_categories
+        metadata["related_finding_ids"] = related_finding_ids
+        metadata["related_signal_ids"] = related_signal_ids
+        metadata["chain_explanation"] = {
+            "reason": description,
+            "source_categories": trigger_categories,
+            "related_signal_ids": related_signal_ids,
+            "related_finding_ids": related_finding_ids,
+            "likely_next_action": likely_next_action or description,
+        }
+        metadata["field_sources"] = merge_field_sources(
+            metadata.get("field_sources"),
+            {
+                "chain": "cortex_engine",
+                "chain_explanation": "cortex_engine",
+                "related_finding_ids": "cortex_engine",
+                "related_signal_ids": "cortex_engine",
+            },
+        )
+        return metadata
+
+    @classmethod
+    def _build_path(
+        cls,
+        *,
+        title: str,
+        description: str,
+        severity: str,
+        confidence: str,
+        category: str,
+        module: str,
+        chain: Sequence[str],
+        reason_tags: Sequence[str],
+        related_entries: Sequence[Dict[str, Any]],
+        metadata_extra: Dict[str, Any] = None,
+        likely_next_action: str = "",
+    ) -> Dict[str, Any]:
+        return {
+            "title": title,
+            "description": description,
+            "severity": severity,
+            "confidence": confidence,
+            "tool_source": "cortex_engine",
+            "module": module,
+            "category": category,
+            "metadata": cls._build_metadata(
+                description=description,
+                related_entries=related_entries,
+                chain=chain,
+                reason_tags=reason_tags,
+                metadata_extra=metadata_extra,
+                likely_next_action=likely_next_action,
+            ),
+        }
+
+    @classmethod
+    def _path_sort_key(cls, item: Dict[str, Any]) -> Tuple[Any, ...]:
+        return (
+            cls.CATEGORY_SORT.get(str(item.get("category") or ""), 99),
+            -cls.SEVERITY_SORT.get(str(item.get("severity") or "info").lower(), 0),
+            -cls.CONFIDENCE_SORT.get(str(item.get("confidence") or "low").lower(), 0),
+            str(item.get("title") or ""),
+        )
+
     @classmethod
     def derive_attack_paths(cls, findings):
+        entries = [cls._finding_entry(finding) for finding in findings]
+        if not entries:
+            return []
+
+        rules = [
+            {
+                "title": "Cortex Attack Path: Auth Surface + Token Material -> Authenticated API Access",
+                "description": "Reasoning engine linked authentication surface with token leakage indicators, enabling probable authenticated API abuse path.",
+                "severity": "high",
+                "confidence": "high",
+                "category": "attack_path",
+                "module": "cortex_reasoning",
+                "chain": ["auth_surface", "token_leakage", "authenticated_api_access"],
+                "reason_tags": ["auth_surface", "token_surface"],
+                "required_all": ["auth_surface", "token_surface"],
+                "likely_next_action": "Validate token scope and replay controls on authenticated endpoints already discovered.",
+            },
+            {
+                "title": "Cortex Attack Path: Upload Surface + Dangerous Methods -> Arbitrary File Write Risk",
+                "description": "Reasoning engine correlated upload exposure and unsafe HTTP methods, producing a probable arbitrary file write/webshell route.",
+                "severity": "high",
+                "confidence": "high",
+                "category": "attack_path",
+                "module": "cortex_reasoning",
+                "chain": ["upload_surface", "dangerous_http_methods", "arbitrary_file_write"],
+                "reason_tags": ["upload_surface", "dangerous_http_methods"],
+                "required_all": ["upload_surface", "dangerous_http_methods"],
+                "likely_next_action": "Revalidate upload constraints and method handling using bounded content-type and extension checks.",
+            },
+            {
+                "title": "Cortex Attack Path: SSRF Surface -> Cloud Metadata Credential Theft",
+                "description": "Reasoning engine identified SSRF-capable input and metadata-service exposure signals, indicating probable cloud credential theft path.",
+                "severity": "high",
+                "confidence": "medium",
+                "category": "attack_path",
+                "module": "cortex_reasoning",
+                "chain": ["ssrf_surface", "metadata_service", "credential_theft"],
+                "reason_tags": ["ssrf_surface", "metadata_service"],
+                "required_all": ["ssrf_surface", "metadata_service"],
+                "likely_next_action": "Use safe SSRF canaries and metadata-specific allowlist checks before any active replay.",
+            },
+            {
+                "title": "Cortex Attack Path: API Object References + Auth Context -> Authorization Drift",
+                "description": "API/object-reference telemetry combined with authentication or admin context suggests a likely object-level authorization testing path.",
+                "severity": "high",
+                "confidence": "medium",
+                "category": "attack_path",
+                "module": "cortex_reasoning",
+                "chain": ["api_surface", "object_reference_surface", "authorization_drift"],
+                "reason_tags": ["api_surface", "object_reference_surface", "authorization"],
+                "required_all": ["api_surface", "object_reference_surface"],
+                "required_any": ["auth_surface", "admin_surface", "token_surface"],
+                "likely_next_action": "Compare object access responses across principals or tokens already observed in telemetry.",
+            },
+            {
+                "title": "Cortex Attack Path: OAuth Surface + Token Material -> Session Abuse",
+                "description": "OAuth/OIDC indicators and token material together point to a probable token replay or scope-confusion path worth bounded validation.",
+                "severity": "medium",
+                "confidence": "medium",
+                "category": "attack_path",
+                "module": "cortex_reasoning",
+                "chain": ["oauth_surface", "token_surface", "session_abuse"],
+                "reason_tags": ["oauth_surface", "token_surface"],
+                "required_all": ["oauth_surface", "token_surface"],
+                "likely_next_action": "Validate token audience, redirect URI handling, and scope boundaries with non-destructive replay.",
+            },
+            {
+                "title": "Cortex Attack Plan: Investigate JS-Derived Routes",
+                "description": "Planning layer recommends focused validation of JavaScript-derived routes, especially admin/auth paths already present in telemetry.",
+                "severity": "medium",
+                "confidence": "high",
+                "category": "attack_plan",
+                "module": "cortex_planner",
+                "chain": ["javascript_surface", "api_surface", "route_validation"],
+                "reason_tags": ["javascript_surface", "api_surface"],
+                "required_any": ["javascript_surface", "api_surface"],
+                "metadata_extra": {
+                    "title": "Inspect JS-derived admin route",
+                    "description": "Validate authorization and hidden-route accessibility for JS-mined endpoints.",
+                    "rationale": "Deterministic route intelligence from passive telemetry and API surface findings.",
+                    "attack_chain": "js_routes_auth_surface",
+                    "attack_priority": "medium",
+                    "action_priority": 65,
+                    "action_type": "guided_probe",
+                    "estimated_value": "high",
+                    "estimated_complexity": "medium",
+                },
+                "likely_next_action": "Enumerate JS-derived admin or auth routes and validate access control without state changes.",
+            },
+            {
+                "title": "Cortex Next Step: Probe SSRF Metadata Path",
+                "description": "Recommended bounded probe: validate SSRF controls against metadata service patterns using non-destructive request variants.",
+                "severity": "medium",
+                "confidence": "medium",
+                "category": "next_step",
+                "module": "cortex_planner",
+                "chain": ["ssrf_surface", "metadata_service", "guided_probe"],
+                "reason_tags": ["ssrf_surface", "metadata_service"],
+                "required_all": ["ssrf_surface"],
+                "metadata_extra": {
+                    "title": "Investigate SSRF against metadata service",
+                    "description": "Replay safe SSRF patterns to metadata endpoints only where existing evidence indicates input control.",
+                    "rationale": "SSRF and metadata-service indicators appear in findings telemetry.",
+                    "endpoint": "metadata_service",
+                    "attack_chain": "ssrf_to_metadata",
+                    "attack_priority": "high",
+                    "action_priority": 85,
+                    "action_type": "guided_probe",
+                    "estimated_value": "high",
+                    "estimated_complexity": "medium",
+                },
+                "likely_next_action": "Replay safe SSRF patterns against metadata-like targets only where request control already exists.",
+            },
+        ]
+
         paths = []
-        texts = [cls._mk_text(f) for f in findings]
-
-        def has(pred):
-            return any(pred(f, t) for f, t in zip(findings, texts))
-
-        def add(title, description, severity="high", confidence="medium", chain=None):
+        for rule in rules:
+            related_entries = cls._matching_entries(
+                entries,
+                required_all=rule.get("required_all", ()),
+                required_any=rule.get("required_any", ()),
+            )
+            if not related_entries:
+                continue
             paths.append(
-                {
-                    "title": title,
-                    "description": description,
-                    "severity": severity,
-                    "confidence": confidence,
-                    "tool_source": "cortex_engine",
-                    "module": "cortex_reasoning",
-                    "category": "attack_path",
-                    "metadata": {"chain": chain or []},
-                }
+                cls._build_path(
+                    title=rule["title"],
+                    description=rule["description"],
+                    severity=rule["severity"],
+                    confidence=rule["confidence"],
+                    category=rule["category"],
+                    module=rule["module"],
+                    chain=rule["chain"],
+                    reason_tags=rule.get("reason_tags", ()),
+                    related_entries=related_entries,
+                    metadata_extra=rule.get("metadata_extra"),
+                    likely_next_action=rule.get("likely_next_action", ""),
+                )
             )
 
-        has_auth_surface = has(
-            lambda f, t: "auth" in t
-            or (getattr(f, "category", "") or "") in {"authentication_surface", "auth_surface"}
-        )
-        has_token = has(
-            lambda f, t: "token" in t
-            or "jwt" in t
-            or (getattr(f, "category", "") or "") in {"jwt_exposure", "token_leakage", "api_key_exposure"}
-        )
-        if has_auth_surface and has_token:
-            add(
-                "Cortex Attack Path: Auth Surface + Token Material -> Authenticated API Access",
-                "Reasoning engine linked authentication surface with token leakage indicators, enabling probable authenticated API abuse path.",
-                severity="high",
-                confidence="high",
-                chain=["auth_surface", "token_leakage", "authenticated_api_access"],
-            )
-
-        has_upload = has(
-            lambda f, t: "upload" in t or (getattr(f, "category", "") or "") == "upload_surface"
-        )
-        has_methods = has(
-            lambda f, t: "dangerous http methods" in t
-            or (getattr(f, "category", "") or "") == "http_method_exposure"
-        )
-        if has_upload and has_methods:
-            add(
-                "Cortex Attack Path: Upload Surface + Dangerous Methods -> Arbitrary File Write Risk",
-                "Reasoning engine correlated upload exposure and unsafe HTTP methods, producing a probable arbitrary file write/webshell route.",
-                severity="high",
-                confidence="high",
-                chain=["upload_surface", "dangerous_http_methods", "arbitrary_file_write"],
-            )
-
-        has_ssrf = has(
-            lambda f, t: "ssrf" in t
-            or (getattr(f, "category", "") or "") in {"ssrf_surface", "metadata_service_exposure"}
-        )
-        has_metadata = has(
-            lambda f, t: "169.254.169.254" in t
-            or "metadata service" in t
-            or (getattr(f, "category", "") or "") == "metadata_service_exposure"
-        )
-        if has_ssrf and has_metadata:
-            add(
-                "Cortex Attack Path: SSRF Surface -> Cloud Metadata Credential Theft",
-                "Reasoning engine identified SSRF-capable input and metadata-service exposure signals, indicating probable cloud credential theft path.",
-                severity="high",
-                confidence="medium",
-                chain=["ssrf_surface", "metadata_service", "credential_theft"],
-            )
-
-        has_js_route = has(
-            lambda f, t: "javascript" in t
-            or "hidden route" in t
-            or (getattr(f, "category", "") or "") == "api_surface"
-        )
-        if has_js_route:
-            paths.append(
-                {
-                    "title": "Cortex Attack Plan: Investigate JS-Derived Routes",
-                    "description": "Planning layer recommends focused validation of JavaScript-derived routes, especially admin/auth paths already present in telemetry.",
-                    "severity": "medium",
-                    "confidence": "high",
-                    "tool_source": "cortex_engine",
-                    "module": "cortex_planner",
-                    "category": "attack_plan",
-                    "metadata": {
-                        "title": "Inspect JS-derived admin route",
-                        "description": "Validate authorization and hidden-route accessibility for JS-mined endpoints.",
-                        "rationale": "Deterministic route intelligence from passive telemetry and API surface findings.",
-                        "related_signal_ids": [],
-                        "related_finding_ids": [],
-                        "attack_chain": "js_routes_auth_surface",
-                        "attack_priority": "medium",
-                        "action_priority": 65,
-                        "action_type": "guided_probe",
-                        "estimated_value": "high",
-                        "estimated_complexity": "medium",
-                    },
-                }
-            )
-
-        if has_ssrf:
-            paths.append(
-                {
-                    "title": "Cortex Next Step: Probe SSRF Metadata Path",
-                    "description": "Recommended bounded probe: validate SSRF controls against metadata service patterns using non-destructive request variants.",
-                    "severity": "medium",
-                    "confidence": "medium",
-                    "tool_source": "cortex_engine",
-                    "module": "cortex_planner",
-                    "category": "next_step",
-                    "metadata": {
-                        "title": "Investigate SSRF against metadata service",
-                        "description": "Replay safe SSRF patterns to metadata endpoints only where existing evidence indicates input control.",
-                        "rationale": "SSRF and metadata-service indicators appear in findings telemetry.",
-                        "related_signal_ids": [],
-                        "related_finding_ids": [],
-                        "endpoint": "metadata_service",
-                        "attack_chain": "ssrf_to_metadata",
-                        "attack_priority": "high",
-                        "action_priority": 85,
-                        "action_type": "guided_probe",
-                        "estimated_value": "high",
-                        "estimated_complexity": "medium",
-                    },
-                }
-            )
-
-        return paths
+        deduped = {}
+        for item in paths:
+            deduped[(item["category"], item["title"])] = item
+        return sorted(deduped.values(), key=cls._path_sort_key)
 
 
 class RiskScoringEngine:
