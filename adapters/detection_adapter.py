@@ -1,5 +1,6 @@
 import json
 import hashlib
+import logging
 import re
 
 from scan_engine.helpers.finding_schema import (
@@ -9,6 +10,8 @@ from scan_engine.helpers.finding_schema import (
     merge_field_sources,
     generate_stable_id,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DetectionAdapter:
@@ -23,6 +26,18 @@ class DetectionAdapter:
     4. Deduplicate findings via stable ID
     5. Apply severity governance
     """
+
+    _RAW_JSON_CONTAINER_KEYS = ("findings", "vulns", "endpoints", "items")
+    _OBSERVABILITY_KEYS = (
+        "phases_skipped_non_mapping",
+        "tool_payloads_skipped_non_list",
+        "json_items_skipped_empty_dict",
+        "json_items_skipped_without_content",
+        "title_empty_skipped",
+        "dedup_merged",
+        "cortex_noise_filtered",
+        "cortex_low_confidence_filtered",
+    )
 
     # ------------------------------------------------------------------
     # ID GENERATION
@@ -39,6 +54,53 @@ class DetectionAdapter:
             "severity": severity
         })
 
+    @staticmethod
+    def _new_observability_stats():
+        return {key: 0 for key in DetectionAdapter._OBSERVABILITY_KEYS}
+
+    @staticmethod
+    def _log_observability_stats(stats):
+        if not isinstance(stats, dict):
+            return
+        relevant = {key: value for key, value in stats.items() if value}
+        if relevant:
+            logger.debug("DetectionAdapter normalization stats: %s", json.dumps(relevant, sort_keys=True))
+
+    @staticmethod
+    def _extract_raw_items(payload):
+        if isinstance(payload, dict):
+            for key in DetectionAdapter._RAW_JSON_CONTAINER_KEYS:
+                if key in payload:
+                    return payload.get(key)
+            return [payload]
+        return payload
+
+    @staticmethod
+    def _looks_like_finding_candidate(item):
+        if not isinstance(item, dict):
+            return False
+        return any(
+            key in item
+            for key in (
+                "title",
+                "description",
+                "evidence",
+                "raw_output",
+                "severity",
+                "confidence",
+                "endpoint",
+                "target",
+                "parameter",
+                "payload",
+                "module",
+                "category",
+                "reproduction",
+                "repro_command",
+                "request",
+                "response",
+            )
+        )
+
     # ------------------------------------------------------------------
     # ADD FINDING (CORE NORMALIZER)
     # ------------------------------------------------------------------
@@ -52,6 +114,7 @@ class DetectionAdapter:
         description,
         tool_source,
         confidence="medium",
+        _stats=None,
         **extra,
     ):
         # V12: Aggressive Global Cleaner for terminal noise (ffuf, etc.)
@@ -66,6 +129,20 @@ class DetectionAdapter:
             s = "".join(char for char in s if char.isprintable() or char in "\n\r\t")
             return s.strip()
 
+        def derive_title(*candidates):
+            for candidate in candidates:
+                cleaned = clean_terminal_noise(candidate) or ""
+                if not cleaned:
+                    continue
+                first_line = next((line.strip() for line in cleaned.splitlines() if line.strip()), "")
+                if not first_line:
+                    continue
+                first_line = re.sub(r"[`*_#>]+", " ", first_line)
+                first_line = re.sub(r"\s+", " ", first_line).strip(" :-")
+                if first_line:
+                    return first_line[:140]
+            return ""
+
         title = clean_terminal_noise(title) or ""
         description = clean_terminal_noise(description) or ""
         
@@ -75,6 +152,16 @@ class DetectionAdapter:
                 extra[field] = clean_terminal_noise(extra[field])
 
         if not title:
+            title = derive_title(
+                description,
+                extra.get("evidence", ""),
+                extra.get("raw_output", ""),
+                extra.get("endpoint", ""),
+                extra.get("target", ""),
+            )
+        if not title:
+            if isinstance(_stats, dict):
+                _stats["title_empty_skipped"] += 1
             return
         
         clean_title = re.sub(
@@ -103,6 +190,8 @@ class DetectionAdapter:
             severity = "medium"
 
         if fid in normalized:
+            if isinstance(_stats, dict):
+                _stats["dedup_merged"] += 1
             existing = normalized[fid]
             merged_metadata = dict(existing.get("metadata") or {})
             incoming_metadata = (
@@ -580,16 +669,21 @@ class DetectionAdapter:
 
         # Wayback / Historic URLs
         historic = osint_data.get("historic_urls", [])
-        if isinstance(historic, list) and len(historic) > 50:
+        if isinstance(historic, list) and len(historic) > 0:
+            historic_count = len(historic)
+            confidence = "medium" if historic_count >= 25 else "low"
             fid = DetectionAdapter._make_id("osint_historic", len(historic))
             DetectionAdapter._add(
                 normalized,
                 fid,
-                title=f"OSINT: {len(historic)} Historic Wayback URLs Discovered",
+                title=f"OSINT: {historic_count} Historic Wayback URLs Discovered",
                 severity="info",
-                description=f"Wayback Machine returned {len(historic)} archived URLs for this target. These may reveal legacy endpoints, removed pages, or old API surfaces.",
+                description=(
+                    f"Wayback Machine returned {historic_count} archived URLs for this target. "
+                    "These may reveal legacy endpoints, removed pages, or old API surfaces."
+                ),
                 tool_source="osint",
-                confidence="medium",
+                confidence=confidence,
                 category="osint_historic",
             )
 
@@ -603,7 +697,7 @@ class DetectionAdapter:
     )
 
     @staticmethod
-    def _synth_cortex_recommendations(enum_data, normalized):
+    def _synth_cortex_recommendations(enum_data, normalized, _stats=None):
         """Synthesize findings from enum.derived.cortex_recommendations.
 
         Filters out generic unconditional recommendations (noise) and clearly labels
@@ -633,10 +727,14 @@ class DetectionAdapter:
                 any(title_lower.startswith(prefix) for prefix in DetectionAdapter._CORTEX_NOISE_PREFIXES)
                 and not reason
             ):
+                if isinstance(_stats, dict):
+                    _stats["cortex_noise_filtered"] += 1
                 continue
 
             # Skip low-confidence suggestions (< 65) when no concrete signal is in the reason
             if confidence < 65:
+                if isinstance(_stats, dict):
+                    _stats["cortex_low_confidence_filtered"] += 1
                 continue
 
             port_label = f" (port {port})" if port else ""
@@ -1081,8 +1179,9 @@ class DetectionAdapter:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def normalize_findings(db_findings, json_results):
+    def normalize_findings(db_findings, json_results, return_stats=False):
         normalized = {}
+        stats = DetectionAdapter._new_observability_stats()
 
         # -------------------------
         # DB FINDINGS
@@ -1115,6 +1214,7 @@ class DetectionAdapter:
                 reproduction=getattr(f, "reproduction", ""),
                 module=getattr(f, "module", f.tool_source),
                 metadata=getattr(f, "metadata_json", {}) or {},
+                _stats=stats,
             )
 
         # -------------------------
@@ -1123,36 +1223,46 @@ class DetectionAdapter:
 
         phases = json_results.get("phases", {}) if isinstance(json_results, dict) else {}
 
-        for phase_name in ["vuln", "enum"]:
-            phase = phases.get(phase_name, {})
-
+        for phase_name, phase in phases.items():
             if not isinstance(phase, dict):
+                stats["phases_skipped_non_mapping"] += 1
                 continue
 
             for tool, findings in phase.items():
-                items = findings
-                if isinstance(findings, dict):
-                    if "findings" in findings: items = findings["findings"]
-                    elif "vulns" in findings: items = findings["vulns"]
-                    elif "endpoints" in findings: items = findings["endpoints"]
-                    else: items = [findings]
+                items = DetectionAdapter._extract_raw_items(findings)
                 
                 if not isinstance(items, list):
+                    stats["tool_payloads_skipped_non_list"] += 1
                     continue
 
                 for item in items:
-                    if not isinstance(item, dict) or not item:
+                    if not isinstance(item, dict):
+                        continue
+                    if not item:
+                        stats["json_items_skipped_empty_dict"] += 1
+                        continue
+                    if not DetectionAdapter._looks_like_finding_candidate(item):
                         continue
                     
                     # Basic validation: must have at least a title or a description/evidence to be a finding
                     if not item.get("title") and not item.get("description") and not item.get("evidence") and not item.get("raw_output"):
+                        stats["json_items_skipped_without_content"] += 1
                         continue
 
                     fid = item.get("id_stable")
                     if not fid or len(fid) < 32:
+                        title_seed = (
+                            item.get("title")
+                            or item.get("description")
+                            or item.get("evidence")
+                            or item.get("raw_output")
+                            or item.get("endpoint")
+                            or item.get("target")
+                            or "Finding"
+                        )
                         fid = DetectionAdapter._make_id(
                             tool,
-                            item.get("title", "Finding"),
+                            title_seed,
                             endpoint=item.get("endpoint", ""),
                             parameter=item.get("parameter", ""),
                             payload=item.get("payload", ""),
@@ -1162,7 +1272,7 @@ class DetectionAdapter:
                     DetectionAdapter._add(
                         normalized,
                         fid,
-                        title=item.get("title", "Finding"),
+                        title=item.get("title", ""),
                         severity=item.get("severity", "info"),
                         description=item.get("description", ""),
                         tool_source=tool,
@@ -1185,6 +1295,7 @@ class DetectionAdapter:
                         repro_command=item.get("repro_command", ""),
                         screenshot_path=item.get("screenshot_path", ""),
                         metadata=item.get("metadata", {}),
+                        _stats=stats,
                     )
 
         # -------------------------
@@ -1217,11 +1328,15 @@ class DetectionAdapter:
             DetectionAdapter._synth_favicon_hash(phases["osint"], normalized)
 
         if "enum" in phases:
-            DetectionAdapter._synth_cortex_recommendations(phases["enum"], normalized)
+            DetectionAdapter._synth_cortex_recommendations(phases["enum"], normalized, _stats=stats)
             DetectionAdapter._synth_api_endpoints(phases["enum"], normalized)
             DetectionAdapter._synth_injection_points(phases["enum"], normalized)
 
         if "dirbusting" in phases:
             DetectionAdapter._synth_dirbusting(phases["dirbusting"], normalized)
 
-        return list(normalized.values())
+        findings = list(normalized.values())
+        DetectionAdapter._log_observability_stats(stats)
+        if return_stats:
+            return findings, stats
+        return findings

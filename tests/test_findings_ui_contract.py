@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from adapters.detection_adapter import DetectionAdapter
 from core.findings_ui_contract import (
     CANONICAL_UI_FIELDS,
     DETAIL_COMMAND_BLOCK_SOURCES,
@@ -541,6 +542,193 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertIn('class="audit-stage in-progress" id="audit-stage-correlation"', html)
         self.assertNotIn('class="audit-stage done" id="audit-stage-validation"', html)
         self.assertNotIn('class="audit-stage done" id="audit-stage-correlation"', html)
+
+
+class DetectionAdapterNormalizationTests(unittest.TestCase):
+    def test_normalize_findings_supports_all_phase_mappings_and_supported_containers(self):
+        findings, stats = DetectionAdapter.normalize_findings(
+            [],
+            {
+                "phases": {
+                    "recon": {
+                        "wrapped": {
+                            "items": [
+                                {
+                                    "title": "Recon wrapped finding",
+                                    "description": "Wrapped under items.",
+                                    "severity": "low",
+                                    "category": "recon_surface",
+                                }
+                            ]
+                        },
+                        "direct": {
+                            "title": "Recon direct finding",
+                            "description": "Direct dict payload.",
+                            "severity": "medium",
+                            "category": "recon_surface",
+                        },
+                    },
+                    "intel": {
+                        "notes": [
+                            {
+                                "title": "Intel phase finding",
+                                "description": "Stored outside vuln/enum.",
+                                "severity": "info",
+                                "category": "intel_surface",
+                            }
+                        ]
+                    },
+                    "broken": "skip me",
+                }
+            },
+            return_stats=True,
+        )
+
+        self.assertEqual(
+            {item["title"] for item in findings},
+            {
+                "Recon wrapped finding",
+                "Recon direct finding",
+                "Intel phase finding",
+            },
+        )
+        self.assertEqual(stats["phases_skipped_non_mapping"], 1)
+        self.assertEqual(stats["tool_payloads_skipped_non_list"], 0)
+
+    def test_normalize_findings_tracks_skips_and_derives_title_from_meaningful_description(self):
+        findings, stats = DetectionAdapter.normalize_findings(
+            [],
+            {
+                "phases": {
+                    "intel": {
+                        "custom": [
+                            {
+                                "description": "Missing title but meaningful analyst context",
+                                "severity": "medium",
+                                "endpoint": "https://example.org/debug",
+                            },
+                            {},
+                            {"severity": "low"},
+                            {
+                                "title": "\x1b[2K",
+                                "description": "   ",
+                                "severity": "low",
+                            },
+                        ]
+                    }
+                }
+            },
+            return_stats=True,
+        )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["title"], "Missing title but meaningful analyst context")
+        self.assertEqual(stats["json_items_skipped_empty_dict"], 1)
+        self.assertEqual(stats["json_items_skipped_without_content"], 1)
+        self.assertEqual(stats["title_empty_skipped"], 1)
+
+    def test_normalize_findings_merges_true_duplicates_but_keeps_distinct_parameters(self):
+        findings, stats = DetectionAdapter.normalize_findings(
+            [],
+            {
+                "phases": {
+                    "vuln": {
+                        "unit": [
+                            {
+                                "title": "Reflected parameter issue",
+                                "description": "Shared title and endpoint.",
+                                "severity": "medium",
+                                "endpoint": "https://example.org/search",
+                                "raw_output": "alpha-response",
+                                "evidence": "alpha-evidence",
+                            },
+                            {
+                                "title": "Reflected parameter issue",
+                                "description": "Shared title and endpoint.",
+                                "severity": "medium",
+                                "endpoint": "https://example.org/search",
+                                "raw_output": "beta-response",
+                                "evidence": "beta-evidence",
+                            },
+                            {
+                                "title": "Reflected parameter issue",
+                                "description": "Distinct parameter remains distinct.",
+                                "severity": "medium",
+                                "endpoint": "https://example.org/search",
+                                "parameter": "debug",
+                                "raw_output": "gamma-response",
+                            },
+                        ]
+                    }
+                }
+            },
+            return_stats=True,
+        )
+
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(stats["dedup_merged"], 1)
+
+        merged = next(item for item in findings if item.get("parameter", "") == "")
+        self.assertIn("alpha-response", merged["raw_output"])
+        self.assertIn("beta-response", merged["raw_output"])
+        self.assertIn("alpha-evidence", merged["evidence"])
+        self.assertIn("beta-evidence", merged["evidence"])
+
+        distinct = next(item for item in findings if item.get("parameter") == "debug")
+        self.assertEqual(distinct["raw_output"], "gamma-response")
+
+    def test_normalize_findings_keeps_wayback_signal_visible_with_graded_confidence(self):
+        small_findings = DetectionAdapter.normalize_findings(
+            [],
+            {"phases": {"osint": {"historic_urls": ["https://example.org/old", "https://example.org/admin"]}}},
+        )
+        large_findings = DetectionAdapter.normalize_findings(
+            [],
+            {"phases": {"osint": {"historic_urls": [f"https://example.org/archive/{idx}" for idx in range(60)]}}},
+        )
+
+        small = next(item for item in small_findings if item.get("category") == "osint_historic")
+        large = next(item for item in large_findings if item.get("category") == "osint_historic")
+
+        self.assertEqual(small["confidence"], "low")
+        self.assertEqual(large["confidence"], "medium")
+        self.assertIn("2 archived URLs", small["description"])
+        self.assertIn("60 archived URLs", large["description"])
+
+    def test_normalize_findings_counts_filtered_cortex_recommendations(self):
+        findings, stats = DetectionAdapter.normalize_findings(
+            [],
+            {
+                "phases": {
+                    "enum": {
+                        "derived": {
+                            "cortex_recommendations": [
+                                {
+                                    "title": "WAF Fingerprint sweep",
+                                    "confidence": 90,
+                                },
+                                {
+                                    "title": "Specific correlation lead",
+                                    "confidence": 60,
+                                },
+                                {
+                                    "title": "High confidence API replay",
+                                    "reason": "Observed tokenized API route worth validating.",
+                                    "confidence": 85,
+                                    "category": "api",
+                                },
+                            ]
+                        }
+                    }
+                }
+            },
+            return_stats=True,
+        )
+
+        self.assertEqual(stats["cortex_noise_filtered"], 1)
+        self.assertEqual(stats["cortex_low_confidence_filtered"], 1)
+        self.assertEqual({item.get("category") for item in findings}, {"cortex_recommendation"})
+        self.assertEqual(findings[0]["title"], "Cortex: High confidence API replay")
 
 
 if __name__ == "__main__":

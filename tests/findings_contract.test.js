@@ -290,7 +290,7 @@ test("applies canonical row datasets and toggles empty state deterministically",
         metadata: {},
     });
 
-    const searchInput = { value: "aws status:validated" };
+    const searchInput = { value: "" };
     const severityFilter = { value: "" };
     const categoryFilter = { value: "" };
     const portStatusFilter = { value: "" };
@@ -316,17 +316,23 @@ test("applies canonical row datasets and toggles empty state deterministically",
             },
         };
 
-        const visible = findingsContract.dom.applyTableFilters();
+        let visible = findingsContract.dom.applyTableFilters();
+        assert.equal(visible, 2);
+        assert.equal(label.textContent, "2 findings");
+        assert.equal(emptyState.style.display, "none");
+
+        searchInput.value = "aws status:validated";
+        visible = findingsContract.dom.applyTableFilters();
         assert.equal(visible, 1);
         assert.equal(matchingRow.style.display, "");
         assert.equal(narrativeRow.style.display, "none");
-        assert.equal(label.textContent, "1 findings");
+        assert.equal(label.textContent, "1/2 findings");
         assert.equal(emptyState.style.display, "none");
 
         searchInput.value = "status:validated tool:manual";
         const noneVisible = findingsContract.dom.applyTableFilters();
         assert.equal(noneVisible, 0);
-        assert.equal(label.textContent, "0 findings");
+        assert.equal(label.textContent, "0/2 findings");
         assert.equal(emptyState.style.display, "");
     } finally {
         global.document = originalDocument;

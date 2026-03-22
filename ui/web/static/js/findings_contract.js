@@ -712,9 +712,13 @@
         });
     }
 
-    function updateTableFilterUi(options = {}, visibleCount = 0) {
+    function updateTableFilterUi(options = {}, visibleCount = 0, totalCount = visibleCount) {
         const label = global.document.getElementById(options.labelId || "findings-total-label");
-        if (label) label.textContent = `${visibleCount} findings`;
+        if (label) {
+            label.textContent = visibleCount === totalCount
+                ? `${visibleCount} findings`
+                : `${visibleCount}/${totalCount} findings`;
+        }
 
         const emptyState = global.document.getElementById(options.emptyStateId || "findings-empty-state");
         if (emptyState) emptyState.style.display = visibleCount === 0 ? "" : "none";
@@ -731,7 +735,7 @@
             if (isVisible) visibleCount += 1;
         });
 
-        updateTableFilterUi(options, visibleCount);
+        updateTableFilterUi(options, visibleCount, rows.length);
         return visibleCount;
     }
 

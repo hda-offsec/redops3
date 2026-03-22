@@ -47,13 +47,29 @@ class ScanDashboard {
         }
 
         try {
-            const response = await fetch(`/api/scans/${this.scanId}/findings?limit=${limit}&offset=${offset}`);
-            if (!response.ok) throw new Error(`API Error: ${response.status}`);
-            const data = await response.json();
+            let currentOffset = offset;
+            let total = 0;
+            const allItems = [];
 
-            // Render in reverse order (oldest first if prepending, or just as they come)
-            // The API returns newest first (desc), so we reverse to maintain "newest on top" behavior when prepending
-            const items = [...data.items].reverse();
+            while (true) {
+                const response = await fetch(`/api/scans/${this.scanId}/findings?limit=${limit}&offset=${currentOffset}`);
+                if (!response.ok) throw new Error(`API Error: ${response.status}`);
+                const data = await response.json();
+                const pageItems = Array.isArray(data.items) ? data.items : [];
+
+                total = Number.isFinite(data.total) ? data.total : allItems.length + pageItems.length;
+                allItems.push(...pageItems);
+
+                if (pageItems.length === 0) break;
+
+                currentOffset += pageItems.length;
+                if (currentOffset >= total) break;
+                if (pageItems.length < limit) break;
+            }
+
+            // The API is newest-first. We replay the full batch oldest-first so
+            // the existing prepend logic still yields a stable newest-first UI.
+            const items = [...allItems].reverse();
             items.forEach(item => {
                 this.handleNewFinding({
                     scan_id: this.scanId,
@@ -61,7 +77,7 @@ class ScanDashboard {
                 });
             });
 
-            console.log(`Loaded ${data.items.length}/${data.total} findings from DB.`);
+            console.log(`Loaded ${allItems.length}/${total} findings from DB.`);
         } catch (err) {
             console.error("Failed to load findings from API:", err);
         }
