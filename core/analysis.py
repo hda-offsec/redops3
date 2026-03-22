@@ -9,15 +9,96 @@ from scan_engine.helpers.finding_schema import (
 
 
 class AnalysisEngine:
+    HTTP_PORTS = {80, 443, 8080, 8443}
+
+    @staticmethod
+    def _service_name(service):
+        return str(service.get("service_name") or service.get("service") or "").strip().lower()
+
+    @staticmethod
+    def _port_number(service):
+        try:
+            return int(service.get("port"))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _is_http_service(cls, port, service_name):
+        return port in cls.HTTP_PORTS or "http" in service_name
+
+    @staticmethod
+    def _http_scheme(port, service_name):
+        if port in {443, 8443} or "https" in service_name:
+            return "https"
+        return "http"
+
+    @classmethod
+    def _iter_nmap_suggestions(cls, open_ports):
+        emitted = set()
+        for service in sorted(
+            open_ports,
+            key=lambda item: (
+                cls._port_number(item),
+                cls._service_name(item),
+            ),
+        ):
+            port = cls._port_number(service)
+            service_name = cls._service_name(service)
+            if cls._is_http_service(port, service_name):
+                scheme = cls._http_scheme(port, service_name)
+                candidates = [
+                    (
+                        "http_review",
+                        f"curl -isk {scheme}://<target>:{port}/",
+                        "HTTP service detected. Capture headers, redirects, and auth hints before active probing.",
+                    ),
+                    (
+                        "route_review",
+                        f"Review observed auth, admin, and API routes on {scheme}://<target>:{port}/ before adding active enumeration.",
+                        "Web surface detected. Prioritize contextual route validation over generic directory brute force.",
+                    ),
+                ]
+            elif port == 445 or "smb" in service_name:
+                candidates = [
+                    (
+                        "smb_review",
+                        f"smbclient -N -L //<target> -p {port}",
+                        "SMB detected. Validate anonymous share exposure and naming context before deeper enumeration.",
+                    ),
+                ]
+            elif port == 22 or service_name == "ssh":
+                candidates = [
+                    (
+                        "ssh_review",
+                        f"nmap --script ssh-auth-methods,ssh2-enum-algos -p {port} <target>",
+                        "SSH detected. Review supported authentication and crypto posture before any credential testing.",
+                    ),
+                ]
+            else:
+                candidates = []
+
+            for candidate in candidates:
+                if candidate[:2] in emitted:
+                    continue
+                emitted.add(candidate[:2])
+                yield candidate
+
     @staticmethod
     def analyze_nmap_results(scan_id, open_ports):
         """
         Analyzes open ports and generates findings and suggestions.
         """
+        normalized_ports = sorted(
+            open_ports,
+            key=lambda item: (
+                AnalysisEngine._port_number(item),
+                AnalysisEngine._service_name(item),
+            ),
+        )
         finding = Finding(
             scan_id=scan_id,
-            title=f"Open Ports Detected: {', '.join(str(p['port']) for p in open_ports)}",
-            description=f"Nmap discovered {len(open_ports)} open ports.\nDetails: {open_ports}",
+            title=f"Open Ports Detected: {', '.join(str(p.get('port')) for p in normalized_ports)}",
+            description=f"Nmap discovered {len(normalized_ports)} open ports.\nDetails: {normalized_ports}",
             severity="info",
             tool_source="nmap",
             confidence="high",
@@ -26,36 +107,8 @@ class AnalysisEngine:
         )
         db.session.add(finding)
 
-        for service in open_ports:
-            port = service["port"]
-            name = service["service_name"]
-            if port in [80, 443, 8080, 8443] or "http" in name:
-                SuggestionEngine.create(
-                    scan_id,
-                    "whatweb",
-                    f"whatweb http://<target>:{port}",
-                    "Web service detected. Fingerprint technologies.",
-                )
-                SuggestionEngine.create(
-                    scan_id,
-                    "gobuster",
-                    f"gobuster dir -u http://<target>:{port} -w common.txt",
-                    "Web service detected. Enumerate directories.",
-                )
-            if port == 445 or "smb" in name:
-                SuggestionEngine.create(
-                    scan_id,
-                    "enum4linux",
-                    "enum4linux -a <target>",
-                    "SMB detected. Enumerate shares and users.",
-                )
-            if port == 22:
-                SuggestionEngine.create(
-                    scan_id,
-                    "hydra",
-                    "hydra -l root -P rockyou.txt ssh://<target>",
-                    "SSH detected. Check for weak credentials (careful).",
-                )
+        for tool, command, reason in AnalysisEngine._iter_nmap_suggestions(normalized_ports):
+            SuggestionEngine.create(scan_id, tool, command, reason)
 
         db.session.commit()
 
@@ -439,9 +492,9 @@ class CortexEngine:
                 "confidence": "high",
                 "category": "attack_plan",
                 "module": "cortex_planner",
-                "chain": ["javascript_surface", "api_surface", "route_validation"],
+                "chain": ["javascript_surface", "route_validation"],
                 "reason_tags": ["javascript_surface", "api_surface"],
-                "required_any": ["javascript_surface", "api_surface"],
+                "required_all": ["javascript_surface"],
                 "metadata_extra": {
                     "title": "Inspect JS-derived admin route",
                     "description": "Validate authorization and hidden-route accessibility for JS-mined endpoints.",
@@ -464,7 +517,7 @@ class CortexEngine:
                 "module": "cortex_planner",
                 "chain": ["ssrf_surface", "metadata_service", "guided_probe"],
                 "reason_tags": ["ssrf_surface", "metadata_service"],
-                "required_all": ["ssrf_surface"],
+                "required_all": ["ssrf_surface", "metadata_service"],
                 "metadata_extra": {
                     "title": "Investigate SSRF against metadata service",
                     "description": "Replay safe SSRF patterns to metadata endpoints only where existing evidence indicates input control.",
@@ -595,11 +648,11 @@ class RiskScoringEngine:
         else:
             risk_level = "low"
 
-        if exploit_score >= 85 or chain_length >= 4 or (validated >= 1.0 and exploit_score >= 80):
+        if exploit_score >= 85 or (validated >= 1.0 and exploit_score >= 80) or (chain_length >= 4 and exploit_score >= 70):
             attack_priority = "critical"
-        elif exploit_score >= 70 or chain_length >= 3:
+        elif exploit_score >= 70 or (chain_length >= 3 and exploit_score >= 55):
             attack_priority = "high"
-        elif exploit_score >= 45 or chain_length >= 2:
+        elif exploit_score >= 45 or (chain_length >= 2 and exploit_score >= 35):
             attack_priority = "medium"
         else:
             attack_priority = "low"
