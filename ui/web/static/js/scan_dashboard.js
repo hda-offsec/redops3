@@ -58,6 +58,103 @@ const scanDashboardFindingsLoader = {
     }
 };
 
+const scanDashboardFindingsView = {
+    buildDisplayModel(dashboard, finding) {
+        const severity = String(finding?.severity || 'info').toLowerCase();
+        const ui = finding?._ui || {};
+        const title = finding?.title || 'Untitled finding';
+        const tool = finding?.tool_source || finding?.tool || 'core';
+        const description = finding?.description || '';
+        const validationStatus = ui.validationStatus || dashboard.getFindingValidationStatus(finding);
+        const resultState = ui.resultState || dashboard.getFindingResultState(finding);
+        const primaryCommand = ui.primaryCommand || dashboard.getFindingPrimaryCommand(finding);
+        const primaryUrl = ui.primaryUrl || dashboard.getFindingPrimaryUrl(finding);
+        const hasProof = ui.hasEvidence === true;
+        const isValidated = ui.isValidated === true || validationStatus === 'success' || ['validation', 'confirmed'].includes(resultState);
+
+        return {
+            severity,
+            severityLabel: severity.toUpperCase(),
+            escapedTitle: dashboard.escapeHtml(title),
+            escapedTool: dashboard.escapeHtml(tool),
+            escapedDesc: dashboard.escapeHtml(description),
+            escapedPrimaryUrl: dashboard.escapeHtml(primaryUrl),
+            primaryCommand,
+            primaryUrl,
+            escapedScreenshotPath: dashboard.escapeHtml(finding?.screenshot_path || ''),
+            hasProof,
+            isValidated,
+            confidenceLabel: String(finding?.confidence || 'med').toUpperCase().substring(0, 4),
+            toolLabel: String(finding?.tool_source || 'CORE').toUpperCase(),
+        };
+    },
+
+    buildResultCardHtml(finding, display) {
+        let innerHTML = `
+            <div class="d-flex w-100 justify-content-between mb-2">
+                <span class="badge severity-badge ${display.severity}">${display.severityLabel}</span>
+                <span class="result-text fw-bold text-break">${display.escapedTitle}</span>
+            </div>
+            <div class="mt-1 small text-muted text-break">Source: ${display.escapedTool}</div>
+        `;
+
+        if (finding?.description) {
+            innerHTML += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${display.escapedDesc}</div>`;
+        }
+
+        if (finding?.screenshot_path) {
+            innerHTML += `
+                <div class="mt-2 w-100">
+                    <img src="/static/${display.escapedScreenshotPath}" class="img-fluid rounded border border-secondary shadow-sm screenshot-trigger" style="max-height: 150px; cursor: pointer;" title="Port ${display.escapedTitle}">
+                </div>
+            `;
+        }
+
+        return innerHTML;
+    },
+
+    buildTableRowHtml(display) {
+        const vectorHtml = display.primaryUrl
+            ? `<div class="text-info text-truncate" title="${display.escapedPrimaryUrl}"><i class="fas fa-link me-1 opacity-50"></i>${display.escapedPrimaryUrl}</div>`
+            : '<span class="text-muted opacity-25">N/A</span>';
+
+        return `
+            <td class="ps-3">
+                <span class="badge-severity bg-${display.severity} w-100 text-center d-block rounded-1 py-1">
+                    ${display.severityLabel}
+                </span>
+            </td>
+            <td>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="fw-bold text-light text-truncate" title="${display.escapedTitle}">${display.escapedTitle}</div>
+                    ${display.primaryCommand ? '<i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>' : ''}
+                    ${display.hasProof ? '<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>' : ''}
+                    ${display.isValidated ? '<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>' : ''}
+                </div>
+                <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
+                    ${display.escapedDesc.replace(/<[^>]*>/g, '')}
+                </div>
+            </td>
+            <td class="font-monospace extra-small">
+                ${vectorHtml}
+            </td>
+            <td class="text-center">
+                <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small px-2">
+                    ${display.confidenceLabel}
+                </span>
+            </td>
+            <td>
+                <span class="extra-small text-primary-emphasis fw-semibold bg-primary bg-opacity-10 px-2 py-1 rounded border border-primary border-opacity-10">
+                    ${display.toolLabel}
+                </span>
+            </td>
+            <td class="text-end pe-3">
+                <i class="fas fa-chevron-right text-muted opacity-25 extra-small"></i>
+            </td>
+        `;
+    }
+};
+
 const scanDashboardAuditJourney = {
     countEnumeratedEndpoints(phases) {
         const katana = (phases?.enum?.katana && typeof phases.enum.katana === 'object') ? phases.enum.katana : {};
@@ -750,6 +847,8 @@ class ScanDashboard {
 
         this.activateDiscovery('vulns', true);
 
+        const display = scanDashboardFindingsView.buildDisplayModel(this, data);
+
         const container = document.getElementById("findings-container");
         if (container) {
             const empty = container.querySelector(".text-muted");
@@ -764,41 +863,12 @@ class ScanDashboard {
 
             const div = document.createElement("div");
             div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
-
-            const severity = (data.severity || 'info').toLowerCase();
-            const escapedTitle = this.escapeHtml(data.title || 'Untitled finding');
-            const escapedTool = this.escapeHtml(data.tool_source || data.tool || 'core');
-            const escapedDesc = this.escapeHtml(data.description || '');
-            const ui = data._ui || {};
-            const validationStatus = ui.validationStatus || this.getFindingValidationStatus(data);
-            const resultState = ui.resultState || this.getFindingResultState(data);
-            const primaryCommand = ui.primaryCommand || this.getFindingPrimaryCommand(data);
-            const hasProof = ui.hasEvidence === true;
-
-            let innerHTML = `
-                <div class="d-flex w-100 justify-content-between mb-2">
-                    <span class="badge severity-badge ${severity}">${severity.toUpperCase()}</span>
-                    <span class="result-text fw-bold text-break">${escapedTitle}</span>
-                </div>
-                <div class="mt-1 small text-muted text-break">Source: ${escapedTool}</div>
-            `;
-
-            if (data.description) {
-                innerHTML += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${escapedDesc}</div>`;
-            }
+            div.innerHTML = scanDashboardFindingsView.buildResultCardHtml(data, display);
+            list.prepend(div);
 
             if (data.screenshot_path) {
-                const escapedPath = this.escapeHtml(data.screenshot_path);
-                innerHTML += `
-                    <div class="mt-2 w-100">
-                        <img src="/static/${escapedPath}" class="img-fluid rounded border border-secondary shadow-sm screenshot-trigger" style="max-height: 150px; cursor: pointer;" title="Port ${escapedTitle}">
-                    </div>
-                `;
                 this.addToGallery(data);
             }
-
-            div.innerHTML = innerHTML;
-            list.prepend(div);
 
             this.updateRiskCounters(data.severity);
             this.updateIndicators(data);
@@ -824,55 +894,7 @@ class ScanDashboard {
                     }
                 };
 
-                const sev = severity;
-                const confidence = (data.confidence || 'med').toUpperCase().substring(0, 4);
-                const toolShow = (data.tool_source || 'CORE').toUpperCase();
-                
-                const primaryUrl = ui.primaryUrl || this.getFindingPrimaryUrl(data);
-                let vectorHtml = '';
-                if (primaryUrl) {
-                    vectorHtml = `<div class="text-info text-truncate" title="${this.escapeHtml(primaryUrl)}"><i class="fas fa-link me-1 opacity-50"></i>${this.escapeHtml(primaryUrl)}</div>`;
-                } else {
-                    vectorHtml = `<span class="text-muted opacity-25">N/A</span>`;
-                }
-
-                const isValidated = ui.isValidated === true || validationStatus === 'success' || ['validation', 'confirmed'].includes(resultState);
-
-                tr.innerHTML = `
-                    <td class="ps-3">
-                        <span class="badge-severity bg-${sev} w-100 text-center d-block rounded-1 py-1">
-                            ${severity.toUpperCase()}
-                        </span>
-                    </td>
-                    <td>
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="fw-bold text-light text-truncate" title="${escapedTitle}">${escapedTitle}</div>
-                            ${primaryCommand ? `<i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>` : ''}
-                            ${hasProof ? `<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>` : ''}
-                            ${isValidated ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>` : ''}
-                        </div>
-                        <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
-                            ${escapedDesc.replace(/<[^>]*>/g, '')}
-                        </div>
-                    </td>
-                    <td class="font-monospace extra-small">
-                        ${vectorHtml}
-                    </td>
-                    <td class="text-center">
-                        <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-10 extra-small px-2">
-                            ${confidence}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="extra-small text-primary-emphasis fw-semibold bg-primary bg-opacity-10 px-2 py-1 rounded border border-primary border-opacity-10">
-                            ${toolShow}
-                        </span>
-                    </td>
-                    <td class="text-end pe-3">
-                        <i class="fas fa-chevron-right text-muted opacity-25 extra-small"></i>
-                    </td>
-                `;
-
+                tr.innerHTML = scanDashboardFindingsView.buildTableRowHtml(display);
                 tableBody.prepend(tr);
 
                 // Update local memory if updateFindingsList is available (new UI)
@@ -2462,6 +2484,7 @@ class ScanDashboard {
 // Global Routing & Filtering Helper
 ScanDashboard.internals = {
     findingsLoader: scanDashboardFindingsLoader,
+    findingsView: scanDashboardFindingsView,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
     logStream: scanDashboardLogStream,
