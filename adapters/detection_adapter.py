@@ -1,5 +1,4 @@
 import json
-import hashlib
 import logging
 import os
 import re
@@ -129,178 +128,141 @@ class DetectionAdapter:
             )
         )
 
-    # ------------------------------------------------------------------
-    # ADD FINDING (CORE NORMALIZER)
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _clean_terminal_noise(value):
+        if not isinstance(value, str):
+            return value
+        ansi_regex = re.compile(r"(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]")
+        cleaned = ansi_regex.sub("", value)
+        cleaned = re.sub(r"\[[0-9]{1,2}K", "", cleaned)
+        cleaned = "".join(
+            char for char in cleaned if char.isprintable() or char in "\n\r\t"
+        )
+        return cleaned.strip()
 
     @staticmethod
-    def _add(
-        normalized,
-        fid,
-        title,
-        severity,
-        description,
-        tool_source,
-        confidence="medium",
-        _stats=None,
-        _source_kind="unknown",
-        _trace_context=None,
-        **extra,
-    ):
-        # V12: Aggressive Global Cleaner for terminal noise (ffuf, etc.)
-        def clean_terminal_noise(s):
-            if not isinstance(s, str): return s
-            # 1. Standard ANSI escape sequences
-            ansi_regex = re.compile(r'(?:\x1B[@-_]|[\x80-\x9F])[0-?]*[ -/]*[@-~]')
-            s = ansi_regex.sub('', s)
-            # 2. Literal terminal codes like [2K or [1K which sometimes leak
-            s = re.sub(r'\[[0-9]{1,2}K', '', s)
-            # 3. Non-printable controls
-            s = "".join(char for char in s if char.isprintable() or char in "\n\r\t")
-            return s.strip()
+    def _derive_title(*candidates):
+        for candidate in candidates:
+            cleaned = DetectionAdapter._clean_terminal_noise(candidate) or ""
+            if not cleaned:
+                continue
+            first_line = next(
+                (line.strip() for line in cleaned.splitlines() if line.strip()),
+                "",
+            )
+            if not first_line:
+                continue
+            first_line = re.sub(r"[`*_#>]+", " ", first_line)
+            first_line = re.sub(r"\s+", " ", first_line).strip(" :-")
+            if first_line:
+                return first_line[:140]
+        return ""
 
-        def derive_title(*candidates):
-            for candidate in candidates:
-                cleaned = clean_terminal_noise(candidate) or ""
-                if not cleaned:
-                    continue
-                first_line = next((line.strip() for line in cleaned.splitlines() if line.strip()), "")
-                if not first_line:
-                    continue
-                first_line = re.sub(r"[`*_#>]+", " ", first_line)
-                first_line = re.sub(r"\s+", " ", first_line).strip(" :-")
-                if first_line:
-                    return first_line[:140]
-            return ""
-
-        title = clean_terminal_noise(title) or ""
-        description = clean_terminal_noise(description) or ""
-
-        trace_context = dict(_trace_context) if isinstance(_trace_context, dict) else {}
-        
-        # Clean extra fields
+    @staticmethod
+    def _sanitize_extra_fields(extra):
+        sanitized = dict(extra)
         for field in ["endpoint", "target", "parameter", "payload", "raw_output"]:
-            if field in extra:
-                extra[field] = clean_terminal_noise(extra[field])
+            if field in sanitized:
+                sanitized[field] = DetectionAdapter._clean_terminal_noise(
+                    sanitized[field]
+                )
+        return sanitized
 
-        if not title:
-            title = derive_title(
-                description,
-                extra.get("evidence", ""),
-                extra.get("raw_output", ""),
-                extra.get("endpoint", ""),
-                extra.get("target", ""),
-            )
-        if not title:
-            if isinstance(_stats, dict):
-                _stats["title_empty_skipped"] += 1
-                _stats["findings_rejected"] += 1
-            DetectionAdapter._debug_observability_event(
-                "finding_rejected",
-                {
-                    **trace_context,
-                    "reason": "missing_title_after_derivation",
-                    "tool_source": tool_source,
-                    "severity": severity,
-                    "endpoint": extra.get("endpoint", ""),
-                    "target": extra.get("target", ""),
-                },
-            )
-            return
-        
+    @staticmethod
+    def _apply_severity_governance(title, severity, metadata=None):
         clean_title = re.sub(
             r"^(critical|high|medium|low|info|warn|warning):\s*",
             "",
-            title,
+            title or "",
             flags=re.IGNORECASE,
         ).strip()
         clean_title_lower = clean_title.lower()
-        severity = (severity or "info").lower()
+        governed_severity = (severity or "info").lower()
 
         if any(x in clean_title_lower for x in ["data leak", "data exposure"]):
             if any(x in clean_title_lower for x in ["email", "ip address"]):
-                severity = "info"
+                governed_severity = "info"
             elif any(x in clean_title_lower for x in ["api key", "token", "secret"]):
-                severity = "high"
+                governed_severity = "high"
 
         if "missing" in clean_title_lower and "header" in clean_title_lower:
-            severity = "low"
+            governed_severity = "low"
 
         if (
             "probable auth bypass" in clean_title_lower
             and "token detected" in clean_title_lower
-            and severity == "high"
+            and governed_severity == "high"
         ):
-            severity = "medium"
+            governed_severity = "medium"
 
-        if fid in normalized:
-            if isinstance(_stats, dict):
-                _stats["dedup_merged"] += 1
-            existing = normalized[fid]
-            DetectionAdapter._debug_observability_event(
-                "finding_merged",
-                {
-                    **trace_context,
-                    "id_stable": fid,
-                    "tool_source": tool_source,
-                    "title": title or existing.get("title", ""),
-                    "endpoint": extra.get("endpoint", "") or existing.get("endpoint", ""),
-                    "parameter": extra.get("parameter", "") or existing.get("parameter", ""),
-                },
+        if isinstance(metadata, dict) and metadata.get("verified"):
+            return clean_title_lower, (
+                governed_severity
+                if governed_severity in ["critical", "high"]
+                else "high"
+            ), "certain"
+
+        return clean_title_lower, governed_severity, None
+
+    @staticmethod
+    def _merge_existing_finding(existing, extra, incoming_raw_output, incoming_evidence):
+        merged_metadata = dict(existing.get("metadata") or {})
+        incoming_metadata = (
+            extra.get("metadata", {})
+            if isinstance(extra.get("metadata", {}), dict)
+            else {}
+        )
+
+        merged_metadata = deep_merge_metadata(merged_metadata, incoming_metadata)
+        merged_metadata["field_sources"] = merge_field_sources(
+            merged_metadata.get("field_sources"),
+            incoming_metadata.get("field_sources")
+            if isinstance(incoming_metadata.get("field_sources"), dict)
+            else {},
+        )
+
+        existing["signal_ids"] = merge_signal_ids(
+            existing.get("signal_ids"),
+            extra.get("signal_ids"),
+        )
+        existing["metadata"] = merged_metadata
+        existing["signal_count"] = len(existing["signal_ids"])
+        existing["chain_length"] = (
+            len(merged_metadata.get("chain", []))
+            if isinstance(merged_metadata.get("chain"), list)
+            else existing.get("chain_length", 0)
+        )
+
+        if incoming_raw_output and incoming_raw_output not in str(
+            existing.get("raw_output") or ""
+        ):
+            existing["raw_output"] = "\n".join(
+                x for x in [existing.get("raw_output"), incoming_raw_output] if x
+            )[:3000]
+
+        if incoming_evidence and incoming_evidence not in str(existing.get("evidence") or ""):
+            existing["evidence"] = "\n".join(
+                x for x in [existing.get("evidence"), incoming_evidence] if x
+            )[:3000]
+
+    @staticmethod
+    def _normalize_metadata_defaults(description, extra):
+        metadata = extra.get("metadata", {}) or {}
+        if not metadata.get("port_state"):
+            state_match = re.search(
+                r"State:\s*([a-z+|]+)",
+                str(description or ""),
+                re.IGNORECASE,
             )
-            merged_metadata = dict(existing.get("metadata") or {})
-            incoming_metadata = (
-                extra.get("metadata", {})
-                if isinstance(extra.get("metadata", {}), dict)
-                else {}
-            )
-
-            merged_metadata = deep_merge_metadata(merged_metadata, incoming_metadata)
-            merged_metadata["field_sources"] = merge_field_sources(
-                merged_metadata.get("field_sources"),
-                incoming_metadata.get("field_sources")
-                if isinstance(incoming_metadata.get("field_sources"), dict)
-                else {},
-            )
-
-            existing["signal_ids"] = merge_signal_ids(
-                existing.get("signal_ids"),
-                extra.get("signal_ids"),
-            )
-            existing["metadata"] = merged_metadata
-            existing["signal_count"] = len(existing["signal_ids"])
-            existing["chain_length"] = (
-                len(merged_metadata.get("chain", []))
-                if isinstance(merged_metadata.get("chain"), list)
-                else existing.get("chain_length", 0)
-            )
-
-            incoming_raw_output = extra.get("raw_output", "")
-            if incoming_raw_output and incoming_raw_output not in str(existing.get("raw_output") or ""):
-                existing["raw_output"] = "\n".join(
-                    x for x in [existing.get("raw_output"), incoming_raw_output] if x
-                )[:3000]
-
-            incoming_evidence = extra.get("evidence", "")
-            if incoming_evidence and incoming_evidence not in str(existing.get("evidence") or ""):
-                existing["evidence"] = "\n".join(
-                    x for x in [existing.get("evidence"), incoming_evidence] if x
-                )[:3000]
-
-            return
-
-        # Port State Normalization for filtering
-        m_json = extra.get("metadata", {}) or {}
-        if not m_json.get("port_state"):
-            # Try to extract from description if it's there
-            state_match = re.search(r"State:\s*([a-z+|]+)", str(description or ""), re.IGNORECASE)
             if state_match:
-                m_json["port_state"] = state_match.group(1).lower()
-            elif (extra.get("category") == "service_detection" or extra.get("category") == "nse_result"):
-                m_json["port_state"] = "open" # Default for these categories if not specified
-        extra["metadata"] = m_json
+                metadata["port_state"] = state_match.group(1).lower()
+            elif extra.get("category") in {"service_detection", "nse_result"}:
+                metadata["port_state"] = "open"
+        extra["metadata"] = metadata
+        return extra
 
-        # Auto-Remediation Guidance
+    @staticmethod
+    def _default_remediation(category, clean_title_lower):
         remediations = {
             "ssrf": "Implement a whitelist of allowed domains/IPs for outgoing requests. Nullify internal metadata IP access.",
             "lfi": "Use a whitelist for file inclusions or switch to database-driven content loading. Sanitize input paths.",
@@ -308,24 +270,30 @@ class DetectionAdapter:
             "xxe": "Disable external entity resolution (DTD) in your XML parser configuration.",
             "open_redirect": "Use a whitelist of allowed redirect destinations or intermediate landing pages.",
             "nosql": "Use specialized libraries for query building; avoid passing raw objects from query strings to find() methods.",
-            "secret": "Revoke the exposed credential immediately and rotate all related keys. Implement secret scanning in CI/CD."
+            "secret": "Revoke the exposed credential immediately and rotate all related keys. Implement secret scanning in CI/CD.",
         }
-        
+        cat_lower = (category or "").lower()
+        for key, remediation in remediations.items():
+            if key in cat_lower or key in clean_title_lower:
+                return remediation
+        return ""
+
+    @staticmethod
+    def _build_payload(
+        fid,
+        title,
+        severity,
+        description,
+        tool_source,
+        confidence,
+        extra,
+    ):
         reproduction_text = extra.get("reproduction") or extra.get("repro_command") or ""
-        remediation = extra.get("remediation") or ""
-        if not remediation:
-            cat_lower = (extra.get("category") or "").lower()
-            for k, v in remediations.items():
-                if k in cat_lower or k in clean_title_lower:
-                    remediation = v
-                    break
-
-        # Confidence Promotion for Verified findings
-        if extra.get("metadata", {}).get("verified"):
-            confidence = "certain"
-            severity = severity if severity in ["critical", "high"] else "high"
-
-        payload = {
+        remediation = extra.get("remediation") or DetectionAdapter._default_remediation(
+            extra.get("category", ""),
+            title.lower(),
+        )
+        return {
             "id": str(extra.get("id", "")),
             "id_stable": fid,
             "title": title,
@@ -356,6 +324,282 @@ class DetectionAdapter:
             "source": extra.get("source", tool_source or "unknown"),
             "created_at": extra.get("created_at", ""),
         }
+
+    @staticmethod
+    def _item_missing_primary_content(item):
+        return (
+            not item.get("title")
+            and not item.get("description")
+            and not item.get("evidence")
+            and not item.get("raw_output")
+        )
+
+    @staticmethod
+    def _compute_json_finding_id(tool, item):
+        fid = item.get("id_stable")
+        if fid and len(fid) >= 32:
+            return fid
+        title_seed = (
+            item.get("title")
+            or item.get("description")
+            or item.get("evidence")
+            or item.get("raw_output")
+            or item.get("endpoint")
+            or item.get("target")
+            or "Finding"
+        )
+        return DetectionAdapter._make_id(
+            tool,
+            title_seed,
+            endpoint=item.get("endpoint", ""),
+            parameter=item.get("parameter", ""),
+            payload=item.get("payload", ""),
+            severity=item.get("severity", "info"),
+        )
+
+    @staticmethod
+    def _add_db_findings(normalized, stats, db_findings):
+        for finding in db_findings:
+            fid = finding.id_stable or str(finding.id)
+            stats["findings_received"] += 1
+            stats["db_findings_received"] += 1
+
+            DetectionAdapter._add(
+                normalized,
+                fid,
+                title=finding.title,
+                severity=finding.severity,
+                description=finding.description,
+                tool_source=finding.tool_source,
+                confidence=finding.confidence,
+                id=finding.id,
+                request=getattr(finding, "request", ""),
+                response=getattr(finding, "response", ""),
+                repro_command=getattr(finding, "repro_command", ""),
+                screenshot_path=getattr(finding, "screenshot_path", ""),
+                target=getattr(finding, "target", ""),
+                endpoint=getattr(finding, "endpoint", ""),
+                parameter=getattr(finding, "parameter", ""),
+                payload=getattr(finding, "payload", ""),
+                raw_output=getattr(finding, "raw_output", ""),
+                signal_ids=getattr(finding, "signal_ids", []),
+                category=getattr(finding, "category", ""),
+                evidence=getattr(finding, "evidence", ""),
+                reproduction=getattr(finding, "reproduction", ""),
+                module=getattr(finding, "module", finding.tool_source),
+                metadata=getattr(finding, "metadata_json", {}) or {},
+                _stats=stats,
+                _source_kind="db",
+                _trace_context={
+                    "source_kind": "db",
+                    "tool": getattr(finding, "tool_source", ""),
+                    "finding_id": getattr(finding, "id", None),
+                },
+            )
+
+    @staticmethod
+    def _add_json_findings(normalized, stats, phases):
+        for phase_name, phase in phases.items():
+            if not isinstance(phase, dict):
+                stats["phases_skipped_non_mapping"] += 1
+                continue
+
+            for tool, findings in phase.items():
+                items = DetectionAdapter._extract_raw_items(findings)
+                if not isinstance(items, list):
+                    stats["tool_payloads_skipped_non_list"] += 1
+                    continue
+
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    if not item:
+                        stats["json_items_skipped_empty_dict"] += 1
+                        continue
+                    if not DetectionAdapter._looks_like_finding_candidate(item):
+                        continue
+
+                    stats["findings_received"] += 1
+                    stats["json_findings_received"] += 1
+
+                    if DetectionAdapter._item_missing_primary_content(item):
+                        stats["json_items_skipped_without_content"] += 1
+                        stats["findings_rejected"] += 1
+                        DetectionAdapter._debug_observability_event(
+                            "finding_rejected",
+                            {
+                                "source_kind": "json",
+                                "phase": phase_name,
+                                "tool": tool,
+                                "reason": "missing_title_description_evidence_raw_output",
+                                "endpoint": item.get("endpoint", ""),
+                                "target": item.get("target", ""),
+                                "parameter": item.get("parameter", ""),
+                            },
+                        )
+                        continue
+
+                    DetectionAdapter._add(
+                        normalized,
+                        DetectionAdapter._compute_json_finding_id(tool, item),
+                        title=item.get("title", ""),
+                        severity=item.get("severity", "info"),
+                        description=item.get("description", ""),
+                        tool_source=tool,
+                        confidence=item.get("confidence", "medium"),
+                        endpoint=item.get("endpoint", ""),
+                        payload=item.get("payload", ""),
+                        parameter=item.get("parameter", ""),
+                        evidence=item.get("evidence", ""),
+                        category=item.get("category", ""),
+                        target=item.get("target", ""),
+                        raw_output=item.get("raw_output", item.get("description", "")),
+                        signal_ids=item.get("signal_ids", []),
+                        module=item.get("module", tool),
+                        reproduction=item.get(
+                            "reproduction",
+                            item.get("repro_command", ""),
+                        ),
+                        request=item.get("request", ""),
+                        response=item.get("response", ""),
+                        repro_command=item.get("repro_command", ""),
+                        screenshot_path=item.get("screenshot_path", ""),
+                        metadata=item.get("metadata", {}),
+                        _stats=stats,
+                        _source_kind="json",
+                        _trace_context={
+                            "source_kind": "json",
+                            "phase": phase_name,
+                            "tool": tool,
+                        },
+                    )
+
+    @staticmethod
+    def _synthesize_findings(phases, normalized, stats):
+        synthesizers_by_phase = (
+            ("recon", (DetectionAdapter._synth_open_ports, DetectionAdapter._synth_nse_results)),
+            ("dns", (DetectionAdapter._synth_dns_findings, DetectionAdapter._synth_dns_security)),
+            ("enum", (DetectionAdapter._synth_headers, DetectionAdapter._synth_js_secrets)),
+            ("vuln", (DetectionAdapter._synth_wordpress, DetectionAdapter._synth_data_leaks, DetectionAdapter._synth_js_vulns)),
+            ("osint", (DetectionAdapter._synth_osint_summary, DetectionAdapter._synth_osint_leaks, DetectionAdapter._synth_favicon_hash)),
+            ("dirbusting", (DetectionAdapter._synth_dirbusting,)),
+        )
+
+        for phase_name, synthesizers in synthesizers_by_phase:
+            phase_payload = phases.get(phase_name)
+            if phase_payload is None:
+                continue
+            for synthesizer in synthesizers:
+                synthesizer(phase_payload, normalized)
+
+        if "intel" in phases:
+            DetectionAdapter._synth_intel_vectors(
+                phases["intel"],
+                normalized,
+                phases=phases,
+            )
+
+        if "enum" in phases:
+            DetectionAdapter._synth_cortex_recommendations(
+                phases["enum"],
+                normalized,
+                _stats=stats,
+            )
+            DetectionAdapter._synth_api_endpoints(phases["enum"], normalized)
+            DetectionAdapter._synth_injection_points(phases["enum"], normalized)
+
+    # ------------------------------------------------------------------
+    # ADD FINDING (CORE NORMALIZER)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _add(
+        normalized,
+        fid,
+        title,
+        severity,
+        description,
+        tool_source,
+        confidence="medium",
+        _stats=None,
+        _source_kind="unknown",
+        _trace_context=None,
+        **extra,
+    ):
+        title = DetectionAdapter._clean_terminal_noise(title) or ""
+        description = DetectionAdapter._clean_terminal_noise(description) or ""
+
+        trace_context = dict(_trace_context) if isinstance(_trace_context, dict) else {}
+        extra = DetectionAdapter._sanitize_extra_fields(extra)
+
+        if not title:
+            title = DetectionAdapter._derive_title(
+                description,
+                extra.get("evidence", ""),
+                extra.get("raw_output", ""),
+                extra.get("endpoint", ""),
+                extra.get("target", ""),
+            )
+        if not title:
+            if isinstance(_stats, dict):
+                _stats["title_empty_skipped"] += 1
+                _stats["findings_rejected"] += 1
+            DetectionAdapter._debug_observability_event(
+                "finding_rejected",
+                {
+                    **trace_context,
+                    "reason": "missing_title_after_derivation",
+                    "tool_source": tool_source,
+                    "severity": severity,
+                    "endpoint": extra.get("endpoint", ""),
+                    "target": extra.get("target", ""),
+                },
+            )
+            return
+
+        clean_title_lower, severity, confidence_override = DetectionAdapter._apply_severity_governance(
+            title,
+            severity,
+            extra.get("metadata"),
+        )
+        if confidence_override:
+            confidence = confidence_override
+
+        if fid in normalized:
+            if isinstance(_stats, dict):
+                _stats["dedup_merged"] += 1
+            existing = normalized[fid]
+            DetectionAdapter._debug_observability_event(
+                "finding_merged",
+                {
+                    **trace_context,
+                    "id_stable": fid,
+                    "tool_source": tool_source,
+                    "title": title or existing.get("title", ""),
+                    "endpoint": extra.get("endpoint", "") or existing.get("endpoint", ""),
+                    "parameter": extra.get("parameter", "") or existing.get("parameter", ""),
+                },
+            )
+            incoming_raw_output = extra.get("raw_output", "")
+            incoming_evidence = extra.get("evidence", "")
+            DetectionAdapter._merge_existing_finding(
+                existing,
+                extra,
+                incoming_raw_output,
+                incoming_evidence,
+            )
+            return
+
+        extra = DetectionAdapter._normalize_metadata_defaults(description, extra)
+        payload = DetectionAdapter._build_payload(
+            fid,
+            title,
+            severity,
+            description,
+            tool_source,
+            confidence,
+            extra,
+        )
         normalized[fid] = normalize_finding_shape(payload, source=tool_source)
 
     # ------------------------------------------------------------------
@@ -1247,187 +1491,10 @@ class DetectionAdapter:
     def normalize_findings(db_findings, json_results, return_stats=False):
         normalized = {}
         stats = DetectionAdapter._new_observability_stats()
-
-        # -------------------------
-        # DB FINDINGS
-        # -------------------------
-
-        for f in db_findings:
-            fid = f.id_stable or str(f.id)
-            stats["findings_received"] += 1
-            stats["db_findings_received"] += 1
-
-            DetectionAdapter._add(
-                normalized,
-                fid,
-                title=f.title,
-                severity=f.severity,
-                description=f.description,
-                tool_source=f.tool_source,
-                confidence=f.confidence,
-                id=f.id,
-                request=getattr(f, "request", ""),
-                response=getattr(f, "response", ""),
-                repro_command=getattr(f, "repro_command", ""),
-                screenshot_path=getattr(f, "screenshot_path", ""),
-                target=getattr(f, "target", ""),
-                endpoint=getattr(f, "endpoint", ""),
-                parameter=getattr(f, "parameter", ""),
-                payload=getattr(f, "payload", ""),
-                raw_output=getattr(f, "raw_output", ""),
-                signal_ids=getattr(f, "signal_ids", []),
-                category=getattr(f, "category", ""),
-                evidence=getattr(f, "evidence", ""),
-                reproduction=getattr(f, "reproduction", ""),
-                module=getattr(f, "module", f.tool_source),
-                metadata=getattr(f, "metadata_json", {}) or {},
-                _stats=stats,
-                _source_kind="db",
-                _trace_context={
-                    "source_kind": "db",
-                    "tool": getattr(f, "tool_source", ""),
-                    "finding_id": getattr(f, "id", None),
-                },
-            )
-
-        # -------------------------
-        # JSON FINDINGS
-        # -------------------------
-
         phases = json_results.get("phases", {}) if isinstance(json_results, dict) else {}
-
-        for phase_name, phase in phases.items():
-            if not isinstance(phase, dict):
-                stats["phases_skipped_non_mapping"] += 1
-                continue
-
-            for tool, findings in phase.items():
-                items = DetectionAdapter._extract_raw_items(findings)
-                
-                if not isinstance(items, list):
-                    stats["tool_payloads_skipped_non_list"] += 1
-                    continue
-
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    if not item:
-                        stats["json_items_skipped_empty_dict"] += 1
-                        continue
-                    if not DetectionAdapter._looks_like_finding_candidate(item):
-                        continue
-                    stats["findings_received"] += 1
-                    stats["json_findings_received"] += 1
-                    
-                    # Basic validation: must have at least a title or a description/evidence to be a finding
-                    if not item.get("title") and not item.get("description") and not item.get("evidence") and not item.get("raw_output"):
-                        stats["json_items_skipped_without_content"] += 1
-                        stats["findings_rejected"] += 1
-                        DetectionAdapter._debug_observability_event(
-                            "finding_rejected",
-                            {
-                                "source_kind": "json",
-                                "phase": phase_name,
-                                "tool": tool,
-                                "reason": "missing_title_description_evidence_raw_output",
-                                "endpoint": item.get("endpoint", ""),
-                                "target": item.get("target", ""),
-                                "parameter": item.get("parameter", ""),
-                            },
-                        )
-                        continue
-
-                    fid = item.get("id_stable")
-                    if not fid or len(fid) < 32:
-                        title_seed = (
-                            item.get("title")
-                            or item.get("description")
-                            or item.get("evidence")
-                            or item.get("raw_output")
-                            or item.get("endpoint")
-                            or item.get("target")
-                            or "Finding"
-                        )
-                        fid = DetectionAdapter._make_id(
-                            tool,
-                            title_seed,
-                            endpoint=item.get("endpoint", ""),
-                            parameter=item.get("parameter", ""),
-                            payload=item.get("payload", ""),
-                            severity=item.get("severity", "info")
-                        )
-
-                    DetectionAdapter._add(
-                        normalized,
-                        fid,
-                        title=item.get("title", ""),
-                        severity=item.get("severity", "info"),
-                        description=item.get("description", ""),
-                        tool_source=tool,
-                        confidence=item.get("confidence", "medium"),
-                        endpoint=item.get("endpoint", ""),
-                        payload=item.get("payload", ""),
-                        parameter=item.get("parameter", ""),
-                        evidence=item.get("evidence", ""),
-                        category=item.get("category", ""),
-                        target=item.get("target", ""),
-                        raw_output=item.get("raw_output", item.get("description", "")),
-                        signal_ids=item.get("signal_ids", []),
-                        module=item.get("module", tool),
-                        reproduction=item.get(
-                            "reproduction",
-                            item.get("repro_command", ""),
-                        ),
-                        request=item.get("request", ""),
-                        response=item.get("response", ""),
-                        repro_command=item.get("repro_command", ""),
-                        screenshot_path=item.get("screenshot_path", ""),
-                        metadata=item.get("metadata", {}),
-                        _stats=stats,
-                        _source_kind="json",
-                        _trace_context={
-                            "source_kind": "json",
-                            "phase": phase_name,
-                            "tool": tool,
-                        },
-                    )
-
-        # -------------------------
-        # SYNTHETIC FINDINGS
-        # -------------------------
-
-        if "recon" in phases:
-            DetectionAdapter._synth_open_ports(phases["recon"], normalized)
-            DetectionAdapter._synth_nse_results(phases["recon"], normalized)
-
-        if "dns" in phases:
-            DetectionAdapter._synth_dns_findings(phases["dns"], normalized)
-            DetectionAdapter._synth_dns_security(phases["dns"], normalized)
-
-        if "enum" in phases:
-            DetectionAdapter._synth_headers(phases["enum"], normalized)
-            DetectionAdapter._synth_js_secrets(phases["enum"], normalized)
-
-        if "vuln" in phases:
-            DetectionAdapter._synth_wordpress(phases["vuln"], normalized)
-            DetectionAdapter._synth_data_leaks(phases["vuln"], normalized)
-            DetectionAdapter._synth_js_vulns(phases["vuln"], normalized)
-
-        if "intel" in phases:
-            DetectionAdapter._synth_intel_vectors(phases["intel"], normalized, phases=phases)
-
-        if "osint" in phases:
-            DetectionAdapter._synth_osint_summary(phases["osint"], normalized)
-            DetectionAdapter._synth_osint_leaks(phases["osint"], normalized)
-            DetectionAdapter._synth_favicon_hash(phases["osint"], normalized)
-
-        if "enum" in phases:
-            DetectionAdapter._synth_cortex_recommendations(phases["enum"], normalized, _stats=stats)
-            DetectionAdapter._synth_api_endpoints(phases["enum"], normalized)
-            DetectionAdapter._synth_injection_points(phases["enum"], normalized)
-
-        if "dirbusting" in phases:
-            DetectionAdapter._synth_dirbusting(phases["dirbusting"], normalized)
+        DetectionAdapter._add_db_findings(normalized, stats, db_findings)
+        DetectionAdapter._add_json_findings(normalized, stats, phases)
+        DetectionAdapter._synthesize_findings(phases, normalized, stats)
 
         findings = list(normalized.values())
         stats["findings_exposed"] = len(findings)
