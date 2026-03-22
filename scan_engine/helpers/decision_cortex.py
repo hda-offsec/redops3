@@ -1219,56 +1219,6 @@ def _generic_http_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
     port = context["port"]
     inj_points = context["injection_points"]
 
-    if context["is_http"]:
-        suggestions.append(
-            _build_suggestion(
-                suggestion_id=f"cortex-vuln-smuggling-{port}",
-                title=f"HTTP Smuggling Audit on port {port}",
-                reason="Perform desync probes to detect CL.TE/TE.CL vulnerabilities on this HTTP surface.",
-                confidence=75,
-                port=port,
-                category="vuln",
-                family="http_smuggling",
-                reason_tags=["http_surface", "request_smuggling"],
-                evidence_sources=["recon.open_ports"],
-                trigger_signals=["http_surface"],
-                estimated_cost="high",
-                internal_priority=72,
-            )
-        )
-        suggestions.append(
-            _build_suggestion(
-                suggestion_id=f"cortex-vuln-vhost-{port}",
-                title=f"Virtual Host Brute-Force on port {port}",
-                reason="Probe for unmapped subdomains or internal environments via Host header fuzzing.",
-                confidence=70,
-                port=port,
-                category="vuln",
-                family="vhost_bruteforce",
-                reason_tags=["http_surface", "host_header"],
-                evidence_sources=["recon.open_ports"],
-                trigger_signals=["http_surface"],
-                estimated_cost="medium",
-                internal_priority=70,
-            )
-        )
-        suggestions.append(
-            _build_suggestion(
-                suggestion_id=f"cortex-vuln-waf-fingerprint-{port}",
-                title="WAF & IPS Behavioral Fingerprinting",
-                reason="Establishing active security layer signatures to adapt offensive payloads.",
-                confidence=90,
-                port=port,
-                category="vuln",
-                family="waf_fingerprint",
-                reason_tags=["http_surface", "defense_fingerprint"],
-                evidence_sources=["recon.open_ports"],
-                trigger_signals=["http_surface"],
-                estimated_cost="low",
-                internal_priority=60,
-            )
-        )
-
     if inj_points:
         suggestions.append(
             _build_suggestion(

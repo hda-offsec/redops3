@@ -9,6 +9,13 @@ from scan_engine.helpers.http_client import get_session
 
 
 LOGGER = logging.getLogger(__name__)
+OBJECT_REFERENCE_KEYS = ("id", "user_id", "account_id", "order_id", "profile_id", "uuid")
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+HEX_OBJECT_PATTERN = re.compile(r"^[0-9a-f]{8,}$", re.IGNORECASE)
+SLUG_WITH_NUMERIC_SUFFIX_PATTERN = re.compile(r"^(?P<prefix>[a-z][a-z0-9_-]*?)(?P<digits>\d{1,12})$", re.IGNORECASE)
 
 
 class APIFuzzer:
@@ -26,10 +33,36 @@ class APIFuzzer:
         self.max_requests = max(1, int((self.options or {}).get("api_fuzzer_max_requests", 12) or 12))
 
     @staticmethod
+    def _normalize_text_fingerprint(value):
+        normalized = str(value or "").strip().lower()
+        normalized = re.sub(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", "<uuid>", normalized)
+        normalized = re.sub(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", "<email>", normalized)
+        normalized = re.sub(r"\b[0-9a-f]{8,}\b", "<hex>", normalized)
+        normalized = re.sub(r"\b\d+\b", "<num>", normalized)
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized
+
+    @classmethod
+    def _normalize_json_value(cls, value):
+        if isinstance(value, dict):
+            return {str(key): cls._normalize_json_value(value[key]) for key in sorted(value.keys(), key=str)}
+        if isinstance(value, list):
+            return [cls._normalize_json_value(item) for item in value]
+        if isinstance(value, bool) or value is None:
+            return value
+        if isinstance(value, (int, float)):
+            return "<num>"
+        return cls._normalize_text_fingerprint(value)
+
+    @staticmethod
     def _fingerprint_response(response):
         body = str(getattr(response, "text", "") or "").strip().lower()
-        normalized = re.sub(r"\b\d+\b", "<num>", body)
-        normalized = re.sub(r"\b[0-9a-f]{8,}\b", "<hex>", normalized)
+        try:
+            parsed = json.loads(body)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            normalized = APIFuzzer._normalize_text_fingerprint(body)
+        else:
+            normalized = json.dumps(APIFuzzer._normalize_json_value(parsed), sort_keys=True, separators=(",", ":"))
         return response.status_code, normalized[:400]
 
     @staticmethod
@@ -40,7 +73,72 @@ class APIFuzzer:
 
     @staticmethod
     def _extract_body_ids(body):
-        return set(re.findall(r'(?:"(?:id|user_id|account_id|order_id)"\s*:\s*"?(\d+)"?)', str(body or ""), flags=re.IGNORECASE))
+        matches = set()
+        for key in OBJECT_REFERENCE_KEYS:
+            pattern = rf'"{re.escape(key)}"\s*:\s*"?(?P<value>[A-Za-z0-9_-]{{1,64}})"?'
+            for match in re.finditer(pattern, str(body or ""), flags=re.IGNORECASE):
+                value = match.group("value").strip()
+                if value:
+                    matches.add(value.lower())
+        return matches
+
+    @staticmethod
+    def _looks_like_object_reference(segment):
+        value = str(segment or "").strip()
+        if not value or re.fullmatch(r"v\d+", value, flags=re.IGNORECASE):
+            return False
+        return (
+            value.isdigit()
+            or bool(UUID_PATTERN.fullmatch(value))
+            or bool(HEX_OBJECT_PATTERN.fullmatch(value))
+            or bool(SLUG_WITH_NUMERIC_SUFFIX_PATTERN.fullmatch(value))
+        )
+
+    @classmethod
+    def _extract_path_object_reference(cls, url):
+        parsed = urlparse(str(url or ""))
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        for index in range(len(segments) - 1, -1, -1):
+            segment = segments[index]
+            if cls._looks_like_object_reference(segment):
+                return index, segment
+        return None, None
+
+    @staticmethod
+    def _mutate_object_reference(reference):
+        value = str(reference or "").strip()
+        candidates = []
+
+        if value.isdigit():
+            original = int(value)
+            for candidate in [str(original + 1), str(max(original - 1, 0)), "0", "1", "9999"]:
+                if candidate != value and candidate not in candidates:
+                    candidates.append(candidate)
+            return candidates
+
+        if UUID_PATTERN.fullmatch(value):
+            last = value[-1].lower()
+            replacement = "1" if last != "1" else "2"
+            return [f"{value[:-1]}{replacement}"]
+
+        if HEX_OBJECT_PATTERN.fullmatch(value):
+            last = value[-1].lower()
+            replacement = "1" if last != "1" else "2"
+            return [f"{value[:-1]}{replacement}"]
+
+        slug_match = SLUG_WITH_NUMERIC_SUFFIX_PATTERN.fullmatch(value)
+        if slug_match:
+            prefix = slug_match.group("prefix")
+            digits = slug_match.group("digits")
+            original = int(digits)
+            width = len(digits)
+            for candidate in [original + 1, max(original - 1, 0)]:
+                rendered = f"{prefix}{candidate:0{width}d}"
+                if rendered != value and rendered not in candidates:
+                    candidates.append(rendered)
+            return candidates
+
+        return candidates
 
     def _log_error(self, logger, stage, url, exc, **context):
         message = f"API Fuzzer {stage} error on {url}: {exc.__class__.__name__}: {exc}"
@@ -74,10 +172,9 @@ class APIFuzzer:
             except RequestException as exc:
                 self._log_error(logger, "method_probe", url, exc, method=m)
 
-        # 2. IDOR Pattern Probing (Bounded differential path-ID analysis)
-        id_match = re.search(r'/(\d+)(?:/|$|\?)', url)
-        if id_match and request_budget < self.max_requests:
-            original_id = id_match.group(1)
+        # 2. IDOR Pattern Probing (Bounded differential path-object analysis)
+        ref_index, original_id = self._extract_path_object_reference(url)
+        if original_id and request_budget < self.max_requests:
             baseline = None
             try:
                 request_budget += 1
@@ -85,10 +182,9 @@ class APIFuzzer:
             except RequestException as exc:
                 self._log_error(logger, "idor_baseline", url, exc, original_id=original_id)
 
-            test_ids = []
-            for candidate in [str(int(original_id) + 1), str(max(int(original_id) - 1, 0)), "0", "1", "9999"]:
-                if candidate != original_id and candidate not in test_ids:
-                    test_ids.append(candidate)
+            parsed = urlparse(url)
+            segments = [segment for segment in parsed.path.split("/") if segment]
+            test_ids = self._mutate_object_reference(original_id)
 
             baseline_fp = self._fingerprint_response(baseline) if baseline is not None else None
             baseline_ids = self._extract_body_ids(getattr(baseline, "text", ""))
@@ -96,7 +192,10 @@ class APIFuzzer:
             for tid in test_ids:
                 if request_budget >= self.max_requests:
                     break
-                test_url = re.sub(rf"/{re.escape(original_id)}(?=/|$|\?)", f"/{tid}", url, count=1)
+                mutated_segments = list(segments)
+                mutated_segments[ref_index] = tid
+                new_path = "/" + "/".join(mutated_segments)
+                test_url = parsed._replace(path=new_path).geturl()
                 try:
                     request_budget += 1
                     r = self.session.get(test_url, timeout=3, verify=False)
@@ -141,10 +240,19 @@ class APIFuzzer:
                     "tool_source": "api_fuzzer",
                     "url": test_url,
                     "metadata": {
+                        "object_reference_kind": (
+                            "uuid" if UUID_PATTERN.fullmatch(original_id) else
+                            "numeric" if original_id.isdigit() else
+                            "hex" if HEX_OBJECT_PATTERN.fullmatch(original_id) else
+                            "slug_numeric"
+                        ),
                         "original_url": url,
                         "baseline_status": getattr(baseline, "status_code", None),
                         "candidate_status": r.status_code,
+                        "baseline_object_ids": sorted(baseline_ids),
+                        "candidate_object_ids": sorted(candidate_ids),
                         "differential_reasons": sorted(differential_reasons),
+                        "request_budget_used": request_budget,
                     },
                 })
                 break

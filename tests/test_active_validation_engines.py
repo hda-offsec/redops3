@@ -81,6 +81,28 @@ def test_api_fuzzer_idor_flags_differential_access(monkeypatch):
     assert "baseline_403_candidate_200" in finding["metadata"]["differential_reasons"]
 
 
+def test_api_fuzzer_idor_supports_uuid_path_references(monkeypatch):
+    session = SequenceSession(
+        [
+            DummyResponse(405, "method not allowed"),
+            DummyResponse(405, "method not allowed"),
+            DummyResponse(403, '{"error": "forbidden"}'),
+            DummyResponse(200, '{"uuid": "550e8400-e29b-41d4-a716-446655440001", "email": "user@example.com"}'),
+        ]
+    )
+    monkeypatch.setattr("scan_engine.step03_vuln.api_fuzzer.get_session", lambda _options=None: session)
+
+    findings = APIFuzzer(options={"api_fuzzer_max_requests": 4}).fuzz_endpoint(
+        "https://example.com/api/users/550e8400-e29b-41d4-a716-446655440000"
+    )
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["metadata"]["object_reference_kind"] == "uuid"
+    assert finding["metadata"]["request_budget_used"] == 4
+    assert "baseline_403_candidate_200" in finding["metadata"]["differential_reasons"]
+
+
 def test_api_intelligence_engine_fuzz_surface_idor_uses_differential_validation(monkeypatch):
     session = SequenceSession(
         [
@@ -100,6 +122,28 @@ def test_api_intelligence_engine_fuzz_surface_idor_uses_differential_validation(
     assert finding["category"] == "idor"
     assert finding["metadata"]["status_code"] == 200
     assert finding["metadata"]["request_budget_used"] == 2
+
+
+def test_api_intelligence_engine_fuzz_surface_supports_object_reference_params(monkeypatch):
+    session = SequenceSession(
+        [
+            DummyResponse(200, '{"account_id":"8","email":"user@example.com"}'),
+            DummyResponse(403, '{"error":"forbidden"}'),
+        ]
+    )
+    monkeypatch.setattr("scan_engine.helpers.context_attack_engine.get_session", lambda _options=None: session)
+
+    findings = APIIntelligenceEngine.fuzz_surface(
+        [{"endpoint": "https://example.com/api/orders", "parameters": ["account_id"]}],
+        options={"api_fuzz_max_requests": 2, "timeout": 1},
+    )
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["category"] == "idor"
+    assert finding["parameter"] == "account_id"
+    assert "baseline_403_candidate_200" in finding["metadata"]["differential_reasons"]
+    assert finding["metadata"]["candidate_object_ids"] == ["8"]
 
 
 def test_exploit_validation_engine_confirms_ssrf_with_differential_probe(monkeypatch):
