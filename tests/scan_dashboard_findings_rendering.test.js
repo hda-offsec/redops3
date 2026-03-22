@@ -164,6 +164,148 @@ test('findings view helper keeps the findings table row contract for badges, evi
     assert.match(rowHtml, /HIGH/);
 });
 
+test('findings identity helper preserves the existing dedupe priority before DOM rendering starts', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const { findingsIdentity } = ScanDashboard.internals;
+
+    assert.equal(
+        findingsIdentity.resolveRenderId({ id_stable: 'stable-1', id: 99, title: 'Ignored' }),
+        'stable-1'
+    );
+    assert.equal(
+        findingsIdentity.resolveRenderId({ id: 42, title: 'Fallback id' }),
+        42
+    );
+    assert.equal(
+        findingsIdentity.resolveRenderId({ title: 'Stored XSS', severity: 'high', tool: 'dalfox' }),
+        'temp-Stored XSS-high-dalfox'
+    );
+});
+
+test('findings DOM helper keeps the result list and table row contracts intact for extracted findings markup', () => {
+    const findingsEmpty = createElement('div');
+    findingsEmpty.innerText = 'No findings yet';
+    const findingsList = {
+        entries: [],
+        prepend(node) {
+            this.entries.unshift(node);
+        },
+    };
+    const findingsContainer = {
+        querySelector(selector) {
+            if (selector === '.text-muted') return findingsEmpty;
+            if (selector === '.result-list') return findingsList;
+            return null;
+        },
+        appendChild() {},
+    };
+    const findingsEmptyRow = createElement('tr');
+    const rowRegistry = new Map();
+    const findingsTableBody = {
+        rows: [],
+        prepend(row) {
+            this.rows.unshift(row);
+            rowRegistry.set(row.id, row);
+        },
+    };
+    const document = {
+        getElementById(id) {
+            if (id === 'findings-table-body') return findingsTableBody;
+            if (id === 'findings-empty-state') return findingsEmptyRow;
+            return rowRegistry.get(id) || null;
+        },
+        createElement(tagName) {
+            const element = createElement(tagName);
+            Object.defineProperty(element, 'id', {
+                get() {
+                    return this._id || '';
+                },
+                set(value) {
+                    this._id = value;
+                },
+            });
+            return element;
+        },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        addEventListener() {},
+    };
+
+    const updateFindingsListCalls = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        document,
+        updateFindingsList(items) {
+            updateFindingsListCalls.push(items);
+        },
+    });
+
+    const display = {
+        severity: 'high',
+        severityLabel: 'HIGH',
+        escapedTitle: 'Stored &lt;XSS&gt;',
+        escapedTool: 'dalfox',
+        escapedDesc: 'Body &lt;script&gt;alert(1)&lt;/script&gt;',
+        escapedPrimaryUrl: 'https://target/app?q=&lt;script&gt;',
+        primaryCommand: 'dalfox url https://target/app',
+        primaryUrl: 'https://target/app?q=<script>',
+        escapedScreenshotPath: 'loot/xss-proof.png',
+        hasProof: true,
+        isValidated: true,
+        confidenceLabel: 'HIGH',
+        toolLabel: 'DALFOX',
+    };
+    const finding = {
+        id_stable: 'finding-77',
+        title: 'Stored <XSS>',
+    };
+    const appliedDatasets = [];
+    const dashboard = {
+        getFindingsContract() {
+            return {
+                applyRowDataset(row, currentFinding) {
+                    appliedDatasets.push({ row, finding: currentFinding });
+                    row.setAttribute('data-finding-id', currentFinding.id_stable);
+                },
+            };
+        },
+    };
+
+    const card = ScanDashboard.internals.findingsDom.prependResultCard(
+        document,
+        findingsContainer,
+        ScanDashboard.internals.findingsView.buildResultCardHtml(
+            { description: 'Body <script>alert(1)</script>', screenshot_path: 'loot/xss-proof.png' },
+            display
+        )
+    );
+
+    assert.equal(findingsEmpty.removed, true);
+    assert.equal(findingsList.entries.length, 1);
+    assert.equal(findingsList.entries[0], card);
+    assert.match(card.className, /animate__fadeInLeft/);
+    assert.match(card.innerHTML, /Stored &lt;XSS&gt;/);
+    assert.match(card.innerHTML, /Source: dalfox/);
+
+    const row = ScanDashboard.internals.findingsDom.prependTableRow(document, dashboard, 'finding-77', finding, display);
+    assert.equal(findingsEmptyRow.removed, true);
+    assert.equal(findingsTableBody.rows.length, 1);
+    assert.equal(findingsTableBody.rows[0], row);
+    assert.equal(row.id, 'finding-row-finding-77');
+    assert.equal(row.getAttribute('data-finding-id'), 'finding-77');
+    assert.match(row.className, /finding-row cursor-pointer/);
+    assert.match(row.innerHTML, /fa-terminal text-warning/);
+    assert.match(row.innerHTML, /fa-microscope text-info/);
+    assert.match(row.innerHTML, /VALIDATED/);
+    assert.deepEqual(appliedDatasets.map(({ finding: currentFinding }) => currentFinding.id_stable), ['finding-77']);
+    assert.equal(updateFindingsListCalls.length, 1);
+    assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-77');
+
+    const duplicateRow = ScanDashboard.internals.findingsDom.prependTableRow(document, dashboard, 'finding-77', finding, display);
+    assert.equal(duplicateRow, null);
+    assert.equal(findingsTableBody.rows.length, 1);
+    assert.equal(updateFindingsListCalls.length, 1);
+});
+
 test('handleNewFinding preserves the existing findings flow while delegating rendering to extracted findings helpers', () => {
     const findingsEmpty = createElement('div');
     findingsEmpty.innerText = 'No findings yet';
