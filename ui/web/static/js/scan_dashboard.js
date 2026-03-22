@@ -58,6 +58,12 @@ const scanDashboardFindingsLoader = {
     }
 };
 
+const scanDashboardFindingsIdentity = {
+    resolveRenderId(finding) {
+        return finding?.id_stable || finding?.id || `temp-${finding?.title}-${finding?.severity}-${finding?.tool}`;
+    }
+};
+
 const scanDashboardFindingsView = {
     buildDisplayModel(dashboard, finding) {
         const severity = String(finding?.severity || 'info').toLowerCase();
@@ -152,6 +158,61 @@ const scanDashboardFindingsView = {
                 <i class="fas fa-chevron-right text-muted opacity-25 extra-small"></i>
             </td>
         `;
+    }
+};
+
+const scanDashboardFindingsDom = {
+    ensureResultList(documentRef, container) {
+        let list = container.querySelector('.result-list');
+        if (list) return list;
+
+        list = documentRef.createElement('div');
+        list.className = 'result-list';
+        container.appendChild(list);
+        return list;
+    },
+
+    prependResultCard(documentRef, container, cardHtml) {
+        if (!container) return null;
+
+        const empty = container.querySelector('.text-muted');
+        if (empty && empty.innerText.includes('No findings')) empty.remove();
+
+        const list = this.ensureResultList(documentRef, container);
+        const div = documentRef.createElement('div');
+        div.className = 'result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft';
+        div.innerHTML = cardHtml;
+        list.prepend(div);
+        return div;
+    },
+
+    prependTableRow(documentRef, dashboard, fid, finding, display) {
+        const tableBody = documentRef.getElementById('findings-table-body');
+        if (!tableBody) return null;
+
+        const emptyRow = documentRef.getElementById('findings-empty-state');
+        if (emptyRow) emptyRow.remove();
+
+        const rowId = `finding-row-${fid}`;
+        if (documentRef.getElementById(rowId)) return null;
+
+        const tr = documentRef.createElement('tr');
+        tr.id = rowId;
+        tr.className = 'finding-row cursor-pointer animate__animated animate__fadeIn';
+        dashboard.getFindingsContract().applyRowDataset(tr, finding);
+        tr.onclick = () => {
+            if (typeof showFindingDetail === 'function') {
+                showFindingDetail(fid);
+            }
+        };
+        tr.innerHTML = scanDashboardFindingsView.buildTableRowHtml(display);
+        tableBody.prepend(tr);
+
+        if (typeof updateFindingsList === 'function') {
+            updateFindingsList([finding]);
+        }
+
+        return tr;
     }
 };
 
@@ -840,68 +901,28 @@ class ScanDashboard {
         if (data.scan_id != this.scanId) return;
         data = this.normalizeFindingRecord(data);
 
-        // Deduplication Logic: Prioritize id_stable, then database id, then heuristic
-        const fid = data.id_stable || data.id || `temp-${data.title}-${data.severity}-${data.tool}`;
+        const fid = scanDashboardFindingsIdentity.resolveRenderId(data);
         if (this.renderedFindingIds.has(fid)) return;
         this.renderedFindingIds.add(fid);
 
         this.activateDiscovery('vulns', true);
 
         const display = scanDashboardFindingsView.buildDisplayModel(this, data);
+        const container = document.getElementById('findings-container');
+        scanDashboardFindingsDom.prependResultCard(
+            document,
+            container,
+            scanDashboardFindingsView.buildResultCardHtml(data, display)
+        );
 
-        const container = document.getElementById("findings-container");
         if (container) {
-            const empty = container.querySelector(".text-muted");
-            if (empty && empty.innerText.includes("No findings")) empty.remove();
-
-            let list = container.querySelector(".result-list");
-            if (!list) {
-                list = document.createElement("div");
-                list.className = "result-list";
-                container.appendChild(list);
-            }
-
-            const div = document.createElement("div");
-            div.className = "result-row flex-column align-items-start p-3 mb-2 bg-black border border-secondary rounded position-relative hover-highlight animate__animated animate__fadeInLeft";
-            div.innerHTML = scanDashboardFindingsView.buildResultCardHtml(data, display);
-            list.prepend(div);
-
             if (data.screenshot_path) {
                 this.addToGallery(data);
             }
 
             this.updateRiskCounters(data.severity);
             this.updateIndicators(data);
-
-            const tableBody = document.getElementById("findings-table-body");
-            if (tableBody) {
-                // Remove empty state if present
-                const emptyRow = document.getElementById("findings-empty-state");
-                if (emptyRow) emptyRow.remove();
-
-                const rowId = `finding-row-${fid}`;
-                if (document.getElementById(rowId)) return;
-
-                const tr = document.createElement("tr");
-                tr.id = rowId;
-                tr.className = "finding-row cursor-pointer animate__animated animate__fadeIn";
-                this.getFindingsContract().applyRowDataset(tr, data);
-
-                // Set click handler for new UI
-                tr.onclick = () => {
-                    if (typeof showFindingDetail === 'function') {
-                        showFindingDetail(fid);
-                    }
-                };
-
-                tr.innerHTML = scanDashboardFindingsView.buildTableRowHtml(display);
-                tableBody.prepend(tr);
-
-                // Update local memory if updateFindingsList is available (new UI)
-                if (typeof updateFindingsList === 'function') {
-                    updateFindingsList([data]);
-                }
-            }
+            scanDashboardFindingsDom.prependTableRow(document, this, fid, data, display);
         }
 
         // ScanNmap Dashboard Specific updates
@@ -2484,7 +2505,9 @@ class ScanDashboard {
 // Global Routing & Filtering Helper
 ScanDashboard.internals = {
     findingsLoader: scanDashboardFindingsLoader,
+    findingsIdentity: scanDashboardFindingsIdentity,
     findingsView: scanDashboardFindingsView,
+    findingsDom: scanDashboardFindingsDom,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
     logStream: scanDashboardLogStream,
