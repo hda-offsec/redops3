@@ -29,12 +29,43 @@ function createElement(tagName = 'div') {
         innerHTML: '',
         innerText: '',
         className: '',
+        style: {},
+        attributes: {},
         classList: createClassList(),
         removed: false,
+        setAttribute(name, value) {
+            this.attributes[name] = value;
+        },
+        getAttribute(name) {
+            return this.attributes[name];
+        },
         remove() {
             this.removed = true;
         },
     };
+}
+
+function createIndicatorCard() {
+    const icon = createElement('i');
+    icon.classList.add('fa-shield-alt', 'text-success');
+
+    const label = createElement('span');
+    label.classList.add('text-success');
+
+    const status = createElement('span');
+    status.classList.add('text-muted');
+    status.innerText = 'Monitoring';
+
+    const selectors = new Map([
+        ['.fa-shield-alt', icon],
+        ['.text-success', label],
+        ['.text-muted', status],
+    ]);
+
+    const card = createElement('div');
+    card.classList.add('border-success', 'bg-success', 'bg-opacity-10');
+    card.querySelector = (selector) => selectors.get(selector) || null;
+    return { card, icon, label, status };
 }
 
 function createSandbox(overrides = {}) {
@@ -262,4 +293,155 @@ test('handlePipelineEvent continues to delegate to the extracted helper without 
     assert.match(container.children[0].innerHTML, /05:06:07/);
     assert.match(container.children[0].innerHTML, /enum/);
     assert.doesNotMatch(container.children[0].innerHTML, /ERROR/);
+});
+
+
+test('indicator helper matches keywords and updates the existing card contract without touching unrelated cards', () => {
+    const xssCard = createIndicatorCard();
+    const apiCard = createIndicatorCard();
+    const untouchedCard = createIndicatorCard();
+    const selectors = new Map([
+        ['.vuln-indicator-xss', xssCard.card],
+        ['.vuln-indicator-api', apiCard.card],
+        ['.vuln-indicator-secret', untouchedCard.card],
+    ]);
+
+    const document = {
+        getElementById() { return null; },
+        querySelector(selector) {
+            return selectors.get(selector) || null;
+        },
+        querySelectorAll() { return []; },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+
+    assert.deepEqual(
+        Array.from(ScanDashboard.internals.indicators.getMatchedKeys({
+            title: 'Stored XSS on API explorer',
+            tool: 'dalfox',
+        })),
+        ['xss', 'api']
+    );
+
+    ScanDashboard.prototype.updateIndicators.call({}, {
+        title: 'Stored XSS on API explorer',
+        tool: 'dalfox',
+    });
+
+    assert.equal(xssCard.card.classList.contains('border-danger'), true);
+    assert.equal(xssCard.card.classList.contains('bg-danger'), true);
+    assert.equal(xssCard.icon.classList.contains('fa-exclamation-circle'), true);
+    assert.equal(xssCard.icon.classList.contains('text-danger'), true);
+    assert.equal(xssCard.label.classList.contains('text-danger'), true);
+    assert.equal(xssCard.status.innerText, 'Detected');
+
+    assert.equal(apiCard.card.classList.contains('border-danger'), true);
+    assert.equal(apiCard.status.innerText, 'Detected');
+
+    assert.equal(untouchedCard.card.classList.contains('border-success'), true);
+    assert.equal(untouchedCard.status.innerText, 'Monitoring');
+});
+
+test('handleProgressUpdate delegates to the extracted progress view and preserves running/completed UI states', () => {
+    const progressBar = createElement('div');
+    progressBar.classList.add('progress-bar-animated', 'progress-bar-striped');
+    const phaseText = createElement('span');
+    const statusText = createElement('span');
+    const spinner = createElement('div');
+    const toastBar = createElement('div');
+    const toastPhase = createElement('span');
+    const toastPercent = createElement('span');
+    const auditPhase = createElement('span');
+    const discoveryButton = createElement('button');
+    discoveryButton.classList.add('discovery-btn', 'active');
+
+    const nodes = new Map([
+        ['scan-progress-bar', progressBar],
+        ['scan-phase-text', phaseText],
+        ['scan-status-text', statusText],
+        ['scan-spinner', spinner],
+        ['toast-progress-bar', toastBar],
+        ['toast-phase-text', toastPhase],
+        ['toast-percent-text', toastPercent],
+        ['audit-journey-current-phase', auditPhase],
+    ]);
+
+    const document = {
+        getElementById(id) {
+            return nodes.get(id) || null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.discovery-btn') return [discoveryButton];
+            return [];
+        },
+        querySelector() { return null; },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+    const normalizedProgress = ScanDashboard.internals.progressView.normalize({
+        percent: 33.6,
+        current_phase: 'Nuclei API sweep',
+    });
+    assert.equal(normalizedProgress.percent, 34);
+    assert.equal(normalizedProgress.phase, 'Nuclei API sweep');
+
+    const activated = [];
+    const toastStates = [];
+    const dashboard = {
+        scanId: 42,
+        highlightPTESCalls: [],
+        highlightPTES(phase) {
+            this.highlightPTESCalls.push(phase);
+        },
+        activateDiscovery(id, state) {
+            activated.push({ id, state });
+        },
+        toggleScanToast(show) {
+            toastStates.push(show);
+        },
+    };
+
+    ScanDashboard.prototype.handleProgressUpdate.call(dashboard, {
+        scan_id: 42,
+        percent: 33.6,
+        current_phase: 'Nuclei API sweep',
+    });
+
+    assert.equal(progressBar.style.width, '34%');
+    assert.equal(progressBar.getAttribute('aria-valuenow'), 34);
+    assert.equal(phaseText.innerText, 'Nuclei API sweep');
+    assert.equal(auditPhase.innerText, 'Current Phase: Nuclei API sweep');
+    assert.equal(toastBar.style.width, '34%');
+    assert.equal(toastPhase.innerText, 'Nuclei API sweep');
+    assert.equal(toastPercent.innerText, '34%');
+    assert.equal(statusText.innerText, 'running');
+    assert.equal(spinner.classList.contains('d-none'), false);
+    assert.deepEqual(dashboard.highlightPTESCalls, ['Nuclei API sweep']);
+    assert.deepEqual(activated, [{ id: 'api', state: false }, { id: 'vulns', state: false }]);
+    assert.deepEqual(toastStates, [true]);
+    assert.equal(discoveryButton.classList.contains('discovered'), false);
+
+    ScanDashboard.prototype.handleProgressUpdate.call(dashboard, {
+        scan_id: 42,
+        percent: 100,
+        current_phase: 'Phase complete',
+    });
+
+    assert.equal(statusText.innerText, 'completed');
+    assert.equal(spinner.classList.contains('d-none'), true);
+    assert.equal(progressBar.classList.contains('progress-bar-animated'), false);
+    assert.equal(progressBar.classList.contains('progress-bar-striped'), false);
+    assert.equal(progressBar.classList.contains('bg-success'), true);
+    assert.equal(discoveryButton.classList.contains('active'), false);
+    assert.equal(discoveryButton.classList.contains('discovered'), true);
+    assert.deepEqual(toastStates, [true, false]);
 });

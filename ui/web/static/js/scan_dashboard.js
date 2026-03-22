@@ -227,6 +227,143 @@ const scanDashboardPipelineTimeline = {
     }
 };
 
+const scanDashboardIndicators = {
+    indicatorKeywords: {
+        xss: ['xss'],
+        lfi: ['lfi'],
+        sql: ['sql', 'injection'],
+        api: ['api', 'swagger', 'openapi', 'expert'],
+        cms: ['cms', 'wordpress', 'drupal', 'joomla'],
+        secret: ['secret', 'token', 'key']
+    },
+
+    getMatchedKeys(data) {
+        const titleLower = String(data?.title || '').toLowerCase();
+        const toolLower = String(data?.tool || '').toLowerCase();
+
+        return Object.entries(scanDashboardIndicators.indicatorKeywords)
+            .filter(([, keywords]) => keywords.some((keyword) => titleLower.includes(keyword) || toolLower.includes(keyword)))
+            .map(([key]) => key);
+    },
+
+    updateIndicatorCard(indicatorCard) {
+        if (!indicatorCard) return;
+
+        indicatorCard.classList.remove('border-success', 'bg-success', 'bg-opacity-10');
+        indicatorCard.classList.add('border-danger', 'bg-danger', 'bg-opacity-10');
+
+        const icon = indicatorCard.querySelector('.fa-shield-alt');
+        if (icon) {
+            icon.classList.remove('fa-shield-alt', 'text-success');
+            icon.classList.add('fa-exclamation-circle', 'text-danger');
+        }
+
+        const label = indicatorCard.querySelector('.text-success');
+        if (label) {
+            label.classList.remove('text-success');
+            label.classList.add('text-danger');
+        }
+
+        const status = indicatorCard.querySelector('.text-muted');
+        if (status) status.innerText = 'Detected';
+    },
+
+    sync(documentRef, data) {
+        scanDashboardIndicators.getMatchedKeys(data).forEach((key) => {
+            scanDashboardIndicators.updateIndicatorCard(documentRef.querySelector(`.vuln-indicator-${key}`));
+        });
+    }
+};
+
+const scanDashboardProgressView = {
+    phaseToDiscovery: {
+        recon: 'ports', dns: 'dns', osint: 'cloud', cloud: 'cloud',
+        waf: 'waf', crawl: 'crawl', katana: 'crawl', arjun: 'params',
+        params: 'params', ffuf: 'fuzz', dirbusting: 'fuzz',
+        api: 'api', secrets: 'secrets', vuln: 'vulns', nuclei: 'vulns',
+        intel: 'intel', historic: 'historic', wayback: 'historic',
+        spring: 'apps', firebase: 'apps', actuator: 'apps', apps: 'apps'
+    },
+
+    normalize(data) {
+        return {
+            percent: (data?.percent != null && !isNaN(data.percent)) ? Math.round(data.percent) : 0,
+            phase: data?.current_phase || 'Processing...'
+        };
+    },
+
+    updateBars(documentRef, percent) {
+        const bar = documentRef.getElementById('scan-progress-bar');
+        if (bar) {
+            bar.style.width = percent + '%';
+            bar.setAttribute('aria-valuenow', percent);
+        }
+
+        const toastBar = documentRef.getElementById('toast-progress-bar');
+        if (toastBar) toastBar.style.width = percent + '%';
+
+        return {
+            bar,
+            statusText: documentRef.getElementById('scan-status-text'),
+            spinner: documentRef.getElementById('scan-spinner')
+        };
+    },
+
+    updatePhaseText(documentRef, phase) {
+        const phaseText = documentRef.getElementById('scan-phase-text');
+        if (phaseText) {
+            phaseText.innerText = phase;
+        }
+
+        const auditPhase = documentRef.getElementById('audit-journey-current-phase');
+        if (auditPhase) {
+            auditPhase.innerText = `Current Phase: ${phase}`;
+        }
+
+        const toastPhase = documentRef.getElementById('toast-phase-text');
+        if (toastPhase) toastPhase.innerText = phase;
+
+        return phaseText;
+    },
+
+    updateToastPercent(documentRef, percent) {
+        const toastPercent = documentRef.getElementById('toast-percent-text');
+        if (toastPercent) toastPercent.innerText = percent + '%';
+    },
+
+    activatePhaseDiscoveries(dashboard, phase) {
+        const phaseLower = phase.toLowerCase();
+        for (const [key, id] of Object.entries(scanDashboardProgressView.phaseToDiscovery)) {
+            if (phaseLower.includes(key)) {
+                dashboard.activateDiscovery(id, false);
+            }
+        }
+    },
+
+    syncCompletionState(documentRef, percent, refs, toggleScanToast) {
+        const { bar, statusText, spinner } = refs;
+        if (percent >= 100) {
+            if (statusText) statusText.innerText = 'completed';
+            if (spinner) spinner.classList.add('d-none');
+            if (bar) {
+                bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+                bar.classList.add('bg-success');
+            }
+            toggleScanToast(false);
+
+            documentRef.querySelectorAll('.discovery-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.classList.add('discovered');
+            });
+            return;
+        }
+
+        if (statusText) statusText.innerText = 'running';
+        if (spinner) spinner.classList.remove('d-none');
+        toggleScanToast(true);
+    }
+};
+
 class ScanDashboard {
     constructor(scanId, targetIdentifier) {
         this.scanId = scanId;
@@ -754,37 +891,7 @@ class ScanDashboard {
     }
 
     updateIndicators(data) {
-        const titleLower = data.title.toLowerCase();
-        const indicators = {
-            'xss': ['xss'],
-            'lfi': ['lfi'],
-            'sql': ['sql', 'injection'],
-            'api': ['api', 'swagger', 'openapi', 'expert'],
-            'cms': ['cms', 'wordpress', 'drupal', 'joomla'],
-            'secret': ['secret', 'token', 'key']
-        };
-
-        for (const [key, keywords] of Object.entries(indicators)) {
-            if (keywords.some(k => titleLower.includes(k) || (data.tool && data.tool.toLowerCase().includes(k)))) {
-                const indicatorCard = document.querySelector(`.vuln-indicator-${key}`);
-                if (indicatorCard) {
-                    indicatorCard.classList.remove('border-success', 'bg-success', 'bg-opacity-10');
-                    indicatorCard.classList.add('border-danger', 'bg-danger', 'bg-opacity-10');
-                    const icon = indicatorCard.querySelector('.fa-shield-alt');
-                    if (icon) {
-                        icon.classList.remove('fa-shield-alt', 'text-success');
-                        icon.classList.add('fa-exclamation-circle', 'text-danger');
-                    }
-                    const label = indicatorCard.querySelector('.text-success');
-                    if (label) {
-                        label.classList.remove('text-success');
-                        label.classList.add('text-danger');
-                    }
-                    const status = indicatorCard.querySelector('.text-muted');
-                    if (status) status.innerText = 'Detected';
-                }
-            }
-        }
+        scanDashboardIndicators.sync(document, data);
     }
 
     handleNewSuggestion(data) {
@@ -854,73 +961,17 @@ class ScanDashboard {
     handleProgressUpdate(data) {
         if (data.scan_id != this.scanId) return;
 
-        // Defensive: normalize progress data to avoid undefined display
-        const percent = (data.percent != null && !isNaN(data.percent)) ? Math.round(data.percent) : 0;
-        const phase = data.current_phase || 'Processing...';
-
-        const bar = document.getElementById('scan-progress-bar');
-        const phaseText = document.getElementById('scan-phase-text');
-        const statusText = document.getElementById('scan-status-text');
-        const spinner = document.getElementById('scan-spinner');
-
-        if (bar) {
-            bar.style.width = percent + '%';
-            bar.setAttribute('aria-valuenow', percent);
-        }
-
-        // Toast updates
-        const toastBar = document.getElementById('toast-progress-bar');
-        const toastPhase = document.getElementById('toast-phase-text');
-        const toastPercent = document.getElementById('toast-percent-text');
-        if (toastBar) toastBar.style.width = percent + '%';
-        if (toastPhase) toastPhase.innerText = phase;
-        if (toastPercent) toastPercent.innerText = percent + '%';
+        const { percent, phase } = scanDashboardProgressView.normalize(data);
+        const refs = scanDashboardProgressView.updateBars(document, percent);
+        const phaseText = scanDashboardProgressView.updatePhaseText(document, phase);
+        scanDashboardProgressView.updateToastPercent(document, percent);
 
         if (phaseText) {
-            phaseText.innerText = phase;
             this.highlightPTES(phase);
-            const auditPhase = document.getElementById('audit-journey-current-phase');
-            if (auditPhase) {
-                auditPhase.innerText = `Current Phase: ${phase}`;
-            }
-
-            // Real-time Discovery Highlight
-            const phaseLower = phase.toLowerCase();
-            const phaseToDiscovery = {
-                'recon': 'ports', 'dns': 'dns', 'osint': 'cloud', 'cloud': 'cloud',
-                'waf': 'waf', 'crawl': 'crawl', 'katana': 'crawl', 'arjun': 'params',
-                'params': 'params', 'ffuf': 'fuzz', 'dirbusting': 'fuzz',
-                'api': 'api', 'secrets': 'secrets', 'vuln': 'vulns', 'nuclei': 'vulns',
-                'intel': 'intel', 'historic': 'historic', 'wayback': 'historic',
-                'spring': 'apps', 'firebase': 'apps', 'actuator': 'apps', 'apps': 'apps'
-            };
-
-            for (const [key, id] of Object.entries(phaseToDiscovery)) {
-                if (phaseLower.includes(key)) {
-                    this.activateDiscovery(id, false); // false = 'active' state (pulsing)
-                }
-            }
+            scanDashboardProgressView.activatePhaseDiscoveries(this, phase);
         }
 
-        if (percent >= 100) {
-            if (statusText) statusText.innerText = 'completed';
-            if (spinner) spinner.classList.add('d-none');
-            if (bar) {
-                bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-                bar.classList.add('bg-success');
-            }
-            this.toggleScanToast(false);
-
-            // --- CLEANUP: Set all buttons to 'discovered' (blue) when completed ---
-            document.querySelectorAll('.discovery-btn').forEach(btn => {
-                btn.classList.remove('active');
-                btn.classList.add('discovered');
-            });
-        } else {
-            if (statusText) statusText.innerText = 'running';
-            if (spinner) spinner.classList.remove('d-none');
-            this.toggleScanToast(true);
-        }
+        scanDashboardProgressView.syncCompletionState(document, percent, refs, (show) => this.toggleScanToast(show));
     }
 
     highlightPTES(text) {
@@ -2375,6 +2426,8 @@ ScanDashboard.internals = {
     socketEvents: scanDashboardSocketEvents,
     moduleStatus: scanDashboardModuleStatus,
     pipelineTimeline: scanDashboardPipelineTimeline,
+    indicators: scanDashboardIndicators,
+    progressView: scanDashboardProgressView,
 };
 
 window.applyTacticalFilter = function (targetTab, filterValue) {
