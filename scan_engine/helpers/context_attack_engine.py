@@ -1,8 +1,23 @@
 import json
+import logging
 import re
+import time
 from urllib.parse import parse_qs, quote_plus, urlparse
 
+from requests import RequestException
+
 from scan_engine.helpers.http_client import get_session
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _emit_engine_error(logger, stage, endpoint, exc, **context):
+    message = f"{stage} failed for {endpoint}: {exc.__class__.__name__}: {exc}"
+    if logger:
+        logger(message, "DEBUG")
+    LOGGER.debug(message, extra={"stage": stage, "endpoint": endpoint, "context": context}, exc_info=True)
+
 
 class ContextAttackEngine:
     """
@@ -202,7 +217,7 @@ class APIIntelligenceEngine:
         return findings, api_inventory
 
     @staticmethod
-    def fuzz_surface(api_inventory, options=None):
+    def fuzz_surface(api_inventory, options=None, logger=None):
         options = options or {}
         max_requests = int(options.get("api_fuzz_max_requests", 40) or 40)
         timeout = float(options.get("timeout", 6) or 6)
@@ -224,10 +239,16 @@ class APIIntelligenceEngine:
 
         try:
             for item in api_inventory:
+                if not isinstance(item, dict):
+                    continue
                 endpoint = item.get("endpoint")
                 if not endpoint:
                     continue
                 params = [p for p in (item.get("parameters") or []) if isinstance(p, str)] or default_params
+                baseline_resp = None
+                baseline_body = ""
+                baseline_sig = None
+                baseline_fetch_attempted = False
                 for param in params[:3]:
                     for test_type, payloads in checks.items():
                         for payload in payloads[:2]:
@@ -240,7 +261,8 @@ class APIIntelligenceEngine:
                             try:
                                 resp = session.get(url, timeout=timeout, allow_redirects=False)
                                 body = (resp.text or "")[:1200]
-                            except Exception:
+                            except RequestException as exc:
+                                _emit_engine_error(logger, "api_fuzz_request", url, exc, inventory_endpoint=endpoint, parameter=param, test_type=test_type)
                                 continue
 
                             body_low = body.lower()
@@ -249,15 +271,49 @@ class APIIntelligenceEngine:
                             
                             # V12: Hardened Signal Detection
                             if test_type == "idor" and resp.status_code == 200 and param.lower() == "id":
-                                # Very basic heuristic: if it looks like JSON or it's not a standard error page
-                                if any(x in body_low for x in ['"id":', '"username":', '"user":', '"email":']):
+                                if not baseline_fetch_attempted and used < max_requests:
+                                    baseline_fetch_attempted = True
+                                    used += 1
+                                    try:
+                                        baseline_resp = session.get(endpoint, timeout=timeout, allow_redirects=False)
+                                        baseline_body = (baseline_resp.text or "")[:1200]
+                                        baseline_sig = (
+                                            baseline_resp.status_code,
+                                            re.sub(r"\b\d+\b", "<num>", baseline_body.lower())[:400],
+                                        )
+                                    except RequestException as exc:
+                                        _emit_engine_error(logger, "api_fuzz_idor_baseline", endpoint, exc, inventory_endpoint=endpoint)
+
+                                candidate_sig = (
+                                    resp.status_code,
+                                    re.sub(r"\b\d+\b", "<num>", body_low)[:400],
+                                )
+                                candidate_ids = set(re.findall(r'(?:"(?:id|user_id|account_id|order_id)"\s*:\s*"?(\d+)"?)', body, flags=re.IGNORECASE))
+                                baseline_ids = set(re.findall(r'(?:"(?:id|user_id|account_id|order_id)"\s*:\s*"?(\d+)"?)', baseline_body, flags=re.IGNORECASE))
+                                differential_reasons = []
+
+                                if baseline_resp is None:
+                                    differential_reasons.append("missing_baseline")
+                                else:
+                                    if baseline_resp.status_code in {401, 403, 404}:
+                                        differential_reasons.append(f"baseline_{baseline_resp.status_code}_candidate_200")
+                                    if baseline_sig != candidate_sig:
+                                        differential_reasons.append("response_fingerprint_changed")
+                                    if candidate_ids and candidate_ids != baseline_ids:
+                                        differential_reasons.append("object_identifier_changed")
+
+                                meaningful_differential = any(
+                                    reason.startswith("baseline_") or reason == "response_fingerprint_changed"
+                                    for reason in differential_reasons
+                                )
+
+                                if any(x in body_low for x in ['"id":', '"username":', '"user":', '"email":', '"account":']) and meaningful_differential:
                                     is_hit = True
-                                    evidence = f"ID parameter accepted with status={resp.status_code} and potential internal resource metadata in response."
-                                elif "error" not in body_low and len(body) > 100:
-                                    # Still a bit weak but better than any 200
-                                    is_hit = True
-                                    evidence = f"ID parameter accepted with status={resp.status_code}. Response appears legitimate but unvalidated."
-                             
+                                    evidence = (
+                                        f"ID parameter produced a differentiated 200 OK response with structured object markers "
+                                        f"({', '.join(sorted(differential_reasons))})."
+                                    )
+
                             elif test_type == "ssrf":
                                 # Must find actual meta-data content, not just the keywords in error messages
                                 if any(x in body_low for x in ["instance-id", "latest/meta-data", "ami-id", "root:x:0:0"]):
@@ -294,7 +350,11 @@ class APIIntelligenceEngine:
                                 "response": body,
                                 "evidence": evidence,
                                 "repro_command": f"curl -isk '{url}'",
-                                "metadata": {"status_code": resp.status_code, "test_type": test_type},
+                                "metadata": {
+                                    "status_code": resp.status_code,
+                                    "test_type": test_type,
+                                    "request_budget_used": used,
+                                },
                             })
         finally:
             session.close()
@@ -317,7 +377,7 @@ class ExploitValidationEngine:
         return any(m in combined for m in markers)
 
     @classmethod
-    def validate(cls, findings, options=None):
+    def validate(cls, findings, options=None, logger=None):
         options = options or {}
         # Always enable for critical/high unless explicitly disabled
         if not options.get("enable_exploit_validation", True):
@@ -344,11 +404,13 @@ class ExploitValidationEngine:
 
                 # 0. BASELINE FETCH
                 try:
-                    b_start = requests.compat.time.time()
+                    b_start = time.monotonic()
                     baseline_resp = session.get(endpoint, timeout=timeout, allow_redirects=False)
-                    baseline_duration = requests.compat.time.time() - b_start
-                    baseline_text = baseline_resp.text
-                except: continue
+                    baseline_duration = time.monotonic() - b_start
+                    baseline_text = baseline_resp.text or ""
+                except RequestException as exc:
+                    _emit_engine_error(logger, "exploit_validation_baseline", endpoint, exc, finding_title=item.get("title"))
+                    continue
 
                 title_low = str(item.get("title", "")).lower()
                 cat_low = str(item.get("category", "")).lower()
@@ -374,11 +436,13 @@ class ExploitValidationEngine:
                     url = f"{endpoint}{sep}{param}={quote_plus(payload)}"
                     
                     try:
-                        v_start = requests.compat.time.time()
+                        v_start = time.monotonic()
                         resp = session.get(url, timeout=timeout, allow_redirects=False)
-                        duration = requests.compat.time.time() - v_start
-                        body_low = resp.text.lower()
-                    except: continue
+                        duration = time.monotonic() - v_start
+                        body_low = (resp.text or "").lower()
+                    except RequestException as exc:
+                        _emit_engine_error(logger, "exploit_validation_probe", url, exc, finding_title=item.get("title"), parameter=param)
+                        continue
 
                     valid = False
                     evidence = ""
@@ -413,6 +477,7 @@ class ExploitValidationEngine:
                                 "verified": True, 
                                 "baseline_duration": baseline_duration,
                                 "attack_duration": duration,
+                                "timing_delta": duration - baseline_duration,
                                 "source_id": item.get("id_stable")
                             }
                         })
