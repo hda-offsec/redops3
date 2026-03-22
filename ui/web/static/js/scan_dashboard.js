@@ -142,6 +142,91 @@ const scanDashboardSocketEvents = [
     ['pipeline_event', 'handlePipelineEvent'],
 ];
 
+const scanDashboardModuleStatus = {
+    getStatusBadge(status) {
+        const normalizedStatus = String(status || '').toLowerCase();
+        if (normalizedStatus === 'running') return '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>';
+        if (normalizedStatus === 'executed' || normalizedStatus === 'done') return '<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>';
+        if (normalizedStatus === 'skipped') return '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>';
+        if (normalizedStatus === 'failed' || normalizedStatus === 'error') return '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>';
+        return `<span class="badge bg-dark border border-secondary text-muted x-small">${String(status || '').toUpperCase()}</span>`;
+    },
+
+    buildRowHtml(data) {
+        return `
+            <td class="font-monospace text-info small">${data.module}</td>
+            <td class="font-monospace text-muted small">${data.port}</td>
+            <td>${scanDashboardModuleStatus.getStatusBadge(data.status)}</td>
+            <td class="text-end font-monospace small">${data.artifacts || 0}</td>
+            <td class="text-muted x-small">${data.reason || '-'}</td>
+        `;
+    },
+
+    syncRow(documentRef, tableBody, data) {
+        if (!tableBody) return null;
+
+        const rowId = `mod-row-${data.module}-${data.port}`;
+        let row = documentRef.getElementById(rowId);
+        const noModuleRow = documentRef.getElementById("no-modules-row");
+        if (noModuleRow) noModuleRow.remove();
+
+        const innerHTML = scanDashboardModuleStatus.buildRowHtml(data);
+        const existed = Boolean(row);
+
+        if (row) {
+            row.innerHTML = innerHTML;
+        } else {
+            row = documentRef.createElement("tr");
+            row.id = rowId;
+            row.innerHTML = innerHTML;
+            tableBody.prepend(row);
+        }
+
+        return { row, existed };
+    },
+
+    updateActiveCount(documentRef) {
+        const activeCount = documentRef.querySelectorAll("#modules-table .text-primary").length;
+        const countBadge = documentRef.getElementById("module-count");
+        if (countBadge) countBadge.innerText = `${activeCount} Active`;
+    }
+};
+
+const scanDashboardPipelineTimeline = {
+    resolveTimeString(ts) {
+        const rawTs = String(ts || '');
+        if (rawTs.includes('T')) return rawTs.split('T')[1].split('.')[0];
+        return new Date().toLocaleTimeString();
+    },
+
+    buildEventNode(documentRef, data) {
+        const div = documentRef.createElement("div");
+        div.className = "d-flex justify-content-between align-items-start border-bottom border-dark pb-1 animate__animated animate__fadeInDown";
+        div.innerHTML = `
+            <div>
+                <span class="text-muted x-small font-monospace">${scanDashboardPipelineTimeline.resolveTimeString(data.ts)}</span>
+                <span class="badge bg-dark border border-secondary text-light x-small ms-1">${data.module}</span>
+                <span class="text-secondary small ms-1">${data.type}</span>
+            </div>
+            ${data.level === 'ERROR' ? '<span class="text-danger x-small fw-bold">ERROR</span>' : ''}
+        `;
+        return div;
+    },
+
+    appendEvent(documentRef, container, data, limit = 50) {
+        if (!container) return;
+
+        const noTimelineRow = documentRef.getElementById("no-timeline-row");
+        if (noTimelineRow) noTimelineRow.remove();
+
+        container.prepend(scanDashboardPipelineTimeline.buildEventNode(documentRef, data));
+
+        if (container.children.length > limit && container.lastElementChild) {
+            container.lastElementChild.remove();
+        }
+    }
+};
+
 class ScanDashboard {
     constructor(scanId, targetIdentifier) {
         this.scanId = scanId;
@@ -397,72 +482,22 @@ class ScanDashboard {
         const tableBody = document.querySelector("#modules-table tbody");
         if (!tableBody) return;
 
-        const rowId = `mod-row-${data.module}-${data.port}`;
-        let row = document.getElementById(rowId);
+        const syncedRow = scanDashboardModuleStatus.syncRow(document, tableBody, data);
+        if (!syncedRow) return;
 
-        const noModuleRow = document.getElementById("no-modules-row");
-        if (noModuleRow) noModuleRow.remove();
-
-        const getStatusBadge = (status) => {
-            const s = status.toLowerCase();
-            if (s === 'running') return '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary x-small">RUNNING</span>';
-            if (s === 'executed' || s === 'done') return '<span class="badge bg-success bg-opacity-10 text-success border border-success x-small">DONE</span>';
-            if (s === 'skipped') return '<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary x-small">SKIP</span>';
-            if (s === 'failed' || s === 'error') return '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger x-small">FAIL</span>';
-            return `<span class="badge bg-dark border border-secondary text-muted x-small">${status.toUpperCase()}</span>`;
-        };
-
-        const innerHTML = `
-            <td class="font-monospace text-info small">${data.module}</td>
-            <td class="font-monospace text-muted small">${data.port}</td>
-            <td>${getStatusBadge(data.status)}</td>
-            <td class="text-end font-monospace small">${data.artifacts || 0}</td>
-            <td class="text-muted x-small">${data.reason || '-'}</td>
-        `;
-
-        if (row) {
-            row.innerHTML = innerHTML;
+        if (syncedRow.existed) {
+            const { row } = syncedRow;
             row.classList.add('animate__animated', 'animate__flash');
             setTimeout(() => row.classList.remove('animate__animated', 'animate__flash'), 1000);
-        } else {
-            row = document.createElement("tr");
-            row.id = rowId;
-            row.innerHTML = innerHTML;
-            tableBody.prepend(row);
         }
 
-        // Update active count
-        const activeCount = document.querySelectorAll("#modules-table .text-primary").length;
-        const countBadge = document.getElementById("module-count");
-        if (countBadge) countBadge.innerText = `${activeCount} Active`;
+        scanDashboardModuleStatus.updateActiveCount(document);
     }
 
     handlePipelineEvent(data) {
         const container = document.getElementById("timeline-container");
         if (!container) return;
-
-        const noTimelineRow = document.getElementById("no-timeline-row");
-        if (noTimelineRow) noTimelineRow.remove();
-
-        const timeString = data.ts.includes('T') ? data.ts.split('T')[1].split('.')[0] : new Date().toLocaleTimeString();
-
-        const div = document.createElement("div");
-        div.className = "d-flex justify-content-between align-items-start border-bottom border-dark pb-1 animate__animated animate__fadeInDown";
-        div.innerHTML = `
-            <div>
-                <span class="text-muted x-small font-monospace">${timeString}</span>
-                <span class="badge bg-dark border border-secondary text-light x-small ms-1">${data.module}</span>
-                <span class="text-secondary small ms-1">${data.type}</span>
-            </div>
-            ${data.level === 'ERROR' ? '<span class="text-danger x-small fw-bold">ERROR</span>' : ''}
-        `;
-
-        container.prepend(div);
-
-        // Keep only last 50 events
-        if (container.children.length > 50) {
-            container.lastElementChild.remove();
-        }
+        scanDashboardPipelineTimeline.appendEvent(document, container, data);
     }
 
     handleNewLog(data) {
@@ -2338,6 +2373,8 @@ ScanDashboard.internals = {
     findingsLoader: scanDashboardFindingsLoader,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
+    moduleStatus: scanDashboardModuleStatus,
+    pipelineTimeline: scanDashboardPipelineTimeline,
 };
 
 window.applyTacticalFilter = function (targetTab, filterValue) {
