@@ -33,6 +33,26 @@ class ScanDashboard {
         this.init();
     }
 
+    updateFindingsLoadState(loaded = 0, total = 0, state = "ready") {
+        const label = document.getElementById("findings-db-load-state");
+        if (!label) return;
+
+        if (state === "error") {
+            label.textContent = "DB sync failed";
+            return;
+        }
+
+        if (state === "loading" && (!Number.isFinite(total) || total <= 0)) {
+            label.textContent = "DB sync loading";
+            return;
+        }
+
+        const safeLoaded = Number.isFinite(loaded) ? loaded : 0;
+        const safeTotal = Number.isFinite(total) ? total : safeLoaded;
+        const suffix = state === "loading" ? "loading" : "loaded";
+        label.textContent = `DB sync ${safeLoaded}/${safeTotal} ${suffix}`;
+    }
+
     async loadFindingsFromApi(options = {}) {
         const { reset = false, limit = 200, offset = 0 } = options;
         if (reset) {
@@ -47,6 +67,7 @@ class ScanDashboard {
         }
 
         try {
+            ScanDashboard.prototype.updateFindingsLoadState.call(this, 0, 0, "loading");
             let currentOffset = offset;
             let total = 0;
             const allItems = [];
@@ -59,6 +80,12 @@ class ScanDashboard {
 
                 total = Number.isFinite(data.total) ? data.total : allItems.length + pageItems.length;
                 allItems.push(...pageItems);
+                ScanDashboard.prototype.updateFindingsLoadState.call(
+                    this,
+                    allItems.length,
+                    total,
+                    currentOffset + pageItems.length >= total ? "ready" : "loading"
+                );
 
                 if (pageItems.length === 0) break;
 
@@ -79,6 +106,7 @@ class ScanDashboard {
 
             console.log(`Loaded ${allItems.length}/${total} findings from DB.`);
         } catch (err) {
+            ScanDashboard.prototype.updateFindingsLoadState.call(this, 0, 0, "error");
             console.error("Failed to load findings from API:", err);
         }
     }

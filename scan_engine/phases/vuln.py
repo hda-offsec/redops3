@@ -96,6 +96,36 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     def _ts(fn):
         return orch.thread_safe_results_update(fn)
 
+    def _record_payload_telemetry(scanner_name, scanner_port, telemetry):
+        if not isinstance(telemetry, dict):
+            return
+
+        normalized = {
+            "payloads_planned": int(telemetry.get("payloads_planned", 0) or 0),
+            "payloads_attempted": int(telemetry.get("payloads_attempted", 0) or 0),
+            "payloads_skipped": int(telemetry.get("payloads_skipped", 0) or 0),
+            "payloads_succeeded": int(telemetry.get("payloads_succeeded", 0) or 0),
+            "payloads_errored": int(telemetry.get("payloads_errored", 0) or 0),
+        }
+        if not any(normalized.values()):
+            return
+
+        def _store_payload_telemetry():
+            metrics = results.setdefault("metrics", {})
+            payload_root = metrics.setdefault("payload_telemetry", {})
+            scanner_bucket = payload_root.setdefault(scanner_name, {})
+            current = scanner_bucket.get(str(scanner_port), {})
+            scanner_bucket[str(scanner_port)] = {
+                key: int(current.get(key, 0) or 0) + normalized[key]
+                for key in normalized
+            }
+
+        _ts(_store_payload_telemetry)
+        log(
+            f"Payload telemetry [{scanner_name}:{scanner_port}] {json.dumps(normalized, sort_keys=True)}",
+            "DEBUG",
+        )
+
     # Initialize Mutation Layer & Strategy
     budget = BudgetManager(max_seeds=200, max_total_variants=1000)
     mutation_engine = MutationEngine(budget, logger=log)
@@ -533,6 +563,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             upload_expert = UploadExpertScanner(target)
             for u in upload_urls[:3]:
                 up_findings = upload_expert.scan_upload_form(u, logger=log)
+                _record_payload_telemetry("upload_expert", port, upload_expert.last_telemetry)
     except Exception as e: log(f"Upload Expert Error: {e}")
 
     # 5. Logic Expert (Mass Assignment/HPP)
@@ -1333,6 +1364,7 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         _set_cortex_status(f"LFI Matrix Assault (Port {port})...")
         lfi_scanner = LfiAssaultScanner(options=orch.options)
         lfi_findings = lfi_scanner.scan(f"{proto}://{target}:{port}", orch.scan_id, urls=intel_pool, logger=log, quick=is_quick)
+        _record_payload_telemetry("lfi_assault", port, lfi_scanner.last_telemetry)
         if lfi_findings:
             _ts(lambda: (results['phases'].setdefault('vuln', {}).setdefault('lfi_assault', []).extend(lfi_findings)))
             for f in lfi_findings:

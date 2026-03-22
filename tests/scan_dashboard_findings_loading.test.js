@@ -126,3 +126,57 @@ test("loadFindingsFromApi paginates past 500 rows without changing the replay or
     assert.equal(seen[0], "finding-1");
     assert.equal(seen[500], "finding-501");
 });
+
+test("loadFindingsFromApi updates the DB sync ratio after paginated loading", async () => {
+    const loadStateLabel = { textContent: "" };
+    const { ScanDashboard } = loadScanDashboardClass({
+        document: {
+            getElementById(id) {
+                if (id === "findings-db-load-state") return loadStateLabel;
+                return null;
+            },
+            querySelectorAll() { return []; },
+            querySelector() { return null; },
+            addEventListener() {},
+        },
+        fetch: async (url) => {
+            const parsed = new URL(url, "https://redops.local");
+            const offset = Number(parsed.searchParams.get("offset"));
+            const limit = Number(parsed.searchParams.get("limit"));
+
+            if (offset === 0) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        total: 3,
+                        items: [
+                            { id_stable: "finding-3", title: "Newest" },
+                            { id_stable: "finding-2", title: "Middle" },
+                        ].slice(0, limit),
+                    }),
+                };
+            }
+
+            return {
+                ok: true,
+                json: async () => ({
+                    total: 3,
+                    items: [{ id_stable: "finding-1", title: "Oldest" }],
+                }),
+            };
+        },
+    });
+
+    const seen = [];
+    const dashboard = {
+        scanId: 99,
+        handleNewFinding(item) {
+            seen.push(item.id_stable);
+        },
+    };
+
+    await ScanDashboard.prototype.loadFindingsFromApi.call(dashboard, { limit: 2 });
+
+    assert.deepEqual(seen, ["finding-1", "finding-2", "finding-3"]);
+    assert.equal(loadStateLabel.textContent, "DB sync 3/3 loaded");
+});

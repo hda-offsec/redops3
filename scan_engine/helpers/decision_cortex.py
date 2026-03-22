@@ -24,6 +24,11 @@ COST_SORT = {
     "medium": 1,
     "high": 2,
 }
+ANALYSIS_TIER_SORT = {
+    "telemetry_correlation": 0,
+    "signal_supported_correlation": 1,
+    "validated_signal": 2,
+}
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 DANGEROUS_METHODS = {"CONNECT", "DELETE", "PATCH", "PROPFIND", "PUT", "TRACE"}
 API_HINTS = ("/api", "/rest", "/v1", "/v2", "/v3", "swagger", "openapi", "graphql")
@@ -86,6 +91,11 @@ def _stable_unique_strings(values: Sequence[Any]) -> List[str]:
     return sorted({str(value).strip() for value in values if str(value).strip()})
 
 
+def _normalize_analysis_tier(value: Any) -> str:
+    normalized = str(value or "telemetry_correlation").strip().lower()
+    return normalized if normalized in ANALYSIS_TIER_SORT else "telemetry_correlation"
+
+
 def _port_sort_key(port: Optional[str]) -> Tuple[int, Any]:
     if port is None:
         return (1, "")
@@ -103,6 +113,18 @@ def _coerce_positive_int(value: Any, default: Optional[int]) -> Optional[int]:
     except (TypeError, ValueError):
         return default
     return coerced if coerced > 0 else default
+
+
+def _stable_counter(values: Sequence[Any], *, port_keys: bool = False) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for value in values:
+        key = str(value or "global").strip() or "global"
+        counts[key] = counts.get(key, 0) + 1
+    if port_keys:
+        ordered = sorted(counts.keys(), key=lambda item: _port_sort_key(None if item == "global" else item))
+    else:
+        ordered = sorted(counts.keys())
+    return {key: counts[key] for key in ordered}
 
 
 def _resolve_port_from_url(url: str) -> Optional[str]:
@@ -203,12 +225,14 @@ def _build_suggestion(
     supporting_reasons: Optional[Sequence[str]] = None,
     estimated_cost: str = "medium",
     internal_priority: Optional[int] = None,
+    analysis_tier: str = "telemetry_correlation",
 ) -> Dict[str, Any]:
     normalized_port = str(port) if port not in (None, "") else None
     normalized_reason_tags = _stable_unique_strings(reason_tags or [])
     normalized_sources = _stable_unique_strings(evidence_sources or [])
     normalized_signals = _stable_unique_strings(trigger_signals or [])
     normalized_support = _stable_unique_strings([reason, *(supporting_reasons or [])])
+    normalized_analysis_tier = _normalize_analysis_tier(analysis_tier)
     priority = internal_priority
     if priority is None:
         priority = min(
@@ -232,6 +256,10 @@ def _build_suggestion(
         "supporting_reasons": normalized_support,
         "estimated_cost": estimated_cost,
         "internal_priority": int(priority),
+        "metadata": {
+            "analysis_tier": normalized_analysis_tier,
+            "validation_state": "not_validated",
+        },
     }
 
 
@@ -260,6 +288,25 @@ def _merge_suggestions(existing: Dict[str, Any], candidate: Dict[str, Any]) -> D
 
     for key in ("reason_tags", "evidence_sources", "trigger_signals", "supporting_reasons"):
         merged[key] = _stable_unique_strings([*existing.get(key, []), *candidate.get(key, [])])
+
+    existing_metadata = _as_dict(existing.get("metadata"))
+    candidate_metadata = _as_dict(candidate.get("metadata"))
+    existing_tier = _normalize_analysis_tier(existing_metadata.get("analysis_tier"))
+    candidate_tier = _normalize_analysis_tier(candidate_metadata.get("analysis_tier"))
+    merged["metadata"] = dict(dominant.get("metadata") or {})
+    merged["metadata"]["analysis_tier"] = (
+        candidate_tier
+        if ANALYSIS_TIER_SORT.get(candidate_tier, 0) > ANALYSIS_TIER_SORT.get(existing_tier, 0)
+        else existing_tier
+    )
+    merged["metadata"]["validation_state"] = (
+        "validated"
+        if "validated" in {
+            str(existing_metadata.get("validation_state") or "").strip().lower(),
+            str(candidate_metadata.get("validation_state") or "").strip().lower(),
+        }
+        else "not_validated"
+    )
 
     merged["family"] = str(merged.get("family") or existing.get("family") or candidate.get("family") or merged.get("id") or "")
     return merged
@@ -472,6 +519,122 @@ def _collect_port_surface(results: Dict[str, Any], port: str) -> Dict[str, Any]:
         evidence_sources.append("enum.http_methods")
 
     return _analyze_surface_inventory(port, endpoints, method_entries, evidence_sources)
+
+
+def _record_to_marker_set(item: Any) -> List[str]:
+    text = _safe_lower(item)
+    markers = set()
+
+    if "ssrf" in text:
+        markers.add("ssrf_surface")
+    if "169.254.169.254" in text or "metadata.google.internal" in text or "metadata service" in text:
+        markers.add("metadata_service")
+    if any(hint in text for hint in AUTH_HINTS) or "auth" in text or "login" in text:
+        markers.add("auth_surface")
+    if any(hint in text for hint in OAUTH_HINTS):
+        markers.add("oauth_surface")
+    if any(hint in text for hint in TOKEN_HINTS):
+        markers.add("token_surface")
+    if any(hint in text for hint in API_HINTS):
+        markers.add("api_surface")
+    if any(hint in text for hint in ADMIN_HINTS):
+        markers.add("admin_surface")
+    if any(param in text for param in OBJECT_REFERENCE_PARAMS):
+        markers.add("object_reference_surface")
+
+    return sorted(markers)
+
+
+def _iter_port_vuln_entries(results: Dict[str, Any], port: str) -> List[Tuple[str, Dict[str, Any]]]:
+    vuln = _as_dict(results.get("phases", {}).get("vuln"))
+    entries: List[Tuple[str, Dict[str, Any]]] = []
+
+    for module_name, payload in vuln.items():
+        module_entries: List[Dict[str, Any]] = []
+        if isinstance(payload, list):
+            module_entries = [item for item in payload if isinstance(item, dict)]
+        elif isinstance(payload, dict):
+            if isinstance(payload.get(str(port)), list):
+                module_entries = [item for item in payload.get(str(port), []) if isinstance(item, dict)]
+            elif isinstance(payload.get("findings"), list):
+                module_entries = [item for item in payload.get("findings", []) if isinstance(item, dict)]
+            elif isinstance(payload.get("vulns"), list):
+                module_entries = [item for item in payload.get("vulns", []) if isinstance(item, dict)]
+
+        for item in module_entries:
+            locator = (
+                item.get("url")
+                or item.get("endpoint")
+                or item.get("target")
+            )
+            if isinstance(locator, str) and locator.strip() and not _matches_port(locator, port):
+                continue
+            entries.append((str(module_name), item))
+
+    return entries
+
+
+def _collect_port_vuln_context(results: Dict[str, Any], port: str) -> Dict[str, Any]:
+    markers = set()
+    evidence_sources = set()
+
+    for module_name, item in _iter_port_vuln_entries(results, port):
+        evidence_sources.add(f"vuln.{module_name}")
+        markers.update(_record_to_marker_set(item))
+        if module_name.startswith("ssrf"):
+            markers.add("ssrf_surface")
+        if module_name == "cloud_metadata":
+            markers.update({"ssrf_surface", "metadata_service"})
+
+    return {
+        "markers": sorted(markers),
+        "evidence_sources": sorted(evidence_sources),
+    }
+
+
+def _validated_markers_from_findings(results: Dict[str, Any], port: str) -> List[str]:
+    findings = _as_list(results.get("findings"))
+    markers = set()
+
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        locator = item.get("endpoint") or item.get("target")
+        if isinstance(locator, str) and locator.strip() and not _matches_port(locator, port):
+            continue
+
+        metadata = _as_dict(item.get("metadata"))
+        validation = _as_dict(metadata.get("validation"))
+        validation_status = _safe_lower(validation.get("status") or item.get("validation_status"))
+        result_state = _safe_lower(item.get("result_state") or metadata.get("result_state"))
+        if validation_status != "success" and result_state not in {"validation", "confirmed"}:
+            continue
+
+        markers.update(_record_to_marker_set(item))
+
+    return sorted(markers)
+
+
+def _build_cortex_observability(
+    *,
+    max_suggestions: Optional[int],
+    max_suggestions_per_port: Optional[int],
+    raw_suggestions: Sequence[Dict[str, Any]],
+    deduped_suggestions: Sequence[Dict[str, Any]],
+    selected_suggestions: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        "max_suggestions": max_suggestions,
+        "max_suggestions_per_port": max_suggestions_per_port,
+        "raw_count": len(raw_suggestions),
+        "deduped_count": len(deduped_suggestions),
+        "budgeted_count": len(selected_suggestions),
+        "dropped_by_dedup": max(0, len(raw_suggestions) - len(deduped_suggestions)),
+        "dropped_by_budget": max(0, len(deduped_suggestions) - len(selected_suggestions)),
+        "selected_by_port": _stable_counter([item.get("port") for item in selected_suggestions], port_keys=True),
+        "selected_by_category": _stable_counter([item.get("category") for item in selected_suggestions]),
+        "selected_by_family": _stable_counter([item.get("family") for item in selected_suggestions]),
+    }
 
 
 def _core_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -711,7 +874,11 @@ def _stack_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any]]
             )
         )
 
-    if "eyj" in profile_text or "spa" in profile_text or "auth" in profile_text or "token_surface" in markers:
+    if (
+        "token_surface" in markers
+        or "eyj" in profile_text
+        or ("auth_surface" in markers and any(token in profile_text for token in TOKEN_HINTS))
+    ):
         suggestions.append(
             _build_suggestion(
                 suggestion_id=f"cortex-vuln-jwt-{port}",
@@ -726,6 +893,7 @@ def _stack_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any]]
                 trigger_signals=sorted({"token_surface"} if "token_surface" in markers else {"auth_profile"}),
                 estimated_cost="medium",
                 internal_priority=88,
+                analysis_tier="signal_supported_correlation" if "token_surface" in markers else "telemetry_correlation",
             )
         )
 
@@ -884,6 +1052,48 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
     markers = set(surface["markers"])
     evidence_sources = surface["evidence_sources"]
     trigger_signals = sorted(markers)
+    validated_markers = set(context.get("validated_markers", []))
+
+    def _analysis_tier(required_markers: Sequence[str]) -> str:
+        return "validated_signal" if set(required_markers).issubset(validated_markers) else "signal_supported_correlation"
+
+    if context["is_http"] and {"auth_surface", "token_surface"}.issubset(markers):
+        suggestions.append(
+            _build_suggestion(
+                suggestion_id=f"cortex-vuln-auth-token-{port}",
+                title=f"Validate Authenticated Token Replay Boundaries on port {port}",
+                reason="Authentication and token material were both observed on this surface. Prioritize replay scope, session fixation, and token audience validation with bounded requests.",
+                confidence=91,
+                port=port,
+                category="vuln",
+                family="auth_token_session_controls",
+                reason_tags=["auth_surface", "token_surface", "session_controls"],
+                evidence_sources=evidence_sources,
+                trigger_signals=[signal for signal in trigger_signals if signal in {"auth_surface", "token_surface", "api_surface"}],
+                estimated_cost="medium",
+                internal_priority=91,
+                analysis_tier=_analysis_tier(["auth_surface", "token_surface"]),
+            )
+        )
+
+    if {"ssrf_surface", "metadata_service"}.issubset(markers):
+        suggestions.append(
+            _build_suggestion(
+                suggestion_id=f"cortex-vuln-ssrf-metadata-{port}",
+                title=f"Validate SSRF-to-Metadata Controls on port {port}",
+                reason="SSRF telemetry is corroborated by metadata-service indicators on the same port. Use bounded metadata probes and compare responses against known canaries.",
+                confidence=94,
+                port=port,
+                category="vuln",
+                family="ssrf_metadata_controls",
+                reason_tags=["ssrf_surface", "metadata_service", "cloud_metadata"],
+                evidence_sources=evidence_sources,
+                trigger_signals=[signal for signal in trigger_signals if signal in {"ssrf_surface", "metadata_service", "token_surface"}],
+                estimated_cost="medium",
+                internal_priority=94,
+                analysis_tier=_analysis_tier(["ssrf_surface", "metadata_service"]),
+            )
+        )
 
     if context["is_http"] and {"api_surface", "auth_surface", "admin_surface"}.intersection(markers) and "object_reference_surface" in markers:
         suggestions.append(
@@ -900,6 +1110,7 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=[signal for signal in trigger_signals if signal in {"api_surface", "auth_surface", "admin_surface", "object_reference_surface"}],
                 estimated_cost="medium",
                 internal_priority=89,
+                analysis_tier=_analysis_tier(["api_surface", "object_reference_surface"]),
             )
         )
 
@@ -996,6 +1207,7 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=[signal for signal in trigger_signals if signal in {"oauth_surface", "auth_surface", "token_surface"}],
                 estimated_cost="medium",
                 internal_priority=92,
+                analysis_tier=_analysis_tier(["oauth_surface", "token_surface"]) if "token_surface" in markers else "telemetry_correlation",
             )
         )
 
@@ -1207,6 +1419,13 @@ def suggest_actions(
         port = str(port_info.get("port"))
         service = str(port_info.get("service", port_info.get("service_name", "")))
         script_results = _as_dict(port_info.get("script_results"))
+        surface = _collect_port_surface(results, port)
+        vuln_context = _collect_port_vuln_context(results, port)
+        combined_markers = sorted(set(surface.get("markers", [])).union(vuln_context.get("markers", [])))
+        combined_sources = _stable_unique_strings([
+            *surface.get("evidence_sources", []),
+            *vuln_context.get("evidence_sources", []),
+        ])
         context = {
             "results": results,
             "port": port,
@@ -1216,10 +1435,15 @@ def suggest_actions(
             "injection_points": _as_list(inj_map.get(port)),
             "profile_text": _profile_text(profile_map.get(port, {})),
             "katana_results": _as_list(katana_map.get(port)),
-            "surface": _collect_port_surface(results, port),
+            "surface": {
+                **surface,
+                "markers": combined_markers,
+                "evidence_sources": combined_sources,
+            },
             "service_tags": service_tags_by_port.get(port, []),
             "nse_findings": [str(item) for item in _as_list(port_info.get("nse_findings")) if str(item).strip()],
             "script_title": script_results.get("http-title") if isinstance(script_results.get("http-title"), str) else "",
+            "validated_markers": _validated_markers_from_findings(results, port),
         }
 
         raw_suggestions.extend(_core_port_recommendations(context))
@@ -1230,8 +1454,18 @@ def suggest_actions(
     raw_suggestions.extend(_global_recommendations(results))
 
     deduped = _dedupe_suggestions(raw_suggestions)
-    return _apply_budget(
+    selected = _apply_budget(
         deduped,
         max_suggestions=resolved_max_suggestions,
         max_suggestions_per_port=resolved_per_port_limit,
     )
+    if isinstance(results, dict):
+        derived = results.setdefault("phases", {}).setdefault("enum", {}).setdefault("derived", {})
+        derived["cortex_observability"] = _build_cortex_observability(
+            max_suggestions=resolved_max_suggestions,
+            max_suggestions_per_port=resolved_per_port_limit,
+            raw_suggestions=raw_suggestions,
+            deduped_suggestions=deduped,
+            selected_suggestions=selected,
+        )
+    return selected

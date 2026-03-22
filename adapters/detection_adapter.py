@@ -1,6 +1,7 @@
 import json
 import hashlib
 import logging
+import os
 import re
 
 from scan_engine.helpers.finding_schema import (
@@ -29,6 +30,11 @@ class DetectionAdapter:
 
     _RAW_JSON_CONTAINER_KEYS = ("findings", "vulns", "endpoints", "items")
     _OBSERVABILITY_KEYS = (
+        "findings_received",
+        "findings_rejected",
+        "findings_exposed",
+        "db_findings_received",
+        "json_findings_received",
         "phases_skipped_non_mapping",
         "tool_payloads_skipped_non_list",
         "json_items_skipped_empty_dict",
@@ -57,6 +63,28 @@ class DetectionAdapter:
     @staticmethod
     def _new_observability_stats():
         return {key: 0 for key in DetectionAdapter._OBSERVABILITY_KEYS}
+
+    @staticmethod
+    def _observability_debug_enabled():
+        env_value = str(os.getenv("REDOPS_FINDINGS_DEBUG", "")).strip().lower()
+        if env_value in {"1", "true", "yes", "on"}:
+            return True
+        return logger.isEnabledFor(logging.DEBUG)
+
+    @staticmethod
+    def _debug_observability_event(event, payload):
+        if not DetectionAdapter._observability_debug_enabled():
+            return
+        serialized = {
+            key: value
+            for key, value in (payload.items() if isinstance(payload, dict) else [])
+            if value not in (None, "", [], {})
+        }
+        logger.debug(
+            "DetectionAdapter %s: %s",
+            event,
+            json.dumps(serialized, sort_keys=True, default=str),
+        )
 
     @staticmethod
     def _log_observability_stats(stats):
@@ -115,6 +143,8 @@ class DetectionAdapter:
         tool_source,
         confidence="medium",
         _stats=None,
+        _source_kind="unknown",
+        _trace_context=None,
         **extra,
     ):
         # V12: Aggressive Global Cleaner for terminal noise (ffuf, etc.)
@@ -145,6 +175,8 @@ class DetectionAdapter:
 
         title = clean_terminal_noise(title) or ""
         description = clean_terminal_noise(description) or ""
+
+        trace_context = dict(_trace_context) if isinstance(_trace_context, dict) else {}
         
         # Clean extra fields
         for field in ["endpoint", "target", "parameter", "payload", "raw_output"]:
@@ -162,6 +194,18 @@ class DetectionAdapter:
         if not title:
             if isinstance(_stats, dict):
                 _stats["title_empty_skipped"] += 1
+                _stats["findings_rejected"] += 1
+            DetectionAdapter._debug_observability_event(
+                "finding_rejected",
+                {
+                    **trace_context,
+                    "reason": "missing_title_after_derivation",
+                    "tool_source": tool_source,
+                    "severity": severity,
+                    "endpoint": extra.get("endpoint", ""),
+                    "target": extra.get("target", ""),
+                },
+            )
             return
         
         clean_title = re.sub(
@@ -193,6 +237,17 @@ class DetectionAdapter:
             if isinstance(_stats, dict):
                 _stats["dedup_merged"] += 1
             existing = normalized[fid]
+            DetectionAdapter._debug_observability_event(
+                "finding_merged",
+                {
+                    **trace_context,
+                    "id_stable": fid,
+                    "tool_source": tool_source,
+                    "title": title or existing.get("title", ""),
+                    "endpoint": extra.get("endpoint", "") or existing.get("endpoint", ""),
+                    "parameter": extra.get("parameter", "") or existing.get("parameter", ""),
+                },
+            )
             merged_metadata = dict(existing.get("metadata") or {})
             incoming_metadata = (
                 extra.get("metadata", {})
@@ -746,6 +801,15 @@ class DetectionAdapter:
                 f"**Confidence**: {confidence}%  \n"
                 f"**Category**: `{category}`"
             )
+            metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
+            if item.get("family"):
+                metadata["family"] = item.get("family")
+            if isinstance(item.get("reason_tags"), list):
+                metadata["reason_tags"] = [str(tag) for tag in item.get("reason_tags") if str(tag).strip()]
+            if isinstance(item.get("trigger_signals"), list):
+                metadata["trigger_signals"] = [str(signal) for signal in item.get("trigger_signals") if str(signal).strip()]
+            if isinstance(item.get("evidence_sources"), list):
+                metadata["evidence_sources"] = [str(source) for source in item.get("evidence_sources") if str(source).strip()]
 
             fid = DetectionAdapter._make_id("cortex_rec", rec_id or title, port)
             DetectionAdapter._add(
@@ -759,6 +823,7 @@ class DetectionAdapter:
                 category="cortex_recommendation",
                 endpoint="",  # Never inject synthetic port: values
                 repro_command="",  # No repro command — these are suggestions, not proved findings
+                metadata=metadata,
             )
 
     @staticmethod
@@ -1189,6 +1254,8 @@ class DetectionAdapter:
 
         for f in db_findings:
             fid = f.id_stable or str(f.id)
+            stats["findings_received"] += 1
+            stats["db_findings_received"] += 1
 
             DetectionAdapter._add(
                 normalized,
@@ -1215,6 +1282,12 @@ class DetectionAdapter:
                 module=getattr(f, "module", f.tool_source),
                 metadata=getattr(f, "metadata_json", {}) or {},
                 _stats=stats,
+                _source_kind="db",
+                _trace_context={
+                    "source_kind": "db",
+                    "tool": getattr(f, "tool_source", ""),
+                    "finding_id": getattr(f, "id", None),
+                },
             )
 
         # -------------------------
@@ -1243,10 +1316,25 @@ class DetectionAdapter:
                         continue
                     if not DetectionAdapter._looks_like_finding_candidate(item):
                         continue
+                    stats["findings_received"] += 1
+                    stats["json_findings_received"] += 1
                     
                     # Basic validation: must have at least a title or a description/evidence to be a finding
                     if not item.get("title") and not item.get("description") and not item.get("evidence") and not item.get("raw_output"):
                         stats["json_items_skipped_without_content"] += 1
+                        stats["findings_rejected"] += 1
+                        DetectionAdapter._debug_observability_event(
+                            "finding_rejected",
+                            {
+                                "source_kind": "json",
+                                "phase": phase_name,
+                                "tool": tool,
+                                "reason": "missing_title_description_evidence_raw_output",
+                                "endpoint": item.get("endpoint", ""),
+                                "target": item.get("target", ""),
+                                "parameter": item.get("parameter", ""),
+                            },
+                        )
                         continue
 
                     fid = item.get("id_stable")
@@ -1296,6 +1384,12 @@ class DetectionAdapter:
                         screenshot_path=item.get("screenshot_path", ""),
                         metadata=item.get("metadata", {}),
                         _stats=stats,
+                        _source_kind="json",
+                        _trace_context={
+                            "source_kind": "json",
+                            "phase": phase_name,
+                            "tool": tool,
+                        },
                     )
 
         # -------------------------
@@ -1336,6 +1430,7 @@ class DetectionAdapter:
             DetectionAdapter._synth_dirbusting(phases["dirbusting"], normalized)
 
         findings = list(normalized.values())
+        stats["findings_exposed"] = len(findings)
         DetectionAdapter._log_observability_stats(stats)
         if return_stats:
             return findings, stats

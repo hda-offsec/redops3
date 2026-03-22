@@ -214,6 +214,14 @@ def run_scan_task(self, scan_id, target_identifier, scan_type):
                             updated = True
                     if updated:
                         db.session.commit()
+                    logger.debug(
+                        "finding_dedup_merged scan_id=%s id_stable=%s updated=%s title=%s tool_source=%s",
+                        scan_id,
+                        id_stable,
+                        updated,
+                        title,
+                        kwargs.get('tool_source', 'orchestrator'),
+                    )
                     return
 
                 # Resolve `url` kwarg: some scanners use `url` as their primary key
