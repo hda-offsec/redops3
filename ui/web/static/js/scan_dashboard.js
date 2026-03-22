@@ -142,6 +142,56 @@ const scanDashboardSocketEvents = [
     ['pipeline_event', 'handlePipelineEvent'],
 ];
 
+const scanDashboardLogStream = {
+    getLevelClass(level) {
+        if (level === 'SUCCESS') return 'text-success';
+        if (level === 'WARN') return 'text-warning';
+        if (level === 'ERROR') return 'text-danger';
+        return 'text-secondary';
+    },
+
+    appendLogEntry(documentRef, data) {
+        const consoleDiv = documentRef.querySelector(".log-console");
+        if (!consoleDiv) return false;
+
+        const legacyEmptyMsg = consoleDiv.querySelector(".text-muted");
+        if (legacyEmptyMsg && legacyEmptyMsg.innerText.includes("No logs")) legacyEmptyMsg.remove();
+
+        const newEmptyMsg = consoleDiv.querySelector("#timeline-empty-msg");
+        if (newEmptyMsg) newEmptyMsg.remove();
+
+        const div = documentRef.createElement("div");
+        div.className = "px-3 py-1 border-bottom border-dark hover-bg-dark animate__animated animate__fadeIn";
+        div.innerHTML = `<span class="text-secondary opacity-50">[${data.timestamp}]</span> <span class="${scanDashboardLogStream.getLevelClass(data.level)} fw-bold mx-2">[${data.level}]</span> <span class="text-light">${data.message}</span>`;
+        consoleDiv.appendChild(div);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        return true;
+    },
+
+    activateTriggeredDiscoveries(dashboard, data) {
+        Object.entries(dashboard.logTriggers || {}).forEach(([trigger, id]) => {
+            if (data.message.includes(trigger)) {
+                dashboard.activateDiscovery(id, data.level === 'SUCCESS');
+            }
+        });
+    },
+
+    syncScanFinishedState(documentRef, toggleScanToast) {
+        const sp = documentRef.querySelector('.status-pill');
+        if (sp) {
+            sp.innerText = 'finished';
+            sp.className = 'badge status-pill status-finished ms-2';
+        }
+
+        toggleScanToast(false);
+
+        documentRef.querySelectorAll('.discovery-btn').forEach(btn => {
+            btn.classList.remove('active');
+            btn.classList.add('discovered');
+        });
+    }
+};
+
 const scanDashboardModuleStatus = {
     getStatusBadge(status) {
         const normalizedStatus = String(status || '').toLowerCase();
@@ -272,6 +322,45 @@ const scanDashboardIndicators = {
         scanDashboardIndicators.getMatchedKeys(data).forEach((key) => {
             scanDashboardIndicators.updateIndicatorCard(documentRef.querySelector(`.vuln-indicator-${key}`));
         });
+    }
+};
+
+const scanDashboardLootStream = {
+    formatTimestamp(now = new Date()) {
+        return now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+    },
+
+    incrementCounters(documentRef) {
+        documentRef.querySelectorAll('.loot-counter-val').forEach(counter => {
+            let current = parseInt(counter.innerText) || 0;
+            counter.innerText = current + 1;
+            counter.classList.add('animate__animated', 'animate__bounceIn', 'text-success');
+            setTimeout(() => counter.classList.remove('animate__animated', 'animate__bounceIn'), 1000);
+        });
+    },
+
+    ensureVaultList(documentRef) {
+        return documentRef.querySelector("#loot-vault-container .list-group");
+    },
+
+    appendVaultEntry(documentRef, vault, data, escapeHtml, timeText) {
+        if (!vault) return false;
+
+        const empty = vault.querySelector(".text-center");
+        if (empty) empty.remove();
+
+        const div = documentRef.createElement("div");
+        div.className = "list-group-item bg-transparent border-secondary border-opacity-25 py-2 px-3 animate__animated animate__fadeInDown";
+        div.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="badge bg-black border border-success text-success x-small text-uppercase">${escapeHtml(data.type)}</span>
+                <span class="x-small text-muted font-monospace">${timeText}</span>
+            </div>
+            <div class="mt-1 small font-monospace text-light text-break">${escapeHtml(data.content)}</div>
+            ${data.context ? `<div class="x-small text-muted mt-1 italic"><i class="fas fa-info-circle me-1"></i>${escapeHtml(data.context)}</div>` : ''}
+        `;
+        vault.prepend(div);
+        return true;
     }
 };
 
@@ -640,42 +729,13 @@ class ScanDashboard {
     handleNewLog(data) {
         if (data.scan_id != this.scanId) return;
 
-        const consoleDiv = document.querySelector(".log-console");
-        if (consoleDiv) {
-            const legacyEmptyMsg = consoleDiv.querySelector(".text-muted");
-            if (legacyEmptyMsg && legacyEmptyMsg.innerText.includes("No logs")) legacyEmptyMsg.remove();
-            const newEmptyMsg = consoleDiv.querySelector("#timeline-empty-msg");
-            if (newEmptyMsg) newEmptyMsg.remove();
-
-            const div = document.createElement("div");
-            div.className = "px-3 py-1 border-bottom border-dark hover-bg-dark animate__animated animate__fadeIn";
-            const levelClass = data.level === 'SUCCESS' ? 'text-success' : (data.level === 'WARN' ? 'text-warning' : (data.level === 'ERROR' ? 'text-danger' : 'text-secondary'));
-            div.innerHTML = `<span class="text-secondary opacity-50">[${data.timestamp}]</span> <span class="${levelClass} fw-bold mx-2">[${data.level}]</span> <span class="text-light">${data.message}</span>`;
-            consoleDiv.appendChild(div);
-            consoleDiv.scrollTop = consoleDiv.scrollHeight;
-        }
+        scanDashboardLogStream.appendLogEntry(document, data);
 
         this.highlightPTES(data.message);
-
-        for (const [trigger, id] of Object.entries(this.logTriggers)) {
-            if (data.message.includes(trigger)) {
-                this.activateDiscovery(id, data.level === 'SUCCESS');
-            }
-        }
+        scanDashboardLogStream.activateTriggeredDiscoveries(this, data);
 
         if (data.message.includes("Scan finished")) {
-            const sp = document.querySelector('.status-pill');
-            if (sp) {
-                sp.innerText = 'finished';
-                sp.className = 'badge status-pill status-finished ms-2';
-            }
-            this.toggleScanToast(false);
-
-            // Mark all buttons as 'discovered' (blue) when the scan is completely finished
-            document.querySelectorAll('.discovery-btn').forEach(btn => {
-                btn.classList.remove('active');
-                btn.classList.add('discovered');
-            });
+            scanDashboardLogStream.syncScanFinishedState(document, (show) => this.toggleScanToast(show));
         }
     }
 
@@ -928,34 +988,14 @@ class ScanDashboard {
     handleNewLoot(data) {
         if (data.scan_id != this.scanId) return;
         this.activateDiscovery('loot', true);
-
-        document.querySelectorAll('.loot-counter-val').forEach(counter => {
-            let current = parseInt(counter.innerText) || 0;
-            counter.innerText = current + 1;
-            counter.classList.add('animate__animated', 'animate__bounceIn', 'text-success');
-            setTimeout(() => counter.classList.remove('animate__animated', 'animate__bounceIn'), 1000);
-        });
-
-        const vault = document.querySelector("#loot-vault-container .list-group");
-        if (vault) {
-            const empty = vault.querySelector(".text-center");
-            if (empty) empty.remove();
-
-            const now = new Date();
-            const time = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-
-            const div = document.createElement("div");
-            div.className = "list-group-item bg-transparent border-secondary border-opacity-25 py-2 px-3 animate__animated animate__fadeInDown";
-            div.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <span class="badge bg-black border border-success text-success x-small text-uppercase">${this.escapeHtml(data.type)}</span>
-                    <span class="x-small text-muted font-monospace">${time}</span>
-                </div>
-                <div class="mt-1 small font-monospace text-light text-break">${this.escapeHtml(data.content)}</div>
-                ${data.context ? `<div class="x-small text-muted mt-1 italic"><i class="fas fa-info-circle me-1"></i>${this.escapeHtml(data.context)}</div>` : ''}
-            `;
-            vault.prepend(div);
-        }
+        scanDashboardLootStream.incrementCounters(document);
+        scanDashboardLootStream.appendVaultEntry(
+            document,
+            scanDashboardLootStream.ensureVaultList(document),
+            data,
+            (value) => this.escapeHtml(value),
+            scanDashboardLootStream.formatTimestamp()
+        );
     }
 
     handleProgressUpdate(data) {
@@ -2424,10 +2464,12 @@ ScanDashboard.internals = {
     findingsLoader: scanDashboardFindingsLoader,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
+    logStream: scanDashboardLogStream,
     moduleStatus: scanDashboardModuleStatus,
     pipelineTimeline: scanDashboardPipelineTimeline,
     indicators: scanDashboardIndicators,
     progressView: scanDashboardProgressView,
+    lootStream: scanDashboardLootStream,
 };
 
 window.applyTacticalFilter = function (targetTab, filterValue) {
