@@ -3,6 +3,145 @@
  * Handles real-time updates via Socket.IO and UI state management.
  */
 
+const scanDashboardFindingsLoader = {
+    resetRenderedFindings(dashboard) {
+        const tableBody = document.getElementById("findings-table-body");
+        if (tableBody) tableBody.innerHTML = "";
+
+        const container = document.getElementById("findings-container");
+        if (container) {
+            const list = container.querySelector(".result-list");
+            if (list) list.innerHTML = "";
+        }
+
+        dashboard.renderedFindingIds.clear();
+    },
+
+    async fetchAllPages(dashboard, limit, offset) {
+        let currentOffset = offset;
+        let total = 0;
+        const allItems = [];
+
+        while (true) {
+            const response = await fetch(`/api/scans/${dashboard.scanId}/findings?limit=${limit}&offset=${currentOffset}`);
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+            const data = await response.json();
+            const pageItems = Array.isArray(data.items) ? data.items : [];
+
+            total = Number.isFinite(data.total) ? data.total : allItems.length + pageItems.length;
+            allItems.push(...pageItems);
+            ScanDashboard.prototype.updateFindingsLoadState.call(
+                dashboard,
+                allItems.length,
+                total,
+                currentOffset + pageItems.length >= total ? "ready" : "loading"
+            );
+
+            if (pageItems.length === 0) break;
+
+            currentOffset += pageItems.length;
+            if (currentOffset >= total) break;
+            if (pageItems.length < limit) break;
+        }
+
+        return { items: allItems, total };
+    },
+
+    replayPersistedFindings(dashboard, items) {
+        [...items].reverse().forEach(item => {
+            dashboard.handleNewFinding({
+                scan_id: dashboard.scanId,
+                ...item
+            });
+        });
+    }
+};
+
+const scanDashboardAuditJourney = {
+    countEnumeratedEndpoints(phases) {
+        const katana = (phases?.enum?.katana && typeof phases.enum.katana === 'object') ? phases.enum.katana : {};
+        const api = (phases?.enum?.api && typeof phases.enum.api === 'object') ? phases.enum.api : {};
+        let enumEndpointCount = 0;
+
+        Object.values(katana).forEach(urls => {
+            if (Array.isArray(urls)) enumEndpointCount += urls.length;
+        });
+
+        if (Array.isArray(api.endpoints)) enumEndpointCount += api.endpoints.length;
+        if (Array.isArray(api.discovered_endpoints)) enumEndpointCount += api.discovered_endpoints.length;
+        return enumEndpointCount;
+    },
+
+    summarizeFindings(dashboard, findings) {
+        return findings.reduce((summary, finding) => {
+            const state = dashboard.getFindingResultState(finding);
+            const validationStatus = String(dashboard.getFindingValidationStatus(finding) || '').toLowerCase();
+            const severity = String(finding?.severity || 'info').toLowerCase();
+            const isHigh = severity === 'critical' || severity === 'high';
+            const command = dashboard.getFindingPrimaryCommand(finding);
+            const hasProof = dashboard.hasMeaningfulProof(finding);
+
+            if (validationStatus === 'success' || ['validation', 'confirmed'].includes(state)) {
+                summary.validated += 1;
+            }
+            if (String(finding?.category || '').toLowerCase() === 'attack_chain') {
+                summary.correlated += 1;
+            }
+            if (finding?.chain_metadata && (finding.chain_metadata.related_findings || finding.chain_metadata.attack_path_summary)) {
+                summary.correlated += 1;
+            }
+            if (isHigh && !hasProof) {
+                summary.missingProof += 1;
+            }
+            if (isHigh && !dashboard.isMeaningfulValue(command)) {
+                summary.missingCommand += 1;
+            }
+            return summary;
+        }, {
+            validated: 0,
+            correlated: 0,
+            missingProof: 0,
+            missingCommand: 0,
+        });
+    },
+
+    deriveStageMap({ scopeReady, reconReady, enumReady, detectionReady, validationReady, correlationReady, reportingReady, closureReady, progressPhase, status }) {
+        const validationVisualInProgress = status === 'completed' && detectionReady && !validationReady;
+        const correlationVisualInProgress = status === 'completed' && detectionReady && !correlationReady;
+
+        return {
+            cadrage: scopeReady ? 'done' : 'pending',
+            recon: reconReady ? 'done' : (progressPhase.includes('recon') ? 'in-progress' : 'pending'),
+            enum: enumReady ? 'done' : (progressPhase.includes('enum') ? 'in-progress' : 'pending'),
+            detection: detectionReady ? 'done' : (progressPhase.includes('vuln') ? 'in-progress' : 'pending'),
+            validation: validationReady ? 'done' : ((validationVisualInProgress || progressPhase.includes('validation')) ? 'in-progress' : 'pending'),
+            correlation: correlationReady ? 'done' : ((correlationVisualInProgress || progressPhase.includes('correlation')) ? 'in-progress' : 'pending'),
+            reporting: reportingReady ? 'done' : (progressPhase.includes('report') ? 'in-progress' : 'pending'),
+            closure: closureReady ? 'done' : (status === 'completed' ? 'in-progress' : 'pending')
+        };
+    },
+
+    updateGateText(node, value, isAlert) {
+        if (!node) return;
+        node.innerText = String(value);
+        if (typeof isAlert === 'boolean') {
+            node.classList.toggle('text-danger', isAlert);
+            node.classList.toggle('text-success', !isAlert);
+        }
+    }
+};
+
+const scanDashboardSocketEvents = [
+    ['new_log', 'handleNewLog'],
+    ['new_finding', 'handleNewFinding'],
+    ['new_suggestion', 'handleNewSuggestion'],
+    ['new_loot', 'handleNewLoot'],
+    ['progress_update', 'handleProgressUpdate'],
+    ['module_status', 'handleModuleStatus'],
+    ['pipeline_event', 'handlePipelineEvent'],
+];
+
 class ScanDashboard {
     constructor(scanId, targetIdentifier) {
         this.scanId = scanId;
@@ -56,55 +195,18 @@ class ScanDashboard {
     async loadFindingsFromApi(options = {}) {
         const { reset = false, limit = 200, offset = 0 } = options;
         if (reset) {
-            const tableBody = document.getElementById("findings-table-body");
-            if (tableBody) tableBody.innerHTML = "";
-            const container = document.getElementById("findings-container");
-            if (container) {
-                const list = container.querySelector(".result-list");
-                if (list) list.innerHTML = "";
-            }
-            this.renderedFindingIds.clear();
+            scanDashboardFindingsLoader.resetRenderedFindings(this);
         }
 
         try {
             ScanDashboard.prototype.updateFindingsLoadState.call(this, 0, 0, "loading");
-            let currentOffset = offset;
-            let total = 0;
-            const allItems = [];
-
-            while (true) {
-                const response = await fetch(`/api/scans/${this.scanId}/findings?limit=${limit}&offset=${currentOffset}`);
-                if (!response.ok) throw new Error(`API Error: ${response.status}`);
-                const data = await response.json();
-                const pageItems = Array.isArray(data.items) ? data.items : [];
-
-                total = Number.isFinite(data.total) ? data.total : allItems.length + pageItems.length;
-                allItems.push(...pageItems);
-                ScanDashboard.prototype.updateFindingsLoadState.call(
-                    this,
-                    allItems.length,
-                    total,
-                    currentOffset + pageItems.length >= total ? "ready" : "loading"
-                );
-
-                if (pageItems.length === 0) break;
-
-                currentOffset += pageItems.length;
-                if (currentOffset >= total) break;
-                if (pageItems.length < limit) break;
-            }
+            const { items, total } = await scanDashboardFindingsLoader.fetchAllPages(this, limit, offset);
 
             // The API is newest-first. We replay the full batch oldest-first so
             // the existing prepend logic still yields a stable newest-first UI.
-            const items = [...allItems].reverse();
-            items.forEach(item => {
-                this.handleNewFinding({
-                    scan_id: this.scanId,
-                    ...item
-                });
-            });
+            scanDashboardFindingsLoader.replayPersistedFindings(this, items);
 
-            console.log(`Loaded ${allItems.length}/${total} findings from DB.`);
+            console.log(`Loaded ${items.length}/${total} findings from DB.`);
         } catch (err) {
             ScanDashboard.prototype.updateFindingsLoadState.call(this, 0, 0, "error");
             console.error("Failed to load findings from API:", err);
@@ -275,16 +377,14 @@ class ScanDashboard {
             }
         });
 
-        this.socket.on("new_log", (data) => this.handleNewLog(data));
         this.socket.on("results_update", (msg) => {
             if (msg.scan_id == this.scanId) this.updateUI(msg.results);
         });
-        this.socket.on("new_finding", (data) => this.handleNewFinding(data));
-        this.socket.on("new_suggestion", (data) => this.handleNewSuggestion(data));
-        this.socket.on("new_loot", (data) => this.handleNewLoot(data));
-        this.socket.on("progress_update", (data) => this.handleProgressUpdate(data));
-        this.socket.on("module_status", (data) => this.handleModuleStatus(data));
-        this.socket.on("pipeline_event", (data) => this.handlePipelineEvent(data));
+
+        scanDashboardSocketEvents.forEach(([eventName, handlerName]) => {
+            this.socket.on(eventName, (data) => this[handlerName](data));
+        });
+
         this.socket.on("graph_updated", (data) => {
             if (data.scan_id != this.scanId) return;
             if (typeof initGraphData === 'function') {
@@ -912,72 +1012,42 @@ class ScanDashboard {
         const progressPhase = String(results?.progress?.current_phase || '').toLowerCase();
         const status = String(results?.status || '').toLowerCase();
         const target = String(results?.target || this.targetIdentifier || '');
-
         const reconPorts = Array.isArray(phases?.recon?.open_ports) ? phases.recon.open_ports : [];
         const dnsSubs = Array.isArray(phases?.dns?.subdomains) ? phases.dns.subdomains : [];
-        const katana = (phases?.enum?.katana && typeof phases.enum.katana === 'object') ? phases.enum.katana : {};
-        const api = (phases?.enum?.api && typeof phases.enum.api === 'object') ? phases.enum.api : {};
         const attackPlan = Array.isArray(results?.attack_plan) ? results.attack_plan : [];
-
-        let enumEndpointCount = 0;
-        Object.values(katana).forEach(urls => {
-            if (Array.isArray(urls)) enumEndpointCount += urls.length;
-        });
-        if (Array.isArray(api.endpoints)) enumEndpointCount += api.endpoints.length;
-        if (Array.isArray(api.discovered_endpoints)) enumEndpointCount += api.discovered_endpoints.length;
-
-        let validated = 0;
-        let correlated = 0;
-        let missingProof = 0;
-        let missingCommand = 0;
-
-        findings.forEach(f => {
-            const state = this.getFindingResultState(f);
-            const validationStatus = String(this.getFindingValidationStatus(f) || '').toLowerCase();
-            const severity = String(f?.severity || 'info').toLowerCase();
-            const isHigh = severity === 'critical' || severity === 'high';
-            const command = this.getFindingPrimaryCommand(f);
-            const hasProof = this.hasMeaningfulProof(f);
-
-            if (validationStatus === 'success' || ['validation', 'confirmed'].includes(state)) validated += 1;
-            if (String(f?.category || '').toLowerCase() === 'attack_chain') correlated += 1;
-            if (f?.chain_metadata && (f.chain_metadata.related_findings || f.chain_metadata.attack_path_summary)) correlated += 1;
-            if (isHigh && !hasProof) missingProof += 1;
-            if (isHigh && !this.isMeaningfulValue(command)) missingCommand += 1;
-        });
+        const enumEndpointCount = scanDashboardAuditJourney.countEnumeratedEndpoints(phases);
+        const findingSummary = scanDashboardAuditJourney.summarizeFindings(this, findings);
 
         const scopeReady = target.length > 0;
         const reconReady = reconPorts.length > 0 || dnsSubs.length > 0;
         const enumReady = enumEndpointCount > 0;
         const detectionReady = findings.length > 0;
-        const validationReady = validated > 0;
-        const correlationReady = correlated > 0 || attackPlan.length > 0;
+        const validationReady = findingSummary.validated > 0;
+        const correlationReady = findingSummary.correlated > 0 || attackPlan.length > 0;
         // Keep the readiness booleans strict. Completed scans with detections can
         // show an in-progress visual tone without being marked as truly validated
         // or correlated.
-        const validationVisualInProgress = status === 'completed' && detectionReady && !validationReady;
-        const correlationVisualInProgress = status === 'completed' && detectionReady && !correlationReady;
         const reportingReady = status === 'completed' && detectionReady;
-        const closureReady = status === 'completed' && missingProof === 0 && missingCommand === 0;
-
-        const stageMap = {
-            cadrage: scopeReady ? 'done' : 'pending',
-            recon: reconReady ? 'done' : (progressPhase.includes('recon') ? 'in-progress' : 'pending'),
-            enum: enumReady ? 'done' : (progressPhase.includes('enum') ? 'in-progress' : 'pending'),
-            detection: detectionReady ? 'done' : (progressPhase.includes('vuln') ? 'in-progress' : 'pending'),
-            validation: validationReady ? 'done' : ((validationVisualInProgress || progressPhase.includes('validation')) ? 'in-progress' : 'pending'),
-            correlation: correlationReady ? 'done' : ((correlationVisualInProgress || progressPhase.includes('correlation')) ? 'in-progress' : 'pending'),
-            reporting: reportingReady ? 'done' : (progressPhase.includes('report') ? 'in-progress' : 'pending'),
-            closure: closureReady ? 'done' : (status === 'completed' ? 'in-progress' : 'pending')
-        };
+        const closureReady = status === 'completed' && findingSummary.missingProof === 0 && findingSummary.missingCommand === 0;
 
         return {
-            stageMap,
+            stageMap: scanDashboardAuditJourney.deriveStageMap({
+                scopeReady,
+                reconReady,
+                enumReady,
+                detectionReady,
+                validationReady,
+                correlationReady,
+                reportingReady,
+                closureReady,
+                progressPhase,
+                status,
+            }),
             gates: {
                 total: findings.length,
-                validated,
-                missingProof,
-                missingCommand
+                validated: findingSummary.validated,
+                missingProof: findingSummary.missingProof,
+                missingCommand: findingSummary.missingCommand
             }
         };
     }
@@ -993,23 +1063,18 @@ class ScanDashboard {
         const summary = this.deriveAuditJourney(results || {});
         Object.entries(summary.stageMap).forEach(([stage, state]) => this.setAuditStageState(stage, state));
 
-        const gateTotal = document.getElementById('audit-gate-total');
-        const gateValidated = document.getElementById('audit-gate-validated');
-        const gateMissingProof = document.getElementById('audit-gate-missing-proof');
-        const gateMissingCommand = document.getElementById('audit-gate-missing-command');
-
-        if (gateTotal) gateTotal.innerText = String(summary.gates.total);
-        if (gateValidated) gateValidated.innerText = String(summary.gates.validated);
-        if (gateMissingProof) {
-            gateMissingProof.innerText = String(summary.gates.missingProof);
-            gateMissingProof.classList.toggle('text-danger', summary.gates.missingProof > 0);
-            gateMissingProof.classList.toggle('text-success', summary.gates.missingProof === 0);
-        }
-        if (gateMissingCommand) {
-            gateMissingCommand.innerText = String(summary.gates.missingCommand);
-            gateMissingCommand.classList.toggle('text-danger', summary.gates.missingCommand > 0);
-            gateMissingCommand.classList.toggle('text-success', summary.gates.missingCommand === 0);
-        }
+        scanDashboardAuditJourney.updateGateText(document.getElementById('audit-gate-total'), summary.gates.total);
+        scanDashboardAuditJourney.updateGateText(document.getElementById('audit-gate-validated'), summary.gates.validated);
+        scanDashboardAuditJourney.updateGateText(
+            document.getElementById('audit-gate-missing-proof'),
+            summary.gates.missingProof,
+            summary.gates.missingProof > 0
+        );
+        scanDashboardAuditJourney.updateGateText(
+            document.getElementById('audit-gate-missing-command'),
+            summary.gates.missingCommand,
+            summary.gates.missingCommand > 0
+        );
     }
 
     filterFindings() {
@@ -2269,6 +2334,12 @@ class ScanDashboard {
 }
 
 // Global Routing & Filtering Helper
+ScanDashboard.internals = {
+    findingsLoader: scanDashboardFindingsLoader,
+    auditJourney: scanDashboardAuditJourney,
+    socketEvents: scanDashboardSocketEvents,
+};
+
 window.applyTacticalFilter = function (targetTab, filterValue) {
     const tabMap = {
         mission: 'mission-tab',
