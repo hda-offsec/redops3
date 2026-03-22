@@ -10,6 +10,55 @@ from scan_engine.helpers.http_client import get_session
 
 
 LOGGER = logging.getLogger(__name__)
+OBJECT_REFERENCE_PARAMS = {"id", "user_id", "account_id", "order_id", "owner_id", "tenant_id", "uuid"}
+URL_REFERENCE_PAYLOADS = [
+    "1",
+    "2",
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002",
+]
+
+
+def _normalize_text_fingerprint(value):
+    normalized = str(value or "").strip().lower()
+    normalized = re.sub(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", "<uuid>", normalized)
+    normalized = re.sub(r"\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", "<email>", normalized)
+    normalized = re.sub(r"\b[0-9a-f]{8,}\b", "<hex>", normalized)
+    normalized = re.sub(r"\b\d+\b", "<num>", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
+
+
+def _normalize_json_value(value):
+    if isinstance(value, dict):
+        return {str(key): _normalize_json_value(value[key]) for key in sorted(value.keys(), key=str)}
+    if isinstance(value, list):
+        return [_normalize_json_value(item) for item in value]
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return "<num>"
+    return _normalize_text_fingerprint(value)
+
+
+def _response_fingerprint(response_body, status_code):
+    raw = str(response_body or "").strip()
+    try:
+        normalized = json.dumps(_normalize_json_value(json.loads(raw)), sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        normalized = _normalize_text_fingerprint(raw)
+    return status_code, normalized[:400]
+
+
+def _extract_body_object_ids(body):
+    matches = set()
+    for key in ["id", "user_id", "account_id", "order_id", "owner_id", "tenant_id", "uuid"]:
+        pattern = rf'"{re.escape(key)}"\s*:\s*"?(?P<value>[A-Za-z0-9_-]{{1,64}})"?'
+        for match in re.finditer(pattern, str(body or ""), flags=re.IGNORECASE):
+            value = match.group("value").strip()
+            if value:
+                matches.add(value.lower())
+    return matches
 
 
 def _emit_engine_error(logger, stage, endpoint, exc, **context):
@@ -226,7 +275,7 @@ class APIIntelligenceEngine:
             return []
 
         checks = {
-            "idor": ["1", "2"],
+            "idor": URL_REFERENCE_PAYLOADS,
             "ssrf": ["http://127.0.0.1", "http://localhost"],
             "command_injection": ["test;id", "test&&whoami"],
             "sqli": ["1' OR '1'='1", "1 UNION SELECT NULL"],
@@ -268,30 +317,25 @@ class APIIntelligenceEngine:
                             body_low = body.lower()
                             is_hit = False
                             evidence = ""
+                            differential_reasons = []
+                            baseline_ids = set()
+                            candidate_ids = set()
                             
                             # V12: Hardened Signal Detection
-                            if test_type == "idor" and resp.status_code == 200 and param.lower() == "id":
+                            if test_type == "idor" and resp.status_code == 200 and param.lower() in OBJECT_REFERENCE_PARAMS:
                                 if not baseline_fetch_attempted and used < max_requests:
                                     baseline_fetch_attempted = True
                                     used += 1
                                     try:
                                         baseline_resp = session.get(endpoint, timeout=timeout, allow_redirects=False)
                                         baseline_body = (baseline_resp.text or "")[:1200]
-                                        baseline_sig = (
-                                            baseline_resp.status_code,
-                                            re.sub(r"\b\d+\b", "<num>", baseline_body.lower())[:400],
-                                        )
+                                        baseline_sig = _response_fingerprint(baseline_body, baseline_resp.status_code)
                                     except RequestException as exc:
                                         _emit_engine_error(logger, "api_fuzz_idor_baseline", endpoint, exc, inventory_endpoint=endpoint)
 
-                                candidate_sig = (
-                                    resp.status_code,
-                                    re.sub(r"\b\d+\b", "<num>", body_low)[:400],
-                                )
-                                candidate_ids = set(re.findall(r'(?:"(?:id|user_id|account_id|order_id)"\s*:\s*"?(\d+)"?)', body, flags=re.IGNORECASE))
-                                baseline_ids = set(re.findall(r'(?:"(?:id|user_id|account_id|order_id)"\s*:\s*"?(\d+)"?)', baseline_body, flags=re.IGNORECASE))
-                                differential_reasons = []
-
+                                candidate_sig = _response_fingerprint(body, resp.status_code)
+                                candidate_ids = _extract_body_object_ids(body)
+                                baseline_ids = _extract_body_object_ids(baseline_body)
                                 if baseline_resp is None:
                                     differential_reasons.append("missing_baseline")
                                 else:
@@ -353,6 +397,10 @@ class APIIntelligenceEngine:
                                 "metadata": {
                                     "status_code": resp.status_code,
                                     "test_type": test_type,
+                                    "differential_reasons": sorted(differential_reasons),
+                                    "baseline_status": getattr(baseline_resp, "status_code", None),
+                                    "baseline_object_ids": sorted(baseline_ids),
+                                    "candidate_object_ids": sorted(candidate_ids),
                                     "request_budget_used": used,
                                 },
                             })

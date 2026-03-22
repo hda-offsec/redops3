@@ -121,6 +121,39 @@ class DecisionCortexTests(unittest.TestCase):
 
         self.assertEqual(suggestions, [])
 
+    def test_http_without_supporting_markers_reduces_generic_noise(self):
+        results = _base_results([{"port": 443, "service": "https"}])
+
+        suggestions = suggest_actions(results)
+
+        self.assertEqual(suggestions, [])
+
+    def test_http_injection_points_waf_title_spa_and_graphql_emit_supported_suggestions(self):
+        results = _base_results([{"port": 443, "service": "https"}])
+        results["phases"]["enum"]["targets"]["443"] = [
+            "https://example.org/graphql",
+        ]
+        results["phases"]["enum"]["injection_points"]["443"] = ["https://example.org/search?q=test"]
+        results["phases"]["enum"]["waf"]["443"] = {"has_waf": True, "waf_name": "Cloudflare"}
+        results["phases"]["enum"]["attack_profile"]["443"] = {
+            "stack": ["spa", "react"],
+            "risk_vectors": ["api"],
+        }
+        results["phases"]["recon"]["open_ports"][0]["script_results"] = {"http-title": "Admin Console Login"}
+
+        suggestions = suggest_actions(results, max_suggestions=12, max_suggestions_per_port=12)
+        families = [item["family"] for item in suggestions]
+
+        self.assertIn("parameter_surface_followup", families)
+        self.assertIn("ssti_probe", families)
+        self.assertIn("waf_strategy", families)
+        self.assertIn("auth_focus", families)
+        self.assertIn("js_mining", families)
+        self.assertIn("graphql_probe", families)
+        self.assertNotIn("http_smuggling", families)
+        self.assertNotIn("vhost_bruteforce", families)
+        self.assertNotIn("waf_fingerprint", families)
+
     def test_suggest_actions_keeps_dedup_budget_order_and_observability_stable(self):
         results = _base_results(
             [
