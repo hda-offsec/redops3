@@ -491,7 +491,8 @@ test("cortexView renders recommendations, surface expansion, service intelligenc
     assert.equal(headerBadges.children.length, 1);
     assert.match(headerBadges.children[0].innerHTML, /JS EXPERT ACTIVE/);
     assert.match(nodes['cortex-recs-container'].innerHTML, /Pivot to admin API/);
-    assert.match(nodes['cortex-recs-container'].innerHTML, /CONF: 91%/);
+    assert.match(nodes['cortex-recs-container'].innerHTML, /SIGNAL: 91%/);
+    assert.match(nodes['cortex-recs-container'].innerHTML, /RECOMMENDATION/);
     assert.match(nodes['cortex-recs-container'].innerHTML, /PORT: 8443/);
     assert.match(nodes['surface-expansion-container'].innerHTML, /Heuristic Search Surfaces/);
     assert.match(nodes['surface-expansion-container'].innerHTML, /api guess/);

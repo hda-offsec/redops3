@@ -27,7 +27,7 @@
         id="graph-warning" role="alert">
         <i class="fas fa-exclamation-triangle text-warning me-3 ms-2 fa-lg"></i>
         <div class="x-small text-muted">
-            <strong class="text-warning">Partial graph:</strong> DB schema relationships not explicitly persisted. Using inferred links.
+            <strong class="text-warning">Interpretation guardrail:</strong> graph edges may represent observations or correlations unless a node is explicitly marked confirmed vulnerability.
         </div>
     </div>
 </div>
@@ -163,6 +163,21 @@
             color = { background: colorMap[sev] || '#95a5a6', border: '#000' };
             font = { color: '#000', bold: true };
             label = `🚨\n${label}`;
+        } else if (type === 'suspicion' || type === 'attack_hypothesis') {
+            shape = 'box';
+            color = { background: '#5c6370', border: '#d6a645' };
+            font = { color: '#fff', bold: true };
+            label = `🧭\n${label}`;
+        } else if (type === 'recommendation') {
+            shape = 'box';
+            color = { background: '#1f3b5b', border: '#7fb3ff' };
+            font = { color: '#fff', bold: true };
+            label = `📋\n${label}`;
+        } else if (type === 'observation') {
+            shape = 'box';
+            color = { background: '#1f1f1f', border: '#6c757d' };
+            font = { color: '#ddd' };
+            label = `👁️\n${label}`;
         } else if (type === 'target' || type === 'seed') {
             shape = 'star';
             color = { background: '#f1c40f', border: '#000' };

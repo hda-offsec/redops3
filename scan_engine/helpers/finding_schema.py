@@ -94,6 +94,16 @@ VALIDATION_STATUS_MAP = {
 }
 
 INVALID_TEXT_MARKERS = {"", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"}
+GENERIC_TITLES = {"", "finding", "untitled finding", "unknown finding", "candidate finding"}
+RECOMMENDATION_CATEGORIES = {"attack_plan", "next_step", "mission_prep", "objective_path"}
+SUSPICION_RESULT_STATES = {"heuristic", "correlation", "validation"}
+CONFIRMED_RESULT_STATES = {"confirmed"}
+VISIBLE_TRUTH_VALUES = (
+    "observation",
+    "suspicion",
+    "recommendation",
+    "confirmed_vulnerability",
+)
 
 
 def _clean_text(value):
@@ -138,6 +148,290 @@ def _has_meaningful_artifact(value):
     if text_value in {"{}", "[]", '""'}:
         return False
     return True
+
+
+def _safe_lower(value):
+    return _clean_text(value).lower()
+
+
+def _looks_like_real_command(value):
+    command = _clean_text(value)
+    if not command:
+        return False
+    lowered = command.lower()
+    if lowered in INVALID_TEXT_MARKERS:
+        return False
+    first_line = next((line.strip() for line in command.splitlines() if line.strip()), "")
+    if not first_line:
+        return False
+    for prompt in ("$ ", "# ", "> "):
+        if first_line.startswith(prompt):
+            first_line = first_line[len(prompt):].lstrip()
+            break
+    if not first_line:
+        return False
+    token = first_line.split()[0].lower()
+    if token in {
+        "aws", "bash", "burp", "curl", "dalfox", "dirsearch", "docker", "ffuf",
+        "gobuster", "httpx", "jq", "katana", "kubectl", "nc", "nmap", "node",
+        "nuclei", "openssl", "php", "powershell", "python", "python3", "ruby",
+        "sh", "sqlmap", "ssh", "wget", "wpscan", "zsh",
+    }:
+        return True
+    return token.startswith(("./", "/", "~/"))
+
+
+def _is_meaningful_proof_artifact(value):
+    if isinstance(value, (dict, list)):
+        if not value:
+            return False
+        try:
+            serialized = json.dumps(value, default=str, sort_keys=True)
+        except Exception:
+            serialized = str(value)
+        return _is_meaningful_proof_artifact(serialized)
+
+    text_value = _clean_text(value)
+    if not _has_meaningful_artifact(text_value):
+        return False
+
+    lowered = text_value.lower()
+    if len(text_value) < 12 and not any(char in text_value for char in "{}[]:=/\\"):
+        return False
+
+    weak_markers = (
+        "possible issue",
+        "potential issue",
+        "appears vulnerable",
+        "likely vulnerable",
+        "manual verification",
+        "needs validation",
+        "interesting finding",
+        "heuristic",
+        "correlation",
+        "suspected",
+    )
+    if any(marker in lowered for marker in weak_markers) and not any(
+        token in text_value for token in ("HTTP/", "{", "}", "[", "]", ":", "/", "=", "<", ">")
+    ):
+        return False
+
+    proof_tokens = (
+        "http/", "get ", "post ", "put ", "delete ", "trace ", "host:", "cookie:",
+        "set-cookie", "location:", "content-type", "{", "}", "[", "]", ":", "/",
+        "error", "stack trace", "exception", "<html", "select ", "union ", "token",
+        "jwt", "eyj", "aws", "xml", "json", "status", "response",
+    )
+    return any(token in lowered for token in proof_tokens) or len(text_value) >= 48
+
+
+def collect_finding_quality_signals(payload):
+    finding = payload if isinstance(payload, dict) else {}
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    validation = metadata.get("validation") if isinstance(metadata.get("validation"), dict) else {}
+    reproducibility = metadata.get("reproducibility") if isinstance(metadata.get("reproducibility"), dict) else {}
+
+    validation_status = VALIDATION_STATUS_MAP.get(
+        _safe_lower(validation.get("status") or metadata.get("validation_status") or finding.get("validation_status") or "not_run"),
+        "not_run",
+    )
+    result_state = RESULT_STATE_MAP.get(
+        _safe_lower(
+            validation.get("result_state")
+            or finding.get("result_state")
+            or metadata.get("result_state")
+            or finding.get("state")
+            or "observation"
+        ),
+        "observation",
+    )
+    endpoint = _normalize_locator_value(
+        validation.get("target"),
+        reproducibility.get("url"),
+        finding.get("endpoint"),
+        finding.get("target"),
+        finding.get("url"),
+    )
+    command = _normalize_command_value(
+        validation.get("command"),
+        reproducibility.get("command"),
+        finding.get("repro_command"),
+        finding.get("command"),
+        finding.get("reproduction"),
+    )
+    title = _clean_text(finding.get("title"))
+    description = _clean_text(finding.get("description"))
+
+    artifact_candidates = [
+        finding.get("evidence"),
+        finding.get("request"),
+        finding.get("response"),
+        finding.get("raw_output"),
+        validation.get("artifact"),
+        reproducibility.get("request_excerpt"),
+        reproducibility.get("response_excerpt"),
+    ]
+    proof_artifacts = [candidate for candidate in artifact_candidates if _is_meaningful_proof_artifact(candidate)]
+
+    corroborating_signals = merge_signal_ids(
+        finding.get("signal_ids"),
+        metadata.get("signal_ids"),
+        metadata.get("supporting_signal_ids"),
+    )
+    score = 0
+    if endpoint:
+        score += 1
+    if _looks_like_real_command(command):
+        score += 1
+    if proof_artifacts:
+        score += 1
+    if len(proof_artifacts) >= 2:
+        score += 1
+    if validation_status == "success":
+        score += 2
+    elif validation_status == "uncertain":
+        score += 1
+    if title.lower() not in GENERIC_TITLES:
+        score += 1
+    if len(description) >= 24:
+        score += 1
+    if corroborating_signals:
+        score += 1
+    if result_state == "confirmed":
+        score += 1
+
+    return {
+        "validation_status": validation_status,
+        "result_state": result_state,
+        "endpoint": endpoint,
+        "command": command,
+        "title": title,
+        "description": description,
+        "proof_artifact_count": len(proof_artifacts),
+        "proof_artifacts_present": bool(proof_artifacts),
+        "has_request_response": any(
+            _is_meaningful_proof_artifact(candidate)
+            for candidate in (
+                finding.get("request"),
+                finding.get("response"),
+                reproducibility.get("request_excerpt"),
+                reproducibility.get("response_excerpt"),
+            )
+        ),
+        "has_corroborating_signals": bool(corroborating_signals),
+        "signal_count": len(corroborating_signals),
+        "has_endpoint": bool(endpoint),
+        "has_command": _looks_like_real_command(command),
+        "has_substantive_description": len(description) >= 24,
+        "has_non_generic_title": title.lower() not in GENERIC_TITLES,
+        "quality_score": score,
+    }
+
+
+def classify_visible_truth(payload):
+    finding = payload if isinstance(payload, dict) else {}
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    category = _safe_lower(finding.get("category"))
+    title = _safe_lower(finding.get("title"))
+    family = _safe_lower(finding.get("family"))
+
+    if (
+        category in RECOMMENDATION_CATEGORIES
+        or title.startswith("recommendation:")
+        or family
+        or "internal_priority" in finding
+    ) and finding.get("reason") is not None:
+        return "recommendation"
+
+    quality = collect_finding_quality_signals(finding)
+    if (
+        quality["result_state"] in CONFIRMED_RESULT_STATES
+        and quality["validation_status"] == "success"
+        and quality["has_endpoint"]
+        and quality["has_command"]
+        and quality["proof_artifact_count"] >= 1
+        and quality["has_request_response"]
+        and quality["has_non_generic_title"]
+        and quality["quality_score"] >= 6
+    ):
+        return "confirmed_vulnerability"
+
+    if (
+        quality["result_state"] in SUSPICION_RESULT_STATES
+        or quality["validation_status"] in {"failed", "uncertain"}
+        or category in {"attack_chain", "attack_path"}
+        or _safe_lower(metadata.get("validation_state")) in {"heuristic", "correlation", "validation"}
+    ):
+        return "suspicion"
+
+    return "observation"
+
+
+def apply_finding_quality_gates(payload):
+    finding = dict(payload) if isinstance(payload, dict) else {}
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    validation = metadata.get("validation") if isinstance(metadata.get("validation"), dict) else {}
+    quality = collect_finding_quality_signals({"metadata": metadata, **finding})
+
+    severity = _safe_lower(finding.get("severity") or "info") or "info"
+    result_state = quality["result_state"]
+    downgrade_reasons = []
+
+    strong_high_gate = (
+        quality["has_endpoint"]
+        and quality["has_command"]
+        and quality["proof_artifact_count"] >= 1
+        and quality["has_non_generic_title"]
+        and quality["has_substantive_description"]
+        and quality["quality_score"] >= 5
+    )
+    strong_critical_gate = strong_high_gate and quality["validation_status"] == "success" and quality["proof_artifact_count"] >= 2
+    strong_confirmed_gate = (
+        quality["validation_status"] == "success"
+        and quality["has_endpoint"]
+        and quality["has_command"]
+        and quality["proof_artifact_count"] >= 1
+        and quality["has_request_response"]
+        and quality["quality_score"] >= 6
+    )
+
+    if severity == "critical" and not strong_critical_gate:
+        severity = "high" if strong_high_gate else "medium"
+        downgrade_reasons.append("critical_requires_validated_multi_artifact_proof")
+    elif severity == "high" and not strong_high_gate:
+        severity = "medium"
+        downgrade_reasons.append("high_requires_endpoint_command_and_proof")
+
+    if result_state == "confirmed" and not strong_confirmed_gate:
+        result_state = "validation" if quality["proof_artifacts_present"] or quality["has_command"] else "correlation"
+        validation["status"] = "uncertain" if quality["validation_status"] != "success" else quality["validation_status"]
+        downgrade_reasons.append("confirmed_requires_validated_reproducible_proof")
+
+    metadata["validation"] = validation
+    metadata["result_state"] = result_state
+    metadata["validation_state"] = result_state
+    metadata["proof_summary"] = {
+        "quality_score": quality["quality_score"],
+        "proof_artifact_count": quality["proof_artifact_count"],
+        "has_endpoint": quality["has_endpoint"],
+        "has_command": quality["has_command"],
+        "has_request_response": quality["has_request_response"],
+        "has_corroborating_signals": quality["has_corroborating_signals"],
+    }
+    if downgrade_reasons:
+        validation["downgrade_reason"] = downgrade_reasons[-1]
+        metadata["quality_gate"] = {
+            "downgraded": True,
+            "reasons": downgrade_reasons,
+        }
+    elif isinstance(metadata.get("quality_gate"), dict):
+        metadata["quality_gate"]["downgraded"] = bool(metadata["quality_gate"].get("downgraded"))
+
+    finding["severity"] = severity
+    finding["result_state"] = result_state
+    finding["metadata"] = metadata
+    metadata["visible_truth"] = classify_visible_truth(finding)
+    return finding
 
 
 def _normalize_arguments(value):
@@ -439,22 +733,6 @@ def normalize_finding_shape(payload, *, source=None):
         },
     )
 
-    evidence_value = str(normalized.get("evidence") or "").strip()
-    validation_artifact = str(metadata["validation"].get("artifact") or "").strip()
-    has_proof_artifact = any(
-        [
-            _has_meaningful_artifact(evidence_value),
-            _has_meaningful_artifact(normalized.get("response")),
-            _normalize_command_value(normalized.get("repro_command"), normalized.get("reproduction")),
-            _has_meaningful_artifact(validation_artifact),
-        ]
-    )
-    if normalized["result_state"] == "confirmed" and not has_proof_artifact:
-        normalized["result_state"] = "validation"
-        metadata["result_state"] = "validation"
-        metadata["validation"]["status"] = "uncertain"
-        metadata["validation"]["downgrade_reason"] = "confirmed_without_artifact"
-
     normalized["signal_count"] = len(normalized["signal_ids"])
     if isinstance(metadata.get("chain"), list):
         normalized["chain_length"] = len(metadata.get("chain", []))
@@ -496,6 +774,7 @@ def normalize_finding_shape(payload, *, source=None):
     metadata.setdefault("signal_count", normalized["signal_count"])
     metadata.setdefault("chain_length", normalized["chain_length"])
     normalized["metadata"] = metadata
+    normalized = apply_finding_quality_gates(normalized)
 
     if not normalized.get("id_stable"):
         normalized["id_stable"] = generate_stable_id(normalized)

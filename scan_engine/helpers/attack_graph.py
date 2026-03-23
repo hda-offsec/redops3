@@ -1,3 +1,6 @@
+from scan_engine.helpers.finding_schema import classify_visible_truth
+
+
 class AttackGraphBuilder:
     def _norm_token(self, value):
         return str(value or "").strip().lower()
@@ -84,7 +87,19 @@ class AttackGraphBuilder:
             if not isinstance(finding, dict):
                 continue
             fid = f"finding:db:{finding.get('id_stable') or idx}"
-            self._add_node({"type": "vulnerability", "id": fid, "label": finding.get("title", "Finding"), "data": finding})
+            visible_truth = classify_visible_truth(finding)
+            node_type = {
+                "confirmed_vulnerability": "vulnerability",
+                "recommendation": "recommendation",
+                "suspicion": "suspicion",
+            }.get(visible_truth, "observation")
+            node_label = finding.get("title", "Finding")
+            self._add_node({
+                "type": node_type,
+                "id": fid,
+                "label": node_label,
+                "data": {**finding, "visible_truth": visible_truth},
+            })
             endpoint = finding.get("endpoint") or finding.get("target")
             parameter = finding.get("parameter")
             category = (finding.get("category") or "").lower()
@@ -96,7 +111,11 @@ class AttackGraphBuilder:
                 endpoint_id = self._endpoint_node_id(endpoint)
                 self._add_node({"type": "endpoint", "id": endpoint_id, "label": endpoint, "data": {"url": endpoint}})
                 self._add_edge(target_node_id, endpoint_id, "reachable_from")
-                self._add_edge(endpoint_id, fid, "leads_to_attack")
+                self._add_edge(
+                    endpoint_id,
+                    fid,
+                    "leads_to_attack" if visible_truth == "confirmed_vulnerability" else "supports_assessment",
+                )
             else:
                 self._add_edge(target_node_id, fid, "contains")
 
@@ -162,18 +181,28 @@ class AttackGraphBuilder:
                 self._add_node({"type": "secret", "id": secret_id, "label": str(secret_type), "data": finding})
                 self._add_edge(target_node_id, secret_id, "leaks_secret")
                 if endpoint_id:
-                    self._add_edge(endpoint_id, secret_id, "leads_to_attack")
+                    self._add_edge(
+                        endpoint_id,
+                        secret_id,
+                        "leads_to_attack" if visible_truth == "confirmed_vulnerability" else "supports_assessment",
+                    )
 
             if category in {"attack_chain", "attack_path"} or chain_meta.get("is_chain_root"):
                 chain_id = f"attack_chain:{finding.get('id_stable') or idx}"
                 label = finding.get("title", "Attack Chain")
                 if chain_meta.get("attack_path_summary"):
                     label = chain_meta.get("attack_path_summary")
-                
-                self._add_node({"type": "attack_chain", "id": chain_id, "label": label, "data": finding})
-                self._add_edge(target_node_id, chain_id, "leads_to_attack")
+
+                chain_type = "attack_chain" if visible_truth == "confirmed_vulnerability" else "attack_hypothesis"
+                self._add_node({
+                    "type": chain_type,
+                    "id": chain_id,
+                    "label": label,
+                    "data": {**finding, "visible_truth": visible_truth},
+                })
+                self._add_edge(target_node_id, chain_id, "leads_to_attack" if visible_truth == "confirmed_vulnerability" else "correlates_to")
                 if endpoint_id:
-                    self._add_edge(chain_id, endpoint_id, "leads_to")
+                    self._add_edge(chain_id, endpoint_id, "leads_to" if visible_truth == "confirmed_vulnerability" else "references")
                 
                 # Link related findings in the graph
                 for related_id in chain_meta.get("related_findings", []):

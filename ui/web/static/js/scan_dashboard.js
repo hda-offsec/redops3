@@ -82,6 +82,7 @@ const scanDashboardFindingsView = {
         const ui = finding?._ui || {};
         const validationStatus = ui.validationStatus || dashboard.getFindingValidationStatus(finding);
         const resultState = ui.resultState || dashboard.getFindingResultState(finding);
+        const visibleTruth = ui.visibleTruth || 'observation';
         const primaryCommand = ui.primaryCommand || dashboard.getFindingPrimaryCommand(finding);
         const primaryUrl = ui.primaryUrl || dashboard.getFindingPrimaryUrl(finding);
         const hasProof = ui.hasEvidence === true;
@@ -90,6 +91,8 @@ const scanDashboardFindingsView = {
         return {
             validationStatus,
             resultState,
+            visibleTruth,
+            visibleTruthLabel: String(ui.visibleTruthLabel || visibleTruth).replace(/_/g, ' ').toUpperCase(),
             primaryCommand,
             primaryUrl,
             hasProof,
@@ -157,7 +160,9 @@ const scanDashboardFindingsView = {
     },
 
     buildTableRowStateIndicatorsHtml(display) {
+        const truthLabel = String(display.visibleTruthLabel || 'OBSERVATION');
         return `
+            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 extra-small">${truthLabel}</span>
             ${display.primaryCommand ? '<i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>' : ''}
             ${display.hasProof ? '<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>' : ''}
             ${display.isValidated ? '<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>' : ''}
@@ -1515,7 +1520,8 @@ const scanDashboardCortexView = {
 
         let html = '';
         recommendations.forEach(rec => {
-            const catClass = rec.category === 'intel' ? 'info' : (rec.category === 'enum' ? 'warning' : 'danger');
+            const catClass = rec.category === 'intel' ? 'info' : (rec.category === 'enum' ? 'warning' : 'secondary');
+            const analysisTier = String(rec?.metadata?.analysis_tier || 'telemetry_correlation').replace(/_/g, ' ');
             html += `
                 <div class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow animate__animated animate__fadeIn">
                     <div class="d-flex justify-content-between align-items-start mb-2">
@@ -1523,12 +1529,14 @@ const scanDashboardCortexView = {
                             <div class="category-indicator me-2 bg-${catClass}" style="width: 4px; height: 16px;"></div>
                             <span class="fw-bold text-light small">${rec.title}</span>
                         </div>
-                        <span class="badge bg-dark text-${rec.confidence > 80 ? 'info' : 'muted'} border border-secondary x-small font-monospace">CONF: ${rec.confidence}%</span>
+                        <span class="badge bg-dark text-${rec.confidence > 70 ? 'info' : 'muted'} border border-secondary x-small font-monospace">SIGNAL: ${rec.confidence}%</span>
                     </div>
                     <div class="text-muted x-small mb-2 ps-3">${rec.reason}</div>
                     <div class="d-flex gap-2 ps-3">
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 x-small">RECOMMENDATION</span>
                         ${rec.port ? `<span class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-25 x-small">PORT: ${rec.port}</span>` : ''}
                         <span class="badge bg-dark text-uppercase x-small text-muted">${rec.category}</span>
+                        <span class="badge bg-dark text-uppercase x-small text-muted">${analysisTier}</span>
                     </div>
                 </div>`;
         });

@@ -8,6 +8,8 @@
 
 (function (global) {
     const INVALID_TEXT_MARKERS = new Set(["", "none", "n/a", "na", "null", "todo", "tbd", "manual", "ui"]);
+    const GENERIC_TITLES = new Set(["", "finding", "untitled finding", "unknown finding", "candidate finding"]);
+    const RECOMMENDATION_CATEGORIES = new Set(["attack_plan", "next_step", "mission_prep", "objective_path"]);
     const RESULT_STATE_MAP = {
         observation: "observation",
         observed: "observation",
@@ -82,6 +84,8 @@
     const CANONICAL_UI_FIELDS = [
         "validationStatus",
         "resultState",
+        "visibleTruth",
+        "visibleTruthLabel",
         "primaryCommand",
         "primaryUrl",
         "provider",
@@ -108,6 +112,7 @@
         "validated_token",
         "parameter",
         "port_state",
+        "visible_truth",
     ];
     const OBSERVED_VERSION_FIELD_SOURCES = [
         "version",
@@ -241,6 +246,136 @@
         const command = cleanText(value);
         if (!isMeaningfulText(command)) return "";
         return command;
+    }
+
+    function looksLikeRealCommand(value) {
+        const command = cleanText(value);
+        if (!command) return false;
+        if (INVALID_TEXT_MARKERS.has(command.toLowerCase())) return false;
+        let firstLine = command.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+        for (const prompt of ["$ ", "# ", "> "]) {
+            if (firstLine.startsWith(prompt)) {
+                firstLine = firstLine.slice(prompt.length).trim();
+                break;
+            }
+        }
+        if (!firstLine) return false;
+        const token = firstLine.split(/\s+/)[0].toLowerCase();
+        return EXPLICIT_COMMAND_PREFIXES.has(token) || token.startsWith("./") || token.startsWith("/") || token.startsWith("~/");
+    }
+
+    function isMeaningfulProofArtifact(value) {
+        if (Array.isArray(value)) return value.some((item) => isMeaningfulProofArtifact(item));
+        if (value && typeof value === "object") {
+            if (Object.keys(value).length === 0) return false;
+            try {
+                return isMeaningfulProofArtifact(JSON.stringify(value));
+            } catch (_) {
+                return true;
+            }
+        }
+        const text = cleanText(value);
+        if (!isMeaningfulText(text)) return false;
+        if (text.length < 12 && !/[{}\[\]:=\/\\]/.test(text)) return false;
+        const lowered = text.toLowerCase();
+        const weakMarkers = [
+            "possible issue",
+            "potential issue",
+            "appears vulnerable",
+            "likely vulnerable",
+            "manual verification",
+            "needs validation",
+            "interesting finding",
+            "heuristic",
+            "correlation",
+            "suspected",
+        ];
+        if (weakMarkers.some((marker) => lowered.includes(marker)) && !/[{}\[\]:=\/<>]|http\//i.test(text)) return false;
+        return /http\/|get |post |put |delete |host:|cookie:|set-cookie|content-type|json|xml|token|jwt|eyj|error|response|status|[:\/=<>{}\[\]]/i.test(lowered) || text.length >= 48;
+    }
+
+    function collectFindingQualitySignals(finding) {
+        const metadata = asDict(finding.metadata);
+        const validation = asDict(metadata.validation);
+        const reproducibility = asDict(metadata.reproducibility);
+        const validationStatus = normalizeValidationStatus(finding);
+        const resultState = normalizeResultState(finding);
+        const endpoint = firstMeaningful(
+            [validation.target, reproducibility.url, finding.endpoint, finding.target, finding.url],
+            { locator: true }
+        );
+        const command = firstMeaningful(
+            [validation.command, reproducibility.command, finding.repro_command, finding.command, finding.reproduction]
+        );
+        const title = cleanText(finding.title).toLowerCase();
+        const description = cleanText(finding.description);
+        const proofCandidates = [
+            finding.evidence,
+            finding.request,
+            finding.response,
+            finding.raw_output,
+            validation.artifact,
+            reproducibility.request_excerpt,
+            reproducibility.response_excerpt,
+        ];
+        const proofArtifactCount = proofCandidates.filter((candidate) => isMeaningfulProofArtifact(candidate)).length;
+        let qualityScore = 0;
+        if (endpoint) qualityScore += 1;
+        if (looksLikeRealCommand(command)) qualityScore += 1;
+        if (proofArtifactCount >= 1) qualityScore += 1;
+        if (proofArtifactCount >= 2) qualityScore += 1;
+        if (validationStatus === "success") qualityScore += 2;
+        else if (validationStatus === "uncertain") qualityScore += 1;
+        if (!GENERIC_TITLES.has(title)) qualityScore += 1;
+        if (description.length >= 24) qualityScore += 1;
+        if (Array.isArray(finding.signal_ids) && finding.signal_ids.length > 0) qualityScore += 1;
+        if (resultState === "confirmed") qualityScore += 1;
+
+        return {
+            validationStatus,
+            resultState,
+            hasEndpoint: Boolean(endpoint),
+            hasCommand: looksLikeRealCommand(command),
+            proofArtifactCount,
+            hasRequestResponse: [finding.request, finding.response, reproducibility.request_excerpt, reproducibility.response_excerpt].some((candidate) => isMeaningfulProofArtifact(candidate)),
+            hasNonGenericTitle: !GENERIC_TITLES.has(title),
+            qualityScore,
+        };
+    }
+
+    function classifyVisibleTruth(finding) {
+        const metadata = asDict(finding.metadata);
+        const title = cleanText(finding.title).toLowerCase();
+        const category = cleanText(finding.category).toLowerCase();
+        const family = cleanText(finding.family).toLowerCase();
+
+        if ((RECOMMENDATION_CATEGORIES.has(category) || title.startsWith("recommendation:") || family || Object.prototype.hasOwnProperty.call(finding, "internal_priority")) && finding.reason !== undefined) {
+            return "recommendation";
+        }
+
+        const quality = collectFindingQualitySignals(finding);
+        if (
+            quality.resultState === "confirmed"
+            && quality.validationStatus === "success"
+            && quality.hasEndpoint
+            && quality.hasCommand
+            && quality.proofArtifactCount >= 1
+            && quality.hasRequestResponse
+            && quality.hasNonGenericTitle
+            && quality.qualityScore >= 6
+        ) {
+            return "confirmed_vulnerability";
+        }
+
+        if (
+            ["heuristic", "correlation", "validation"].includes(quality.resultState)
+            || ["failed", "uncertain"].includes(quality.validationStatus)
+            || ["attack_chain", "attack_path"].includes(category)
+            || ["heuristic", "correlation", "validation"].includes(cleanText(metadata.validation_state).toLowerCase())
+        ) {
+            return "suspicion";
+        }
+        return "observation";
     }
 
     function isSafeLegacyCommand(value) {
@@ -426,6 +561,7 @@
         appendRow("Provider", ui.provider);
         appendRow("Component", ui.component);
         appendRow("Port state", ui.portState);
+        appendRow("Visible class", ui.visibleTruthLabel);
         appendRow("Validation status", ui.validationStatus);
         appendRow("Result state", ui.resultState);
         appendRow("Impact area", normalized.impact_area || metadata.impact_area);
@@ -533,6 +669,7 @@
             isValidated ? "validated" : "",
             finding.parameter,
             portState,
+            classifyVisibleTruth(finding),
         ];
     }
 
@@ -561,10 +698,13 @@
         const primaryUrl = getFindingPrimaryUrl(finding);
         const hasEvidence = hasMeaningfulEvidence(finding);
         const isValidated = validationStatus === "success" || VALIDATED_RESULT_STATES.has(resultState);
+        const visibleTruth = classifyVisibleTruth(finding);
 
         const uiState = {
             validationStatus,
             resultState,
+            visibleTruth,
+            visibleTruthLabel: visibleTruth.replace(/_/g, " "),
             primaryCommand,
             primaryUrl,
             provider,
@@ -879,6 +1019,10 @@
                         <div class="p-3 h-100 rounded bg-black bg-opacity-30 border border-secondary border-opacity-10 shadow-sm">
                             <h6 class="extra-small text-uppercase text-warning mb-3 fw-bold"><i class="fas fa-shield-alt me-2"></i>Status</h6>
                             <div class="small text-muted d-flex align-items-center gap-2 mt-2">
+                                <span class="fw-bold text-uppercase extra-small">Visible class:</span>
+                                <span class="badge bg-secondary bg-opacity-20 text-light border border-secondary border-opacity-25 px-2 py-1">${escapeHtml(cleanText(ui.visibleTruthLabel || "observation").toUpperCase())}</span>
+                            </div>
+                            <div class="small text-muted d-flex align-items-center gap-2 mt-2">
                                 <span class="fw-bold text-uppercase extra-small">Validation status:</span>
                                 <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 px-2 py-1">${escapeHtml(validationStatus.toUpperCase())}</span>
                             </div>
@@ -992,6 +1136,8 @@
         buildFindingSearchTextFields,
         buildFindingTechnicalContext,
         buildFindingUiState,
+        classifyVisibleTruth,
+        collectFindingQualitySignals,
         decodeDataValue,
         encodeDataValue,
         getFindingArtifacts,

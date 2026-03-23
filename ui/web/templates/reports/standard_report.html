@@ -263,8 +263,8 @@
         <ul>
             {% for rec in derived.cortex_recommendations %}
             <li>
-                <strong>{{ rec.title }}</strong> (Confidence: {{ rec.confidence }}%)<br>
-                <small>{{ rec.reason }}</small>
+                <strong>{{ rec.title }}</strong> (Signal strength: {{ rec.confidence }}%)<br>
+                <small>This is an audit recommendation, not a confirmed vulnerability. {{ rec.reason }}</small>
             </li>
             {% endfor %}
         </ul>
@@ -395,7 +395,7 @@
     {% endif %}
 
     <!-- 6. Findings Detail -->
-    <h2>6. Detailed Vulnerabilities</h2>
+    <h2>6. Detailed Findings</h2>
     {% if findings %}
     {% for finding in findings %}
     {% set detail = finding._detail if finding._detail else {} %}
@@ -410,7 +410,7 @@
 
         {% if detail.summary %}
         <div class="finding-section">
-            <h5>Operational Summary</h5>
+            <h5>What was observed</h5>
             <div class="finding-panel" style="white-space: pre-wrap;">{{ detail.summary }}</div>
         </div>
         {% endif %}
@@ -435,6 +435,9 @@
             <div class="finding-panel">
                 <h5>Status</h5>
                 <div class="inline-badges">
+                    <span class="badge bg-low">
+                        Visible class: {{ (ui.visibleTruthLabel or 'observation')|upper }}
+                    </span>
                     <span class="badge bg-{{ 'high' if (ui.validationStatus or 'not_run') == 'failed' else ('medium' if (ui.validationStatus or 'not_run') == 'uncertain' else ('info' if (ui.validationStatus or 'not_run') == 'success' else 'low')) }}">
                         Validation: {{ (ui.validationStatus or 'not_run')|upper }}
                     </span>
@@ -448,7 +451,7 @@
 
         {% if detail.technicalContext %}
         <div class="finding-section">
-            <h5>Technical Context</h5>
+            <h5>Why this matters / technical context</h5>
             <div class="finding-panel">
                 {% for row in detail.technicalContext %}
                 <dl class="finding-kv">
@@ -462,7 +465,7 @@
 
         {% if detail.commandBlocks or detail.validationGuidance %}
         <div class="finding-section">
-            <h5>Command & Validation</h5>
+            <h5>How to validate safely</h5>
             <div class="finding-panel">
                 {% for block in detail.commandBlocks %}
                 <div style="margin-bottom: 12px;">
@@ -472,7 +475,7 @@
                 {% endfor %}
                 {% if detail.validationGuidance %}
                 <dl class="finding-kv">
-                    <dt>Validation Guidance</dt>
+                    <dt>Validation guidance</dt>
                     <dd>{{ detail.validationGuidance }}</dd>
                 </dl>
                 {% endif %}
@@ -482,7 +485,7 @@
 
         {% if detail.evidenceBlocks %}
         <div class="finding-section">
-            <h5>Evidence & Raw Output</h5>
+            <h5>Recorded evidence / what remains unverified</h5>
             <div class="finding-panel">
                 {% for block in detail.evidenceBlocks %}
                 <div style="margin-bottom: 12px;">

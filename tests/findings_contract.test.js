@@ -75,6 +75,8 @@ test("normalizes structured findings with canonical UI fields", () => {
     assert.deepEqual(findingsContract.constants.canonicalUiFields, [
         "validationStatus",
         "resultState",
+        "visibleTruth",
+        "visibleTruthLabel",
         "primaryCommand",
         "primaryUrl",
         "provider",
@@ -101,6 +103,7 @@ test("normalizes structured findings with canonical UI fields", () => {
         "validated_token",
         "parameter",
         "port_state",
+        "visible_truth",
     ]);
     assert.deepEqual(findingsContract.constants.observedVersionFieldSources, [
         "version",
@@ -144,11 +147,12 @@ test("normalizes structured findings with canonical UI fields", () => {
     assert.equal(finding._ui.primaryUrl, "https://example.org/api/graphql");
     assert.equal(finding._ui.validationStatus, "success");
     assert.equal(finding._ui.resultState, "confirmed");
+    assert.equal(finding._ui.visibleTruth, "confirmed_vulnerability");
     assert.equal(finding._ui.hasEvidence, true);
     assert.equal(finding._ui.isValidated, true);
     assert.equal(
         finding._ui.searchText,
-        "graphql schema leak nuclei api https://example.org/api/graphql aws apigateway 2024.1 success confirmed validated query open"
+        "graphql schema leak nuclei api https://example.org/api/graphql aws apigateway 2024.1 success confirmed validated query open confirmed_vulnerability"
     );
 });
 
@@ -218,6 +222,7 @@ test("renders shared finding detail html with analyst-first sections and copy-sa
     assert.match(html, /Evidence/);
     assert.match(html, /Raw Output/);
     assert.match(html, /Remediation/);
+    assert.match(html, /Visible class:/);
     assert.match(html, /References & Artifacts/);
     assert.match(html, /Validate/);
     assert.match(html, /Copy command/);
