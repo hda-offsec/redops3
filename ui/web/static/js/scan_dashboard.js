@@ -229,8 +229,7 @@ const scanDashboardFindingsFlow = {
         return { fid, finding };
     },
 
-    renderFinding(documentRef, dashboard, fid, finding) {
-        const display = scanDashboardFindingsView.buildDisplayModel(dashboard, finding);
+    renderFindingBody(documentRef, dashboard, fid, finding, display) {
         const container = documentRef.getElementById('findings-container');
 
         scanDashboardFindingsDom.prependResultCard(
@@ -240,20 +239,36 @@ const scanDashboardFindingsFlow = {
         );
 
         if (!container) {
-            return { display, container: null, tableRow: null };
+            return { container: null, tableRow: null };
         }
 
+        return {
+            container,
+            tableRow: scanDashboardFindingsDom.prependTableRow(documentRef, dashboard, fid, finding, display),
+        };
+    },
+
+    applyRenderedFindingEffects(dashboard, finding) {
         if (finding.screenshot_path) {
             dashboard.addToGallery(finding);
         }
 
         dashboard.updateRiskCounters(finding.severity);
         dashboard.updateIndicators(finding);
+    },
 
+    renderFinding(documentRef, dashboard, fid, finding) {
+        const display = scanDashboardFindingsView.buildDisplayModel(dashboard, finding);
+        const renderedBody = this.renderFindingBody(documentRef, dashboard, fid, finding, display);
+
+        if (!renderedBody.container) {
+            return { display, ...renderedBody };
+        }
+
+        this.applyRenderedFindingEffects(dashboard, finding);
         return {
             display,
-            container,
-            tableRow: scanDashboardFindingsDom.prependTableRow(documentRef, dashboard, fid, finding, display),
+            ...renderedBody,
         };
     }
 };

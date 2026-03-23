@@ -469,6 +469,146 @@ test('findings flow helper keeps rendering side effects grouped without changing
     assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-55');
 });
 
+test('findings flow render body helper keeps DOM rendering isolated from follow-up findings side effects', () => {
+    const findingsEmpty = createElement('div');
+    findingsEmpty.innerText = 'No findings yet';
+    const findingsList = {
+        entries: [],
+        prepend(node) {
+            this.entries.unshift(node);
+        },
+    };
+    const findingsContainer = {
+        querySelector(selector) {
+            if (selector === '.text-muted') return findingsEmpty;
+            if (selector === '.result-list') return findingsList;
+            return null;
+        },
+        appendChild() {},
+    };
+    const findingsEmptyRow = createElement('tr');
+    const rowRegistry = new Map();
+    const findingsTableBody = {
+        rows: [],
+        prepend(row) {
+            this.rows.unshift(row);
+            rowRegistry.set(row.id, row);
+        },
+    };
+    const document = {
+        getElementById(id) {
+            if (id === 'findings-container') return findingsContainer;
+            if (id === 'findings-table-body') return findingsTableBody;
+            if (id === 'findings-empty-state') return findingsEmptyRow;
+            return rowRegistry.get(id) || null;
+        },
+        createElement(tagName) {
+            const element = createElement(tagName);
+            Object.defineProperty(element, 'id', {
+                get() {
+                    return this._id || '';
+                },
+                set(value) {
+                    this._id = value;
+                },
+            });
+            return element;
+        },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        addEventListener() {},
+    };
+
+    const updateFindingsListCalls = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        document,
+        updateFindingsList(items) {
+            updateFindingsListCalls.push(items);
+        },
+    });
+
+    const display = {
+        severity: 'high',
+        severityLabel: 'HIGH',
+        escapedTitle: 'Stored &lt;XSS&gt;',
+        escapedTool: 'dalfox',
+        escapedDesc: 'Body &lt;script&gt;alert(1)&lt;/script&gt;',
+        escapedPrimaryUrl: 'https://target/app?q=&lt;script&gt;',
+        primaryCommand: 'dalfox url https://target/app',
+        primaryUrl: 'https://target/app?q=<script>',
+        escapedScreenshotPath: 'loot/xss-proof.png',
+        hasProof: true,
+        isValidated: true,
+        confidenceLabel: 'HIGH',
+        toolLabel: 'DALFOX',
+    };
+    const finding = {
+        id_stable: 'finding-88',
+        title: 'Stored <XSS>',
+        screenshot_path: 'loot/xss-proof.png',
+    };
+    const dashboard = {
+        getFindingsContract() {
+            return {
+                applyRowDataset(row, currentFinding) {
+                    row.setAttribute('data-finding-id', currentFinding.id_stable);
+                },
+            };
+        },
+    };
+
+    const renderedBody = ScanDashboard.internals.findingsFlow.renderFindingBody(
+        document,
+        dashboard,
+        'finding-88',
+        finding,
+        display
+    );
+
+    assert.equal(renderedBody.container, findingsContainer);
+    assert.equal(renderedBody.tableRow, findingsTableBody.rows[0]);
+    assert.equal(findingsEmpty.removed, true);
+    assert.equal(findingsEmptyRow.removed, true);
+    assert.equal(findingsList.entries.length, 1);
+    assert.match(findingsList.entries[0].innerHTML, /Stored &lt;XSS&gt;/);
+    assert.equal(findingsTableBody.rows.length, 1);
+    assert.equal(findingsTableBody.rows[0].id, 'finding-row-finding-88');
+    assert.equal(updateFindingsListCalls.length, 1);
+    assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-88');
+});
+
+test('findings flow side-effect helper preserves the existing gallery, risk, and indicator updates', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const galleryCalls = [];
+    const riskCalls = [];
+    const indicatorCalls = [];
+    const dashboard = {
+        addToGallery(finding) {
+            galleryCalls.push(finding.id_stable);
+        },
+        updateRiskCounters(severity) {
+            riskCalls.push(severity);
+        },
+        updateIndicators(finding) {
+            indicatorCalls.push(finding.id_stable);
+        },
+    };
+
+    ScanDashboard.internals.findingsFlow.applyRenderedFindingEffects(dashboard, {
+        id_stable: 'finding-with-proof',
+        severity: 'high',
+        screenshot_path: 'loot/xss-proof.png',
+    });
+    ScanDashboard.internals.findingsFlow.applyRenderedFindingEffects(dashboard, {
+        id_stable: 'finding-without-proof',
+        severity: 'info',
+    });
+
+    assert.deepEqual(galleryCalls, ['finding-with-proof']);
+    assert.deepEqual(riskCalls, ['high', 'info']);
+    assert.deepEqual(indicatorCalls, ['finding-with-proof', 'finding-without-proof']);
+});
+
 test('handleNewFinding preserves the existing findings flow while delegating rendering to extracted findings helpers', () => {
     const findingsEmpty = createElement('div');
     findingsEmpty.innerText = 'No findings yet';
