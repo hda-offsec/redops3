@@ -10,7 +10,7 @@ from scan_engine.helpers.finding_schema import (
 
 
 class FindingTruthClassificationTests(unittest.TestCase):
-    def test_visible_truth_classifies_observation_suspicion_recommendation_and_confirmed(self):
+    def test_visible_truth_classifies_observation_suspicion_recommendation_validation_and_confirmed(self):
         observation = normalize_finding_shape(
             {
                 "title": "Missing Strict-Transport-Security header",
@@ -36,6 +36,21 @@ class FindingTruthClassificationTests(unittest.TestCase):
             "internal_priority": 88,
             "metadata": {"analysis_tier": "signal_supported_correlation"},
         }
+        validation = normalize_finding_shape(
+            {
+                "title": "Bounded OAuth callback replay validation",
+                "category": "oauth",
+                "severity": "medium",
+                "result_state": "validation",
+                "description": "A bounded replay of the callback flow returned a differentiated response that requires scoped follow-up.",
+                "endpoint": "https://example.org/oauth/callback",
+                "repro_command": "curl -isk 'https://example.org/oauth/callback?code=test&state=test'",
+                "request": "GET /oauth/callback?code=test&state=test HTTP/1.1",
+                "response": "HTTP/1.1 302 Found\nlocation: /error?reason=state",
+                "metadata": {"validation": {"status": "uncertain", "artifact": "HTTP/1.1 302 Found"}},
+            },
+            source="unit_test",
+        )
         confirmed = normalize_finding_shape(
             {
                 "title": "Confirmed SSRF to metadata endpoint",
@@ -55,6 +70,7 @@ class FindingTruthClassificationTests(unittest.TestCase):
         self.assertEqual(classify_visible_truth(observation), "observation")
         self.assertEqual(classify_visible_truth(suspicion), "suspicion")
         self.assertEqual(classify_visible_truth(recommendation), "recommendation")
+        self.assertEqual(classify_visible_truth(validation), "validation")
         self.assertEqual(classify_visible_truth(confirmed), "confirmed_vulnerability")
 
     def test_quality_gates_downgrade_weak_high_and_weak_confirmed(self):
@@ -82,7 +98,7 @@ class FindingTruthClassificationTests(unittest.TestCase):
         self.assertEqual(weak_high["severity"], "medium")
         self.assertEqual(
             weak_high["metadata"]["quality_gate"]["reasons"][0],
-            "high_requires_endpoint_command_and_proof",
+            "high_requires_reproducible_significant_proof",
         )
         self.assertEqual(weak_confirmed["result_state"], "correlation")
         self.assertEqual(weak_confirmed["metadata"]["validation"]["status"], "uncertain")
@@ -125,7 +141,7 @@ class FindingTruthClassificationTests(unittest.TestCase):
         self.assertEqual(jwt["metadata"]["visible_truth"], "recommendation")
         self.assertIn("requested_confidence", jwt["metadata"])
 
-    def test_attack_graph_marks_non_confirmed_items_as_suspicion_or_recommendation(self):
+    def test_attack_graph_marks_non_confirmed_items_as_suspicion_validation_or_recommendation(self):
         graph = AttackGraphBuilder().build(
             {
                 "target": "example.org",
@@ -139,6 +155,17 @@ class FindingTruthClassificationTests(unittest.TestCase):
                         "metadata": {"validation": {"status": "uncertain"}},
                     },
                     {
+                        "id_stable": "val-1",
+                        "title": "Bounded access-control validation",
+                        "category": "authorization",
+                        "endpoint": "https://example.org/admin/export",
+                        "result_state": "validation",
+                        "request": "GET /admin/export HTTP/1.1",
+                        "response": "HTTP/1.1 403 Forbidden",
+                        "repro_command": "curl -isk 'https://example.org/admin/export'",
+                        "metadata": {"validation": {"status": "uncertain", "artifact": "HTTP/1.1 403 Forbidden"}},
+                    },
+                    {
                         "id_stable": "obs-1",
                         "title": "Exposed admin route",
                         "category": "route_discovery",
@@ -149,6 +176,7 @@ class FindingTruthClassificationTests(unittest.TestCase):
                         "id_stable": "conf-1",
                         "title": "Confirmed SSRF",
                         "category": "ssrf",
+                        "description": "A bounded SSRF replay reached the metadata service and returned a controlled canary response.",
                         "endpoint": "https://example.org/fetch?url=http://169.254.169.254/latest/meta-data/",
                         "result_state": "confirmed",
                         "request": "GET /fetch?... HTTP/1.1",
@@ -165,8 +193,13 @@ class FindingTruthClassificationTests(unittest.TestCase):
 
         self.assertEqual(node_types["finding:db:corr-1"], "suspicion")
         self.assertEqual(node_types["attack_chain:corr-1"], "attack_hypothesis")
+        self.assertEqual(node_types["finding:db:val-1"], "validation")
         self.assertEqual(node_types["finding:db:obs-1"], "observation")
         self.assertEqual(node_types["finding:db:conf-1"], "vulnerability")
+        self.assertEqual(
+            edge_types[("endpoint:derived:https://example.org/admin/export", "finding:db:val-1")],
+            "validated_by_execution",
+        )
         self.assertEqual(
             edge_types[("endpoint:derived:https://example.org/admin", "finding:db:obs-1")],
             "supports_assessment",

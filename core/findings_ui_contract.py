@@ -19,6 +19,7 @@ from scan_engine.helpers.finding_schema import (
     RESULT_STATE_MAP,
     VALIDATION_STATUS_MAP,
     classify_visible_truth,
+    summarize_visible_truth,
 )
 
 
@@ -124,6 +125,11 @@ DETAIL_EVIDENCE_BLOCK_SOURCES = (
 )
 DETAIL_CONTRACT_FIELDS = (
     "summary",
+    "statusSummary",
+    "executionSummary",
+    "remainingUnknowns",
+    "realStatus",
+    "realStatusLabel",
     "technicalContext",
     "commandExecuted",
     "commandBlocks",
@@ -528,8 +534,14 @@ def build_finding_detail_contract(finding):
     metadata = _as_dict(normalized.get("metadata"))
     ui = _as_dict(normalized.get("_ui"))
     risk_scorecard = _as_dict(normalized.get("risk_scorecard"))
+    truth_summary = summarize_visible_truth(normalized)
     detail_contract = {
         "summary": _clean_text(normalized.get("description")),
+        "statusSummary": truth_summary.get("summary", ""),
+        "executionSummary": truth_summary.get("execution_summary", ""),
+        "remainingUnknowns": truth_summary.get("remaining_unknowns", ""),
+        "realStatus": truth_summary.get("status", "not_validated"),
+        "realStatusLabel": truth_summary.get("status_label", "not validated"),
         "technicalContext": build_finding_technical_context(normalized),
         "commandExecuted": ui.get("primaryCommand") or "",
         "commandBlocks": get_finding_command_blocks(normalized),

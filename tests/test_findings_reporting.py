@@ -103,12 +103,15 @@ def _render_standard_report(findings):
 def test_standard_report_preserves_rich_finding_detail_and_unverified_endpoint_status():
     html = _render_standard_report([_report_finding()])
 
-    assert "Detailed Vulnerabilities" in html
-    assert "Operational Summary" in html
-    assert "Command & Validation" in html
-    assert "Evidence & Raw Output" in html
+    assert "Detailed Findings" in html
+    assert "What was observed" in html
+    assert "Semantic guardrails" in html
+    assert "How to validate safely" in html
+    assert "Recorded evidence / what remains unverified" in html
     assert "Remediation" in html
     assert "References & Artifacts" in html
+    assert "Real status:" in html
+    assert "CONFIRMED" in html
     assert "curl -isk &#39;https://example.org/api/graphql?query={__schema}&#39;" in html
     assert "graphql-js 16.8.1" in html
     assert "Disable introspection on public environments and restrict the endpoint." in html

@@ -126,6 +126,11 @@ test("normalizes structured findings with canonical UI fields", () => {
     ]);
     assert.deepEqual(findingsContract.constants.detailStateFields, [
         "summary",
+        "statusSummary",
+        "executionSummary",
+        "remainingUnknowns",
+        "realStatus",
+        "realStatusLabel",
         "technicalContext",
         "commandExecuted",
         "commandBlocks",
@@ -173,6 +178,11 @@ test("builds rich detail state without dropping commands, versions, evidence, or
     assert.equal(detail.target, "https://example.org/api/graphql");
     assert.deepEqual(detail.observedVersions, ["2024.1", "graphql-js 16.8.1"]);
     assert.deepEqual(Object.keys(detail), findingsContract.constants.detailStateFields);
+    assert.equal(detail.realStatus, "confirmed");
+    assert.equal(detail.realStatusLabel, "confirmed");
+    assert.match(detail.statusSummary, /confirmed vulnerability classification/i);
+    assert.match(detail.executionSummary, /supporting artifacts/i);
+    assert.match(detail.remainingUnknowns, /scope and remediation/i);
     assert.deepEqual(
         detail.commandBlocks.map((block) => block.key),
         ["validation_command", "reproducibility_command"]
@@ -216,13 +226,15 @@ test("keeps command blocks when validation and reproducibility share the same co
 test("renders shared finding detail html with analyst-first sections and copy-safe actions", () => {
     const html = findingsContract.dom.buildFindingDetailHtml(structuredFinding());
 
-    assert.match(html, /Operational Summary/);
+    assert.match(html, /What Was Observed/);
+    assert.match(html, /Semantic Guardrails/);
     assert.match(html, /Technical Context/);
     assert.match(html, /Command & Validation/);
     assert.match(html, /Evidence/);
     assert.match(html, /Raw Output/);
     assert.match(html, /Remediation/);
     assert.match(html, /Visible class:/);
+    assert.match(html, /Real status:/);
     assert.match(html, /References & Artifacts/);
     assert.match(html, /Validate/);
     assert.match(html, /Copy command/);
