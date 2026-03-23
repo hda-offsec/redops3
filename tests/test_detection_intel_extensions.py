@@ -1,6 +1,7 @@
 from scan_engine.helpers.passive_intel_engine import PassiveIntelligenceEngine
 from scan_engine.helpers.attack_graph import AttackGraphBuilder
 from scan_engine.helpers.api_reconstructor import ApiReconstructor
+from scan_engine.helpers.execution_hints import derive_execution_hints
 from scan_engine.helpers.vuln_execution_plan import derive_vuln_execution_plan
 from scan_engine.orchestrator import ScanOrchestrator
 from types import SimpleNamespace
@@ -107,6 +108,82 @@ def test_vuln_execution_plan_enables_adaptive_modules_when_signals_exist():
     assert plan["js_vuln_audit"]["enabled"] is True
     assert plan["parameter_miner"]["enabled"] is True
     assert plan["api_fuzzer"]["enabled"] is True
+
+
+def test_execution_hints_promote_cortex_driven_authorization_targets():
+    results = {
+        "target": "example.com",
+        "phases": {
+            "recon": {"open_ports": [{"port": 443, "service": "https"}]},
+            "enum": {
+                "targets": {
+                    "443": [
+                        "https://example.com/api/v1/users/123?account_id=7",
+                        "https://example.com/admin/export/report?tenant_id=9",
+                        "https://example.com/oauth/authorize?client_id=abc&redirect_uri=https://example.com/callback",
+                    ]
+                },
+                "derived": {
+                    "cortex_recommendations": [
+                        {
+                            "port": "443",
+                            "metadata": {
+                                "execution_driver": {
+                                    "modules": ["api_fuzzer", "logic_assault", "business_logic", "acl_scanner", "bypass_expert", "oauth_expert"],
+                                }
+                            },
+                        }
+                    ]
+                },
+            },
+            "vuln": {},
+        },
+    }
+
+    hints = derive_execution_hints(results)
+    per_port = hints["per_port"]["443"]
+
+    assert "https://example.com/api/v1/users/123?account_id=7" in per_port["api_fuzzer"]["seed_priority"]
+    assert "https://example.com/admin/export/report?tenant_id=9" in per_port["access_control"]["protected_urls"]
+    assert "https://example.com/oauth/authorize?client_id=abc&redirect_uri=https://example.com/callback" in per_port["oauth"]["seed_priority"]
+    assert "account_id" in per_port["business_logic"]["interesting_params"]
+
+
+def test_vuln_execution_plan_uses_cortex_module_hints_for_logic_followups():
+    plan = derive_vuln_execution_plan(
+        {
+            "phases": {
+                "enum": {
+                    "katana": {"443": []},
+                    "injection_points": {"443": []},
+                    "api": {"discovered_endpoints": []},
+                }
+            }
+        },
+        443,
+        profile="quick",
+        execution_hints={
+            "per_port": {
+                "443": {
+                    "api_fuzzer": {"seed_priority": ["https://example.com/api/v1/users/7"]},
+                    "business_logic": {"seed_priority": ["https://example.com/api/v1/users/7"]},
+                    "logic_assault": {"seed_priority": ["https://example.com/api/v1/users/7"]},
+                    "access_control": {"protected_urls": ["https://example.com/admin"]},
+                    "oauth": {"seed_priority": ["https://example.com/oauth/authorize"]},
+                    "jwt": {"seed_priority": ["https://example.com/api/token"]},
+                    "ssti": {"seed_priority": ["https://example.com/search?q=1"]},
+                }
+            }
+        },
+    )
+
+    assert plan["api_fuzzer"]["enabled"] is True
+    assert plan["business_logic"]["enabled"] is True
+    assert plan["logic_assault"]["enabled"] is True
+    assert plan["oauth_expert"]["enabled"] is True
+    assert plan["access_control"]["enabled"] is True
+    assert plan["jwt_expert"]["enabled"] is True
+    assert plan["ssti"]["enabled"] is True
 
 
 def test_orchestrator_quality_gate_rejects_unproven_critical():

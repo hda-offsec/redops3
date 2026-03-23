@@ -301,6 +301,33 @@ def _build_suggestion(
     }
 
 
+def _execution_driver(
+    *,
+    modules: Optional[Sequence[str]] = None,
+    seed_tags: Optional[Sequence[str]] = None,
+    automation_state: str = "automated_followup",
+    budget_tier: str = "focused",
+    fallback_reason: str = "",
+) -> Dict[str, Any]:
+    normalized_modules = _stable_unique_strings(modules or [])
+    normalized_seed_tags = _stable_unique_strings(seed_tags or [])
+    return {
+        "automation_state": automation_state,
+        "modules": normalized_modules,
+        "seed_tags": normalized_seed_tags,
+        "budget_tier": budget_tier,
+        "fallback_reason": str(fallback_reason or ""),
+    }
+
+
+def _with_execution_driver(suggestion: Dict[str, Any], **driver_kwargs) -> Dict[str, Any]:
+    suggestion_copy = dict(suggestion)
+    metadata = dict(suggestion_copy.get("metadata") or {})
+    metadata["execution_driver"] = _execution_driver(**driver_kwargs)
+    suggestion_copy["metadata"] = metadata
+    return suggestion_copy
+
+
 def _suggestion_rank(item: Dict[str, Any]) -> Tuple[Any, ...]:
     return (
         -int(item.get("internal_priority", 0)),
@@ -1097,7 +1124,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
 
     if context["is_http"] and {"auth_surface", "token_surface"}.issubset(markers):
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-auth-token-{port}",
                 title=f"Validate Authenticated Token Replay Boundaries on port {port}",
                 reason="Authentication and token material were both observed on this surface. Prioritize replay scope, session fixation, and token audience validation with bounded requests.",
@@ -1111,12 +1139,16 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 estimated_cost="medium",
                 internal_priority=91,
                 analysis_tier=_analysis_tier(["auth_surface", "token_surface"]),
+                ),
+                modules=["jwt_expert", "logic_assault", "api_fuzzer"],
+                seed_tags=["auth_surface", "token_surface", "api_surface"],
             )
         )
 
     if {"ssrf_surface", "metadata_service"}.issubset(markers):
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-ssrf-metadata-{port}",
                 title=f"Validate SSRF-to-Metadata Controls on port {port}",
                 reason="SSRF telemetry is corroborated by metadata-service indicators on the same port. Use bounded metadata probes and compare responses against known canaries.",
@@ -1130,12 +1162,16 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 estimated_cost="medium",
                 internal_priority=94,
                 analysis_tier=_analysis_tier(["ssrf_surface", "metadata_service"]),
+                ),
+                modules=["ssrf_expert", "deep_ssrf", "cloud_metadata"],
+                seed_tags=["ssrf_surface", "metadata_service", "query"],
             )
         )
 
     if context["is_http"] and {"api_surface", "auth_surface", "admin_surface"}.intersection(markers) and "object_reference_surface" in markers:
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-idor-{port}",
                 title=f"Object Access / BOLA Audit on port {port}",
                 reason="Object-reference routes or parameters were discovered on an authenticated/API surface. Validate authorization on cross-object access paths.",
@@ -1149,12 +1185,16 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 estimated_cost="medium",
                 internal_priority=89,
                 analysis_tier=_analysis_tier(["api_surface", "object_reference_surface"]),
+                ),
+                modules=["api_fuzzer", "logic_assault", "business_logic", "bypass_expert", "acl_scanner"],
+                seed_tags=["api_surface", "object_reference_surface", "auth_surface", "admin_surface"],
             )
         )
 
     if context["is_http"] and {"admin_surface", "internal_surface"}.intersection(markers):
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-admin-internal-{port}",
                 title=f"Validate Admin/Internal Route Authorization on port {port}",
                 reason="Administrative or internal routes were observed in telemetry. Prioritize authorization and environment segregation checks.",
@@ -1167,12 +1207,16 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=[signal for signal in trigger_signals if signal in {"admin_surface", "internal_surface", "auth_surface"}],
                 estimated_cost="low",
                 internal_priority=86,
+                ),
+                modules=["bypass_expert", "acl_scanner", "logic_assault"],
+                seed_tags=["admin_surface", "internal_surface", "auth_surface"],
             )
         )
 
     if context["is_http"] and "export_surface" in markers:
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-export-{port}",
                 title=f"Export / Download Authorization Audit on port {port}",
                 reason="Export, download, or report routes were identified. Validate bulk data access control, tenant boundaries, and unsafe direct object access.",
@@ -1185,6 +1229,9 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=[signal for signal in trigger_signals if signal in {"export_surface", "object_reference_surface", "admin_surface"}],
                 estimated_cost="medium",
                 internal_priority=84,
+                ),
+                modules=["api_fuzzer", "logic_assault", "bypass_expert", "acl_scanner"],
+                seed_tags=["export_surface", "object_reference_surface", "admin_surface"],
             )
         )
 
@@ -1193,7 +1240,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
         or ("write_surface" in markers and {"api_surface", "auth_surface", "admin_surface"}.intersection(markers))
     ):
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-state-change-{port}",
                 title=f"State-Changing Workflow Audit on port {port}",
                 reason="State-transition or write-capable routes were discovered on a business/API surface. Review workflow integrity, replay safety, and authorization gates.",
@@ -1206,6 +1254,9 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=[signal for signal in trigger_signals if signal in {"state_change_surface", "write_surface", "api_surface", "auth_surface", "admin_surface"}],
                 estimated_cost="medium",
                 internal_priority=83,
+                ),
+                modules=["business_logic", "logic_assault", "api_fuzzer"],
+                seed_tags=["state_change_surface", "write_surface", "api_surface", "auth_surface"],
             )
         )
 
@@ -1214,7 +1265,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
         if "mass_assignment_surface" in markers or "write_surface" in markers:
             reason_tags.append("mass_assignment")
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-logic-{port}",
                 title="Business Logic & Mass Assignment Audit",
                 reason="API-heavy surface detected. Testing for auto-binding flaws, state changes, and parameter pollution on object mutation paths.",
@@ -1227,12 +1279,16 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=[signal for signal in trigger_signals if signal in {"api_surface", "mass_assignment_surface", "write_surface", "state_change_surface"}],
                 estimated_cost="medium",
                 internal_priority=85,
+                ),
+                modules=["business_logic", "api_fuzzer", "logic_assault"],
+                seed_tags=["api_surface", "mass_assignment_surface", "write_surface", "state_change_surface"],
             )
         )
 
     if "oauth_surface" in markers or any(token in profile_text for token in ("oauth", "openid", "callback", "sso", "auth0")):
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-oauth-{port}",
                 title=f"OAuth/OIDC Security Audit on port {port}",
                 reason="Authentication flow signatures detected. Auditing for Redirect URI bypass, token leakage, and state-CSRF flaws.",
@@ -1246,6 +1302,9 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 estimated_cost="medium",
                 internal_priority=92,
                 analysis_tier=_analysis_tier(["oauth_surface", "token_surface"]) if "token_surface" in markers else "telemetry_correlation",
+                ),
+                modules=["oauth_expert", "jwt_expert", "api_fuzzer"],
+                seed_tags=["oauth_surface", "auth_surface", "token_surface"],
             )
         )
 
@@ -1259,7 +1318,8 @@ def _generic_http_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
 
     if inj_points:
         suggestions.append(
-            _build_suggestion(
+            _with_execution_driver(
+                _build_suggestion(
                 suggestion_id=f"cortex-vuln-ssti-{port}",
                 title=f"Polyglot SSTI Probe on port {port}",
                 reason="Widespread parameter reflection observed. Running engine-specific template injection probes.",
@@ -1272,6 +1332,9 @@ def _generic_http_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
                 trigger_signals=["candidate_injection_surface"],
                 estimated_cost="high",
                 internal_priority=82,
+                ),
+                modules=["ssti", "api_expert"],
+                seed_tags=["candidate_injection_surface", "query", "api_surface"],
             )
         )
 

@@ -318,10 +318,21 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 
                 reason = r.get('reason', '')
                 conf = r.get('confidence', 0)
+                driver = r.get('metadata', {}).get('execution_driver', {}) if isinstance(r.get('metadata', {}), dict) else {}
                 pdf.set_font("helvetica", "B", 9)
                 pdf.cell(0, 5, pdf.safe_text(f"- {title} (Signal strength: {conf}%)"), ln=True)
                 pdf.set_font("helvetica", "I", 8)
                 pdf.multi_cell(0, 4, pdf.safe_text(f"  Audit recommendation: {reason}"))
+                if driver:
+                    modules = ", ".join(driver.get('modules', []) or [])
+                    mode = str(driver.get('automation_state') or 'recommendation_only').replace('_', ' ')
+                    pdf.set_font("helvetica", "", 8)
+                    if modules:
+                        pdf.multi_cell(0, 4, pdf.safe_text(f"  Execution mode: {mode} | Targeted modules: {modules}"))
+                    else:
+                        pdf.multi_cell(0, 4, pdf.safe_text(f"  Execution mode: {mode}"))
+                    if driver.get('fallback_reason'):
+                        pdf.multi_cell(0, 4, pdf.safe_text(f"  Automation limit: {driver.get('fallback_reason')}"))
                 pdf.ln(2)
         
         # Surface Expansion

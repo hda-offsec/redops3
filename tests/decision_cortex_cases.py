@@ -78,6 +78,10 @@ class DecisionCortexTests(unittest.TestCase):
         self.assertIsNotNone(bola)
         self.assertIn("api_surface", bola["trigger_signals"])
         self.assertIn("object_reference_surface", bola["trigger_signals"])
+        driver = bola["metadata"]["execution_driver"]
+        self.assertEqual(driver["automation_state"], "automated_followup")
+        self.assertIn("api_fuzzer", driver["modules"])
+        self.assertIn("logic_assault", driver["modules"])
 
     def test_oauth_surface_and_token_surface_emit_oauth_audit(self):
         results = _base_results([{"port": 443, "service": "https"}])
@@ -91,6 +95,7 @@ class DecisionCortexTests(unittest.TestCase):
 
         self.assertIsNotNone(oauth)
         self.assertIn("oauth_surface", oauth["trigger_signals"])
+        self.assertIn("oauth_expert", oauth["metadata"]["execution_driver"]["modules"])
 
     def test_validated_findings_promote_analysis_tier_without_changing_family(self):
         findings = [

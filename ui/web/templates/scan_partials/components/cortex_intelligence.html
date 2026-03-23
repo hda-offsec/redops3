@@ -43,6 +43,18 @@
                                     {{ rec.confidence }}%</span>
                             </div>
                             <div class="text-muted x-small mb-2 ps-3">{{ rec.reason }}</div>
+                            {% set driver = rec.metadata.execution_driver if rec.metadata and rec.metadata.execution_driver is defined else {} %}
+                            {% if driver %}
+                            <div class="text-muted x-small mb-2 ps-3">
+                                <span class="text-info">MODE:</span> {{ driver.automation_state|replace('_', ' ') }}
+                                {% if driver.modules %}
+                                <span class="ms-2 text-warning">MODULES:</span> {{ driver.modules|join(', ') }}
+                                {% endif %}
+                                {% if driver.fallback_reason %}
+                                <span class="ms-2 text-danger">LIMIT:</span> {{ driver.fallback_reason }}
+                                {% endif %}
+                            </div>
+                            {% endif %}
                             <div class="d-flex gap-2 ps-3">
                                 {% if rec.port %}
                                 <span
