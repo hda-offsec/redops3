@@ -318,28 +318,39 @@ const scanDashboardAuditJourney = {
         return enumEndpointCount;
     },
 
+    inspectFinding(dashboard, finding) {
+        const state = dashboard.getFindingResultState(finding);
+        const validationStatus = String(dashboard.getFindingValidationStatus(finding) || '').toLowerCase();
+        const severity = String(finding?.severity || 'info').toLowerCase();
+        const command = dashboard.getFindingPrimaryCommand(finding);
+
+        return {
+            state,
+            validationStatus,
+            isHighSeverity: severity === 'critical' || severity === 'high',
+            hasProof: dashboard.hasMeaningfulProof(finding),
+            hasCommand: dashboard.isMeaningfulValue(command),
+            isValidated: validationStatus === 'success' || ['validation', 'confirmed'].includes(state),
+            isCorrelated:
+                String(finding?.category || '').toLowerCase() === 'attack_chain' ||
+                Boolean(finding?.chain_metadata && (finding.chain_metadata.related_findings || finding.chain_metadata.attack_path_summary)),
+        };
+    },
+
     summarizeFindings(dashboard, findings) {
         return findings.reduce((summary, finding) => {
-            const state = dashboard.getFindingResultState(finding);
-            const validationStatus = String(dashboard.getFindingValidationStatus(finding) || '').toLowerCase();
-            const severity = String(finding?.severity || 'info').toLowerCase();
-            const isHigh = severity === 'critical' || severity === 'high';
-            const command = dashboard.getFindingPrimaryCommand(finding);
-            const hasProof = dashboard.hasMeaningfulProof(finding);
+            const findingState = this.inspectFinding(dashboard, finding);
 
-            if (validationStatus === 'success' || ['validation', 'confirmed'].includes(state)) {
+            if (findingState.isValidated) {
                 summary.validated += 1;
             }
-            if (String(finding?.category || '').toLowerCase() === 'attack_chain') {
+            if (findingState.isCorrelated) {
                 summary.correlated += 1;
             }
-            if (finding?.chain_metadata && (finding.chain_metadata.related_findings || finding.chain_metadata.attack_path_summary)) {
-                summary.correlated += 1;
-            }
-            if (isHigh && !hasProof) {
+            if (findingState.isHighSeverity && !findingState.hasProof) {
                 summary.missingProof += 1;
             }
-            if (isHigh && !dashboard.isMeaningfulValue(command)) {
+            if (findingState.isHighSeverity && !findingState.hasCommand) {
                 summary.missingCommand += 1;
             }
             return summary;
@@ -349,6 +360,24 @@ const scanDashboardAuditJourney = {
             missingProof: 0,
             missingCommand: 0,
         });
+    },
+
+    deriveJourneyInputs(results, targetIdentifier) {
+        const phases = results?.phases || {};
+        const findings = Array.isArray(results?.findings) ? results.findings : [];
+        const attackPlan = Array.isArray(results?.attack_plan) ? results.attack_plan : [];
+
+        return {
+            phases,
+            findings,
+            attackPlan,
+            progressPhase: String(results?.progress?.current_phase || '').toLowerCase(),
+            status: String(results?.status || '').toLowerCase(),
+            target: String(results?.target || targetIdentifier || ''),
+            reconPorts: Array.isArray(phases?.recon?.open_ports) ? phases.recon.open_ports : [],
+            dnsSubs: Array.isArray(phases?.dns?.subdomains) ? phases.dns.subdomains : [],
+            enumEndpointCount: this.countEnumeratedEndpoints(phases),
+        };
     },
 
     deriveStageMap({ scopeReady, reconReady, enumReady, detectionReady, validationReady, correlationReady, reportingReady, closureReady, progressPhase, status }) {
@@ -1245,28 +1274,20 @@ class ScanDashboard {
     }
 
     deriveAuditJourney(results) {
-        const phases = results?.phases || {};
-        const findings = Array.isArray(results?.findings) ? results.findings : [];
-        const progressPhase = String(results?.progress?.current_phase || '').toLowerCase();
-        const status = String(results?.status || '').toLowerCase();
-        const target = String(results?.target || this.targetIdentifier || '');
-        const reconPorts = Array.isArray(phases?.recon?.open_ports) ? phases.recon.open_ports : [];
-        const dnsSubs = Array.isArray(phases?.dns?.subdomains) ? phases.dns.subdomains : [];
-        const attackPlan = Array.isArray(results?.attack_plan) ? results.attack_plan : [];
-        const enumEndpointCount = scanDashboardAuditJourney.countEnumeratedEndpoints(phases);
-        const findingSummary = scanDashboardAuditJourney.summarizeFindings(this, findings);
+        const auditInputs = scanDashboardAuditJourney.deriveJourneyInputs(results, this.targetIdentifier);
+        const findingSummary = scanDashboardAuditJourney.summarizeFindings(this, auditInputs.findings);
 
-        const scopeReady = target.length > 0;
-        const reconReady = reconPorts.length > 0 || dnsSubs.length > 0;
-        const enumReady = enumEndpointCount > 0;
-        const detectionReady = findings.length > 0;
+        const scopeReady = auditInputs.target.length > 0;
+        const reconReady = auditInputs.reconPorts.length > 0 || auditInputs.dnsSubs.length > 0;
+        const enumReady = auditInputs.enumEndpointCount > 0;
+        const detectionReady = auditInputs.findings.length > 0;
         const validationReady = findingSummary.validated > 0;
-        const correlationReady = findingSummary.correlated > 0 || attackPlan.length > 0;
+        const correlationReady = findingSummary.correlated > 0 || auditInputs.attackPlan.length > 0;
         // Keep the readiness booleans strict. Completed scans with detections can
         // show an in-progress visual tone without being marked as truly validated
         // or correlated.
-        const reportingReady = status === 'completed' && detectionReady;
-        const closureReady = status === 'completed' && findingSummary.missingProof === 0 && findingSummary.missingCommand === 0;
+        const reportingReady = auditInputs.status === 'completed' && detectionReady;
+        const closureReady = auditInputs.status === 'completed' && findingSummary.missingProof === 0 && findingSummary.missingCommand === 0;
 
         return {
             stageMap: scanDashboardAuditJourney.deriveStageMap({
@@ -1278,11 +1299,11 @@ class ScanDashboard {
                 correlationReady,
                 reportingReady,
                 closureReady,
-                progressPhase,
-                status,
+                progressPhase: auditInputs.progressPhase,
+                status: auditInputs.status,
             }),
             gates: {
-                total: findings.length,
+                total: auditInputs.findings.length,
                 validated: findingSummary.validated,
                 missingProof: findingSummary.missingProof,
                 missingCommand: findingSummary.missingCommand
