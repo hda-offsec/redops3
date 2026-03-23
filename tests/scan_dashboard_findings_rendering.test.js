@@ -137,6 +137,67 @@ test('findings view helper extracts the render-ready display model without chang
     assert.equal(display.toolLabel, 'DALFOX');
 });
 
+test('findings view helper resolves validation, evidence, and primary action state before HTML rendering', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const dashboard = {
+        getFindingValidationStatus() {
+            return 'success';
+        },
+        getFindingResultState() {
+            return 'confirmed';
+        },
+        getFindingPrimaryCommand() {
+            return 'curl -isk https://target/health';
+        },
+        getFindingPrimaryUrl() {
+            return 'https://target/health';
+        },
+    };
+
+    const resolved = ScanDashboard.internals.findingsView.resolveFindingDisplayState(dashboard, {
+        title: 'Health endpoint',
+        _ui: {
+            hasEvidence: true,
+        },
+    });
+
+    assert.equal(resolved.validationStatus, 'success');
+    assert.equal(resolved.resultState, 'confirmed');
+    assert.equal(resolved.primaryCommand, 'curl -isk https://target/health');
+    assert.equal(resolved.primaryUrl, 'https://target/health');
+    assert.equal(resolved.hasProof, true);
+    assert.equal(resolved.isValidated, true);
+});
+
+test('findings view helper formats escaped text and labels with the existing findings fallbacks intact', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const dashboard = {
+        escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        },
+    };
+
+    const displayText = ScanDashboard.internals.findingsView.buildDisplayText(dashboard, {
+        tool: 'nuclei',
+        description: 'Body <script>alert(1)</script>',
+        screenshot_path: 'loot/<proof>.png',
+    });
+
+    assert.equal(displayText.severity, 'info');
+    assert.equal(displayText.severityLabel, 'INFO');
+    assert.equal(displayText.escapedTitle, 'Untitled finding');
+    assert.equal(displayText.escapedTool, 'nuclei');
+    assert.equal(displayText.escapedDesc, 'Body &lt;script&gt;alert(1)&lt;/script&gt;');
+    assert.equal(displayText.escapedScreenshotPath, 'loot/&lt;proof&gt;.png');
+    assert.equal(displayText.confidenceLabel, 'MED');
+    assert.equal(displayText.toolLabel, 'CORE');
+});
+
 test('findings view helper keeps the findings table row contract for badges, evidence, validation, and vector rendering', () => {
     const { ScanDashboard } = loadScanDashboardClass();
     const rowHtml = ScanDashboard.internals.findingsView.buildTableRowHtml({

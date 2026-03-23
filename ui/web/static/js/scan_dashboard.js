@@ -65,12 +65,8 @@ const scanDashboardFindingsIdentity = {
 };
 
 const scanDashboardFindingsView = {
-    buildDisplayModel(dashboard, finding) {
-        const severity = String(finding?.severity || 'info').toLowerCase();
+    resolveFindingDisplayState(dashboard, finding) {
         const ui = finding?._ui || {};
-        const title = finding?.title || 'Untitled finding';
-        const tool = finding?.tool_source || finding?.tool || 'core';
-        const description = finding?.description || '';
         const validationStatus = ui.validationStatus || dashboard.getFindingValidationStatus(finding);
         const resultState = ui.resultState || dashboard.getFindingResultState(finding);
         const primaryCommand = ui.primaryCommand || dashboard.getFindingPrimaryCommand(finding);
@@ -79,19 +75,42 @@ const scanDashboardFindingsView = {
         const isValidated = ui.isValidated === true || validationStatus === 'success' || ['validation', 'confirmed'].includes(resultState);
 
         return {
+            validationStatus,
+            resultState,
+            primaryCommand,
+            primaryUrl,
+            hasProof,
+            isValidated,
+        };
+    },
+
+    buildDisplayText(dashboard, finding) {
+        const severity = String(finding?.severity || 'info').toLowerCase();
+        const title = finding?.title || 'Untitled finding';
+        const tool = finding?.tool_source || finding?.tool || 'core';
+        const description = finding?.description || '';
+        const screenshotPath = finding?.screenshot_path || '';
+
+        return {
             severity,
             severityLabel: severity.toUpperCase(),
             escapedTitle: dashboard.escapeHtml(title),
             escapedTool: dashboard.escapeHtml(tool),
             escapedDesc: dashboard.escapeHtml(description),
-            escapedPrimaryUrl: dashboard.escapeHtml(primaryUrl),
-            primaryCommand,
-            primaryUrl,
-            escapedScreenshotPath: dashboard.escapeHtml(finding?.screenshot_path || ''),
-            hasProof,
-            isValidated,
+            escapedScreenshotPath: dashboard.escapeHtml(screenshotPath),
             confidenceLabel: String(finding?.confidence || 'med').toUpperCase().substring(0, 4),
             toolLabel: String(finding?.tool_source || 'CORE').toUpperCase(),
+        };
+    },
+
+    buildDisplayModel(dashboard, finding) {
+        const displayState = this.resolveFindingDisplayState(dashboard, finding);
+        const displayText = this.buildDisplayText(dashboard, finding);
+
+        return {
+            ...displayText,
+            ...displayState,
+            escapedPrimaryUrl: dashboard.escapeHtml(displayState.primaryUrl),
         };
     },
 
