@@ -322,7 +322,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.set_font("helvetica", "B", 9)
                 pdf.cell(0, 5, pdf.safe_text(f"- {title} (Signal strength: {conf}%)"), ln=True)
                 pdf.set_font("helvetica", "I", 8)
-                pdf.multi_cell(0, 4, pdf.safe_text(f"  Audit recommendation: {reason}"))
+                pdf.multi_cell(0, 4, pdf.safe_text(f"  Guided follow-up recommendation: {reason}"))
                 if driver:
                     modules = ", ".join(driver.get('modules', []) or [])
                     mode = str(driver.get('automation_state') or 'recommendation_only').replace('_', ' ')
@@ -627,6 +627,10 @@ def generate_scan_report(scan_id, scan_obj, findings):
         detail = f.get('_detail', {}) if isinstance(f, dict) else {}
         ui = f.get('_ui', {}) if isinstance(f, dict) else {}
         description = detail.get('summary') or (f.get('description', '') if isinstance(f, dict) else getattr(f, 'description', ''))
+        status_summary = detail.get('statusSummary', '')
+        execution_summary = detail.get('executionSummary', '')
+        remaining_unknowns = detail.get('remainingUnknowns', '')
+        real_status = str(detail.get('realStatusLabel') or 'not validated').upper()
         confidence = (detail.get('confidence') or (f.get('confidence', '') if isinstance(f, dict) else getattr(f, 'confidence', '')) or 'medium').upper()
         visible_truth = str(ui.get("visibleTruthLabel") or "observation").upper()
         validation_status = str(ui.get("validationStatus") or "not_run").upper()
@@ -654,7 +658,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.set_text_color(50, 50, 50)
         pdf.set_font("helvetica", "B", 8)
         pdf.cell(0, 5, pdf.safe_text(f" Vector Source: {tool_source} | Confidence: {confidence} | Visible Class: {visible_truth}"), ln=True)
-        pdf.cell(0, 5, pdf.safe_text(f" Validation: {validation_status} | Result State: {result_state}"), ln=True)
+        pdf.cell(0, 5, pdf.safe_text(f" Real Status: {real_status} | Validation: {validation_status} | Result State: {result_state}"), ln=True)
         
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(60, 60, 65)
@@ -696,6 +700,26 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.cell(0, 5, pdf.safe_text(f" {label}:"), ln=True)
                 pdf.set_font("helvetica", "", 7)
                 pdf.multi_cell(190, 3.5, pdf.safe_text(_truncate_report_block(value, 500)), border=1)
+
+        if status_summary or execution_summary or remaining_unknowns:
+            pdf.ln(1)
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_text_color(100, 100, 100)
+            pdf.set_font("helvetica", "B", 8)
+            pdf.cell(0, 6, " SEMANTIC GUARDRAILS", fill=True, ln=True)
+
+            for label, value in (
+                ("Status Summary", status_summary),
+                ("What Was Actually Executed", execution_summary),
+                ("What Remains Unverified", remaining_unknowns),
+            ):
+                if not value:
+                    continue
+                pdf.set_font("helvetica", "B", 7)
+                pdf.set_text_color(60, 60, 65)
+                pdf.cell(0, 5, pdf.safe_text(f" {label}:"), ln=True)
+                pdf.set_font("helvetica", "", 7)
+                pdf.multi_cell(190, 4, pdf.safe_text(_truncate_report_block(value, 900)), border=1)
 
         if command_blocks or validation_guidance:
             pdf.ln(1)
@@ -739,7 +763,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         if interpretation:
             pdf.set_font("helvetica", "B", 7)
             pdf.set_text_color(60, 60, 65)
-            pdf.cell(0, 5, " Interpretation:", ln=True)
+            pdf.cell(0, 5, " Why This Matters:", ln=True)
             pdf.set_font("helvetica", "", 7)
             pdf.multi_cell(190, 4, pdf.safe_text(_truncate_report_block(interpretation, 900)), border=1)
 

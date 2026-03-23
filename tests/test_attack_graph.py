@@ -15,6 +15,29 @@ class AttackGraphTests(unittest.TestCase):
                     {"id_stable": "f4", "category": "parameter_surface", "parameter": "token", "endpoint": "/api/v1/users"},
                     {"id_stable": "f5", "category": "secret_exposure", "endpoint": "/api/v1/users", "metadata": {"secret_type": "github_token"}},
                     {"id_stable": "f6", "category": "attack_chain", "endpoint": "/api/v1/users", "metadata": {"chain": ["js_api", "auth_parameter", "token"]}},
+                    {
+                        "id_stable": "f7",
+                        "category": "auth",
+                        "title": "Bounded validation on export route",
+                        "endpoint": "/api/v1/export",
+                        "result_state": "validation",
+                        "repro_command": "curl -isk https://example.com/api/v1/export",
+                        "request": "GET /api/v1/export HTTP/1.1",
+                        "response": "HTTP/1.1 403 Forbidden",
+                        "metadata": {"validation": {"status": "uncertain", "artifact": "HTTP/1.1 403 Forbidden"}},
+                    },
+                    {
+                        "id_stable": "f8",
+                        "category": "ssrf",
+                        "title": "Confirmed metadata SSRF",
+                        "description": "A bounded SSRF replay reached the metadata service and returned a controlled response.",
+                        "endpoint": "https://example.com/fetch?url=http://169.254.169.254/latest/meta-data/",
+                        "result_state": "confirmed",
+                        "repro_command": "curl -isk https://example.com/fetch?url=http://169.254.169.254/latest/meta-data/",
+                        "request": "GET /fetch?url=http://169.254.169.254/latest/meta-data/ HTTP/1.1",
+                        "response": "HTTP/1.1 200 OK\nmetadata-token: canary",
+                        "metadata": {"validation": {"status": "success", "artifact": "HTTP/1.1 200 OK\nmetadata-token: canary"}},
+                    },
                 ],
                 "phases": {"recon": {"open_ports": []}, "enum": {}, "vuln": {}},
             }
@@ -27,12 +50,14 @@ class AttackGraphTests(unittest.TestCase):
         self.assertIn("secret", node_types)
         self.assertIn("api_endpoint", node_types)
         self.assertIn("parameter", node_types)
+        self.assertIn("validation", node_types)
 
         self.assertIn("exposes_asset", edge_types)
         self.assertIn("leaks_secret", edge_types)
         self.assertIn("depends_on", edge_types)
         self.assertIn("leads_to_attack", edge_types)
         self.assertIn("reachable_from", edge_types)
+        self.assertIn("validated_by_execution", edge_types)
 
     def test_attack_graph_node_ids_normalized(self):
         graph = AttackGraphBuilder().build(

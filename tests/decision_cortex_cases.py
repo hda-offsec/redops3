@@ -82,6 +82,9 @@ class DecisionCortexTests(unittest.TestCase):
         self.assertEqual(driver["automation_state"], "automated_followup")
         self.assertIn("api_fuzzer", driver["modules"])
         self.assertIn("logic_assault", driver["modules"])
+        self.assertTrue(bola["title"].startswith("Recommendation:"))
+        self.assertIn("validate object access boundaries", bola["title"].lower())
+        self.assertNotIn("vulnerability", bola["reason"].lower())
 
     def test_oauth_surface_and_token_surface_emit_oauth_audit(self):
         results = _base_results([{"port": 443, "service": "https"}])
@@ -96,6 +99,8 @@ class DecisionCortexTests(unittest.TestCase):
         self.assertIsNotNone(oauth)
         self.assertIn("oauth_surface", oauth["trigger_signals"])
         self.assertIn("oauth_expert", oauth["metadata"]["execution_driver"]["modules"])
+        self.assertIn("validate oauth/oidc flow controls", oauth["title"].lower())
+        self.assertIn("recommend bounded validation", oauth["reason"].lower())
 
     def test_validated_findings_promote_analysis_tier_without_changing_family(self):
         findings = [
@@ -158,6 +163,10 @@ class DecisionCortexTests(unittest.TestCase):
         self.assertNotIn("http_smuggling", families)
         self.assertNotIn("vhost_bruteforce", families)
         self.assertNotIn("waf_fingerprint", families)
+        ssti = _suggestion_by_family(suggestions, "ssti_probe")
+        self.assertIsNotNone(ssti)
+        self.assertIn("run bounded ssti validation", ssti["title"].lower())
+        self.assertIn("instead of treating the reflection as proof", ssti["reason"].lower())
 
     def test_suggest_actions_keeps_dedup_budget_order_and_observability_stable(self):
         results = _base_results(

@@ -1522,6 +1522,8 @@ const scanDashboardCortexView = {
         recommendations.forEach(rec => {
             const catClass = rec.category === 'intel' ? 'info' : (rec.category === 'enum' ? 'warning' : 'secondary');
             const analysisTier = String(rec?.metadata?.analysis_tier || 'telemetry_correlation').replace(/_/g, ' ');
+            const driver = rec?.metadata?.execution_driver || {};
+            const automationState = String(driver.automation_state || 'recommendation_only').replace(/_/g, ' ');
             html += `
                 <div class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow animate__animated animate__fadeIn">
                     <div class="d-flex justify-content-between align-items-start mb-2">
@@ -1532,6 +1534,13 @@ const scanDashboardCortexView = {
                         <span class="badge bg-dark text-${rec.confidence > 70 ? 'info' : 'muted'} border border-secondary x-small font-monospace">SIGNAL: ${rec.confidence}%</span>
                     </div>
                     <div class="text-muted x-small mb-2 ps-3">${rec.reason}</div>
+                    <div class="text-muted x-small mb-2 ps-3">
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 x-small me-2">RECOMMENDATION</span>
+                        ${driver.automation_state ? `<span class="text-info">MODE:</span> ${automationState}` : 'Guided follow-up only.'}
+                        ${Array.isArray(driver.modules) && driver.modules.length ? `<span class="ms-2 text-warning">MODULES:</span> ${driver.modules.join(', ')}` : ''}
+                        ${driver.fallback_reason ? `<span class="ms-2 text-danger">LIMIT:</span> ${driver.fallback_reason}` : ''}
+                    </div>
+                    <div class="text-muted x-small mb-2 ps-3">This item is a guided follow-up recommendation. It is not rendered as a confirmed vulnerability.</div>
                     <div class="d-flex gap-2 ps-3">
                         <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 x-small">RECOMMENDATION</span>
                         ${rec.port ? `<span class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-25 x-small">PORT: ${rec.port}</span>` : ''}

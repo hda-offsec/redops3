@@ -92,6 +92,8 @@ class FindingsUiContractTests(unittest.TestCase):
             (
                 "validationStatus",
                 "resultState",
+                "visibleTruth",
+                "visibleTruthLabel",
                 "primaryCommand",
                 "primaryUrl",
                 "provider",
@@ -121,6 +123,7 @@ class FindingsUiContractTests(unittest.TestCase):
                 "validated_token",
                 "parameter",
                 "port_state",
+                "visible_truth",
             ),
         )
         self.assertEqual(
@@ -155,6 +158,11 @@ class FindingsUiContractTests(unittest.TestCase):
             DETAIL_CONTRACT_FIELDS,
             (
                 "summary",
+                "statusSummary",
+                "executionSummary",
+                "remainingUnknowns",
+                "realStatus",
+                "realStatusLabel",
                 "technicalContext",
                 "commandExecuted",
                 "commandBlocks",
@@ -251,9 +259,10 @@ class FindingsUiContractTests(unittest.TestCase):
         self.assertEqual(finding["_ui"]["resultState"], "confirmed")
         self.assertTrue(finding["_ui"]["hasEvidence"])
         self.assertTrue(finding["_ui"]["isValidated"])
+        self.assertEqual(finding["_ui"]["visibleTruth"], "confirmed_vulnerability")
         self.assertEqual(
             finding["_ui"]["searchText"],
-            "graphql schema leak nuclei api https://example.org/api/graphql aws apigateway 2024.1 success confirmed validated query open",
+            "graphql schema leak nuclei api https://example.org/api/graphql aws apigateway 2024.1 success confirmed validated query open confirmed_vulnerability",
         )
 
     def test_build_finding_detail_contract_preserves_rich_evidence_and_context(self):
@@ -265,6 +274,11 @@ class FindingsUiContractTests(unittest.TestCase):
         )
         self.assertEqual(detail["target"], "https://example.org/api/graphql")
         self.assertEqual(detail["observedVersions"], ["2024.1", "graphql-js 16.8.1"])
+        self.assertEqual(detail["realStatus"], "confirmed")
+        self.assertEqual(detail["realStatusLabel"], "confirmed")
+        self.assertIn("confirmed vulnerability classification", detail["statusSummary"].lower())
+        self.assertIn("supporting artifacts", detail["executionSummary"].lower())
+        self.assertIn("scope and remediation", detail["remainingUnknowns"].lower())
         self.assertEqual(
             [block["key"] for block in detail["commandBlocks"]],
             ["validation_command", "reproducibility_command"],

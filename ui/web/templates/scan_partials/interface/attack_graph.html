@@ -27,7 +27,7 @@
         id="graph-warning" role="alert">
         <i class="fas fa-exclamation-triangle text-warning me-3 ms-2 fa-lg"></i>
         <div class="x-small text-muted">
-            <strong class="text-warning">Interpretation guardrail:</strong> graph edges may represent observations or correlations unless a node is explicitly marked confirmed vulnerability.
+            <strong class="text-warning">Interpretation guardrail:</strong> graph edges may represent observations, correlations, or bounded validations unless a node is explicitly marked confirmed vulnerability.
         </div>
     </div>
 </div>
@@ -168,6 +168,11 @@
             color = { background: '#5c6370', border: '#d6a645' };
             font = { color: '#fff', bold: true };
             label = `🧭\n${label}`;
+        } else if (type === 'validation' || type === 'validated_path') {
+            shape = 'box';
+            color = { background: '#3c2f12', border: '#f0ad4e' };
+            font = { color: '#fff', bold: true };
+            label = `🧪\n${label}`;
         } else if (type === 'recommendation') {
             shape = 'box';
             color = { background: '#1f3b5b', border: '#7fb3ff' };

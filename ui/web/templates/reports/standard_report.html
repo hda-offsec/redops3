@@ -264,7 +264,7 @@
             {% for rec in derived.cortex_recommendations %}
             <li>
                 <strong>{{ rec.title }}</strong> (Signal strength: {{ rec.confidence }}%)<br>
-                <small>This is an audit recommendation, not a confirmed vulnerability. {{ rec.reason }}</small>
+                <small>This is a guided recommendation for targeted follow-up, not a confirmed vulnerability. {{ rec.reason }}</small>
             </li>
             {% endfor %}
         </ul>
@@ -438,6 +438,9 @@
                     <span class="badge bg-low">
                         Visible class: {{ (ui.visibleTruthLabel or 'observation')|upper }}
                     </span>
+                    <span class="badge bg-{{ 'info' if (detail.realStatus or 'not_validated') == 'recommended' else ('medium' if (detail.realStatus or 'not_validated') == 'validated' else ('high' if (detail.realStatus or 'not_validated') == 'inconclusive' else ('critical' if (detail.realStatus or 'not_validated') == 'confirmed' else 'low'))) }}">
+                        Real status: {{ (detail.realStatusLabel or 'not validated')|upper }}
+                    </span>
                     <span class="badge bg-{{ 'high' if (ui.validationStatus or 'not_run') == 'failed' else ('medium' if (ui.validationStatus or 'not_run') == 'uncertain' else ('info' if (ui.validationStatus or 'not_run') == 'success' else 'low')) }}">
                         Validation: {{ (ui.validationStatus or 'not_run')|upper }}
                     </span>
@@ -448,6 +451,32 @@
                 </div>
             </div>
         </div>
+
+        {% if detail.statusSummary or detail.executionSummary or detail.remainingUnknowns %}
+        <div class="finding-section">
+            <h5>Semantic guardrails</h5>
+            <div class="finding-panel">
+                {% if detail.statusSummary %}
+                <dl class="finding-kv">
+                    <dt>Status summary</dt>
+                    <dd>{{ detail.statusSummary }}</dd>
+                </dl>
+                {% endif %}
+                {% if detail.executionSummary %}
+                <dl class="finding-kv">
+                    <dt>What was actually executed</dt>
+                    <dd>{{ detail.executionSummary }}</dd>
+                </dl>
+                {% endif %}
+                {% if detail.remainingUnknowns %}
+                <dl class="finding-kv">
+                    <dt>What remains unverified</dt>
+                    <dd>{{ detail.remainingUnknowns }}</dd>
+                </dl>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
 
         {% if detail.technicalContext %}
         <div class="finding-section">
@@ -499,7 +528,7 @@
 
         {% if detail.interpretation %}
         <div class="finding-section">
-            <h5>Interpretation</h5>
+            <h5>Why this matters</h5>
             <div class="finding-panel" style="white-space: pre-wrap;">{{ detail.interpretation }}</div>
         </div>
         {% endif %}

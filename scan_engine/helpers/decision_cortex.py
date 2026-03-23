@@ -1173,8 +1173,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
             _with_execution_driver(
                 _build_suggestion(
                 suggestion_id=f"cortex-vuln-idor-{port}",
-                title=f"Object Access / BOLA Audit on port {port}",
-                reason="Object-reference routes or parameters were discovered on an authenticated/API surface. Validate authorization on cross-object access paths.",
+                title=f"Validate object access boundaries",
+                reason="Object-reference telemetry was discovered on an authenticated/API surface. Recommend bounded authorization checks on cross-object access paths before escalating the signal.",
                 confidence=89,
                 port=port,
                 category="vuln",
@@ -1218,8 +1218,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
             _with_execution_driver(
                 _build_suggestion(
                 suggestion_id=f"cortex-vuln-export-{port}",
-                title=f"Export / Download Authorization Audit on port {port}",
-                reason="Export, download, or report routes were identified. Validate bulk data access control, tenant boundaries, and unsafe direct object access.",
+                title=f"Validate export and download authorization controls",
+                reason="Export, download, or report routes were identified. Recommend bounded authorization checks for bulk data access, tenant boundaries, and direct object exposure.",
                 confidence=84,
                 port=port,
                 category="vuln",
@@ -1243,8 +1243,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
             _with_execution_driver(
                 _build_suggestion(
                 suggestion_id=f"cortex-vuln-state-change-{port}",
-                title=f"State-Changing Workflow Audit on port {port}",
-                reason="State-transition or write-capable routes were discovered on a business/API surface. Review workflow integrity, replay safety, and authorization gates.",
+                title=f"Validate state-changing workflow controls",
+                reason="State-transition or write-capable routes were discovered on a business/API surface. Recommend bounded workflow, replay-safety, and authorization checks before escalation.",
                 confidence=83,
                 port=port,
                 category="vuln",
@@ -1268,8 +1268,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
             _with_execution_driver(
                 _build_suggestion(
                 suggestion_id=f"cortex-vuln-logic-{port}",
-                title="Business Logic & Mass Assignment Audit",
-                reason="API-heavy surface detected. Testing for auto-binding flaws, state changes, and parameter pollution on object mutation paths.",
+                title="Test mass-assignment and mutation paths",
+                reason="API-heavy surface detected. Recommend targeted mass-assignment, state-change, and parameter-pollution validation on object mutation paths.",
                 confidence=85,
                 port=port,
                 category="vuln",
@@ -1290,8 +1290,8 @@ def _surface_port_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
             _with_execution_driver(
                 _build_suggestion(
                 suggestion_id=f"cortex-vuln-oauth-{port}",
-                title=f"OAuth/OIDC Security Audit on port {port}",
-                reason="Authentication flow signatures detected. Auditing for Redirect URI bypass, token leakage, and state-CSRF flaws.",
+                title=f"Validate OAuth/OIDC flow controls",
+                reason="Authentication flow telemetry was detected. Recommend bounded validation of redirect URI handling, token leakage paths, and state/CSRF controls.",
                 confidence=92,
                 port=port,
                 category="vuln",
@@ -1321,8 +1321,8 @@ def _generic_http_recommendations(context: Dict[str, Any]) -> List[Dict[str, Any
             _with_execution_driver(
                 _build_suggestion(
                 suggestion_id=f"cortex-vuln-ssti-{port}",
-                title=f"Polyglot SSTI Probe on port {port}",
-                reason="Widespread parameter reflection observed. Running engine-specific template injection probes.",
+                title="Run bounded SSTI validation",
+                reason="Widespread parameter reflection was observed. Recommend bounded engine-specific SSTI validation instead of treating the reflection as proof.",
                 confidence=84,
                 port=port,
                 category="vuln",

@@ -102,6 +102,7 @@ VISIBLE_TRUTH_VALUES = (
     "observation",
     "suspicion",
     "recommendation",
+    "validation",
     "confirmed_vulnerability",
 )
 
@@ -261,13 +262,15 @@ def collect_finding_quality_signals(payload):
     )
     title = _clean_text(finding.get("title"))
     description = _clean_text(finding.get("description"))
+    validation_artifact = validation.get("artifact")
+    execution_driver = metadata.get("execution_driver") if isinstance(metadata.get("execution_driver"), dict) else {}
 
     artifact_candidates = [
         finding.get("evidence"),
         finding.get("request"),
         finding.get("response"),
         finding.get("raw_output"),
-        validation.get("artifact"),
+        validation_artifact,
         reproducibility.get("request_excerpt"),
         reproducibility.get("response_excerpt"),
     ]
@@ -299,6 +302,8 @@ def collect_finding_quality_signals(payload):
         score += 1
     if result_state == "confirmed":
         score += 1
+    if execution_driver:
+        score += 1
 
     return {
         "validation_status": validation_status,
@@ -309,6 +314,7 @@ def collect_finding_quality_signals(payload):
         "description": description,
         "proof_artifact_count": len(proof_artifacts),
         "proof_artifacts_present": bool(proof_artifacts),
+        "has_validation_artifact": _is_meaningful_proof_artifact(validation_artifact),
         "has_request_response": any(
             _is_meaningful_proof_artifact(candidate)
             for candidate in (
@@ -324,6 +330,8 @@ def collect_finding_quality_signals(payload):
         "has_command": _looks_like_real_command(command),
         "has_substantive_description": len(description) >= 24,
         "has_non_generic_title": title.lower() not in GENERIC_TITLES,
+        "has_execution_driver": bool(execution_driver),
+        "is_recommendation_like": bool(execution_driver) and finding.get("reason") is not None,
         "quality_score": score,
     }
 
@@ -335,36 +343,112 @@ def classify_visible_truth(payload):
     title = _safe_lower(finding.get("title"))
     family = _safe_lower(finding.get("family"))
 
+    quality = collect_finding_quality_signals(finding)
     if (
         category in RECOMMENDATION_CATEGORIES
         or title.startswith("recommendation:")
         or family
         or "internal_priority" in finding
+        or quality["is_recommendation_like"]
     ) and finding.get("reason") is not None:
         return "recommendation"
 
-    quality = collect_finding_quality_signals(finding)
     if (
         quality["result_state"] in CONFIRMED_RESULT_STATES
         and quality["validation_status"] == "success"
         and quality["has_endpoint"]
         and quality["has_command"]
         and quality["proof_artifact_count"] >= 1
+        and quality["has_validation_artifact"]
         and quality["has_request_response"]
         and quality["has_non_generic_title"]
+        and quality["has_substantive_description"]
         and quality["quality_score"] >= 6
     ):
         return "confirmed_vulnerability"
 
     if (
-        quality["result_state"] in SUSPICION_RESULT_STATES
-        or quality["validation_status"] in {"failed", "uncertain"}
+        quality["validation_status"] in {"success", "failed", "uncertain"}
+        and (
+            quality["result_state"] == "validation"
+            or quality["has_command"]
+            or quality["proof_artifacts_present"]
+            or quality["has_request_response"]
+        )
+    ):
+        return "validation"
+
+    if (
+        quality["result_state"] in {"heuristic", "correlation"}
         or category in {"attack_chain", "attack_path"}
-        or _safe_lower(metadata.get("validation_state")) in {"heuristic", "correlation", "validation"}
+        or _safe_lower(metadata.get("validation_state")) in {"heuristic", "correlation"}
     ):
         return "suspicion"
 
     return "observation"
+
+
+def summarize_visible_truth(payload):
+    finding = payload if isinstance(payload, dict) else {}
+    metadata = finding.get("metadata") if isinstance(finding.get("metadata"), dict) else {}
+    quality = collect_finding_quality_signals(finding)
+    visible_truth = classify_visible_truth(finding)
+    validation_status = quality["validation_status"]
+    result_state = quality["result_state"]
+    execution_driver = metadata.get("execution_driver") if isinstance(metadata.get("execution_driver"), dict) else {}
+
+    status_map = {
+        "recommendation": "recommended",
+        "observation": "not_validated" if validation_status == "not_run" else "inconclusive",
+        "suspicion": "inconclusive" if validation_status in {"failed", "uncertain"} else "not_validated",
+        "validation": "validated" if validation_status == "success" else "inconclusive",
+        "confirmed_vulnerability": "confirmed",
+    }
+    status = status_map.get(visible_truth, "not_validated")
+
+    if visible_truth == "recommendation":
+        summary = "Cortex recommendation only; no vulnerability has been established from this item."
+        execution = (
+            f"Execution mode: {str(execution_driver.get('automation_state') or 'recommendation_only').replace('_', ' ')}."
+            if execution_driver
+            else "No validation command has been executed for this recommendation."
+        )
+        remaining = "The recommendation still requires bounded validation before it can be treated as evidence."
+    elif visible_truth == "confirmed_vulnerability":
+        summary = "Strong reproducible evidence supports a confirmed vulnerability classification."
+        execution = "A reproducible validation command, target, request/response evidence, and supporting artifacts were recorded."
+        remaining = "Scope and remediation should still be reviewed, but the core condition is evidenced."
+    elif visible_truth == "validation":
+        summary = "A bounded validation step was executed and produced a meaningful signal, but the proof remains scoped."
+        if validation_status == "success":
+            execution = "Validation completed successfully with recorded execution details and supporting artifacts."
+            remaining = "The outcome is validated, but broader exploitability or impact should not be overstated."
+        else:
+            execution = f"Validation was executed with status '{validation_status}', indicating partial or inconclusive proof."
+            remaining = "The signal is interesting, but it remains inconclusive until stronger proof is captured."
+    elif visible_truth == "suspicion":
+        summary = "This item remains a heuristic or correlation, not a validated vulnerability."
+        execution = (
+            f"Result state is '{result_state}' with validation status '{validation_status}'."
+            if validation_status != "not_run"
+            else "No bounded validation evidence was captured yet."
+        )
+        remaining = "A targeted validation run is still required before promoting this signal."
+    else:
+        summary = "This item is an observation about exposed surface or telemetry."
+        execution = "No bounded validation evidence was captured for this observation."
+        remaining = "It may inform later testing, but it is not proof of exploitability."
+
+    return {
+        "visible_truth": visible_truth,
+        "status": status,
+        "status_label": status.replace("_", " "),
+        "summary": summary,
+        "execution_summary": execution,
+        "remaining_unknowns": remaining,
+        "validation_status": validation_status,
+        "result_state": result_state,
+    }
 
 
 def apply_finding_quality_gates(payload):
@@ -377,22 +461,38 @@ def apply_finding_quality_gates(payload):
     result_state = quality["result_state"]
     downgrade_reasons = []
 
-    strong_high_gate = (
+    significant_proof = (
         quality["has_endpoint"]
-        and quality["has_command"]
-        and quality["proof_artifact_count"] >= 1
         and quality["has_non_generic_title"]
         and quality["has_substantive_description"]
-        and quality["quality_score"] >= 5
+        and (
+            quality["has_validation_artifact"]
+            or (
+                quality["proof_artifact_count"] >= 2
+                and quality["has_request_response"]
+            )
+        )
     )
-    strong_critical_gate = strong_high_gate and quality["validation_status"] == "success" and quality["proof_artifact_count"] >= 2
+    strong_high_gate = (
+        significant_proof
+        and quality["has_command"]
+        and quality["quality_score"] >= 6
+    )
+    strong_critical_gate = (
+        strong_high_gate
+        and quality["validation_status"] == "success"
+        and quality["proof_artifact_count"] >= 2
+        and quality["has_validation_artifact"]
+        and quality["has_request_response"]
+        and quality["quality_score"] >= 8
+    )
     strong_confirmed_gate = (
         quality["validation_status"] == "success"
-        and quality["has_endpoint"]
-        and quality["has_command"]
-        and quality["proof_artifact_count"] >= 1
+        and strong_high_gate
+        and quality["has_validation_artifact"]
         and quality["has_request_response"]
-        and quality["quality_score"] >= 6
+        and quality["proof_artifact_count"] >= 2
+        and quality["quality_score"] >= 8
     )
 
     if severity == "critical" and not strong_critical_gate:
@@ -400,7 +500,7 @@ def apply_finding_quality_gates(payload):
         downgrade_reasons.append("critical_requires_validated_multi_artifact_proof")
     elif severity == "high" and not strong_high_gate:
         severity = "medium"
-        downgrade_reasons.append("high_requires_endpoint_command_and_proof")
+        downgrade_reasons.append("high_requires_reproducible_significant_proof")
 
     if result_state == "confirmed" and not strong_confirmed_gate:
         result_state = "validation" if quality["proof_artifacts_present"] or quality["has_command"] else "correlation"
@@ -415,8 +515,13 @@ def apply_finding_quality_gates(payload):
         "proof_artifact_count": quality["proof_artifact_count"],
         "has_endpoint": quality["has_endpoint"],
         "has_command": quality["has_command"],
+        "has_validation_artifact": quality["has_validation_artifact"],
         "has_request_response": quality["has_request_response"],
         "has_corroborating_signals": quality["has_corroborating_signals"],
+        "significant_proof": significant_proof,
+        "strong_high_gate": strong_high_gate,
+        "strong_critical_gate": strong_critical_gate,
+        "strong_confirmed_gate": strong_confirmed_gate,
     }
     if downgrade_reasons:
         validation["downgrade_reason"] = downgrade_reasons[-1]
@@ -430,7 +535,9 @@ def apply_finding_quality_gates(payload):
     finding["severity"] = severity
     finding["result_state"] = result_state
     finding["metadata"] = metadata
-    metadata["visible_truth"] = classify_visible_truth(finding)
+    truth_summary = summarize_visible_truth(finding)
+    metadata["visible_truth"] = truth_summary["visible_truth"]
+    metadata["truth_summary"] = truth_summary
     return finding
 
 

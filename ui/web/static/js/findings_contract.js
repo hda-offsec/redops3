@@ -135,6 +135,11 @@
     ];
     const DETAIL_CONTRACT_FIELDS = [
         "summary",
+        "statusSummary",
+        "executionSummary",
+        "remainingUnknowns",
+        "realStatus",
+        "realStatusLabel",
         "technicalContext",
         "commandExecuted",
         "commandBlocks",
@@ -378,6 +383,69 @@
         return "observation";
     }
 
+    function summarizeVisibleTruth(finding) {
+        const metadata = asDict(finding.metadata);
+        const quality = collectFindingQualitySignals(finding);
+        const visibleTruth = classifyVisibleTruth(finding);
+        const validationStatus = quality.validationStatus;
+        const resultState = quality.resultState;
+        const executionDriver = asDict(metadata.execution_driver);
+
+        const statusMap = {
+            recommendation: "recommended",
+            observation: validationStatus === "not_run" ? "not_validated" : "inconclusive",
+            suspicion: ["failed", "uncertain"].includes(validationStatus) ? "inconclusive" : "not_validated",
+            validation: validationStatus === "success" ? "validated" : "inconclusive",
+            confirmed_vulnerability: "confirmed",
+        };
+        const status = statusMap[visibleTruth] || "not_validated";
+
+        let summary = "";
+        let executionSummary = "";
+        let remainingUnknowns = "";
+
+        if (visibleTruth === "recommendation") {
+            summary = "Cortex recommendation only; no vulnerability has been established from this item.";
+            executionSummary = Object.keys(executionDriver).length
+                ? `Execution mode: ${cleanText(executionDriver.automation_state || "recommendation_only").replace(/_/g, " ")}.`
+                : "No validation command has been executed for this recommendation.";
+            remainingUnknowns = "The recommendation still requires bounded validation before it can be treated as evidence.";
+        } else if (visibleTruth === "confirmed_vulnerability") {
+            summary = "Strong reproducible evidence supports a confirmed vulnerability classification.";
+            executionSummary = "A reproducible validation command, target, request/response evidence, and supporting artifacts were recorded.";
+            remainingUnknowns = "Scope and remediation should still be reviewed, but the core condition is evidenced.";
+        } else if (visibleTruth === "validation") {
+            summary = "A bounded validation step was executed and produced a meaningful signal, but the proof remains scoped.";
+            executionSummary = validationStatus === "success"
+                ? "Validation completed successfully with recorded execution details and supporting artifacts."
+                : `Validation was executed with status '${validationStatus}', indicating partial or inconclusive proof.`;
+            remainingUnknowns = validationStatus === "success"
+                ? "The outcome is validated, but broader exploitability or impact should not be overstated."
+                : "The signal is interesting, but it remains inconclusive until stronger proof is captured.";
+        } else if (visibleTruth === "suspicion") {
+            summary = "This item remains a heuristic or correlation, not a validated vulnerability.";
+            executionSummary = validationStatus !== "not_run"
+                ? `Result state is '${resultState}' with validation status '${validationStatus}'.`
+                : "No bounded validation evidence was captured yet.";
+            remainingUnknowns = "A targeted validation run is still required before promoting this signal.";
+        } else {
+            summary = "This item is an observation about exposed surface or telemetry.";
+            executionSummary = "No bounded validation evidence was captured for this observation.";
+            remainingUnknowns = "It may inform later testing, but it is not proof of exploitability.";
+        }
+
+        return {
+            visible_truth: visibleTruth,
+            status,
+            status_label: status.replace(/_/g, " "),
+            summary,
+            execution_summary: executionSummary,
+            remaining_unknowns: remainingUnknowns,
+            validation_status: validationStatus,
+            result_state: resultState,
+        };
+    }
+
     function isSafeLegacyCommand(value) {
         const candidate = cleanText(value);
         if (!isMeaningfulText(candidate)) return false;
@@ -597,8 +665,14 @@
         const metadata = asDict(normalized.metadata);
         const ui = asDict(normalized._ui);
         const riskScorecard = asDict(normalized.risk_scorecard);
+        const truthSummary = summarizeVisibleTruth(normalized);
         const detailState = {
             summary: cleanText(normalized.description),
+            statusSummary: cleanText(truthSummary.summary),
+            executionSummary: cleanText(truthSummary.execution_summary),
+            remainingUnknowns: cleanText(truthSummary.remaining_unknowns),
+            realStatus: cleanText(truthSummary.status || "not_validated"),
+            realStatusLabel: cleanText(truthSummary.status_label || "not validated"),
             technicalContext: buildFindingTechnicalContext(normalized),
             commandExecuted: cleanText(ui.primaryCommand),
             commandBlocks: getFindingCommandBlocks(normalized),
@@ -976,10 +1050,13 @@
         const detail = buildFindingDetailState(normalized);
         const validationStatus = cleanText(ui.validationStatus || "not_run");
         const resultState = cleanText(ui.resultState || "observation");
+        const realStatus = cleanText(detail.realStatus || "not_validated");
         const statusToneMap = { success: "success", failed: "danger", uncertain: "warning", not_run: "secondary" };
         const resultToneMap = { confirmed: "success", validation: "warning", correlation: "info", heuristic: "secondary", observation: "secondary", rejected: "danger" };
+        const realStatusToneMap = { recommended: "info", not_validated: "secondary", inconclusive: "warning", validated: "primary", confirmed: "success" };
         const statusTone = statusToneMap[validationStatus] || "secondary";
         const resultTone = resultToneMap[resultState] || "secondary";
+        const realStatusTone = realStatusToneMap[realStatus] || "secondary";
         const proofBlocks = detail.evidenceBlocks.filter((block) => block.kind !== "raw_output");
         const rawOutputBlocks = detail.evidenceBlocks.filter((block) => block.kind === "raw_output");
         const hasSubstance = Boolean(
@@ -1023,6 +1100,10 @@
                                 <span class="badge bg-secondary bg-opacity-20 text-light border border-secondary border-opacity-25 px-2 py-1">${escapeHtml(cleanText(ui.visibleTruthLabel || "observation").toUpperCase())}</span>
                             </div>
                             <div class="small text-muted d-flex align-items-center gap-2 mt-2">
+                                <span class="fw-bold text-uppercase extra-small">Real status:</span>
+                                <span class="badge bg-${realStatusTone} bg-opacity-20 text-${realStatusTone} border border-${realStatusTone} border-opacity-25 px-2 py-1">${escapeHtml(cleanText(detail.realStatusLabel || "not validated").toUpperCase())}</span>
+                            </div>
+                            <div class="small text-muted d-flex align-items-center gap-2 mt-2">
                                 <span class="fw-bold text-uppercase extra-small">Validation status:</span>
                                 <span class="badge bg-${statusTone} bg-opacity-20 text-${statusTone} border border-${statusTone} border-opacity-25 px-2 py-1">${escapeHtml(validationStatus.toUpperCase())}</span>
                             </div>
@@ -1041,8 +1122,18 @@
 
                 ${detail.summary ? `
                 <div class="mb-4">
-                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-align-left me-2"></i>Operational Summary</h6>
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-align-left me-2"></i>What Was Observed</h6>
                     <div class="small text-light bg-black bg-opacity-20 p-4 rounded border border-secondary border-opacity-10 lh-lg shadow-sm" style="white-space: pre-wrap; font-size: 0.9rem;">${escapeHtml(detail.summary)}</div>
+                </div>` : ""}
+
+                ${(detail.statusSummary || detail.executionSummary || detail.remainingUnknowns) ? `
+                <div class="mb-4">
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-balance-scale me-2"></i>Semantic Guardrails</h6>
+                    <div class="rounded bg-black bg-opacity-40 border border-secondary border-opacity-10 p-4 shadow-sm">
+                        ${detail.statusSummary ? `<div class="small mb-3"><div class="text-info fw-bold extra-small text-uppercase mb-2">Status summary</div><div class="text-light bg-black bg-opacity-20 p-3 rounded border border-secondary border-opacity-10" style="white-space: pre-wrap;">${escapeHtml(detail.statusSummary)}</div></div>` : ""}
+                        ${detail.executionSummary ? `<div class="small mb-3"><div class="text-warning fw-bold extra-small text-uppercase mb-2">What was actually executed</div><div class="text-light bg-black bg-opacity-20 p-3 rounded border border-secondary border-opacity-10" style="white-space: pre-wrap;">${escapeHtml(detail.executionSummary)}</div></div>` : ""}
+                        ${detail.remainingUnknowns ? `<div class="small"><div class="text-secondary fw-bold extra-small text-uppercase mb-2">What remains unverified</div><div class="text-light bg-black bg-opacity-20 p-3 rounded border border-secondary border-opacity-10" style="white-space: pre-wrap;">${escapeHtml(detail.remainingUnknowns)}</div></div>` : ""}
+                    </div>
                 </div>` : ""}
 
                 ${detail.technicalContext.length ? `
@@ -1085,7 +1176,7 @@
 
                 ${detail.interpretation ? `
                 <div class="mb-4">
-                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-lightbulb me-2"></i>Interpretation</h6>
+                    <h6 class="extra-small text-uppercase text-muted border-bottom border-secondary border-opacity-25 pb-2 mb-3 fw-bold" style="letter-spacing: 1px;"><i class="fas fa-lightbulb me-2"></i>Why This Matters</h6>
                     <div class="small text-light bg-black bg-opacity-20 p-4 rounded border border-secondary border-opacity-10 lh-lg shadow-sm" style="white-space: pre-wrap;">${escapeHtml(detail.interpretation)}</div>
                 </div>` : ""}
 
@@ -1158,6 +1249,7 @@
         normalizeResultState,
         normalizeValidationStatus,
         parseSearchQuery,
+        summarizeVisibleTruth,
     };
     const domApi = {
         applyRowDataset,

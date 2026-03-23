@@ -21,6 +21,8 @@
             {% set is_validated = ui.isValidated if ui.isValidated is defined else false %}
             {% set visible_truth = ui.visibleTruth if ui.visibleTruth is defined else 'observation' %}
             {% set visible_truth_label = ui.visibleTruthLabel if ui.visibleTruthLabel is defined else visible_truth %}
+            {% set truth_summary = f.metadata.truth_summary if f.metadata and f.metadata.truth_summary is defined else {} %}
+            {% set real_status = truth_summary.status_label if truth_summary and truth_summary.status_label is defined else 'not validated' %}
             <tr id="finding-row-{{ f.id_stable or f.id }}" class="finding-row cursor-pointer"
                 onclick="showFindingDetail('{{ f.id_stable or f.id }}')" 
                 data-title="{{ f.title|lower }}"
@@ -45,6 +47,9 @@
                         <div class="fw-bold text-light text-truncate" title="{{ f.title }}">{{ f.title }}</div>
                         <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 extra-small">
                             {{ visible_truth_label|upper }}
+                        </span>
+                        <span class="badge bg-dark text-muted border border-secondary border-opacity-25 extra-small">
+                            {{ real_status|upper }}
                         </span>
                         {% if primary_command %}
                             <i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>

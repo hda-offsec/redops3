@@ -90,6 +90,7 @@ class AttackGraphBuilder:
             visible_truth = classify_visible_truth(finding)
             node_type = {
                 "confirmed_vulnerability": "vulnerability",
+                "validation": "validation",
                 "recommendation": "recommendation",
                 "suspicion": "suspicion",
             }.get(visible_truth, "observation")
@@ -114,7 +115,13 @@ class AttackGraphBuilder:
                 self._add_edge(
                     endpoint_id,
                     fid,
-                    "leads_to_attack" if visible_truth == "confirmed_vulnerability" else "supports_assessment",
+                    (
+                        "leads_to_attack"
+                        if visible_truth == "confirmed_vulnerability"
+                        else "validated_by_execution"
+                        if visible_truth == "validation"
+                        else "supports_assessment"
+                    ),
                 )
             else:
                 self._add_edge(target_node_id, fid, "contains")
@@ -184,7 +191,13 @@ class AttackGraphBuilder:
                     self._add_edge(
                         endpoint_id,
                         secret_id,
-                        "leads_to_attack" if visible_truth == "confirmed_vulnerability" else "supports_assessment",
+                        (
+                            "leads_to_attack"
+                            if visible_truth == "confirmed_vulnerability"
+                            else "validated_by_execution"
+                            if visible_truth == "validation"
+                            else "supports_assessment"
+                        ),
                     )
 
             if category in {"attack_chain", "attack_path"} or chain_meta.get("is_chain_root"):
@@ -193,16 +206,38 @@ class AttackGraphBuilder:
                 if chain_meta.get("attack_path_summary"):
                     label = chain_meta.get("attack_path_summary")
 
-                chain_type = "attack_chain" if visible_truth == "confirmed_vulnerability" else "attack_hypothesis"
+                chain_type = (
+                    "attack_chain"
+                    if visible_truth == "confirmed_vulnerability"
+                    else "validated_path"
+                    if visible_truth == "validation"
+                    else "attack_hypothesis"
+                )
                 self._add_node({
                     "type": chain_type,
                     "id": chain_id,
                     "label": label,
                     "data": {**finding, "visible_truth": visible_truth},
                 })
-                self._add_edge(target_node_id, chain_id, "leads_to_attack" if visible_truth == "confirmed_vulnerability" else "correlates_to")
+                self._add_edge(
+                    target_node_id,
+                    chain_id,
+                    "leads_to_attack"
+                    if visible_truth == "confirmed_vulnerability"
+                    else "validated_path"
+                    if visible_truth == "validation"
+                    else "correlates_to",
+                )
                 if endpoint_id:
-                    self._add_edge(chain_id, endpoint_id, "leads_to" if visible_truth == "confirmed_vulnerability" else "references")
+                    self._add_edge(
+                        chain_id,
+                        endpoint_id,
+                        "leads_to"
+                        if visible_truth == "confirmed_vulnerability"
+                        else "validated_on"
+                        if visible_truth == "validation"
+                        else "references",
+                    )
                 
                 # Link related findings in the graph
                 for related_id in chain_meta.get("related_findings", []):
