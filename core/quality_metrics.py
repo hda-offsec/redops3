@@ -141,6 +141,8 @@ def build_quality_metrics(*, findings, operator_actions, objectives, objective_p
         "lineage_coverage": {
             "field_sources_present": findings_with_field_sources,
             "field_sources_missing": max(0, total_findings - findings_with_field_sources),
+            "signal_lineage_present": findings_with_signal_lineage,
+            "signal_lineage_missing": max(0, total_findings - findings_with_signal_lineage),
         },
         "operator_feedback": {
             "status_distribution": _sorted_counter(action_status_counter),

@@ -314,10 +314,13 @@ const scanDashboardFindingsFlow = {
     ingestStructuredFindings(dashboard, findings) {
         if (!Array.isArray(findings) || findings.length === 0) return [];
 
-        const normalizedFindings = findings.map((finding) => dashboard.normalizeFindingRecord(finding));
+        const normalizedFindings = findings
+            .map((finding) => dashboard.normalizeFindingRecord(finding))
+            .filter((finding) => finding && typeof finding === 'object');
         const handleIncomingFinding = typeof dashboard.handleNewFinding === 'function'
             ? dashboard.handleNewFinding
             : ScanDashboard.prototype.handleNewFinding;
+        if (normalizedFindings.length === 0) return [];
         scanDashboardFindingsSync.syncClientFindings(normalizedFindings);
 
         normalizedFindings.forEach((finding) => {
