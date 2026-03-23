@@ -87,7 +87,7 @@ class RedOpsReport(FPDF):
         self.set_font('helvetica', 'B', 16)
         if findings_count > 0:
             self.set_text_color(196, 100, 20)
-            self.cell(0, 10, f'ALERT: {findings_count} VULNERABILITIES IDENTIFIED', ln=True, align='C')
+            self.cell(0, 10, f'ALERT: {findings_count} REPORTABLE ITEMS IDENTIFIED', ln=True, align='C')
         else:
             self.set_text_color(0, 255, 100)
             self.cell(0, 10, 'CLEAN BILL OF HEALTH - NO CRITICAL VECTORS FOUND', ln=True, align='C')
@@ -319,9 +319,9 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 reason = r.get('reason', '')
                 conf = r.get('confidence', 0)
                 pdf.set_font("helvetica", "B", 9)
-                pdf.cell(0, 5, pdf.safe_text(f"- {title} (Confidence: {conf}%)"), ln=True)
+                pdf.cell(0, 5, pdf.safe_text(f"- {title} (Signal strength: {conf}%)"), ln=True)
                 pdf.set_font("helvetica", "I", 8)
-                pdf.multi_cell(0, 4, pdf.safe_text(f"  Reasoning: {reason}"))
+                pdf.multi_cell(0, 4, pdf.safe_text(f"  Audit recommendation: {reason}"))
                 pdf.ln(2)
         
         # Surface Expansion
@@ -569,7 +569,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.ln(5)
 
     # 9. FINDINGS
-    pdf.chapter_title("9. Detailed Vulnerabilities & Vectors")
+    pdf.chapter_title("9. Detailed Findings & Validation Context")
     
     sev_map = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     
@@ -614,8 +614,12 @@ def generate_scan_report(scan_id, scan_obj, findings):
         title = f.get('title', 'Unknown') if isinstance(f, dict) else getattr(f, 'title', 'Unknown')
         tool_source = f.get('tool_source', 'Unknown') if isinstance(f, dict) else getattr(f, 'tool_source', 'Unknown')
         detail = f.get('_detail', {}) if isinstance(f, dict) else {}
+        ui = f.get('_ui', {}) if isinstance(f, dict) else {}
         description = detail.get('summary') or (f.get('description', '') if isinstance(f, dict) else getattr(f, 'description', ''))
         confidence = (detail.get('confidence') or (f.get('confidence', '') if isinstance(f, dict) else getattr(f, 'confidence', '')) or 'medium').upper()
+        visible_truth = str(ui.get("visibleTruthLabel") or "observation").upper()
+        validation_status = str(ui.get("validationStatus") or "not_run").upper()
+        result_state = str(ui.get("resultState") or "observation").replace("_", " ").upper()
         target = detail.get('target', '')
         versions = detail.get('observedVersions', []) if isinstance(detail.get('observedVersions'), list) else []
         command_blocks = detail.get('commandBlocks', []) if isinstance(detail.get('commandBlocks'), list) else []
@@ -638,7 +642,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
         # Finding Details Section
         pdf.set_text_color(50, 50, 50)
         pdf.set_font("helvetica", "B", 8)
-        pdf.cell(0, 5, pdf.safe_text(f" Vector Source: {tool_source} | Confidence: {confidence}"), ln=True)
+        pdf.cell(0, 5, pdf.safe_text(f" Vector Source: {tool_source} | Confidence: {confidence} | Visible Class: {visible_truth}"), ln=True)
+        pdf.cell(0, 5, pdf.safe_text(f" Validation: {validation_status} | Result State: {result_state}"), ln=True)
         
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(60, 60, 65)
@@ -686,7 +691,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.set_fill_color(240, 240, 240)
             pdf.set_text_color(100, 100, 100)
             pdf.set_font("helvetica", "B", 8)
-            pdf.cell(0, 6, " COMMAND & VALIDATION", fill=True, ln=True)
+            pdf.cell(0, 6, " HOW TO VALIDATE SAFELY", fill=True, ln=True)
 
             for block in command_blocks:
                 if not isinstance(block, dict):
@@ -709,7 +714,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
             pdf.set_fill_color(240, 240, 240)
             pdf.set_text_color(100, 100, 100)
             pdf.set_font("helvetica", "B", 8)
-            pdf.cell(0, 6, " EVIDENCE & RAW OUTPUT", fill=True, ln=True)
+            pdf.cell(0, 6, " RECORDED EVIDENCE / WHAT REMAINS UNVERIFIED", fill=True, ln=True)
 
             for block in evidence_blocks:
                 if not isinstance(block, dict):

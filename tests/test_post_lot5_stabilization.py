@@ -138,7 +138,7 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertEqual(normalized["metadata"]["validation"]["status"], "failed")
         self.assertEqual(normalized["metadata"]["reproducibility"]["url"], "https://example.org/api")
 
-    def test_confirmed_with_real_artifact_is_not_downgraded(self):
+    def test_confirmed_without_validation_success_is_downgraded(self):
         normalized = normalize_finding_shape(
             {
                 "title": "Confirmed SSRF",
@@ -150,8 +150,8 @@ class PostLot5StabilizationTests(unittest.TestCase):
             source="unit_test",
         )
 
-        self.assertEqual(normalized["result_state"], "confirmed")
-        self.assertEqual(normalized["metadata"]["validation"]["status"], "not_run")
+        self.assertEqual(normalized["result_state"], "validation")
+        self.assertEqual(normalized["metadata"]["validation"]["status"], "uncertain")
 
     def test_reproducibility_preserves_command_url_and_arguments(self):
         normalized = normalize_finding_shape(
@@ -231,11 +231,11 @@ class PostLot5StabilizationTests(unittest.TestCase):
             source="unit_test",
         )
 
-        self.assertEqual(normalized["result_state"], "validation")
+        self.assertEqual(normalized["result_state"], "correlation")
         self.assertEqual(normalized["metadata"]["validation"]["status"], "uncertain")
         self.assertEqual(
             normalized["metadata"]["validation"]["downgrade_reason"],
-            "confirmed_without_artifact",
+            "confirmed_requires_validated_reproducible_proof",
         )
 
     def test_locator_placeholders_are_not_retained(self):

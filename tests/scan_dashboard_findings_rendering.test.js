@@ -234,11 +234,13 @@ test('findings view helper extracts table state indicators without changing badg
     const { ScanDashboard } = loadScanDashboardClass();
 
     const indicatorsHtml = ScanDashboard.internals.findingsView.buildTableRowStateIndicatorsHtml({
+        visibleTruthLabel: 'SUSPICION',
         primaryCommand: 'curl -isk https://target/graphql',
         hasProof: true,
         isValidated: true,
     });
 
+    assert.match(indicatorsHtml, /SUSPICION/);
     assert.match(indicatorsHtml, /fa-terminal text-warning/);
     assert.match(indicatorsHtml, /Validation Command Available/);
     assert.match(indicatorsHtml, /fa-microscope text-info/);
@@ -246,12 +248,13 @@ test('findings view helper extracts table state indicators without changing badg
     assert.match(indicatorsHtml, /VALIDATED/);
 
     const emptyIndicatorsHtml = ScanDashboard.internals.findingsView.buildTableRowStateIndicatorsHtml({
+        visibleTruthLabel: 'OBSERVATION',
         primaryCommand: '',
         hasProof: false,
         isValidated: false,
     });
 
-    assert.equal(emptyIndicatorsHtml.replace(/\s/g, ''), '');
+    assert.match(emptyIndicatorsHtml, /OBSERVATION/);
 });
 
 test('findings view helper keeps the findings table row contract for badges, evidence, validation, and vector rendering', () => {
@@ -266,6 +269,7 @@ test('findings view helper keeps the findings table row contract for badges, evi
         primaryUrl: 'https://target/graphql',
         hasProof: true,
         isValidated: true,
+        visibleTruthLabel: 'CONFIRMED VULNERABILITY',
         confidenceLabel: 'HIGH',
         toolLabel: 'NUCLEI',
     });
@@ -276,6 +280,7 @@ test('findings view helper keeps the findings table row contract for badges, evi
     assert.match(rowHtml, /fa-terminal text-warning/);
     assert.match(rowHtml, /fa-microscope text-info/);
     assert.match(rowHtml, /VALIDATED/);
+    assert.match(rowHtml, /CONFIRMED VULNERABILITY/);
     assert.match(rowHtml, /https:\/\/target\/graphql/);
     assert.match(rowHtml, /NUCLEI/);
     assert.match(rowHtml, /HIGH/);

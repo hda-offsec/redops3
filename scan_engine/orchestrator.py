@@ -22,7 +22,7 @@ from scan_engine.helpers.service_intelligence import derive_service_intel
 from scan_engine.helpers.surface_expander import derive_surface_expansion
 from scan_engine.helpers.js_mining_expert import JSDeepMiningExpert
 from scan_engine.helpers.identity_spectre import IdentitySpectre
-from scan_engine.helpers.finding_schema import generate_stable_id
+from scan_engine.helpers.finding_schema import apply_finding_quality_gates, generate_stable_id
 from scan_engine.helpers.task_scheduler import TaskScheduler
 from scan_engine.phases.dirbusting import run_dirbusting
 from scan_engine.phases.enum import run_enum
@@ -341,9 +341,21 @@ class ScanOrchestrator:
             ]
         )
 
+        governed_finding = apply_finding_quality_gates(kwargs)
+        kwargs.update(governed_finding)
+        metadata_payload = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else metadata_payload
+        severity_norm = str(kwargs.get("severity", severity_norm)).strip().lower()
+        quality_gate_meta = metadata_payload.get("quality_gate") if isinstance(metadata_payload.get("quality_gate"), dict) else {}
+        if quality_gate_meta.get("downgraded"):
+            def _inc_downgraded():
+                metrics = self.results.setdefault("metrics", {})
+                metrics["quality_gate_downgraded"] = metrics.get("quality_gate_downgraded", 0) + 1
+
+            self.thread_safe_results_update(_inc_downgraded)
+
         quality_gate_cfg = self.options.get("quality_gates") if isinstance(self.options.get("quality_gates"), dict) else {}
         strict_quality_gates = bool(quality_gate_cfg.get("strict", self.options.get("strict_quality_gates", True)))
-        reject_high_without_proof = bool(quality_gate_cfg.get("reject_high_without_proof", True))
+        reject_high_without_proof = bool(quality_gate_cfg.get("reject_high_without_proof", False))
 
         should_reject = False
         reject_reason = ""

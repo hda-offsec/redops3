@@ -96,6 +96,40 @@ def _normalize_analysis_tier(value: Any) -> str:
     return normalized if normalized in ANALYSIS_TIER_SORT else "telemetry_correlation"
 
 
+def _normalize_recommendation_title(title: str, port: Optional[str]) -> str:
+    cleaned = str(title or "").strip()
+    if cleaned.lower().startswith("recommendation:"):
+        return cleaned
+
+    for pattern, replacement in (
+        (r"\bsecurity audit\b", "review"),
+        (r"\baudit\b", "review"),
+        (r"\bprobe\b", "test"),
+        (r"\bcheck\b", "inspect"),
+        (r"\btriage\b", "review"),
+    ):
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+
+    if cleaned:
+        cleaned = cleaned[0].lower() + cleaned[1:]
+    else:
+        cleaned = "review follow-up"
+
+    if port not in (None, "") and f"port {port}" not in cleaned.lower():
+        cleaned = f"{cleaned} on port {port}"
+    return f"Recommendation: {cleaned}"
+
+
+def _exposed_confidence(confidence: int, analysis_tier: str) -> int:
+    bounded = max(35, min(int(confidence), 98))
+    caps = {
+        "telemetry_correlation": 66,
+        "signal_supported_correlation": 74,
+        "validated_signal": 82,
+    }
+    return min(bounded, caps.get(analysis_tier, 66))
+
+
 def _port_sort_key(port: Optional[str]) -> Tuple[int, Any]:
     if port is None:
         return (1, "")
@@ -233,6 +267,7 @@ def _build_suggestion(
     normalized_signals = _stable_unique_strings(trigger_signals or [])
     normalized_support = _stable_unique_strings([reason, *(supporting_reasons or [])])
     normalized_analysis_tier = _normalize_analysis_tier(analysis_tier)
+    displayed_confidence = _exposed_confidence(int(confidence), normalized_analysis_tier)
     priority = internal_priority
     if priority is None:
         priority = min(
@@ -244,9 +279,9 @@ def _build_suggestion(
 
     return {
         "id": suggestion_id,
-        "title": title,
+        "title": _normalize_recommendation_title(title, normalized_port),
         "reason": reason,
-        "confidence": int(confidence),
+        "confidence": int(displayed_confidence),
         "port": normalized_port,
         "category": category,
         "family": family or suggestion_id,
@@ -259,6 +294,9 @@ def _build_suggestion(
         "metadata": {
             "analysis_tier": normalized_analysis_tier,
             "validation_state": "not_validated",
+            "kind": "recommendation",
+            "visible_truth": "recommendation",
+            "requested_confidence": int(confidence),
         },
     }
 

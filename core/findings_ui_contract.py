@@ -18,6 +18,7 @@ from scan_engine.helpers.finding_schema import (
     INVALID_TEXT_MARKERS,
     RESULT_STATE_MAP,
     VALIDATION_STATUS_MAP,
+    classify_visible_truth,
 )
 
 
@@ -72,6 +73,8 @@ VALIDATED_RESULT_STATES = {"validation", "confirmed"}
 CANONICAL_UI_FIELDS = (
     "validationStatus",
     "resultState",
+    "visibleTruth",
+    "visibleTruthLabel",
     "primaryCommand",
     "primaryUrl",
     "provider",
@@ -98,6 +101,7 @@ SEARCH_TEXT_FIELD_SOURCES = (
     "validated_token",
     "parameter",
     "port_state",
+    "visible_truth",
 )
 OBSERVED_VERSION_FIELD_SOURCES = (
     "version",
@@ -465,6 +469,7 @@ def build_finding_technical_context(finding):
     append_row("Provider", ui.get("provider"))
     append_row("Component", ui.get("component"))
     append_row("Port state", ui.get("portState"))
+    append_row("Visible class", ui.get("visibleTruthLabel"))
     append_row("Validation status", ui.get("validationStatus"))
     append_row("Result state", ui.get("resultState"))
     append_row(
@@ -594,6 +599,7 @@ def _build_search_text_fields(finding):
         "validated" if is_validated else "",
         finding.get("parameter"),
         port_state,
+        classify_visible_truth(finding),
     ]
 
 
@@ -625,10 +631,13 @@ def build_finding_ui_contract(finding):
     primary_url = get_finding_primary_url(finding)
     has_evidence = has_finding_evidence(finding)
     is_validated = validation_status == "success" or result_state in VALIDATED_RESULT_STATES
+    visible_truth = classify_visible_truth(finding)
 
     ui_contract = {
         "validationStatus": validation_status,
         "resultState": result_state,
+        "visibleTruth": visible_truth,
+        "visibleTruthLabel": visible_truth.replace("_", " "),
         "primaryCommand": primary_command,
         "primaryUrl": primary_url,
         "provider": provider,
