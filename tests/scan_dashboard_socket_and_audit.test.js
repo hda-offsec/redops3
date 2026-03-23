@@ -204,6 +204,8 @@ test("setupSocketListeners keeps core handlers registered and results_update sco
         [{ eventName: "join_scan", payload: { scan_id: 77 } }]
     );
 
+    handlers.get("results_update")(null);
+    handlers.get("results_update")({ scan_id: 77 });
     handlers.get("results_update")({ scan_id: 5, results: { findings: ["skip"] } });
     handlers.get("results_update")({ scan_id: 77, results: { findings: ["keep"] } });
     assert.deepEqual(dashboard.updateUIResults, [{ findings: ["keep"] }]);
@@ -213,6 +215,7 @@ test("setupSocketListeners keeps core handlers registered and results_update sco
     assert.deepEqual(dashboard.newLogs, [{ scan_id: 77, message: "log" }]);
     assert.deepEqual(dashboard.newFindings, [{ scan_id: 77, id_stable: "f-1" }]);
 
+    handlers.get("graph_updated")(null);
     handlers.get("graph_updated")({ scan_id: 1 });
     handlers.get("graph_updated")({ scan_id: 77 });
     assert.equal(graphRefreshes, 1);

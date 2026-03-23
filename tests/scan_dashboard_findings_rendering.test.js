@@ -519,7 +519,7 @@ test('results view helper keeps findings summaries and derived counters determin
             osint: { cloud: [{ provider: 'aws' }] },
             dirbusting: { ffuf: { endpoints: [{ path: 'admin' }] } },
             enum: {
-                api: { endpoints: ['/v1/health'] },
+                api: { endpoints: ['/v1/health'], discovered_endpoints: ['/v1/users'] },
                 katana: {
                     '443': ['/health', '/ready'],
                 },
@@ -529,7 +529,7 @@ test('results view helper keeps findings summaries and derived counters determin
 
     assert.equal(resultsView.getStructuredFindings(results), findings);
     assert.equal(resultsView.countAssets(results), 3);
-    assert.equal(resultsView.countEndpoints(results), 4);
+    assert.equal(resultsView.countEndpoints(results), 5);
     assert.equal(JSON.stringify(resultsView.summarizeFindingSeverities(findings)), JSON.stringify({
         highRisk: 2,
         critical: 1,
