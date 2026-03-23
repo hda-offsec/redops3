@@ -64,6 +64,19 @@ const scanDashboardFindingsIdentity = {
     }
 };
 
+const scanDashboardFindingsSync = {
+    syncClientFindings(findings) {
+        if (typeof updateFindingsList !== 'function') return;
+        if (!Array.isArray(findings) || findings.length === 0) return;
+        updateFindingsList(findings);
+    },
+
+    syncClientFinding(finding) {
+        if (!finding) return;
+        this.syncClientFindings([finding]);
+    },
+};
+
 const scanDashboardFindingsView = {
     resolveFindingDisplayState(dashboard, finding) {
         const ui = finding?._ui || {};
@@ -238,17 +251,13 @@ const scanDashboardFindingsDom = {
         tr.innerHTML = scanDashboardFindingsView.buildTableRowHtml(display);
         tableBody.prepend(tr);
 
-        if (typeof updateFindingsList === 'function') {
-            updateFindingsList([finding]);
-        }
-
         return tr;
     }
 };
 
 const scanDashboardFindingsFlow = {
-    prepareIncomingFinding(dashboard, data) {
-        const finding = dashboard.normalizeFindingRecord(data);
+    prepareIncomingFinding(dashboard, data, options = {}) {
+        const finding = options.normalized === true ? data : dashboard.normalizeFindingRecord(data);
         const fid = scanDashboardFindingsIdentity.resolveRenderId(finding);
 
         if (dashboard.renderedFindingIds.has(fid)) {
@@ -300,7 +309,75 @@ const scanDashboardFindingsFlow = {
             display,
             ...renderedBody,
         };
-    }
+    },
+
+    ingestStructuredFindings(dashboard, findings) {
+        if (!Array.isArray(findings) || findings.length === 0) return [];
+
+        const normalizedFindings = findings.map((finding) => dashboard.normalizeFindingRecord(finding));
+        const handleIncomingFinding = typeof dashboard.handleNewFinding === 'function'
+            ? dashboard.handleNewFinding
+            : ScanDashboard.prototype.handleNewFinding;
+        scanDashboardFindingsSync.syncClientFindings(normalizedFindings);
+
+        normalizedFindings.forEach((finding) => {
+            handleIncomingFinding.call(
+                dashboard,
+                {
+                    scan_id: dashboard.scanId,
+                    ...finding,
+                    tool: finding.tool_source || finding.tool,
+                },
+                { normalized: true, skipClientSync: true }
+            );
+        });
+
+        return normalizedFindings;
+    },
+};
+
+const scanDashboardResultsView = {
+    getStructuredFindings(results) {
+        return Array.isArray(results?.findings) ? results.findings : [];
+    },
+
+    countAssets(results) {
+        const ports = results?.phases?.recon?.open_ports?.length || 0;
+        const subs = results?.phases?.dns?.subdomains?.length || 0;
+        const clouds = results?.phases?.osint?.cloud?.length || 0;
+        return ports + subs + clouds;
+    },
+
+    countEndpoints(results) {
+        let totalEndpoints = results?.phases?.dirbusting?.ffuf?.endpoints?.length || 0;
+        totalEndpoints += results?.phases?.enum?.api?.endpoints?.length || 0;
+
+        if (results?.phases?.enum?.katana) {
+            Object.values(results.phases.enum.katana).forEach((urls) => {
+                if (Array.isArray(urls)) totalEndpoints += urls.length;
+            });
+        }
+
+        return totalEndpoints;
+    },
+
+    summarizeFindingSeverities(findings) {
+        return findings.reduce((summary, finding) => {
+            const severity = String(finding?.severity || 'info').toLowerCase();
+            if (severity === 'critical') {
+                summary.critical += 1;
+                summary.highRisk += 1;
+            } else if (severity === 'high') {
+                summary.high += 1;
+                summary.highRisk += 1;
+            }
+            return summary;
+        }, {
+            highRisk: 0,
+            critical: 0,
+            high: 0,
+        });
+    },
 };
 
 const scanDashboardAuditJourney = {
@@ -1064,12 +1141,17 @@ class ScanDashboard {
         }
     }
 
-    handleNewFinding(data) {
+    handleNewFinding(data, options = {}) {
         if (data.scan_id != this.scanId) return;
-        const preparedFinding = scanDashboardFindingsFlow.prepareIncomingFinding(this, data);
+        const finding = options.normalized === true ? data : this.normalizeFindingRecord(data);
+        if (options.skipClientSync !== true) {
+            scanDashboardFindingsSync.syncClientFinding(finding);
+        }
+
+        const preparedFinding = scanDashboardFindingsFlow.prepareIncomingFinding(this, finding, { normalized: true });
         if (!preparedFinding) return;
 
-        const { fid, finding } = preparedFinding;
+        const { fid } = preparedFinding;
 
         this.activateDiscovery('vulns', true);
         scanDashboardFindingsFlow.renderFinding(document, this, fid, finding);
@@ -1460,13 +1542,11 @@ class ScanDashboard {
     }
     updateUI(results) {
         if (!results) return;
+        const structuredFindings = scanDashboardResultsView.getStructuredFindings(results);
 
         // Sync with dynamic explorers if they are present in the DOM
         if (typeof updateSurfaceExplorer === 'function') {
             updateSurfaceExplorer(results);
-        }
-        if (typeof updateFindingsList === 'function' && results.findings) {
-            updateFindingsList(results.findings);
         }
 
         // Keep a global copy for other tab scripts (like attack_graph)
@@ -1505,8 +1585,16 @@ class ScanDashboard {
             }
         }
 
-        if (results.findings && statFindings) {
-            statFindings.innerText = results.findings.length;
+        if (structuredFindings.length) {
+            scanDashboardFindingsFlow.ingestStructuredFindings(this, structuredFindings);
+        }
+
+        if (statFindings) {
+            statFindings.innerText = structuredFindings.length;
+        }
+
+        if (structuredFindings.length) {
+            const severitySummary = scanDashboardResultsView.summarizeFindingSeverities(structuredFindings);
 
             // Sync new mission overview counters
             const statAssets = document.getElementById('stat-assets');
@@ -1515,38 +1603,16 @@ class ScanDashboard {
             const statCritical = document.getElementById('stat-critical');
             const statHigh = document.getElementById('stat-high');
 
-            let highRiskCount = 0;
-            let criticalCount = 0;
-            let highCount = 0;
-
-            results.findings.forEach(f => {
-                const sev = (f.severity || "info").toLowerCase();
-                if (sev === 'critical') { criticalCount++; highRiskCount++; }
-                if (sev === 'high') { highCount++; highRiskCount++; }
-
-                this.handleNewFinding({ scan_id: this.scanId, ...f, tool: f.tool_source || f.tool });
-            });
-
-            if (statHighRisk) statHighRisk.innerText = highRiskCount;
-            if (statCritical) statCritical.innerText = criticalCount;
-            if (statHigh) statHigh.innerText = highCount;
+            if (statHighRisk) statHighRisk.innerText = severitySummary.highRisk;
+            if (statCritical) statCritical.innerText = severitySummary.critical;
+            if (statHigh) statHigh.innerText = severitySummary.high;
 
             // Update assets/endpoints if available
             if (statAssets) {
-                const ports = results.phases?.recon?.open_ports?.length || 0;
-                const subs = results.phases?.dns?.subdomains?.length || 0;
-                const clouds = results.phases?.osint?.cloud?.length || 0;
-                statAssets.innerText = ports + subs + clouds;
+                statAssets.innerText = scanDashboardResultsView.countAssets(results);
             }
             if (statEndpoints) {
-                let totalEps = results.phases?.dirbusting?.ffuf?.endpoints?.length || 0;
-                totalEps += results.phases?.enum?.api?.endpoints?.length || 0;
-                if (results.phases?.enum?.katana) {
-                    Object.values(results.phases.enum.katana).forEach(urls => {
-                        if (Array.isArray(urls)) totalEps += urls.length;
-                    });
-                }
-                statEndpoints.innerText = totalEps;
+                statEndpoints.innerText = scanDashboardResultsView.countEndpoints(results);
             }
         }
 
@@ -2647,9 +2713,11 @@ class ScanDashboard {
 ScanDashboard.internals = {
     findingsLoader: scanDashboardFindingsLoader,
     findingsIdentity: scanDashboardFindingsIdentity,
+    findingsSync: scanDashboardFindingsSync,
     findingsView: scanDashboardFindingsView,
     findingsDom: scanDashboardFindingsDom,
     findingsFlow: scanDashboardFindingsFlow,
+    resultsView: scanDashboardResultsView,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
     logStream: scanDashboardLogStream,
