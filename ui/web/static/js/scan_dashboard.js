@@ -1484,6 +1484,190 @@ const scanDashboardProgressView = {
     }
 };
 
+
+const scanDashboardCortexView = {
+    resolveDerived(results) {
+        return results?.phases?.enum?.derived || null;
+    },
+
+    ensureJsExpertBadge(documentRef, derived) {
+        const headerBadges = documentRef.querySelector('#cortex-intel-card .card-header .d-flex.gap-2');
+        if (!headerBadges || !derived?.js_expert_mining || headerBadges.querySelector('.fa-microscope')) return;
+
+        const badge = documentRef.createElement('span');
+        badge.className = 'badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 animate-pulse';
+        badge.innerHTML = '<i class="fas fa-microscope me-1"></i>JS EXPERT ACTIVE';
+        headerBadges.prepend(badge);
+    },
+
+    buildRecommendationsHtml(recommendations) {
+        if (!Array.isArray(recommendations) || recommendations.length === 0) return '';
+
+        let html = '';
+        recommendations.forEach(rec => {
+            const catClass = rec.category === 'intel' ? 'info' : (rec.category === 'enum' ? 'warning' : 'danger');
+            html += `
+                <div class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow animate__animated animate__fadeIn">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="d-flex align-items-center">
+                            <div class="category-indicator me-2 bg-${catClass}" style="width: 4px; height: 16px;"></div>
+                            <span class="fw-bold text-light small">${rec.title}</span>
+                        </div>
+                        <span class="badge bg-dark text-${rec.confidence > 80 ? 'info' : 'muted'} border border-secondary x-small font-monospace">CONF: ${rec.confidence}%</span>
+                    </div>
+                    <div class="text-muted x-small mb-2 ps-3">${rec.reason}</div>
+                    <div class="d-flex gap-2 ps-3">
+                        ${rec.port ? `<span class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-25 x-small">PORT: ${rec.port}</span>` : ''}
+                        <span class="badge bg-dark text-uppercase x-small text-muted">${rec.category}</span>
+                    </div>
+                </div>`;
+        });
+        return html;
+    },
+
+    decodeDerivedParam(value) {
+        let decoded = value;
+        try {
+            decoded = decodeURIComponent(value);
+        } catch (e) {}
+        return decoded;
+    },
+
+    escapeDerivedParam(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    buildDerivedParamBadgeHtml(param, className) {
+        const decoded = this.decodeDerivedParam(param);
+        const safeParam = this.escapeDerivedParam(decoded);
+        return `<span class="badge ${className} font-monospace x-small">${safeParam}</span>`;
+    },
+
+    buildSurfaceExpansionGlobalHtml(globalExpansion) {
+        if (!globalExpansion?.derived_endpoints?.length) return '';
+
+        return `
+                <div class="mb-4 animate__animated animate__fadeIn">
+                    <div class="text-info x-small fw-bold mb-2 text-uppercase">Heuristic Search Surfaces</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        ${globalExpansion.derived_endpoints.map(ep => `<span class="badge bg-black border border-secondary text-muted font-monospace x-small" title="Heuristic Match">${ep}</span>`).join('')}
+                    </div>
+                </div>`;
+    },
+
+    buildSurfaceExpansionParamsHtml(port, data) {
+        if (!data?.derived_params?.length) return '';
+
+        const collapsedCount = data.derived_params.length - 20;
+        return `
+                        <div class="ps-2 mt-3 border-start border-secondary border-2">
+                            <div class="x-small text-muted mb-1"><i class="fas fa-search-plus me-1 text-info opacity-75"></i>Extracted Parameters <span class="badge bg-dark border border-secondary border-opacity-50 text-muted ms-1">${data.derived_params.length}</span></div>
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                ${data.derived_params.slice(0, 20).map(p => this.buildDerivedParamBadgeHtml(p, 'bg-black bg-opacity-50 border border-info border-opacity-25 text-warning')).join('')}
+                                ${collapsedCount > 0 ? `
+                                <div class="collapse w-100" id="collapse-params-${port}">
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                    ${data.derived_params.slice(20).map(p => this.buildDerivedParamBadgeHtml(p, 'bg-black bg-opacity-50 border border-secondary border-opacity-25 text-muted')).join('')}
+                                    </div>
+                                </div>
+                                <a data-bs-toggle="collapse" href="#collapse-params-${port}" role="button" aria-expanded="false" class="badge bg-black bg-opacity-20 border border-secondary border-opacity-25 text-cyber text-decoration-none x-small mt-1 hover-glow w-100 text-center py-1">
+                                    <i class="fas fa-chevron-down me-1"></i>+${collapsedCount} more variables (Toggle)
+                                </a>` : ''}
+                            </div>
+                        </div>`;
+    },
+
+    buildSurfaceExpansionPerPortHtml(perPort) {
+        if (!perPort || Object.keys(perPort).length === 0) return '';
+
+        let html = `<div class="mb-2"><div class="text-warning x-small fw-bold mb-2 text-uppercase">Signals Detected</div>`;
+        Object.entries(perPort).forEach(([port, data]) => {
+            html += `
+                    <div class="mb-2 p-2 bg-black bg-opacity-20 rounded animate__animated animate__fadeIn">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge bg-info bg-opacity-25 text-info x-small">PORT ${port}</span>
+                            <div class="d-flex gap-1">
+                                ${data.reasons.map(r => `<span class="x-small text-muted border-bottom border-warning">${r.replace(/_/g, ' ')}</span>`).join('')}
+                            </div>
+                        </div>
+                        ${this.buildSurfaceExpansionParamsHtml(port, data)}
+                    </div>`;
+        });
+        html += `</div>`;
+        return html;
+    },
+
+    buildSurfaceExpansionHtml(surfaceExpansion) {
+        if (!surfaceExpansion) return '';
+
+        return [
+            this.buildSurfaceExpansionGlobalHtml(surfaceExpansion.global),
+            this.buildSurfaceExpansionPerPortHtml(surfaceExpansion.per_port),
+        ].join('');
+    },
+
+    buildServiceIntelligenceHtml(serviceIntelligence) {
+        if (!Array.isArray(serviceIntelligence) || serviceIntelligence.length === 0) return '';
+
+        let tagsHtml = '<div class="d-flex flex-wrap gap-2">';
+        serviceIntelligence.forEach(item => {
+            item.tags.forEach(tag => {
+                const tagColor = (tag.includes('api') || tag.includes('web')) ? 'info' : 'warning';
+                tagsHtml += `
+                    <span class="badge bg-dark border border-${tagColor} text-light x-small animate__animated animate__zoomIn" title="Port: ${item.port}">
+                        <i class="fas fa-tag me-1 text-muted"></i>${tag.toUpperCase()}
+                    </span>`;
+            });
+        });
+        tagsHtml += '</div>';
+        return tagsHtml;
+    },
+
+    syncDynamicStatus(documentRef, derived) {
+        const statusBadge = documentRef.getElementById('cortex-dynamic-status');
+        if (!statusBadge) return;
+
+        if (derived?.status && derived.status !== 'idle') {
+            statusBadge.innerHTML = `<i class="fas fa-brain me-1"></i>${derived.status.toUpperCase()}`;
+            statusBadge.classList.remove('d-none');
+            return;
+        }
+
+        statusBadge.classList.add('d-none');
+    },
+
+    render(documentRef, results) {
+        const derived = this.resolveDerived(results);
+        if (!derived) return;
+
+        this.ensureJsExpertBadge(documentRef, derived);
+
+        const recommendationsHtml = this.buildRecommendationsHtml(derived.cortex_recommendations);
+        const recommendationsContainer = documentRef.getElementById('cortex-recs-container');
+        if (recommendationsContainer && recommendationsHtml) {
+            recommendationsContainer.innerHTML = recommendationsHtml;
+        }
+
+        const surfaceExpansionHtml = this.buildSurfaceExpansionHtml(derived.surface_expansion);
+        const expansionContainer = documentRef.getElementById('surface-expansion-container');
+        if (expansionContainer && surfaceExpansionHtml) {
+            expansionContainer.innerHTML = surfaceExpansionHtml;
+        }
+
+        const serviceIntelligenceHtml = this.buildServiceIntelligenceHtml(derived.service_intelligence);
+        const serviceIntelContainer = documentRef.getElementById('service-intel-container');
+        if (serviceIntelContainer && serviceIntelligenceHtml) {
+            serviceIntelContainer.innerHTML = serviceIntelligenceHtml;
+        }
+
+        this.syncDynamicStatus(documentRef, derived);
+    },
+};
+
 class ScanDashboard {
     constructor(scanId, targetIdentifier) {
         this.scanId = scanId;
@@ -2443,130 +2627,7 @@ class ScanDashboard {
     }
 
     updateCortexUI(results) {
-        if (!results || !results.phases || !results.phases.enum || !results.phases.enum.derived) return;
-        const derived = results.phases.enum.derived;
-
-        // NEW: JS Expert Badge logic
-        const headerBadges = document.querySelector('#cortex-intel-card .card-header .d-flex.gap-2');
-        if (headerBadges && derived.js_expert_mining && !headerBadges.querySelector('.fa-microscope')) {
-            const badge = document.createElement('span');
-            badge.className = 'badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 animate-pulse';
-            badge.innerHTML = '<i class="fas fa-microscope me-1"></i>JS EXPERT ACTIVE';
-            headerBadges.prepend(badge);
-        }
-
-        // 1. Recommendations
-        const recsContainer = document.getElementById('cortex-recs-container');
-        if (recsContainer && derived.cortex_recommendations) {
-            let html = '';
-            derived.cortex_recommendations.forEach(rec => {
-                const catClass = rec.category === 'intel' ? 'info' : (rec.category === 'enum' ? 'warning' : 'danger');
-                html += `
-                <div class="mb-3 p-3 bg-black bg-opacity-40 border border-secondary border-opacity-25 rounded-sm hover-glow animate__animated animate__fadeIn">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <div class="d-flex align-items-center">
-                            <div class="category-indicator me-2 bg-${catClass}" style="width: 4px; height: 16px;"></div>
-                            <span class="fw-bold text-light small">${rec.title}</span>
-                        </div>
-                        <span class="badge bg-dark text-${rec.confidence > 80 ? 'info' : 'muted'} border border-secondary x-small font-monospace">CONF: ${rec.confidence}%</span>
-                    </div>
-                    <div class="text-muted x-small mb-2 ps-3">${rec.reason}</div>
-                    <div class="d-flex gap-2 ps-3">
-                        ${rec.port ? `<span class="badge bg-secondary bg-opacity-10 text-info border border-info border-opacity-25 x-small">PORT: ${rec.port}</span>` : ''}
-                        <span class="badge bg-dark text-uppercase x-small text-muted">${rec.category}</span>
-                    </div>
-                </div>`;
-            });
-            if (html) recsContainer.innerHTML = html;
-        }
-
-        // 2. Surface Expansion
-        const expansionContainer = document.getElementById('surface-expansion-container');
-        if (expansionContainer && derived.surface_expansion) {
-            const exp = derived.surface_expansion;
-            let html = '';
-
-            if (exp.global && exp.global.derived_endpoints && exp.global.derived_endpoints.length) {
-                html += `
-                <div class="mb-4 animate__animated animate__fadeIn">
-                    <div class="text-info x-small fw-bold mb-2 text-uppercase">Heuristic Search Surfaces</div>
-                    <div class="d-flex flex-wrap gap-1">
-                        ${exp.global.derived_endpoints.map(ep => `<span class="badge bg-black border border-secondary text-muted font-monospace x-small" title="Heuristic Match">${ep}</span>`).join('')}
-                    </div>
-                </div>`;
-            }
-
-            if (exp.per_port && Object.keys(exp.per_port).length) {
-                html += `<div class="mb-2"><div class="text-warning x-small fw-bold mb-2 text-uppercase">Signals Detected</div>`;
-                Object.entries(exp.per_port).forEach(([port, data]) => {
-                    html += `
-                    <div class="mb-2 p-2 bg-black bg-opacity-20 rounded animate__animated animate__fadeIn">
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="badge bg-info bg-opacity-25 text-info x-small">PORT ${port}</span>
-                            <div class="d-flex gap-1">
-                                ${data.reasons.map(r => `<span class="x-small text-muted border-bottom border-warning">${r.replace(/_/g, ' ')}</span>`).join('')}
-                            </div>
-                        </div>
-                        ${data.derived_params && data.derived_params.length ? `
-                        <div class="ps-2 mt-3 border-start border-secondary border-2">
-                            <div class="x-small text-muted mb-1"><i class="fas fa-search-plus me-1 text-info opacity-75"></i>Extracted Parameters <span class="badge bg-dark border border-secondary border-opacity-50 text-muted ms-1">${data.derived_params.length}</span></div>
-                            <div class="d-flex flex-wrap gap-1 mt-1">
-                                ${data.derived_params.slice(0, 20).map(p => {
-                        let decoded = p;
-                        try { decoded = decodeURIComponent(p); } catch (e) { }
-                        const safeP = decoded.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                        return '<span class="badge bg-black bg-opacity-50 border border-info border-opacity-25 text-warning font-monospace x-small">' + safeP + '</span>';
-                    }).join('')}
-                                ${data.derived_params.length > 20 ? `
-                                <div class="collapse w-100" id="collapse-params-${port}">
-                                    <div class="d-flex flex-wrap gap-1 mt-1">
-                                    ${data.derived_params.slice(20).map(p => {
-                        let decoded = p;
-                        try { decoded = decodeURIComponent(p); } catch (e) { }
-                        const safeP = decoded.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                        return '<span class="badge bg-black bg-opacity-50 border border-secondary border-opacity-25 text-muted font-monospace x-small">' + safeP + '</span>';
-                    }).join('')}
-                                    </div>
-                                </div>
-                                <a data-bs-toggle="collapse" href="#collapse-params-${port}" role="button" aria-expanded="false" class="badge bg-black bg-opacity-20 border border-secondary border-opacity-25 text-cyber text-decoration-none x-small mt-1 hover-glow w-100 text-center py-1">
-                                    <i class="fas fa-chevron-down me-1"></i>+${data.derived_params.length - 20} more variables (Toggle)
-                                </a>` : ''}
-                            </div>
-                        </div>` : ''}
-                    </div>`;
-                });
-                html += `</div>`;
-            }
-            if (html) expansionContainer.innerHTML = html;
-        }
-
-        // 3. Service Intel
-        const intelContainer = document.getElementById('service-intel-container');
-        if (intelContainer && derived.service_intelligence) {
-            let tagsHtml = '<div class="d-flex flex-wrap gap-2">';
-            derived.service_intelligence.forEach(item => {
-                item.tags.forEach(tag => {
-                    const tagColor = (tag.includes('api') || tag.includes('web')) ? 'info' : 'warning';
-                    tagsHtml += `
-                    <span class="badge bg-dark border border-${tagColor} text-light x-small animate__animated animate__zoomIn" title="Port: ${item.port}">
-                        <i class="fas fa-tag me-1 text-muted"></i>${tag.toUpperCase()}
-                    </span>`;
-                });
-            });
-            tagsHtml += '</div>';
-            if (derived.service_intelligence.length) intelContainer.innerHTML = tagsHtml;
-        }
-
-        // 4. Thought Stream Status
-        const statusBadge = document.getElementById('cortex-dynamic-status');
-        if (statusBadge) {
-            if (derived.status && derived.status !== 'idle') {
-                statusBadge.innerHTML = `<i class="fas fa-brain me-1"></i>${derived.status.toUpperCase()}`;
-                statusBadge.classList.remove('d-none');
-            } else {
-                statusBadge.classList.add('d-none');
-            }
-        }
+        scanDashboardCortexView.render(document, results);
     }
     renderCloudHuman(data) {
         let html = '<div class="row g-2">';
@@ -2699,6 +2760,7 @@ ScanDashboard.internals = {
     findingsDom: scanDashboardFindingsDom,
     findingsFlow: scanDashboardFindingsFlow,
     resultsView: scanDashboardResultsView,
+    cortexView: scanDashboardCortexView,
     uiRefresh: scanDashboardUIRefresh,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,

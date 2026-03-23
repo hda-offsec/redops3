@@ -4,18 +4,49 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
+function createClassList(initial = []) {
+    const classes = new Set(initial);
+    return {
+        add(...tokens) {
+            tokens.forEach((token) => classes.add(token));
+        },
+        remove(...tokens) {
+            tokens.forEach((token) => classes.delete(token));
+        },
+        toggle(token, force) {
+            if (force === undefined) {
+                if (classes.has(token)) {
+                    classes.delete(token);
+                    return false;
+                }
+                classes.add(token);
+                return true;
+            }
+            if (force) classes.add(token);
+            else classes.delete(token);
+            return force;
+        },
+        contains(token) {
+            return classes.has(token);
+        },
+        toArray() {
+            return Array.from(classes).sort();
+        },
+    };
+}
+
 function createNode() {
     return {
         innerText: "",
         innerHTML: "",
         className: "",
         style: {},
+        children: [],
         querySelector() { return null; },
-        classList: {
-            add() {},
-            remove() {},
-            toggle() {},
+        prepend(child) {
+            this.children.unshift(child);
         },
+        classList: createClassList(),
     };
 }
 
@@ -56,6 +87,44 @@ function loadScanDashboardClass(overrides = {}) {
         filename: "scan_dashboard.js",
     });
     return { ScanDashboard: sandbox.__ScanDashboard, sandbox };
+}
+
+
+function createCortexDocumentHarness() {
+    const headerBadges = createNode();
+    let microscopePresent = false;
+    headerBadges.querySelector = (selector) => {
+        if (selector === '.fa-microscope' && microscopePresent) return { className: 'fa-microscope' };
+        return null;
+    };
+    headerBadges.prepend = (child) => {
+        microscopePresent = /fa-microscope/.test(child.innerHTML || '');
+        headerBadges.children.unshift(child);
+    };
+
+    const nodes = {
+        'cortex-recs-container': createNode(),
+        'surface-expansion-container': createNode(),
+        'service-intel-container': createNode(),
+        'cortex-dynamic-status': createNode(),
+    };
+
+    return {
+        document: {
+            getElementById(id) {
+                return nodes[id] || null;
+            },
+            querySelector(selector) {
+                if (selector === '#cortex-intel-card .card-header .d-flex.gap-2') return headerBadges;
+                return null;
+            },
+            querySelectorAll() { return []; },
+            addEventListener() {},
+            createElement() { return createNode(); },
+        },
+        headerBadges,
+        nodes,
+    };
 }
 
 test("uiRefresh syncFindingSummary keeps derived counters deterministic and additive", () => {
@@ -275,3 +344,105 @@ test("updateUI keeps the high-level orchestration order and still relies on rend
         ]
     );
 });
+
+
+test("cortexView renders recommendations, surface expansion, service intelligence, and active status deterministically", () => {
+    const { document, headerBadges, nodes } = createCortexDocumentHarness();
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+
+    ScanDashboard.internals.cortexView.render(document, {
+        phases: {
+            enum: {
+                derived: {
+                    js_expert_mining: true,
+                    status: 'triaging',
+                    cortex_recommendations: [
+                        { title: 'Pivot to admin API', confidence: 91, reason: 'Observed API tags', port: 8443, category: 'intel' },
+                        { title: 'Extend enum', confidence: 62, reason: 'Sparse headers', category: 'enum' },
+                    ],
+                    surface_expansion: {
+                        global: {
+                            derived_endpoints: ['/admin', '/debug'],
+                        },
+                        per_port: {
+                            '8443': {
+                                reasons: ['api_guess', 'admin_panel'],
+                                derived_params: ['redirect_uri', 'return%3Dhttps%3A%2F%2Fexample.org'],
+                            },
+                        },
+                    },
+                    service_intelligence: [
+                        { port: 8443, tags: ['api', 'auth'] },
+                        { port: 8080, tags: ['webhook'] },
+                    ],
+                },
+            },
+        },
+    });
+
+    assert.equal(headerBadges.children.length, 1);
+    assert.match(headerBadges.children[0].innerHTML, /JS EXPERT ACTIVE/);
+    assert.match(nodes['cortex-recs-container'].innerHTML, /Pivot to admin API/);
+    assert.match(nodes['cortex-recs-container'].innerHTML, /CONF: 91%/);
+    assert.match(nodes['cortex-recs-container'].innerHTML, /PORT: 8443/);
+    assert.match(nodes['surface-expansion-container'].innerHTML, /Heuristic Search Surfaces/);
+    assert.match(nodes['surface-expansion-container'].innerHTML, /api guess/);
+    assert.match(nodes['surface-expansion-container'].innerHTML, /return=https:\/\/example\.org/);
+    assert.match(nodes['service-intel-container'].innerHTML, /API/);
+    assert.match(nodes['service-intel-container'].innerHTML, /AUTH/);
+    assert.match(nodes['service-intel-container'].innerHTML, /WEBHOOK/);
+    assert.match(nodes['cortex-dynamic-status'].innerHTML, /TRIAGING/);
+    assert.equal(nodes['cortex-dynamic-status'].classList.contains('d-none'), false);
+});
+
+test("cortexView keeps the dynamic status hidden when derived status is idle and skips empty containers", () => {
+    const { document, headerBadges, nodes } = createCortexDocumentHarness();
+    nodes['cortex-dynamic-status'].classList.add('d-none');
+    nodes['cortex-recs-container'].innerHTML = 'existing recs';
+    nodes['surface-expansion-container'].innerHTML = 'existing expansion';
+    nodes['service-intel-container'].innerHTML = 'existing intel';
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+
+    ScanDashboard.internals.cortexView.render(document, {
+        phases: {
+            enum: {
+                derived: {
+                    status: 'idle',
+                    cortex_recommendations: [],
+                    surface_expansion: {},
+                    service_intelligence: [],
+                },
+            },
+        },
+    });
+
+    assert.equal(headerBadges.children.length, 0);
+    assert.equal(nodes['cortex-recs-container'].innerHTML, 'existing recs');
+    assert.equal(nodes['surface-expansion-container'].innerHTML, 'existing expansion');
+    assert.equal(nodes['service-intel-container'].innerHTML, 'existing intel');
+    assert.equal(nodes['cortex-dynamic-status'].classList.contains('d-none'), true);
+});
+
+test("updateCortexUI delegates to the extracted cortexView helper without changing the entrypoint contract", () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const originalRender = ScanDashboard.internals.cortexView.render;
+    const calls = [];
+
+    ScanDashboard.internals.cortexView.render = (documentRef, results) => {
+        calls.push({ documentRef, results });
+    };
+
+    try {
+        const results = { phases: { enum: { derived: { status: 'triaging' } } } };
+        const dashboard = {};
+        ScanDashboard.prototype.updateCortexUI.call(dashboard, results);
+    } finally {
+        ScanDashboard.internals.cortexView.render = originalRender;
+    }
+
+    assert.equal(calls.length, 1);
+    assert.equal(typeof calls[0].documentRef.getElementById, 'function');
+    assert.deepEqual(calls[0].results, { phases: { enum: { derived: { status: 'triaging' } } } });
+});
+
