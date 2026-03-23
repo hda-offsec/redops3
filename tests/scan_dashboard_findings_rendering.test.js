@@ -502,6 +502,43 @@ test('findings flow structured batch ingestion syncs findings once before routin
     assert.equal(handledFindings.every(({ options }) => options.normalized === true && options.skipClientSync === true), true);
 });
 
+test('findings flow structured batch ingestion skips malformed entries instead of crashing the runtime pipeline', () => {
+    const cacheSyncCalls = [];
+    const handledFindings = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        updateFindingsList(items) {
+            cacheSyncCalls.push(items);
+        },
+    });
+
+    const dashboard = {
+        scanId: 77,
+        normalizeFindingRecord(finding) {
+            if (!finding || typeof finding !== 'object') return finding;
+            return {
+                ...finding,
+                normalized: true,
+            };
+        },
+        handleNewFinding(finding, options) {
+            handledFindings.push({ finding, options });
+        },
+    };
+
+    const normalizedFindings = ScanDashboard.internals.findingsFlow.ingestStructuredFindings(dashboard, [
+        null,
+        'noise',
+        { id_stable: 'finding-1', title: 'First', tool_source: 'nuclei', tool: 'nuclei' },
+        7,
+    ]);
+
+    assert.equal(cacheSyncCalls.length, 1);
+    assert.deepEqual(cacheSyncCalls[0].map((item) => item.id_stable), ['finding-1']);
+    assert.equal(normalizedFindings.length, 1);
+    assert.deepEqual(handledFindings.map(({ finding }) => finding.id_stable), ['finding-1']);
+    assert.equal(handledFindings.every(({ options }) => options.normalized === true && options.skipClientSync === true), true);
+});
+
 test('results view helper keeps findings summaries and derived counters deterministic', () => {
     const { ScanDashboard } = loadScanDashboardClass();
     const { resultsView } = ScanDashboard.internals;

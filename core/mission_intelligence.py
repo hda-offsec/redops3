@@ -320,8 +320,6 @@ def derive_operator_actions(objectives, findings):
                 for item in finding_items
                 if str(getattr(item, "category", "") or "").strip().lower() in objective_type
             ]
-        if not selected_findings:
-            selected_findings = list(finding_items[:3])
 
         selected_findings = sorted(
             selected_findings,
@@ -490,8 +488,40 @@ def _derive_cross_asset_paths(findings):
     if len(candidates) < 2:
         return []
 
+    lineage_candidates = [
+        item
+        for item in candidates
+        if item["asset_ids"] or item["target_ids"] or item["signal_ids"]
+    ]
+    if len(lineage_candidates) < 2:
+        return []
+
+    shared_signal_ids = sorted(
+        {
+            signal_id
+            for signal_id in {sid for item in lineage_candidates for sid in item["signal_ids"]}
+            if sum(signal_id in item["signal_ids"] for item in lineage_candidates) >= 2
+        }
+    )
+    shared_asset_ids = sorted(
+        {
+            asset_id
+            for asset_id in {aid for item in lineage_candidates for aid in item["asset_ids"]}
+            if sum(asset_id in item["asset_ids"] for item in lineage_candidates) >= 2
+        }
+    )
+    shared_target_ids = sorted(
+        {
+            target_id
+            for target_id in {tid for item in lineage_candidates for tid in item["target_ids"]}
+            if sum(target_id in item["target_ids"] for item in lineage_candidates) >= 2
+        }
+    )
+    if not shared_signal_ids and not shared_asset_ids and not shared_target_ids:
+        return []
+
     ordered = sorted(
-        candidates,
+        lineage_candidates,
         key=lambda item: (
             -_severity_rank(getattr(item["finding"], "severity", "info")),
             str(getattr(item["finding"], "title", "") or ""),
@@ -537,7 +567,12 @@ def _derive_cross_asset_paths(findings):
             "related_target_ids": related_target_ids,
             "related_finding_ids": related_finding_ids,
             "related_signal_ids": related_signal_ids,
-            "metadata": {"categories": unique_categories},
+            "metadata": {
+                "categories": unique_categories,
+                "shared_asset_ids": shared_asset_ids,
+                "shared_target_ids": shared_target_ids,
+                "shared_signal_ids": shared_signal_ids,
+            },
         }
     ]
 

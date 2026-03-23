@@ -103,6 +103,8 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertEqual(first["operator_feedback"]["false_positive_like_actions"], 1)
         self.assertIn("safe_probe", first["validation_profiles"])
         self.assertEqual(classify_finding_family(findings[1]), "upload_retrieval_assessments")
+        self.assertEqual(first["lineage_coverage"]["signal_lineage_present"], 1)
+        self.assertEqual(first["lineage_coverage"]["signal_lineage_missing"], 1)
 
     def test_quality_metrics_handles_malformed_empty_inputs(self):
         payload = build_quality_metrics(
@@ -116,6 +118,8 @@ class PostLot5StabilizationTests(unittest.TestCase):
         self.assertEqual(payload["artifact_volume"]["findings"], 0)
         self.assertEqual(payload["operator_feedback"]["false_positive_like_actions"], 1)
         self.assertEqual(payload["coverage_hints"]["objectives_with_paths"], 1)
+        self.assertEqual(payload["lineage_coverage"]["signal_lineage_present"], 0)
+        self.assertEqual(payload["lineage_coverage"]["signal_lineage_missing"], 0)
 
     def test_finding_schema_additive_reproducibility_fields(self):
         normalized = normalize_finding_shape(
