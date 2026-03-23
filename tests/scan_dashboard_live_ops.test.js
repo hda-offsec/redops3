@@ -597,7 +597,36 @@ test('handleNewLoot keeps the public orchestration intact after delegating to th
     assert.match(entries[0].innerHTML, /headers/);
 });
 
-test('handleProgressUpdate delegates to the extracted progress view and preserves running/completed UI states', () => {
+test('progress view derives normalized progress, discovery activations, and completion visuals', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const progressView = ScanDashboard.internals.progressView;
+
+    const runningUpdate = progressView.deriveProgressUpdate({
+        percent: 33.6,
+        current_phase: 'Nuclei API sweep',
+    });
+    assert.equal(runningUpdate.percent, 34);
+    assert.equal(runningUpdate.phase, 'Nuclei API sweep');
+    assert.deepEqual(Array.from(runningUpdate.discoveryIds), ['api', 'vulns']);
+    assert.equal(runningUpdate.visualState.completed, false);
+    assert.equal(runningUpdate.visualState.statusText, 'running');
+    assert.equal(runningUpdate.visualState.showToast, true);
+
+    const fallbackUpdate = progressView.deriveProgressUpdate({
+        percent: 'not-a-number',
+        current_phase: '',
+    });
+    assert.equal(fallbackUpdate.percent, 0);
+    assert.equal(fallbackUpdate.phase, 'Processing...');
+    assert.deepEqual(Array.from(fallbackUpdate.discoveryIds), []);
+
+    const completedVisualState = progressView.deriveVisualState(100);
+    assert.equal(completedVisualState.completed, true);
+    assert.equal(completedVisualState.statusText, 'completed');
+    assert.equal(completedVisualState.showToast, false);
+});
+
+test('progress view render updates DOM refs and completion state without changing UI contract', () => {
     const progressBar = createElement('div');
     progressBar.classList.add('progress-bar-animated', 'progress-bar-striped');
     const phaseText = createElement('span');
@@ -637,13 +666,83 @@ test('handleProgressUpdate delegates to the extracted progress view and preserve
     };
 
     const { ScanDashboard } = loadScanDashboardClass({ document });
-    const normalizedProgress = ScanDashboard.internals.progressView.normalize({
+    const progressView = ScanDashboard.internals.progressView;
+    const toastStates = [];
+    const runningUpdate = progressView.deriveProgressUpdate({
         percent: 33.6,
         current_phase: 'Nuclei API sweep',
     });
-    assert.equal(normalizedProgress.percent, 34);
-    assert.equal(normalizedProgress.phase, 'Nuclei API sweep');
 
+    const runningRender = progressView.render(document, runningUpdate, (show) => toastStates.push(show));
+    assert.equal(runningRender.phaseText, phaseText);
+    assert.equal(progressBar.style.width, '34%');
+    assert.equal(progressBar.getAttribute('aria-valuenow'), 34);
+    assert.equal(phaseText.innerText, 'Nuclei API sweep');
+    assert.equal(auditPhase.innerText, 'Current Phase: Nuclei API sweep');
+    assert.equal(toastBar.style.width, '34%');
+    assert.equal(toastPhase.innerText, 'Nuclei API sweep');
+    assert.equal(toastPercent.innerText, '34%');
+    assert.equal(statusText.innerText, 'running');
+    assert.equal(spinner.classList.contains('d-none'), false);
+    assert.deepEqual(toastStates, [true]);
+    assert.equal(discoveryButton.classList.contains('discovered'), false);
+
+    const completedUpdate = progressView.deriveProgressUpdate({
+        percent: 100,
+        current_phase: 'Phase complete',
+    });
+    progressView.render(document, completedUpdate, (show) => toastStates.push(show));
+
+    assert.equal(statusText.innerText, 'completed');
+    assert.equal(spinner.classList.contains('d-none'), true);
+    assert.equal(progressBar.classList.contains('progress-bar-animated'), false);
+    assert.equal(progressBar.classList.contains('progress-bar-striped'), false);
+    assert.equal(progressBar.classList.contains('bg-success'), true);
+    assert.equal(discoveryButton.classList.contains('active'), false);
+    assert.equal(discoveryButton.classList.contains('discovered'), true);
+    assert.deepEqual(toastStates, [true, false]);
+});
+
+test('handleProgressUpdate keeps dashboard orchestration compatible with the extracted progress helpers', () => {
+    const progressBar = createElement('div');
+    progressBar.classList.add('progress-bar-animated', 'progress-bar-striped');
+    const phaseText = createElement('span');
+    const statusText = createElement('span');
+    const spinner = createElement('div');
+    const toastBar = createElement('div');
+    const toastPhase = createElement('span');
+    const toastPercent = createElement('span');
+    const auditPhase = createElement('span');
+    const discoveryButton = createElement('button');
+    discoveryButton.classList.add('discovery-btn', 'active');
+
+    const nodes = new Map([
+        ['scan-progress-bar', progressBar],
+        ['scan-phase-text', phaseText],
+        ['scan-status-text', statusText],
+        ['scan-spinner', spinner],
+        ['toast-progress-bar', toastBar],
+        ['toast-phase-text', toastPhase],
+        ['toast-percent-text', toastPercent],
+        ['audit-journey-current-phase', auditPhase],
+    ]);
+
+    const document = {
+        getElementById(id) {
+            return nodes.get(id) || null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.discovery-btn') return [discoveryButton];
+            return [];
+        },
+        querySelector() { return null; },
+        addEventListener() {},
+        createElement(tagName) {
+            return createElement(tagName);
+        },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
     const activated = [];
     const toastStates = [];
     const dashboard = {
@@ -666,19 +765,10 @@ test('handleProgressUpdate delegates to the extracted progress view and preserve
         current_phase: 'Nuclei API sweep',
     });
 
-    assert.equal(progressBar.style.width, '34%');
-    assert.equal(progressBar.getAttribute('aria-valuenow'), 34);
-    assert.equal(phaseText.innerText, 'Nuclei API sweep');
-    assert.equal(auditPhase.innerText, 'Current Phase: Nuclei API sweep');
-    assert.equal(toastBar.style.width, '34%');
-    assert.equal(toastPhase.innerText, 'Nuclei API sweep');
-    assert.equal(toastPercent.innerText, '34%');
-    assert.equal(statusText.innerText, 'running');
-    assert.equal(spinner.classList.contains('d-none'), false);
     assert.deepEqual(dashboard.highlightPTESCalls, ['Nuclei API sweep']);
     assert.deepEqual(activated, [{ id: 'api', state: false }, { id: 'vulns', state: false }]);
     assert.deepEqual(toastStates, [true]);
-    assert.equal(discoveryButton.classList.contains('discovered'), false);
+    assert.equal(phaseText.innerText, 'Nuclei API sweep');
 
     ScanDashboard.prototype.handleProgressUpdate.call(dashboard, {
         scan_id: 42,
@@ -687,11 +777,5 @@ test('handleProgressUpdate delegates to the extracted progress view and preserve
     });
 
     assert.equal(statusText.innerText, 'completed');
-    assert.equal(spinner.classList.contains('d-none'), true);
-    assert.equal(progressBar.classList.contains('progress-bar-animated'), false);
-    assert.equal(progressBar.classList.contains('progress-bar-striped'), false);
-    assert.equal(progressBar.classList.contains('bg-success'), true);
-    assert.equal(discoveryButton.classList.contains('active'), false);
-    assert.equal(discoveryButton.classList.contains('discovered'), true);
     assert.deepEqual(toastStates, [true, false]);
 });
