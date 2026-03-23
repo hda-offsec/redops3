@@ -655,6 +655,38 @@ const scanDashboardProgressView = {
         };
     },
 
+    getDiscoveryIds(phase) {
+        const phaseLower = String(phase || '').toLowerCase();
+        return Object.entries(this.phaseToDiscovery)
+            .filter(([key]) => phaseLower.includes(key))
+            .map(([, id]) => id);
+    },
+
+    deriveVisualState(percent) {
+        if (percent >= 100) {
+            return {
+                completed: true,
+                statusText: 'completed',
+                showToast: false
+            };
+        }
+
+        return {
+            completed: false,
+            statusText: 'running',
+            showToast: true
+        };
+    },
+
+    deriveProgressUpdate(data) {
+        const normalized = this.normalize(data);
+        return {
+            ...normalized,
+            discoveryIds: this.getDiscoveryIds(normalized.phase),
+            visualState: this.deriveVisualState(normalized.percent)
+        };
+    },
+
     updateBars(documentRef, percent) {
         const bar = documentRef.getElementById('scan-progress-bar');
         if (bar) {
@@ -668,51 +700,49 @@ const scanDashboardProgressView = {
         return {
             bar,
             statusText: documentRef.getElementById('scan-status-text'),
-            spinner: documentRef.getElementById('scan-spinner')
+            spinner: documentRef.getElementById('scan-spinner'),
+            phaseText: documentRef.getElementById('scan-phase-text'),
+            auditPhase: documentRef.getElementById('audit-journey-current-phase'),
+            toastPhase: documentRef.getElementById('toast-phase-text'),
+            toastPercent: documentRef.getElementById('toast-percent-text')
         };
     },
 
-    updatePhaseText(documentRef, phase) {
-        const phaseText = documentRef.getElementById('scan-phase-text');
+    updatePhaseText(refs, phase) {
+        const { phaseText, auditPhase, toastPhase } = refs;
         if (phaseText) {
             phaseText.innerText = phase;
         }
 
-        const auditPhase = documentRef.getElementById('audit-journey-current-phase');
         if (auditPhase) {
             auditPhase.innerText = `Current Phase: ${phase}`;
         }
 
-        const toastPhase = documentRef.getElementById('toast-phase-text');
         if (toastPhase) toastPhase.innerText = phase;
 
         return phaseText;
     },
 
-    updateToastPercent(documentRef, percent) {
-        const toastPercent = documentRef.getElementById('toast-percent-text');
-        if (toastPercent) toastPercent.innerText = percent + '%';
+    updateToastPercent(refs, percent) {
+        if (refs.toastPercent) refs.toastPercent.innerText = percent + '%';
     },
 
-    activatePhaseDiscoveries(dashboard, phase) {
-        const phaseLower = phase.toLowerCase();
-        for (const [key, id] of Object.entries(scanDashboardProgressView.phaseToDiscovery)) {
-            if (phaseLower.includes(key)) {
-                dashboard.activateDiscovery(id, false);
-            }
-        }
+    activatePhaseDiscoveries(dashboard, phaseOrIds) {
+        const discoveryIds = Array.isArray(phaseOrIds) ? phaseOrIds : this.getDiscoveryIds(phaseOrIds);
+        discoveryIds.forEach((id) => dashboard.activateDiscovery(id, false));
     },
 
-    syncCompletionState(documentRef, percent, refs, toggleScanToast) {
+    syncCompletionState(documentRef, refs, visualState, toggleScanToast) {
         const { bar, statusText, spinner } = refs;
-        if (percent >= 100) {
-            if (statusText) statusText.innerText = 'completed';
+        if (statusText) statusText.innerText = visualState.statusText;
+
+        if (visualState.completed) {
             if (spinner) spinner.classList.add('d-none');
             if (bar) {
                 bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
                 bar.classList.add('bg-success');
             }
-            toggleScanToast(false);
+            toggleScanToast(visualState.showToast);
 
             documentRef.querySelectorAll('.discovery-btn').forEach(btn => {
                 btn.classList.remove('active');
@@ -721,9 +751,16 @@ const scanDashboardProgressView = {
             return;
         }
 
-        if (statusText) statusText.innerText = 'running';
         if (spinner) spinner.classList.remove('d-none');
-        toggleScanToast(true);
+        toggleScanToast(visualState.showToast);
+    },
+
+    render(documentRef, progressUpdate, toggleScanToast) {
+        const refs = this.updateBars(documentRef, progressUpdate.percent);
+        const phaseText = this.updatePhaseText(refs, progressUpdate.phase);
+        this.updateToastPercent(refs, progressUpdate.percent);
+        this.syncCompletionState(documentRef, refs, progressUpdate.visualState, toggleScanToast);
+        return { refs, phaseText };
     }
 };
 
@@ -1142,17 +1179,17 @@ class ScanDashboard {
     handleProgressUpdate(data) {
         if (data.scan_id != this.scanId) return;
 
-        const { percent, phase } = scanDashboardProgressView.normalize(data);
-        const refs = scanDashboardProgressView.updateBars(document, percent);
-        const phaseText = scanDashboardProgressView.updatePhaseText(document, phase);
-        scanDashboardProgressView.updateToastPercent(document, percent);
+        const progressUpdate = scanDashboardProgressView.deriveProgressUpdate(data);
+        const { phaseText } = scanDashboardProgressView.render(
+            document,
+            progressUpdate,
+            (show) => this.toggleScanToast(show)
+        );
 
         if (phaseText) {
-            this.highlightPTES(phase);
-            scanDashboardProgressView.activatePhaseDiscoveries(this, phase);
+            this.highlightPTES(progressUpdate.phase);
+            scanDashboardProgressView.activatePhaseDiscoveries(this, progressUpdate.discoveryIds);
         }
-
-        scanDashboardProgressView.syncCompletionState(document, percent, refs, (show) => this.toggleScanToast(show));
     }
 
     highlightPTES(text) {
