@@ -216,6 +216,48 @@ const scanDashboardFindingsDom = {
     }
 };
 
+const scanDashboardFindingsFlow = {
+    prepareIncomingFinding(dashboard, data) {
+        const finding = dashboard.normalizeFindingRecord(data);
+        const fid = scanDashboardFindingsIdentity.resolveRenderId(finding);
+
+        if (dashboard.renderedFindingIds.has(fid)) {
+            return null;
+        }
+
+        dashboard.renderedFindingIds.add(fid);
+        return { fid, finding };
+    },
+
+    renderFinding(documentRef, dashboard, fid, finding) {
+        const display = scanDashboardFindingsView.buildDisplayModel(dashboard, finding);
+        const container = documentRef.getElementById('findings-container');
+
+        scanDashboardFindingsDom.prependResultCard(
+            documentRef,
+            container,
+            scanDashboardFindingsView.buildResultCardHtml(finding, display)
+        );
+
+        if (!container) {
+            return { display, container: null, tableRow: null };
+        }
+
+        if (finding.screenshot_path) {
+            dashboard.addToGallery(finding);
+        }
+
+        dashboard.updateRiskCounters(finding.severity);
+        dashboard.updateIndicators(finding);
+
+        return {
+            display,
+            container,
+            tableRow: scanDashboardFindingsDom.prependTableRow(documentRef, dashboard, fid, finding, display),
+        };
+    }
+};
+
 const scanDashboardAuditJourney = {
     countEnumeratedEndpoints(phases) {
         const katana = (phases?.enum?.katana && typeof phases.enum.katana === 'object') ? phases.enum.katana : {};
@@ -899,35 +941,17 @@ class ScanDashboard {
 
     handleNewFinding(data) {
         if (data.scan_id != this.scanId) return;
-        data = this.normalizeFindingRecord(data);
+        const preparedFinding = scanDashboardFindingsFlow.prepareIncomingFinding(this, data);
+        if (!preparedFinding) return;
 
-        const fid = scanDashboardFindingsIdentity.resolveRenderId(data);
-        if (this.renderedFindingIds.has(fid)) return;
-        this.renderedFindingIds.add(fid);
+        const { fid, finding } = preparedFinding;
 
         this.activateDiscovery('vulns', true);
-
-        const display = scanDashboardFindingsView.buildDisplayModel(this, data);
-        const container = document.getElementById('findings-container');
-        scanDashboardFindingsDom.prependResultCard(
-            document,
-            container,
-            scanDashboardFindingsView.buildResultCardHtml(data, display)
-        );
-
-        if (container) {
-            if (data.screenshot_path) {
-                this.addToGallery(data);
-            }
-
-            this.updateRiskCounters(data.severity);
-            this.updateIndicators(data);
-            scanDashboardFindingsDom.prependTableRow(document, this, fid, data, display);
-        }
+        scanDashboardFindingsFlow.renderFinding(document, this, fid, finding);
 
         // ScanNmap Dashboard Specific updates
-        if (data.category === 'service_detection') {
-            this.updateScanNmapDashboard(data);
+        if (finding.category === 'service_detection') {
+            this.updateScanNmapDashboard(finding);
         }
     }
 
@@ -2508,6 +2532,7 @@ ScanDashboard.internals = {
     findingsIdentity: scanDashboardFindingsIdentity,
     findingsView: scanDashboardFindingsView,
     findingsDom: scanDashboardFindingsDom,
+    findingsFlow: scanDashboardFindingsFlow,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
     logStream: scanDashboardLogStream,

@@ -306,6 +306,169 @@ test('findings DOM helper keeps the result list and table row contracts intact f
     assert.equal(updateFindingsListCalls.length, 1);
 });
 
+test('findings flow helper deduplicates normalized findings before any DOM work begins', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const normalized = { id_stable: 'finding-42', title: 'Normalized finding' };
+    const dashboard = {
+        renderedFindingIds: new Set(),
+        normalizeFindingRecord(input) {
+            assert.equal(input.title, 'Incoming finding');
+            return normalized;
+        },
+    };
+
+    const firstPass = ScanDashboard.internals.findingsFlow.prepareIncomingFinding(dashboard, {
+        title: 'Incoming finding',
+    });
+    assert.equal(firstPass.fid, 'finding-42');
+    assert.equal(firstPass.finding, normalized);
+    assert.equal(dashboard.renderedFindingIds.has('finding-42'), true);
+
+    const secondPass = ScanDashboard.internals.findingsFlow.prepareIncomingFinding(dashboard, {
+        title: 'Incoming finding',
+    });
+    assert.equal(secondPass, null);
+});
+
+test('findings flow helper keeps rendering side effects grouped without changing the findings UI contracts', () => {
+    const findingsEmpty = createElement('div');
+    findingsEmpty.innerText = 'No findings yet';
+    const findingsList = {
+        entries: [],
+        prepend(node) {
+            this.entries.unshift(node);
+        },
+    };
+    const findingsContainer = {
+        querySelector(selector) {
+            if (selector === '.text-muted') return findingsEmpty;
+            if (selector === '.result-list') return findingsList;
+            return null;
+        },
+        appendChild() {},
+    };
+    const findingsEmptyRow = createElement('tr');
+    const rowRegistry = new Map();
+    const findingsTableBody = {
+        rows: [],
+        prepend(row) {
+            this.rows.unshift(row);
+            rowRegistry.set(row.id, row);
+        },
+    };
+    const document = {
+        getElementById(id) {
+            if (id === 'findings-container') return findingsContainer;
+            if (id === 'findings-table-body') return findingsTableBody;
+            if (id === 'findings-empty-state') return findingsEmptyRow;
+            return rowRegistry.get(id) || null;
+        },
+        createElement(tagName) {
+            const element = createElement(tagName);
+            Object.defineProperty(element, 'id', {
+                get() {
+                    return this._id || '';
+                },
+                set(value) {
+                    this._id = value;
+                },
+            });
+            return element;
+        },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        addEventListener() {},
+    };
+
+    const updateFindingsListCalls = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        document,
+        updateFindingsList(items) {
+            updateFindingsListCalls.push(items);
+        },
+    });
+
+    const galleryCalls = [];
+    const riskCalls = [];
+    const indicatorCalls = [];
+    const appliedDatasets = [];
+    const dashboard = {
+        escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        },
+        getFindingValidationStatus() {
+            return 'not_run';
+        },
+        getFindingResultState() {
+            return 'observation';
+        },
+        getFindingPrimaryCommand() {
+            return '';
+        },
+        getFindingPrimaryUrl() {
+            return '';
+        },
+        getFindingsContract() {
+            return {
+                applyRowDataset(row, finding) {
+                    appliedDatasets.push(finding.id_stable);
+                    row.setAttribute('data-finding-id', finding.id_stable);
+                },
+            };
+        },
+        addToGallery(finding) {
+            galleryCalls.push(finding.id_stable);
+        },
+        updateRiskCounters(severity) {
+            riskCalls.push(severity);
+        },
+        updateIndicators(finding) {
+            indicatorCalls.push(finding.id_stable);
+        },
+    };
+
+    const finding = {
+        id_stable: 'finding-55',
+        title: 'Stored <XSS>',
+        severity: 'high',
+        tool_source: 'dalfox',
+        description: 'Body <script>alert(1)</script>',
+        confidence: 'high',
+        screenshot_path: 'loot/xss-proof.png',
+        _ui: {
+            validationStatus: 'success',
+            resultState: 'confirmed',
+            primaryCommand: 'dalfox url https://target/app',
+            primaryUrl: 'https://target/app?q=<script>',
+            hasEvidence: true,
+            isValidated: true,
+        },
+    };
+
+    const rendered = ScanDashboard.internals.findingsFlow.renderFinding(document, dashboard, 'finding-55', finding);
+
+    assert.equal(rendered.container, findingsContainer);
+    assert.equal(rendered.tableRow, findingsTableBody.rows[0]);
+    assert.equal(findingsEmpty.removed, true);
+    assert.equal(findingsEmptyRow.removed, true);
+    assert.equal(findingsList.entries.length, 1);
+    assert.match(findingsList.entries[0].innerHTML, /Stored &lt;XSS&gt;/);
+    assert.equal(findingsTableBody.rows.length, 1);
+    assert.equal(findingsTableBody.rows[0].id, 'finding-row-finding-55');
+    assert.match(findingsTableBody.rows[0].innerHTML, /VALIDATED/);
+    assert.deepEqual(appliedDatasets, ['finding-55']);
+    assert.deepEqual(galleryCalls, ['finding-55']);
+    assert.deepEqual(riskCalls, ['high']);
+    assert.deepEqual(indicatorCalls, ['finding-55']);
+    assert.equal(updateFindingsListCalls.length, 1);
+    assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-55');
+});
+
 test('handleNewFinding preserves the existing findings flow while delegating rendering to extracted findings helpers', () => {
     const findingsEmpty = createElement('div');
     findingsEmpty.innerText = 'No findings yet';
