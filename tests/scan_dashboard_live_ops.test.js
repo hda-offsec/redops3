@@ -626,6 +626,23 @@ test('progress view derives normalized progress, discovery activations, and comp
     assert.equal(completedVisualState.showToast, false);
 });
 
+test('progress view derives a render state snapshot before mutating the DOM', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const progressView = ScanDashboard.internals.progressView;
+    const progressUpdate = progressView.deriveProgressUpdate({
+        percent: 33.6,
+        current_phase: 'Nuclei API sweep',
+    });
+
+    const renderState = progressView.deriveRenderState(progressUpdate);
+
+    assert.equal(renderState.percent, 34);
+    assert.equal(renderState.phase, 'Nuclei API sweep');
+    assert.equal(renderState.percentText, '34%');
+    assert.equal(renderState.auditPhaseText, 'Current Phase: Nuclei API sweep');
+    assert.equal(renderState.visualState, progressUpdate.visualState);
+});
+
 test('progress view render updates DOM refs and completion state without changing UI contract', () => {
     const progressBar = createElement('div');
     progressBar.classList.add('progress-bar-animated', 'progress-bar-striped');
@@ -667,6 +684,19 @@ test('progress view render updates DOM refs and completion state without changin
 
     const { ScanDashboard } = loadScanDashboardClass({ document });
     const progressView = ScanDashboard.internals.progressView;
+    const refs = progressView.resolveRefs(document);
+    const renderState = progressView.deriveRenderState(progressView.deriveProgressUpdate({
+        percent: 33.6,
+        current_phase: 'Nuclei API sweep',
+    }));
+
+    assert.equal(refs.bar, progressBar);
+    assert.equal(refs.toastBar, toastBar);
+    progressView.updateBars(refs, renderState);
+    assert.equal(progressBar.style.width, '34%');
+    assert.equal(progressBar.getAttribute('aria-valuenow'), 34);
+    assert.equal(toastBar.style.width, '34%');
+
     const toastStates = [];
     const runningUpdate = progressView.deriveProgressUpdate({
         percent: 33.6,

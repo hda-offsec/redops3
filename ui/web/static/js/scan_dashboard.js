@@ -687,44 +687,56 @@ const scanDashboardProgressView = {
         };
     },
 
-    updateBars(documentRef, percent) {
-        const bar = documentRef.getElementById('scan-progress-bar');
-        if (bar) {
-            bar.style.width = percent + '%';
-            bar.setAttribute('aria-valuenow', percent);
-        }
-
-        const toastBar = documentRef.getElementById('toast-progress-bar');
-        if (toastBar) toastBar.style.width = percent + '%';
-
+    deriveRenderState(progressUpdate) {
         return {
-            bar,
+            percent: progressUpdate.percent,
+            phase: progressUpdate.phase,
+            percentText: `${progressUpdate.percent}%`,
+            auditPhaseText: `Current Phase: ${progressUpdate.phase}`,
+            visualState: progressUpdate.visualState
+        };
+    },
+
+    resolveRefs(documentRef) {
+        return {
+            bar: documentRef.getElementById('scan-progress-bar'),
             statusText: documentRef.getElementById('scan-status-text'),
             spinner: documentRef.getElementById('scan-spinner'),
             phaseText: documentRef.getElementById('scan-phase-text'),
             auditPhase: documentRef.getElementById('audit-journey-current-phase'),
+            toastBar: documentRef.getElementById('toast-progress-bar'),
             toastPhase: documentRef.getElementById('toast-phase-text'),
             toastPercent: documentRef.getElementById('toast-percent-text')
         };
     },
 
-    updatePhaseText(refs, phase) {
+    updateBars(refs, renderState) {
+        const { bar, toastBar } = refs;
+        if (bar) {
+            bar.style.width = renderState.percentText;
+            bar.setAttribute('aria-valuenow', renderState.percent);
+        }
+
+        if (toastBar) toastBar.style.width = renderState.percentText;
+    },
+
+    updatePhaseText(refs, renderState) {
         const { phaseText, auditPhase, toastPhase } = refs;
         if (phaseText) {
-            phaseText.innerText = phase;
+            phaseText.innerText = renderState.phase;
         }
 
         if (auditPhase) {
-            auditPhase.innerText = `Current Phase: ${phase}`;
+            auditPhase.innerText = renderState.auditPhaseText;
         }
 
-        if (toastPhase) toastPhase.innerText = phase;
+        if (toastPhase) toastPhase.innerText = renderState.phase;
 
         return phaseText;
     },
 
-    updateToastPercent(refs, percent) {
-        if (refs.toastPercent) refs.toastPercent.innerText = percent + '%';
+    updateToastPercent(refs, renderState) {
+        if (refs.toastPercent) refs.toastPercent.innerText = renderState.percentText;
     },
 
     activatePhaseDiscoveries(dashboard, phaseOrIds) {
@@ -756,9 +768,11 @@ const scanDashboardProgressView = {
     },
 
     render(documentRef, progressUpdate, toggleScanToast) {
-        const refs = this.updateBars(documentRef, progressUpdate.percent);
-        const phaseText = this.updatePhaseText(refs, progressUpdate.phase);
-        this.updateToastPercent(refs, progressUpdate.percent);
+        const refs = this.resolveRefs(documentRef);
+        const renderState = this.deriveRenderState(progressUpdate);
+        this.updateBars(refs, renderState);
+        const phaseText = this.updatePhaseText(refs, renderState);
+        this.updateToastPercent(refs, renderState);
         this.syncCompletionState(documentRef, refs, progressUpdate.visualState, toggleScanToast);
         return { refs, phaseText };
     }
