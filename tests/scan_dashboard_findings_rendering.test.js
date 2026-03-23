@@ -299,6 +299,24 @@ test('findings identity helper preserves the existing dedupe priority before DOM
     );
 });
 
+test('findings sync helper updates the shared findings cache only when findings are present', () => {
+    const syncedBatches = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        updateFindingsList(items) {
+            syncedBatches.push(items);
+        },
+    });
+
+    ScanDashboard.internals.findingsSync.syncClientFindings([]);
+    ScanDashboard.internals.findingsSync.syncClientFinding(null);
+    ScanDashboard.internals.findingsSync.syncClientFinding({ id_stable: 'finding-1' });
+    ScanDashboard.internals.findingsSync.syncClientFindings([{ id_stable: 'finding-2' }]);
+
+    assert.equal(syncedBatches.length, 2);
+    assert.equal(JSON.stringify(syncedBatches[0].map((item) => item.id_stable)), JSON.stringify(['finding-1']));
+    assert.equal(JSON.stringify(syncedBatches[1].map((item) => item.id_stable)), JSON.stringify(['finding-2']));
+});
+
 test('findings DOM helper keeps the result list and table row contracts intact for extracted findings markup', () => {
     const findingsEmpty = createElement('div');
     findingsEmpty.innerText = 'No findings yet';
@@ -414,13 +432,12 @@ test('findings DOM helper keeps the result list and table row contracts intact f
     assert.match(row.innerHTML, /fa-microscope text-info/);
     assert.match(row.innerHTML, /VALIDATED/);
     assert.deepEqual(appliedDatasets.map(({ finding: currentFinding }) => currentFinding.id_stable), ['finding-77']);
-    assert.equal(updateFindingsListCalls.length, 1);
-    assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-77');
+    assert.equal(updateFindingsListCalls.length, 0);
 
     const duplicateRow = ScanDashboard.internals.findingsDom.prependTableRow(document, dashboard, 'finding-77', finding, display);
     assert.equal(duplicateRow, null);
     assert.equal(findingsTableBody.rows.length, 1);
-    assert.equal(updateFindingsListCalls.length, 1);
+    assert.equal(updateFindingsListCalls.length, 0);
 });
 
 test('findings flow helper deduplicates normalized findings before any DOM work begins', () => {
@@ -445,6 +462,127 @@ test('findings flow helper deduplicates normalized findings before any DOM work 
         title: 'Incoming finding',
     });
     assert.equal(secondPass, null);
+});
+
+test('findings flow structured batch ingestion syncs findings once before routing them through the canonical live pipeline', () => {
+    const cacheSyncCalls = [];
+    const handledFindings = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        updateFindingsList(items) {
+            cacheSyncCalls.push(items);
+        },
+    });
+
+    const dashboard = {
+        scanId: 77,
+        normalizeFindingRecord(finding) {
+            return {
+                ...finding,
+                normalized: true,
+            };
+        },
+        handleNewFinding(finding, options) {
+            handledFindings.push({ finding, options });
+        },
+    };
+
+    const findings = [
+        { id_stable: 'finding-1', title: 'First', tool_source: 'nuclei', tool: 'nuclei' },
+        { id_stable: 'finding-2', title: 'Second', tool_source: 'dalfox', tool: 'dalfox' },
+    ];
+
+    const normalizedFindings = ScanDashboard.internals.findingsFlow.ingestStructuredFindings(dashboard, findings);
+
+    assert.equal(cacheSyncCalls.length, 1);
+    assert.deepEqual(cacheSyncCalls[0].map((item) => item.id_stable), ['finding-1', 'finding-2']);
+    assert.equal(normalizedFindings.length, 2);
+    assert.equal(normalizedFindings.every((item) => item.normalized === true), true);
+    assert.deepEqual(handledFindings.map(({ finding }) => finding.id_stable), ['finding-1', 'finding-2']);
+    assert.equal(handledFindings.every(({ finding }) => finding.scan_id === 77), true);
+    assert.equal(handledFindings.every(({ options }) => options.normalized === true && options.skipClientSync === true), true);
+});
+
+test('results view helper keeps findings summaries and derived counters deterministic', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+    const { resultsView } = ScanDashboard.internals;
+
+    const findings = [
+        { id_stable: 'finding-1', severity: 'critical' },
+        { id_stable: 'finding-2', severity: 'high' },
+        { id_stable: 'finding-3', severity: 'info' },
+    ];
+    const results = {
+        findings,
+        phases: {
+            recon: { open_ports: [{ port: 443 }] },
+            dns: { subdomains: ['api.example.org'] },
+            osint: { cloud: [{ provider: 'aws' }] },
+            dirbusting: { ffuf: { endpoints: [{ path: 'admin' }] } },
+            enum: {
+                api: { endpoints: ['/v1/health'] },
+                katana: {
+                    '443': ['/health', '/ready'],
+                },
+            },
+        },
+    };
+
+    assert.equal(resultsView.getStructuredFindings(results), findings);
+    assert.equal(resultsView.countAssets(results), 3);
+    assert.equal(resultsView.countEndpoints(results), 4);
+    assert.equal(JSON.stringify(resultsView.summarizeFindingSeverities(findings)), JSON.stringify({
+        highRisk: 2,
+        critical: 1,
+        high: 1,
+    }));
+});
+
+test('updateUI replays structured findings through the canonical ingestion helper without double-calling the shared cache sync', () => {
+    const cacheSyncCalls = [];
+    const { ScanDashboard } = loadScanDashboardClass({
+        updateFindingsList(items) {
+            cacheSyncCalls.push(items);
+        },
+        document: {
+            getElementById() { return null; },
+            querySelectorAll() { return []; },
+            querySelector() { return null; },
+            addEventListener() {},
+        },
+    });
+
+    const handledFindings = [];
+    const dashboard = {
+        scanId: 77,
+        targetIdentifier: 'example.org',
+        normalizeFindingRecord(finding) {
+            return {
+                ...finding,
+                normalized: true,
+            };
+        },
+        handleNewFinding(finding, options) {
+            handledFindings.push({ finding, options });
+        },
+        updateAuditJourney() {},
+        updateCortexUI() {},
+        renderTaskStatus() {},
+        activateDiscovery() {},
+        handleProgressUpdate() {},
+    };
+
+    ScanDashboard.prototype.updateUI.call(dashboard, {
+        findings: [
+            { id_stable: 'finding-1', severity: 'high', tool_source: 'dalfox' },
+            { id_stable: 'finding-2', severity: 'info', tool_source: 'nuclei' },
+        ],
+        phases: {},
+    });
+
+    assert.equal(cacheSyncCalls.length, 1);
+    assert.deepEqual(cacheSyncCalls[0].map((item) => item.id_stable), ['finding-1', 'finding-2']);
+    assert.deepEqual(handledFindings.map(({ finding }) => finding.id_stable), ['finding-1', 'finding-2']);
+    assert.equal(handledFindings.every(({ options }) => options.normalized === true && options.skipClientSync === true), true);
 });
 
 test('findings flow helper keeps rendering side effects grouped without changing the findings UI contracts', () => {
@@ -582,8 +720,7 @@ test('findings flow helper keeps rendering side effects grouped without changing
     assert.deepEqual(galleryCalls, ['finding-55']);
     assert.deepEqual(riskCalls, ['high']);
     assert.deepEqual(indicatorCalls, ['finding-55']);
-    assert.equal(updateFindingsListCalls.length, 1);
-    assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-55');
+    assert.equal(updateFindingsListCalls.length, 0);
 });
 
 test('findings flow render body helper keeps DOM rendering isolated from follow-up findings side effects', () => {
@@ -690,8 +827,7 @@ test('findings flow render body helper keeps DOM rendering isolated from follow-
     assert.match(findingsList.entries[0].innerHTML, /Stored &lt;XSS&gt;/);
     assert.equal(findingsTableBody.rows.length, 1);
     assert.equal(findingsTableBody.rows[0].id, 'finding-row-finding-88');
-    assert.equal(updateFindingsListCalls.length, 1);
-    assert.equal(updateFindingsListCalls[0][0].id_stable, 'finding-88');
+    assert.equal(updateFindingsListCalls.length, 0);
 });
 
 test('findings flow side-effect helper preserves the existing gallery, risk, and indicator updates', () => {
@@ -891,5 +1027,5 @@ test('handleNewFinding preserves the existing findings flow while delegating ren
     ScanDashboard.prototype.handleNewFinding.call(dashboard, finding);
     assert.equal(findingsList.entries.length, 1);
     assert.equal(findingsTableBody.rows.length, 1);
-    assert.equal(updateFindingsListCalls.length, 1);
+    assert.equal(updateFindingsListCalls.length, 2);
 });
