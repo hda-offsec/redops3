@@ -554,6 +554,461 @@ const scanDashboardResultsView = {
     },
 };
 
+const scanDashboardUIRefresh = {
+    syncReconOverview(documentRef, results) {
+        const statPorts = documentRef.getElementById('stat-open-ports');
+        const portContainer = documentRef.getElementById('port-badges-container');
+        const ports = Array.isArray(results?.phases?.recon?.open_ports) ? results.phases.recon.open_ports : null;
+
+        if (!ports) return;
+        if (statPorts) statPorts.innerText = ports.length;
+
+        if (!portContainer) return;
+        if (portContainer.querySelector('.text-center')) portContainer.innerHTML = '';
+
+        let portsHtml = '';
+        ports.forEach(port => {
+            const isWeb = [80, 443, 8080, 8443].includes(port.port);
+            const service = (port.service_name || 'unknown').toUpperCase();
+            const version = (port.version && port.version !== "Unknown") ? port.version.substring(0, 15) : '';
+
+            portsHtml += `
+    <div class="port-badge-item">
+        <span class="badge p-2 ${isWeb ? 'bg-info bg-opacity-10 border-info text-info' : 'bg-secondary bg-opacity-10 border-secondary text-light'} border d-flex align-items-center gap-2"
+            title="${service}">
+            <span class="font-monospace fs-6 fw-bold">${port.port}</span>
+            <span class="text-uppercase opacity-75 small border-start border-secondary ps-2">${port.service_name}</span>
+            ${version ? `<span class="badge bg-black text-muted x-small border border-secondary ms-1 d-none d-lg-inline-block">${version}</span>` : ''}
+        </span>
+        </div> `;
+        });
+
+        portContainer.innerHTML = portsHtml;
+    },
+
+    syncFindingSummary(documentRef, results, structuredFindings) {
+        const statFindings = documentRef.getElementById('stat-findings');
+        if (statFindings) statFindings.innerText = structuredFindings.length;
+
+        if (!structuredFindings.length) return;
+
+        const severitySummary = scanDashboardResultsView.summarizeFindingSeverities(structuredFindings);
+        const statAssets = documentRef.getElementById('stat-assets');
+        const statEndpoints = documentRef.getElementById('stat-endpoints');
+        const statHighRisk = documentRef.getElementById('stat-high-risk');
+        const statCritical = documentRef.getElementById('stat-critical');
+        const statHigh = documentRef.getElementById('stat-high');
+
+        if (statHighRisk) statHighRisk.innerText = severitySummary.highRisk;
+        if (statCritical) statCritical.innerText = severitySummary.critical;
+        if (statHigh) statHigh.innerText = severitySummary.high;
+
+        if (statAssets) statAssets.innerText = scanDashboardResultsView.countAssets(results);
+        if (statEndpoints) statEndpoints.innerText = scanDashboardResultsView.countEndpoints(results);
+    },
+
+    buildDiscoveryMap(results) {
+        return {
+            'dns': results.phases?.dns?.subdomains?.length > 0,
+            'ports': results.phases?.recon?.open_ports?.length > 0,
+            'cloud': results.phases?.osint?.cloud?.length > 0,
+            'waf': (results.phases?.enum?.waf && Object.keys(results.phases.enum.waf).length > 0) || (results.phases?.enum?.derived?.waf_info),
+            'crawl': (results.phases?.enum?.katana && Object.keys(results.phases.enum.katana).length > 0) || (results.phases?.enum?.httpx),
+            'params': (results.phases?.enum?.arjun && Object.keys(results.phases.enum.arjun).length > 0) || (results.phases?.enum?.params && Object.keys(results.phases.enum.params).length > 0),
+            'fuzz': (results.phases?.dirbusting?.ffuf?.endpoints?.length > 0) || (results.phases?.dirbusting?.ffuf?.length > 0),
+            'api': (results.phases?.enum?.api && Object.keys(results.phases.enum.api).length > 0) || (results.phases?.enum?.openapi),
+            'secrets': (results.phases?.enum?.js_secrets && Object.keys(results.phases.enum.js_secrets).length > 0) || (results.phases?.vuln?.secrets && results.phases.vuln.secrets.length > 0),
+            'vulns': (results.findings?.length > 0) || (results.metrics?.findings_count > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0) || (results.phases?.vuln?.xss?.length > 0),
+            'intel': results.phases?.intel && Object.keys(results.phases.intel).length > 0,
+            'historic': (results.phases?.osint?.historic_urls?.length > 0) || (results.phases?.osint?.gau_urls),
+            'apps': (results.phases?.vuln?.wordpress && Object.keys(results.phases.vuln.wordpress).length > 0) || (results.phases?.vuln?.tech && Object.keys(results.phases.vuln.tech).length > 0) || (results.phases?.vuln?.actuator) || (results.phases?.vuln?.graphql),
+            'tls': results.phases?.vuln?.tls && Object.keys(results.phases.vuln.tls).length > 0,
+            'expert': (results.phases?.vuln?.ssrf?.length > 0) || (results.phases?.vuln?.graphql?.length > 0) || (results.phases?.vuln?.git?.length > 0) || (results.phases?.vuln?.backups?.length > 0) || (results.phases?.vuln?.lfi?.length > 0),
+            'miner': (results.phases?.vuln?.data_leaks?.length > 0) || (results.phases?.osint?.historic_urls?.length > 0),
+            'loot': (results.loot_count > 0) || (results.metrics?.loot_count > 0)
+        };
+    },
+
+    restoreDiscoveryStates(dashboard, results) {
+        Object.entries(this.buildDiscoveryMap(results)).forEach(([id, discovered]) => {
+            dashboard.activateDiscovery(id, discovered);
+        });
+    },
+
+    renderDnsResults(documentRef, results) {
+        if (!results.phases?.dns?.subdomains) return;
+
+        const dnsDiv = documentRef.querySelector("#dns-results");
+        if (!dnsDiv) return;
+
+        const subdomains = results.phases.dns.subdomains;
+        const displayLimit = 500;
+        let dnsHtml = '<div class="d-flex flex-wrap gap-2">';
+
+        subdomains.slice(0, displayLimit).forEach(sub => {
+            dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber"> ${sub}</div> `;
+        });
+
+        if (subdomains.length > displayLimit) {
+            dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted"> + ${subdomains.length - displayLimit} more...</div> `;
+        }
+
+        dnsHtml += '</div>';
+        dnsDiv.innerHTML = subdomains.length ? dnsHtml : '<div class="text-muted small fst-italic">No subdomains discovered.</div>';
+    },
+
+    renderReconMatrix(documentRef, dashboard, results) {
+        const matrixBody = documentRef.querySelector("#recon-matrix-body");
+        if (!matrixBody || !results.phases?.recon?.open_ports) return;
+
+        let html = "";
+        const ports = results.phases.recon.open_ports.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+
+        ports.forEach(port => {
+            const score = port.priority_score || 0;
+            const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
+            const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
+            const bgStyle = score >= 80 ? 'background: rgba(255, 42, 42, 0.05);' : '';
+            const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
+            const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
+
+            let techHtml = '<span class="text-muted small">-</span>';
+            const portKey = port.port.toString();
+            if (results.phases.enum && results.phases.enum.whatweb && results.phases.enum.whatweb[portKey]) {
+                const ww = results.phases.enum.whatweb[portKey];
+                techHtml = '<div class="d-flex flex-wrap gap-1">';
+                if (ww.includes('Title[')) {
+                    const title = ww.split('Title[')[1].split(']')[0];
+                    techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small"> ${title.substring(0, 15)}...</span> `;
+                }
+                if (ww.includes('HTTPServer[')) {
+                    const server = ww.split('HTTPServer[')[1].split(']')[0];
+                    techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small"> ${server}</span> `;
+                }
+                techHtml += '</div>';
+            }
+
+            html += `<tr style = "border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
+                    <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase">${port.service_name}</span></td>
+                    <td class="p-3">
+                        <div class="d-flex align-items-center">
+                            <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
+                                <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
+                            </div>
+                            <span class="badge ${scoreClass} font-monospace" style="font-size: 0.75rem;">${score}</span>
+                        </div>
+                    </td>
+                    <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
+                    <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
+                    <td class="p-3">${techHtml}</td>
+                    <td class="p-3 text-end">
+                        ${isWeb ? `<a href="${proto}://${dashboard.targetIdentifier}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
+                    </td>
+                </tr> `;
+        });
+        matrixBody.innerHTML = html;
+    },
+
+    renderVisualReconGallery(documentRef, results) {
+        const gallery = documentRef.querySelector("#visual-recon-gallery");
+        if (!gallery || !results.phases?.recon?.open_ports) return;
+
+        let galleryHtml = "";
+        let hasShots = false;
+        results.phases.recon.open_ports.forEach(port => {
+            if (port.screenshot_path) {
+                hasShots = true;
+                let cardContent = "";
+                if (port.screenshot_path === 'pending') {
+                    cardContent = `
+    <div class="d-flex flex-column align-items-center justify-content-center" style = "height: 120px; background: rgba(0,240,255,0.05);">
+                                <div class="spinner-border text-info spinner-border-sm mb-2" role="status"></div>
+                                <div class="x-small text-info font-monospace text-uppercase flicker">Capturing...</div>
+                            </div> `;
+                } else {
+                    cardContent = `<img src = "/static/${port.screenshot_path}" class="img-fluid w-100" style = "height: 120px; object-fit: cover; cursor: pointer;" onclick = "window.open(this.src)" title = "Port ${port.port}"> `;
+                }
+
+                galleryHtml += `
+    <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
+        <div class="screenshot-card bg-black border ${port.screenshot_path === 'pending' ? 'border-info animate-pulse' : 'border-secondary'} rounded overflow-hidden">
+            ${cardContent}
+            <div class="p-1 text-center bg-dark small font-monospace">
+                <span class="text-info">PORT ${port.port}</span>
+            </div>
+        </div>
+                        </div> `;
+            }
+        });
+
+        if (results.findings) {
+            results.findings.forEach(f => {
+                if (f.screenshot_path) {
+                    hasShots = true;
+                    galleryHtml += `
+    <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
+        <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
+            <img src="/static/${f.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${f.title}">
+                <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
+                    <span class="text-danger">EXPOSURE</span>
+                </div>
+        </div>
+                            </div> `;
+                }
+            });
+        }
+
+        if (hasShots) {
+            gallery.innerHTML = galleryHtml;
+        } else {
+            gallery.innerHTML = `
+    <div class="col-12 text-center py-5">
+        <div class="text-muted small opacity-50">
+            <i class="fas fa-image fa-3x mb-3 d-block"></i>
+            No visual assets captured yet.
+        </div>
+                    </div> `;
+        }
+    },
+
+    renderIntelResults(documentRef, results) {
+        if (!results.phases?.intel) return;
+
+        const intelDiv = documentRef.querySelector("#intel-results");
+        if (!intelDiv) return;
+
+        let intelHtml = '<div class="accordion" id="accordionIntel">';
+        for (const [port, vectors] of Object.entries(results.phases.intel)) {
+            intelHtml += `
+    <div class="accordion-item bg-black border-secondary">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-intel-${port}">
+                                    <span class="badge bg-warning me-2">Port ${port}</span>
+                                    <span class="font-monospace small text-muted">${vectors.length} Vectors</span>
+                                </button>
+                            </h2 > 
+                            <div id="collapse-intel-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionIntel">
+                                <div class="accordion-body p-2">
+                                    ${vectors.map(v => `
+                                        <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="fw-bold text-info small">${v.name}</span>
+                                                <span class="badge ${v.score >= 80 ? 'bg-danger' : 'bg-secondary'}">${v.score}</span>
+                                            </div>
+                                            <div class="small text-muted mb-1">${v.description}</div>
+                                            <div class="font-monospace x-small text-warning bg-black p-1 rounded">Action: ${v.action}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div> `;
+        }
+        intelHtml += '</div>';
+        intelDiv.innerHTML = Object.keys(results.phases.intel).length ? intelHtml : '<div class="text-muted small fst-italic">Analyzing vectors...</div>';
+    },
+
+    renderWhatwebResults(documentRef, results) {
+        if (!results.phases?.enum?.whatweb) return;
+
+        const wwDiv = documentRef.querySelector("#whatweb-results");
+        if (!wwDiv) return;
+
+        let wwHtml = "";
+        const wwData = results.phases.enum.whatweb;
+        if (wwData.summary) {
+            wwHtml += '<div class="tag-grid d-flex flex-wrap gap-2 mb-3">';
+            for (const [k, v] of Object.entries(wwData.summary)) {
+                wwHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${k}:</span><span class="tag-value text-cyber">${v}</span></div> `;
+            }
+            wwHtml += '</div>';
+        }
+        for (const [port, output] of Object.entries(wwData)) {
+            if (port !== 'summary') {
+                wwHtml += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break"> <span class="badge bg-secondary me-2">Port ${port}</span> ${output}</div> `;
+            }
+        }
+        wwDiv.innerHTML = wwHtml || '<div class="text-muted small fst-italic">Waiting for fingerprinter...</div>';
+    },
+
+    renderKatanaResults(documentRef, results) {
+        if (!results.phases?.enum?.katana) return;
+
+        const katDiv = documentRef.querySelector("#katana-results");
+        if (!katDiv) return;
+
+        let katHtml = '<div class="accordion" id="accordionKatana">';
+        for (const [port, endpoints] of Object.entries(results.phases.enum.katana)) {
+            katHtml += `
+    <div class="accordion-item bg-black border-secondary">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-${port}">
+                                    <span class="badge bg-info me-2">Port ${port}</span>
+                                    <span class="font-monospace small text-muted">${endpoints.length} Endpoints</span>
+                                </button>
+                            </h2 > 
+                            <div id="collapse-katana-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionKatana">
+                                <div class="accordion-body p-2" style="max-height: 200px; overflow-y: auto;">
+                                    ${endpoints.map(ep => `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break"><a href="${ep}" target="_blank" class="text-decoration-none text-cyber">${ep}</a></div>`).join('')}
+                                </div>
+                            </div>
+                        </div> `;
+        }
+        katHtml += '</div>';
+        katDiv.innerHTML = Object.keys(results.phases.enum.katana).length ? katHtml : '<div class="text-muted small fst-italic">No crawling results yet.</div>';
+    },
+
+    renderNucleiResults(documentRef, results) {
+        if (!results.phases?.vuln?.nuclei) return;
+
+        const nucDiv = documentRef.querySelector("#nuclei-results");
+        if (!nucDiv) return;
+
+        const findings = results.phases.vuln.nuclei.findings || [];
+        let nucHtml = '<div class="result-list">';
+        findings.forEach(f => {
+            nucHtml += `
+    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between animate__animated animate__fadeIn">
+                        <span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span>
+                        <span class="result-text flex-grow-1 small">${f.title}</span>
+                    </div> `;
+        });
+        nucHtml += '</div>';
+        nucDiv.innerHTML = findings.length ? nucHtml : '<div class="text-muted small fst-italic">No vulnerabilities reported.</div>';
+    },
+
+    renderFfufResults(documentRef, results) {
+        if (!results.phases?.dirbusting?.ffuf) return;
+
+        const ffufDiv = documentRef.querySelector("#ffuf-results");
+        if (!ffufDiv) return;
+
+        const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
+        let ffufHtml = '<div class="result-list">';
+        endpoints.forEach(ep => {
+            ffufHtml += `
+    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between animate__animated animate__fadeIn">
+                            <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">/${ep.path}</span>
+                            <span class="result-text small text-muted">Status ${ep.status} · Size ${ep.size}</span>
+                        </div> `;
+        });
+        ffufHtml += '</div>';
+        ffufDiv.innerHTML = endpoints.length ? ffufHtml : '<div class="text-muted small fst-italic">No endpoints discovered.</div>';
+    },
+
+    renderStructuredSections(dashboard, results) {
+        if (!results.phases?.vuln) return;
+
+        this.renderJsonBackedSections(dashboard, results);
+        this.syncWordpressPanels(results);
+    },
+
+    renderJsonBackedSections(dashboard, results) {
+        const knownEnumTitles = {
+            waf: 'WAF Detection', arjun: 'Hidden Parameters', api: 'API Endpoints',
+            js_secrets: 'JS Secrets', headers: 'Security Headers', whatweb: 'Technology Footprint'
+        };
+        const knownVulnTitles = {
+            tls: 'TLS/SSL Audit', git: 'Git Exposure', backups: 'Backup Files', tech: 'Technology Leaks',
+            graphql: 'GraphQL', ssrf: 'SSRF Candidates', redirects: 'Open Redirects', xss: 'XSS Reflections',
+            prototype: 'Prototype Pollution', ssti: 'SSTI Finds', lfi: 'LFI Assaults', cors_audit: 'CORS Audit',
+            crlf: 'CRLF Injection', firebase: 'Firebase Exposure', xxe: 'XXE Analysis', deserialization: 'Deserialization',
+            acl_bypass: 'ACL Bypass', email_security: 'Email Infrastructure', container_exposure: 'Container/Docker',
+            infra_exposure: 'Infrastructure Exposure', websocket: 'WebSocket Security', data_leaks: 'Sensitive Data Mining',
+            oauth: 'OAuth & OIDC Flows', nosql: 'NoSQL Injection', cache_audit: 'Web Cache Audit', upload_bypass: 'File Upload Expert',
+            logic_flaws: 'Business Logic Auditor', deep_ssrf: 'Cloud SSRF Deep Probe', api_shadow: 'API Shadow Hunter',
+            csti: 'CSTI Framework Auditor', metadata_leaks: 'Metadata Forensics', waf_audit: 'WAF Fingerprinting',
+            java_rce: 'Java RCE Expert', h2c_smuggling: 'H2C Smuggling', spring_boot: 'Spring Boot Expert', cloud_perms: 'Cloud IAM Perms',
+            logic_assault: 'Logic Assault', waf_bypass: 'WAF Bypass Expert', js_vulns: 'JS Vulnerabilities',
+            api_expert: 'API Expert Scan', tech_exposure: 'Tech Exposure', db_audit: 'Database Audit', surface_mapping: 'Surface Mapping'
+        };
+
+        dashboard.renderJSONSection(results.phases.osint, 'cloud', 'Cloud Assets');
+        dashboard.renderJSONSection(results.phases.osint, 'dorks', 'Google Hacking');
+        dashboard.renderJSONSection(results.phases.osint, 'origin_ips', 'Origin Unmasking');
+        dashboard.renderJSONSection(results.phases.osint, 'emails', 'Email Discovery');
+        dashboard.renderJSONSection(results.phases.osint, 'github', 'GitHub Leaks');
+        dashboard.renderJSONSection(results.phases.dns, 'subdomains', 'Discovered Subdomains');
+        dashboard.renderJSONSection(results.phases.dns, 'records', 'DNS Records');
+
+        for (const key of Object.keys(results.phases.enum || {})) {
+            if (['derived', 'targets', 'seed_meta', 'normalized', 'injection_points', 'attack_profile', 'mutation_strategy', 'katana'].includes(key)) continue;
+
+            let title = knownEnumTitles[key];
+            if (!title) {
+                title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+            }
+            dashboard.renderJSONSection(results.phases.enum, key, title);
+        }
+
+        for (const key of Object.keys(results.phases.vuln || {})) {
+            if (['wordpress', 'nuclei'].includes(key)) continue;
+
+            let title = knownVulnTitles[key];
+            if (!title) {
+                title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+            }
+            dashboard.renderJSONSection(results.phases.vuln, key, title);
+        }
+    },
+
+    syncWordpressPanels(results) {
+        if (!results.phases?.vuln?.wordpress) return;
+
+        for (const [port, wp] of Object.entries(results.phases.vuln.wordpress)) {
+            const panel = document.getElementById(`wp-waf-panel-${port}`);
+            const icon = document.getElementById(`wp-waf-icon-${port}`);
+            const text = document.getElementById(`wp-waf-text-${port}`);
+            const evasion = document.getElementById(`wp-evasion-status-${port}`);
+
+            if (panel && wp.wordfence_detected) {
+                panel.classList.remove('border-secondary');
+                panel.classList.add('border-warning');
+                if (icon) {
+                    icon.classList.remove('text-muted');
+                    icon.classList.add('text-warning', 'animate-pulse');
+                }
+                if (text) {
+                    text.innerHTML = '<span class="text-warning fw-bold"><i class="fas fa-exclamation-triangle me-1"></i>Detected Wordfence WAF</span>';
+                }
+            }
+
+            if (evasion) {
+                if (wp.evasion_active) {
+                    evasion.innerHTML = `
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3">
+                                    <i class="fas fa-bolt me-1"></i> MUTATION & THROTTLE ACTIVE
+                                </span>`;
+                } else {
+                    evasion.innerHTML = `
+                                <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-25 px-3">
+                                    STANDARD MODE
+                                </span>`;
+                }
+            }
+        }
+    },
+
+    renderPhaseSections(documentRef, dashboard, results) {
+        if (!results.phases) return;
+
+        this.renderDnsResults(documentRef, results);
+        this.renderReconMatrix(documentRef, dashboard, results);
+        this.renderVisualReconGallery(documentRef, results);
+        this.renderIntelResults(documentRef, results);
+        this.renderWhatwebResults(documentRef, results);
+        this.renderKatanaResults(documentRef, results);
+        this.renderNucleiResults(documentRef, results);
+        this.renderFfufResults(documentRef, results);
+        this.renderStructuredSections(dashboard, results);
+    },
+
+    refreshGraph(results) {
+        if ((results.findings || results.phases) && typeof initGraphData === 'function') {
+            setTimeout(() => initGraphData(), 200);
+        }
+    }
+};
+
 const scanDashboardAuditJourney = {
     countEnumeratedEndpoints(phases) {
         const katana = (phases?.enum?.katana && typeof phases.enum.katana === 'object') ? phases.enum.katana : {};
@@ -1718,79 +2173,21 @@ class ScanDashboard {
         if (!results) return;
         const structuredFindings = scanDashboardResultsView.getStructuredFindings(results);
 
-        // Sync with dynamic explorers if they are present in the DOM
         if (typeof updateSurfaceExplorer === 'function') {
             updateSurfaceExplorer(results);
         }
 
-        // Keep a global copy for other tab scripts (like attack_graph)
         window.scanResults = results;
         this.updateAuditJourney(results);
-
-        // 0. Update Target Intelligence Dashboard
         this.updateCortexUI(results);
-        const statPorts = document.getElementById('stat-open-ports');
-        const statFindings = document.getElementById('stat-findings');
-        const portContainer = document.getElementById('port-badges-container');
-
-        if (results.phases && results.phases.recon && results.phases.recon.open_ports) {
-            const ports = results.phases.recon.open_ports;
-            if (statPorts) statPorts.innerText = ports.length;
-
-            if (portContainer) {
-                if (portContainer.querySelector('.text-center')) portContainer.innerHTML = '';
-                let portsHtml = '';
-                ports.forEach(port => {
-                    const isWeb = [80, 443, 8080, 8443].includes(port.port);
-                    const service = (port.service_name || 'unknown').toUpperCase();
-                    const version = (port.version && port.version !== "Unknown") ? port.version.substring(0, 15) : '';
-
-                    portsHtml += `
-    <div class="port-badge-item">
-        <span class="badge p-2 ${isWeb ? 'bg-info bg-opacity-10 border-info text-info' : 'bg-secondary bg-opacity-10 border-secondary text-light'} border d-flex align-items-center gap-2"
-            title="${service}">
-            <span class="font-monospace fs-6 fw-bold">${port.port}</span>
-            <span class="text-uppercase opacity-75 small border-start border-secondary ps-2">${port.service_name}</span>
-            ${version ? `<span class="badge bg-black text-muted x-small border border-secondary ms-1 d-none d-lg-inline-block">${version}</span>` : ''}
-        </span>
-                        </div> `;
-                });
-                portContainer.innerHTML = portsHtml;
-            }
-        }
+        scanDashboardUIRefresh.syncReconOverview(document, results);
 
         if (structuredFindings.length) {
             scanDashboardFindingsFlow.ingestStructuredFindings(this, structuredFindings);
         }
 
-        if (statFindings) {
-            statFindings.innerText = structuredFindings.length;
-        }
+        scanDashboardUIRefresh.syncFindingSummary(document, results, structuredFindings);
 
-        if (structuredFindings.length) {
-            const severitySummary = scanDashboardResultsView.summarizeFindingSeverities(structuredFindings);
-
-            // Sync new mission overview counters
-            const statAssets = document.getElementById('stat-assets');
-            const statEndpoints = document.getElementById('stat-endpoints');
-            const statHighRisk = document.getElementById('stat-high-risk');
-            const statCritical = document.getElementById('stat-critical');
-            const statHigh = document.getElementById('stat-high');
-
-            if (statHighRisk) statHighRisk.innerText = severitySummary.highRisk;
-            if (statCritical) statCritical.innerText = severitySummary.critical;
-            if (statHigh) statHigh.innerText = severitySummary.high;
-
-            // Update assets/endpoints if available
-            if (statAssets) {
-                statAssets.innerText = scanDashboardResultsView.countAssets(results);
-            }
-            if (statEndpoints) {
-                statEndpoints.innerText = scanDashboardResultsView.countEndpoints(results);
-            }
-        }
-
-        // Sync Progress UI
         if (results.progress) {
             this.handleProgressUpdate({
                 scan_id: this.scanId,
@@ -1800,452 +2197,9 @@ class ScanDashboard {
         }
 
         this.renderTaskStatus(results.task_status || {});
-
-        // --- RESTORE DISCOVERY BUTTON STATES ---
-        const discoveryMap = {
-            'dns': results.phases?.dns?.subdomains?.length > 0,
-            'ports': results.phases?.recon?.open_ports?.length > 0,
-            'cloud': results.phases?.osint?.cloud?.length > 0,
-            'waf': (results.phases?.enum?.waf && Object.keys(results.phases.enum.waf).length > 0) || (results.phases?.enum?.derived?.waf_info),
-            'crawl': (results.phases?.enum?.katana && Object.keys(results.phases.enum.katana).length > 0) || (results.phases?.enum?.httpx),
-            'params': (results.phases?.enum?.arjun && Object.keys(results.phases.enum.arjun).length > 0) || (results.phases?.enum?.params && Object.keys(results.phases.enum.params).length > 0),
-            'fuzz': (results.phases?.dirbusting?.ffuf?.endpoints?.length > 0) || (results.phases?.dirbusting?.ffuf?.length > 0),
-            'api': (results.phases?.enum?.api && Object.keys(results.phases.enum.api).length > 0) || (results.phases?.enum?.openapi),
-            'secrets': (results.phases?.enum?.js_secrets && Object.keys(results.phases.enum.js_secrets).length > 0) || (results.phases?.vuln?.secrets && results.phases.vuln.secrets.length > 0),
-            'vulns': (results.findings?.length > 0) || (results.metrics?.findings_count > 0) || (results.phases?.vuln?.nuclei?.findings?.length > 0) || (results.phases?.vuln?.xss?.length > 0),
-            'intel': results.phases?.intel && Object.keys(results.phases.intel).length > 0,
-            'historic': (results.phases?.osint?.historic_urls?.length > 0) || (results.phases?.osint?.gau_urls),
-            'apps': (results.phases?.vuln?.wordpress && Object.keys(results.phases.vuln.wordpress).length > 0) || (results.phases?.vuln?.tech && Object.keys(results.phases.vuln.tech).length > 0) || (results.phases?.vuln?.actuator) || (results.phases?.vuln?.graphql),
-            'tls': results.phases?.vuln?.tls && Object.keys(results.phases.vuln.tls).length > 0,
-            'expert': (results.phases?.vuln?.ssrf?.length > 0) || (results.phases?.vuln?.graphql?.length > 0) || (results.phases?.vuln?.git?.length > 0) || (results.phases?.vuln?.backups?.length > 0) || (results.phases?.vuln?.lfi?.length > 0),
-            'miner': (results.phases?.vuln?.data_leaks?.length > 0) || (results.phases?.osint?.historic_urls?.length > 0),
-            'loot': (results.loot_count > 0) || (results.metrics?.loot_count > 0)
-        };
-
-        for (const [id, discovered] of Object.entries(discoveryMap)) {
-            this.activateDiscovery(id, discovered);
-        }
-
-        if (!results.phases) return;
-
-        // 1. DNS
-        if (results.phases.dns && results.phases.dns.subdomains) {
-            const dnsDiv = document.querySelector("#dns-results");
-            if (dnsDiv) {
-                const subdomains = results.phases.dns.subdomains;
-                const displayLimit = 500;
-                let dnsHtml = '<div class="d-flex flex-wrap gap-2">';
-
-                subdomains.slice(0, displayLimit).forEach(sub => {
-                    dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-cyber"> ${sub}</div> `;
-                });
-
-                if (subdomains.length > displayLimit) {
-                    dnsHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small font-monospace text-muted"> + ${subdomains.length - displayLimit} more...</div> `;
-                }
-
-                dnsHtml += '</div>';
-                dnsDiv.innerHTML = subdomains.length ? dnsHtml : '<div class="text-muted small fst-italic">No subdomains discovered.</div>';
-            }
-        }
-
-        // 2. Recon Matrix (Deep Audit)
-        const matrixBody = document.querySelector("#recon-matrix-body");
-        if (matrixBody && results.phases.recon && results.phases.recon.open_ports) {
-            let html = "";
-            const ports = results.phases.recon.open_ports.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
-
-            ports.forEach(port => {
-                const score = port.priority_score || 0;
-                const scoreClass = score >= 85 ? 'text-danger fw-bold' : (score >= 50 ? 'text-warning' : 'text-info');
-                const barClass = score >= 85 ? 'bg-danger shadow-danger' : (score >= 50 ? 'bg-warning' : 'bg-info');
-                const bgStyle = score >= 80 ? 'background: rgba(255, 42, 42, 0.05);' : '';
-                const isWeb = (port.port == 80 || port.port == 443 || port.port == 8080 || port.port == 8443);
-                const proto = (port.port == 443 || port.port == 8443) ? 'https' : 'http';
-
-                let techHtml = '<span class="text-muted small">-</span>';
-                const portKey = port.port.toString();
-                if (results.phases.enum && results.phases.enum.whatweb && results.phases.enum.whatweb[portKey]) {
-                    const ww = results.phases.enum.whatweb[portKey];
-                    techHtml = '<div class="d-flex flex-wrap gap-1">';
-                    if (ww.includes('Title[')) {
-                        const title = ww.split('Title[')[1].split(']')[0];
-                        techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-info x-small"> ${title.substring(0, 15)}...</span> `;
-                    }
-                    if (ww.includes('HTTPServer[')) {
-                        const server = ww.split('HTTPServer[')[1].split(']')[0];
-                        techHtml += `<span class="badge rounded-pill bg-dark border border-secondary text-warning x-small"> ${server}</span> `;
-                    }
-                    techHtml += '</div>';
-                }
-
-                html += `<tr style = "border-bottom: 1px solid #333; height: 65px; vertical-align: middle; ${bgStyle}">
-                    <td class="p-3"><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle text-uppercase">${port.service_name}</span></td>
-                    <td class="p-3">
-                        <div class="d-flex align-items-center">
-                            <div class="progress bg-dark border border-secondary" style="height: 6px; width: 40px; margin-right: 10px;">
-                                <div class="progress-bar ${barClass}" style="width: ${score}%"></div>
-                            </div>
-                            <span class="badge ${scoreClass} font-monospace" style="font-size: 0.75rem;">${score}</span>
-                        </div>
-                    </td>
-                    <td class="p-3"><code class="text-info fw-bold">${port.port}/tcp</code></td>
-                    <td class="p-3"><span class="text-light opacity-75 small font-monospace">${port.version || '-'}</span></td>
-                    <td class="p-3">${techHtml}</td>
-                    <td class="p-3 text-end">
-                        ${isWeb ? `<a href="${proto}://${this.targetIdentifier}:${port.port}" target="_blank" class="btn btn-xs btn-outline-info"><i class="fas fa-external-link-alt"></i></a>` : ''}
-                    </td>
-                </tr> `;
-            });
-            matrixBody.innerHTML = html;
-        }
-
-        // 3. Visual Recon Gallery
-        const gallery = document.querySelector("#visual-recon-gallery");
-        if (gallery && results.phases.recon && results.phases.recon.open_ports) {
-            let galleryHtml = "";
-            let hasShots = false;
-            results.phases.recon.open_ports.forEach(port => {
-                if (port.screenshot_path) {
-                    hasShots = true;
-                    let cardContent = "";
-                    if (port.screenshot_path === 'pending') {
-                        cardContent = `
-    <div class="d-flex flex-column align-items-center justify-content-center" style = "height: 120px; background: rgba(0,240,255,0.05);">
-                                <div class="spinner-border text-info spinner-border-sm mb-2" role="status"></div>
-                                <div class="x-small text-info font-monospace text-uppercase flicker">Capturing...</div>
-                            </div> `;
-                    } else {
-                        cardContent = `<img src = "/static/${port.screenshot_path}" class="img-fluid w-100" style = "height: 120px; object-fit: cover; cursor: pointer;" onclick = "window.open(this.src)" title = "Port ${port.port}"> `;
-                    }
-
-                    galleryHtml += `
-    <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
-        <div class="screenshot-card bg-black border ${port.screenshot_path === 'pending' ? 'border-info animate-pulse' : 'border-secondary'} rounded overflow-hidden">
-            ${cardContent}
-            <div class="p-1 text-center bg-dark small font-monospace">
-                <span class="text-info">PORT ${port.port}</span>
-            </div>
-        </div>
-                        </div> `;
-                }
-            });
-
-            if (results.findings) {
-                results.findings.forEach(f => {
-                    if (f.screenshot_path) {
-                        hasShots = true;
-                        galleryHtml += `
-    <div class="col-md-4 col-lg-3 animate__animated animate__fadeIn">
-        <div class="screenshot-card bg-black border border-danger border-opacity-50 rounded overflow-hidden">
-            <img src="/static/${f.screenshot_path}" class="img-fluid w-100" style="height: 120px; object-fit: cover; cursor: pointer;" onclick="window.open(this.src)" title="${f.title}">
-                <div class="p-1 text-center bg-danger bg-opacity-10 small font-monospace">
-                    <span class="text-danger">EXPOSURE</span>
-                </div>
-        </div>
-                            </div> `;
-                    }
-                });
-            }
-
-            if (hasShots) {
-                gallery.innerHTML = galleryHtml;
-            } else {
-                gallery.innerHTML = `
-    <div class="col-12 text-center py-5">
-        <div class="text-muted small opacity-50">
-            <i class="fas fa-image fa-3x mb-3 d-block"></i>
-            No visual assets captured yet.
-        </div>
-                    </div> `;
-            }
-        }
-
-        // 4. Intel
-        if (results.phases.intel) {
-            const intelDiv = document.querySelector("#intel-results");
-            if (intelDiv) {
-                let intelHtml = '<div class="accordion" id="accordionIntel">';
-                for (const [port, vectors] of Object.entries(results.phases.intel)) {
-                    intelHtml += `
-    <div class="accordion-item bg-black border-secondary">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-intel-${port}">
-                                    <span class="badge bg-warning me-2">Port ${port}</span>
-                                    <span class="font-monospace small text-muted">${vectors.length} Vectors</span>
-                                </button>
-                            </h2 > 
-                            <div id="collapse-intel-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionIntel">
-                                <div class="accordion-body p-2">
-                                    ${vectors.map(v => `
-                                        <div class="mb-2 p-2 border border-secondary rounded bg-dark-subtle">
-                                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                                <span class="fw-bold text-info small">${v.name}</span>
-                                                <span class="badge ${v.score >= 80 ? 'bg-danger' : 'bg-secondary'}">${v.score}</span>
-                                            </div>
-                                            <div class="small text-muted mb-1">${v.description}</div>
-                                            <div class="font-monospace x-small text-warning bg-black p-1 rounded">Action: ${v.action}</div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        </div> `;
-                }
-                intelHtml += '</div>';
-                intelDiv.innerHTML = Object.keys(results.phases.intel).length ? intelHtml : '<div class="text-muted small fst-italic">Analyzing vectors...</div>';
-            }
-        }
-
-        // 5. WhatWeb
-        if (results.phases.enum && results.phases.enum.whatweb) {
-            const wwDiv = document.querySelector("#whatweb-results");
-            if (wwDiv) {
-                let wwHtml = "";
-                const wwData = results.phases.enum.whatweb;
-                if (wwData.summary) {
-                    wwHtml += '<div class="tag-grid d-flex flex-wrap gap-2 mb-3">';
-                    for (const [k, v] of Object.entries(wwData.summary)) {
-                        wwHtml += `<div class="tag-item px-2 py-1 bg-black border border-secondary rounded small"><span class="tag-key text-muted me-1">${k}:</span><span class="tag-value text-cyber">${v}</span></div> `;
-                    }
-                    wwHtml += '</div>';
-                }
-                for (const [port, output] of Object.entries(wwData)) {
-                    if (port !== 'summary') {
-                        wwHtml += `<div class="whatweb-entry small font-monospace text-muted border-bottom border-dark pb-1 mb-2 text-break"> <span class="badge bg-secondary me-2">Port ${port}</span> ${output}</div> `;
-                    }
-                }
-                wwDiv.innerHTML = wwHtml || '<div class="text-muted small fst-italic">Waiting for fingerprinter...</div>';
-            }
-        }
-
-        // 6. Katana
-        if (results.phases.enum && results.phases.enum.katana) {
-            const katDiv = document.querySelector("#katana-results");
-            if (katDiv) {
-                let katHtml = '<div class="accordion" id="accordionKatana">';
-                for (const [port, endpoints] of Object.entries(results.phases.enum.katana)) {
-                    katHtml += `
-    <div class="accordion-item bg-black border-secondary">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed bg-dark text-light border-secondary shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-katana-${port}">
-                                    <span class="badge bg-info me-2">Port ${port}</span>
-                                    <span class="font-monospace small text-muted">${endpoints.length} Endpoints</span>
-                                </button>
-                            </h2 > 
-                            <div id="collapse-katana-${port}" class="accordion-collapse collapse" data-bs-parent="#accordionKatana">
-                                <div class="accordion-body p-2" style="max-height: 200px; overflow-y: auto;">
-                                    ${endpoints.map(ep => `<div class="small font-monospace text-muted mb-1 border-bottom border-dark pb-1 text-break"><a href="${ep}" target="_blank" class="text-decoration-none text-cyber">${ep}</a></div>`).join('')}
-                                </div>
-                            </div>
-                        </div> `;
-                }
-                katHtml += '</div>';
-                katDiv.innerHTML = Object.keys(results.phases.enum.katana).length ? katHtml : '<div class="text-muted small fst-italic">No crawling results yet.</div>';
-            }
-        }
-
-        // 7. Nuclei
-        if (results.phases.vuln && results.phases.vuln.nuclei) {
-            const nucDiv = document.querySelector("#nuclei-results");
-            if (nucDiv) {
-                const findings = results.phases.vuln.nuclei.findings || [];
-                let nucHtml = '<div class="result-list">';
-                findings.forEach(f => {
-                    nucHtml += `
-    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex align-items-center justify-content-between animate__animated animate__fadeIn">
-                        <span class="badge severity-badge ${f.severity} me-2 text-uppercase">${f.severity}</span>
-                        <span class="result-text flex-grow-1 small">${f.title}</span>
-                    </div> `;
-                });
-                nucHtml += '</div>';
-                nucDiv.innerHTML = findings.length ? nucHtml : '<div class="text-muted small fst-italic">No vulnerabilities reported.</div>';
-            }
-        }
-
-        // 8. ffuf
-        if (results.phases.dirbusting && results.phases.dirbusting.ffuf) {
-            const ffufDiv = document.querySelector("#ffuf-results");
-            if (ffufDiv) {
-                const endpoints = results.phases.dirbusting.ffuf.endpoints || [];
-                let ffufHtml = '<div class="result-list">';
-                endpoints.forEach(ep => {
-                    ffufHtml += `
-    <div class="result-row p-2 mb-2 bg-black border border-secondary rounded d-flex justify-content-between animate__animated animate__fadeIn">
-                            <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">/${ep.path}</span>
-                            <span class="result-text small text-muted">Status ${ep.status} · Size ${ep.size}</span>
-                        </div> `;
-                });
-                ffufHtml += '</div>';
-                ffufDiv.innerHTML = endpoints.length ? ffufHtml : '<div class="text-muted small fst-italic">No endpoints discovered.</div>';
-            }
-        }
-
-        // 9. Extended Enumeration (WAF, Headers, API, Arjun, JS Secrets)
-        if (results.phases.enum) {
-            const enumHtml = [];
-
-            // WAF
-            if (results.phases.enum.waf && Object.keys(results.phases.enum.waf).length > 0) {
-                let wafContent = '<div class="mb-3"><h6 class="text-secondary small">WAF Detection</h6 > ';
-                for (const [port, waf] of Object.entries(results.phases.enum.waf)) {
-                    wafContent += `<div class="d-flex justify-content-between border-bottom border-dark pb-1 mb-1 small font-monospace"><span class="text-muted">Port ${port}</span><span class="text-warning">${waf}</span></div> `;
-                }
-                wafContent += '</div>';
-                enumHtml.push(wafContent);
-            }
-
-            // Headers
-            if (results.phases.enum.headers) {
-                // Determine if interesting headers found? 
-                // Mostly just want to show if we have data.
-                // For now, let's skip full header dump unless requested, or maybe a summary.
-            }
-
-            // API (Kiterunner)
-            if (results.phases.enum.api && results.phases.enum.api['discovered_endpoints']) { // Check simplified structure or port-based
-                // Port based extraction from earlier fix
-            }
-
-            // Re-render Arjun and JS Secrets better if needed, or leave existing logic?
-            // Existing logic for Arjun/JS Secrets was at the end. 
-            // I will replace `// 9. Expert Findings` block entirely.
-        }
-
-        // --- NEW: GENERIC & EXPERT VULN RENDERER ---
-        if (results.phases.vuln) {
-            const vulnDiv = document.getElementById("expert-vuln-results"); // Need to ensure this exists or append to main findings
-            // If specific container doesn't exist, we might need to rely on the main findings list which is populated by 'new_finding' events.
-            // BUT user said "UI doesn't read JSON -> invisible". 
-            // This implies the 'new_finding' events might not be firing or the user wants to see the raw data structure in a specific panel.
-            // Let's create a dynamic section for these if they don't exist in the findings list.
-
-            // Actually, orchestrator calls `orch.add_finding` for all these sections!
-            // So they SHOULD be in the findings list.
-            // UNLESS the user is reloading the page and fetching 'results' via API/Socket, and the 'findings' list in 'results' 
-            // is not being fully populated or sent.
-
-            // The `results` object in `updateUI(results)` comes from `orchestrator.results`.
-            // `orchestrator.results` DOES NOT have a `findings` key at the top level in the python code!
-            // Check `orchestrator.py`: `results` structure (lines 43-67) does NOT have `findings`.
-            // Queries separate `findings` list? 
-            // `orch.add_finding` usually writes to database.
-            // Does `results` contain findings?
-            // In `handleNewFinding`, it appends to UI.
-            // But on fresh load/updateUI, where do findings come from?
-            // The `results` passed to `updateUI` usually has `findings` injected if the backend sends it.
-            // If the backend `get_scan_results` only sends `orch.results` (the JSON blob), it lacks the DB findings!
-
-            // This is the "Architectural Issue" the user hinted at.
-            // "Modules create Finding" vs "Modules write JSON".
-            // If `updateUI` relies on `results` JSON, it misses DB findings unless they are injected.
-
-            // I will strictly implement the rendering of the JSON `phases.vuln` and `phases.enum` sections 
-            // into the "Expert Findings" or a new "Deep Analysis" container.
-
-            const containers = {
-                'waf': '#waf-details',
-                'arjun': '#arjun-results',
-                'api': '#api-results',
-                'git': '#git-results',
-                'tech': '#tech-results',
-                'js_secrets': '#js-secrets-results'
-            }; // specialized containers if they exist
-
-            // Render specific JSON sections
-            this.renderJSONSection(results.phases.osint, 'cloud', 'Cloud Assets');
-            this.renderJSONSection(results.phases.osint, 'dorks', 'Google Hacking');
-            this.renderJSONSection(results.phases.osint, 'origin_ips', 'Origin Unmasking');
-            this.renderJSONSection(results.phases.osint, 'emails', 'Email Discovery');
-            this.renderJSONSection(results.phases.osint, 'github', 'GitHub Leaks');
-            this.renderJSONSection(results.phases.dns, 'subdomains', 'Discovered Subdomains');
-            this.renderJSONSection(results.phases.dns, 'records', 'DNS Records');
-
-            const knownEnumTitles = {
-                waf: 'WAF Detection', arjun: 'Hidden Parameters', api: 'API Endpoints',
-                js_secrets: 'JS Secrets', headers: 'Security Headers', whatweb: 'Technology Footprint'
-            };
-
-            for (const key of Object.keys(results.phases.enum || {})) {
-                // Skip structural keys parsed via custom UI components
-                if (['derived', 'targets', 'seed_meta', 'normalized', 'injection_points', 'attack_profile', 'mutation_strategy', 'katana'].includes(key)) continue;
-
-                let title = knownEnumTitles[key];
-                if (!title) {
-                    title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                }
-                this.renderJSONSection(results.phases.enum, key, title);
-            }
-
-            // Dynamically render all vulnerabilities to ensure no module is missed
-            const knownVulnTitles = {
-                tls: 'TLS/SSL Audit', git: 'Git Exposure', backups: 'Backup Files', tech: 'Technology Leaks',
-                graphql: 'GraphQL', ssrf: 'SSRF Candidates', redirects: 'Open Redirects', xss: 'XSS Reflections',
-                prototype: 'Prototype Pollution', ssti: 'SSTI Finds', lfi: 'LFI Assaults', cors_audit: 'CORS Audit',
-                crlf: 'CRLF Injection', firebase: 'Firebase Exposure', xxe: 'XXE Analysis', deserialization: 'Deserialization',
-                acl_bypass: 'ACL Bypass', email_security: 'Email Infrastructure', container_exposure: 'Container/Docker',
-                infra_exposure: 'Infrastructure Exposure', websocket: 'WebSocket Security', data_leaks: 'Sensitive Data Mining',
-                oauth: 'OAuth & OIDC Flows', nosql: 'NoSQL Injection', cache_audit: 'Web Cache Audit', upload_bypass: 'File Upload Expert',
-                logic_flaws: 'Business Logic Auditor', deep_ssrf: 'Cloud SSRF Deep Probe', api_shadow: 'API Shadow Hunter',
-                csti: 'CSTI Framework Auditor', metadata_leaks: 'Metadata Forensics', waf_audit: 'WAF Fingerprinting',
-                java_rce: 'Java RCE Expert', h2c_smuggling: 'H2C Smuggling', spring_boot: 'Spring Boot Expert', cloud_perms: 'Cloud IAM Perms',
-                logic_assault: 'Logic Assault', waf_bypass: 'WAF Bypass Expert', js_vulns: 'JS Vulnerabilities',
-                api_expert: 'API Expert Scan', tech_exposure: 'Tech Exposure', db_audit: 'Database Audit', surface_mapping: 'Surface Mapping'
-            };
-
-            for (const key of Object.keys(results.phases.vuln || {})) {
-                // Skip explicit blocks handled elsewhere
-                if (['wordpress', 'nuclei'].includes(key)) continue;
-
-                let title = knownVulnTitles[key];
-                if (!title) {
-                    title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                }
-                this.renderJSONSection(results.phases.vuln, key, title);
-            }
-
-            // --- NATIVE WORDPRESS ADAPTIVE UPDATES ---
-            if (results.phases.vuln.wordpress) {
-                for (const [port, wp] of Object.entries(results.phases.vuln.wordpress)) {
-                    const panel = document.getElementById(`wp-waf-panel-${port}`);
-                    const icon = document.getElementById(`wp-waf-icon-${port}`);
-                    const text = document.getElementById(`wp-waf-text-${port}`);
-                    const evasion = document.getElementById(`wp-evasion-status-${port}`);
-
-                    if (panel && wp.wordfence_detected) {
-                        panel.classList.remove('border-secondary');
-                        panel.classList.add('border-warning');
-                        if (icon) {
-                            icon.classList.remove('text-muted');
-                            icon.classList.add('text-warning', 'animate-pulse');
-                        }
-                        if (text) {
-                            text.innerHTML = '<span class="text-warning fw-bold"><i class="fas fa-exclamation-triangle me-1"></i>Detected Wordfence WAF</span>';
-                        }
-                    }
-
-                    if (evasion) {
-                        if (wp.evasion_active) {
-                            evasion.innerHTML = `
-                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3">
-                                    <i class="fas fa-bolt me-1"></i> MUTATION & THROTTLE ACTIVE
-                                </span>`;
-                        } else {
-                            evasion.innerHTML = `
-                                <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-25 px-3">
-                                    STANDARD MODE
-                                </span>`;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Final Step: Global Graph Update if structural data changed
-        if (results.findings || results.phases) {
-            if (typeof initGraphData === 'function') {
-                setTimeout(() => initGraphData(), 200);
-            }
-        }
+        scanDashboardUIRefresh.restoreDiscoveryStates(this, results);
+        scanDashboardUIRefresh.renderPhaseSections(document, this, results);
+        scanDashboardUIRefresh.refreshGraph(results);
     }
 
     // --- HUMAN READABLE RENDERING ENGINE (V6) ---
@@ -2745,6 +2699,7 @@ ScanDashboard.internals = {
     findingsDom: scanDashboardFindingsDom,
     findingsFlow: scanDashboardFindingsFlow,
     resultsView: scanDashboardResultsView,
+    uiRefresh: scanDashboardUIRefresh,
     auditJourney: scanDashboardAuditJourney,
     socketEvents: scanDashboardSocketEvents,
     logStream: scanDashboardLogStream,
