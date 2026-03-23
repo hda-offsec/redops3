@@ -180,6 +180,79 @@ test("uiRefresh syncFindingSummary keeps derived counters deterministic and addi
     assert.equal(nodes["stat-endpoints"].innerText, 4);
 });
 
+test("uiRefresh syncFindingSummary resets counters when findings disappear while preserving additive asset and endpoint totals", () => {
+    const nodes = {
+        "stat-findings": { innerText: 9 },
+        "stat-assets": { innerText: 9 },
+        "stat-endpoints": { innerText: 9 },
+        "stat-high-risk": { innerText: 9 },
+        "stat-critical": { innerText: 9 },
+        "stat-high": { innerText: 9 },
+    };
+
+    const document = {
+        getElementById(id) {
+            return nodes[id] || null;
+        },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        addEventListener() {},
+        createElement() { return createNode(); },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+
+    ScanDashboard.internals.uiRefresh.syncFindingSummary(
+        document,
+        {
+            phases: {
+                recon: { open_ports: [] },
+                dns: { subdomains: ["api.example.org"] },
+                enum: { api: { discovered_endpoints: ["/v1/users"] } },
+            },
+        },
+        []
+    );
+
+    assert.equal(nodes["stat-findings"].innerText, 0);
+    assert.equal(nodes["stat-high-risk"].innerText, 0);
+    assert.equal(nodes["stat-critical"].innerText, 0);
+    assert.equal(nodes["stat-high"].innerText, 0);
+    assert.equal(nodes["stat-assets"].innerText, 1);
+    assert.equal(nodes["stat-endpoints"].innerText, 1);
+});
+
+test("uiRefresh syncReconOverview clears stale port state and restores the empty placeholder when recon data is missing", () => {
+    const portContainer = createNode();
+    portContainer.innerHTML = "<div>stale ports</div>";
+    portContainer.querySelector = (selector) => {
+        if (selector === ".text-center") return { innerText: "placeholder" };
+        return null;
+    };
+
+    const nodes = {
+        "stat-open-ports": { innerText: 4 },
+        "port-badges-container": portContainer,
+    };
+
+    const document = {
+        getElementById(id) {
+            return nodes[id] || null;
+        },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        addEventListener() {},
+        createElement() { return createNode(); },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+
+    ScanDashboard.internals.uiRefresh.syncReconOverview(document, {});
+
+    assert.equal(nodes["stat-open-ports"].innerText, 0);
+    assert.match(portContainer.innerHTML, /No open ports discovered yet/);
+});
+
 test("uiRefresh restoreDiscoveryStates preserves discovery button state mapping without changing contracts", () => {
     const { ScanDashboard } = loadScanDashboardClass();
     const calls = [];
@@ -345,6 +418,41 @@ test("updateUI keeps the high-level orchestration order and still relies on rend
     );
 });
 
+test("uiRefresh renderReconMatrix keeps priority sorting deterministic without mutating the source payload order", () => {
+    const matrixBody = { innerHTML: "" };
+    const document = {
+        getElementById() { return null; },
+        querySelector(selector) {
+            if (selector === "#recon-matrix-body") return matrixBody;
+            return null;
+        },
+        querySelectorAll() { return []; },
+        addEventListener() {},
+        createElement() { return createNode(); },
+    };
+
+    const { ScanDashboard } = loadScanDashboardClass({ document });
+    const ports = [
+        { port: 8080, service_name: "http", priority_score: 10 },
+        { port: 443, service_name: "https", priority_score: 90 },
+        { port: 8443, service_name: "https-alt", priority_score: 50 },
+    ];
+    const results = {
+        phases: {
+            recon: { open_ports: ports },
+        },
+    };
+
+    ScanDashboard.internals.uiRefresh.renderReconMatrix(document, { targetIdentifier: "example.org" }, results);
+
+    assert.deepEqual(
+        ports.map((port) => port.port),
+        [8080, 443, 8443]
+    );
+    assert.ok(matrixBody.innerHTML.indexOf("443/tcp") < matrixBody.innerHTML.indexOf("8443/tcp"));
+    assert.ok(matrixBody.innerHTML.indexOf("8443/tcp") < matrixBody.innerHTML.indexOf("8080/tcp"));
+});
+
 
 test("cortexView renders recommendations, surface expansion, service intelligence, and active status deterministically", () => {
     const { document, headerBadges, nodes } = createCortexDocumentHarness();
@@ -445,4 +553,3 @@ test("updateCortexUI delegates to the extracted cortexView helper without changi
     assert.equal(typeof calls[0].documentRef.getElementById, 'function');
     assert.deepEqual(calls[0].results, { phases: { enum: { derived: { status: 'triaging' } } } });
 });
-

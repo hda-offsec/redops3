@@ -525,6 +525,7 @@ const scanDashboardResultsView = {
     countEndpoints(results) {
         let totalEndpoints = results?.phases?.dirbusting?.ffuf?.endpoints?.length || 0;
         totalEndpoints += results?.phases?.enum?.api?.endpoints?.length || 0;
+        totalEndpoints += results?.phases?.enum?.api?.discovered_endpoints?.length || 0;
 
         if (results?.phases?.enum?.katana) {
             Object.values(results.phases.enum.katana).forEach((urls) => {
@@ -558,12 +559,19 @@ const scanDashboardUIRefresh = {
     syncReconOverview(documentRef, results) {
         const statPorts = documentRef.getElementById('stat-open-ports');
         const portContainer = documentRef.getElementById('port-badges-container');
-        const ports = Array.isArray(results?.phases?.recon?.open_ports) ? results.phases.recon.open_ports : null;
+        const ports = Array.isArray(results?.phases?.recon?.open_ports) ? results.phases.recon.open_ports : [];
 
-        if (!ports) return;
         if (statPorts) statPorts.innerText = ports.length;
 
         if (!portContainer) return;
+        if (ports.length === 0) {
+            portContainer.innerHTML = `
+    <div class="text-center text-muted small py-4">
+        <i class="fas fa-network-wired opacity-50 me-2"></i>No open ports discovered yet.
+    </div> `;
+            return;
+        }
+
         if (portContainer.querySelector('.text-center')) portContainer.innerHTML = '';
 
         let portsHtml = '';
@@ -590,8 +598,6 @@ const scanDashboardUIRefresh = {
         const statFindings = documentRef.getElementById('stat-findings');
         if (statFindings) statFindings.innerText = structuredFindings.length;
 
-        if (!structuredFindings.length) return;
-
         const severitySummary = scanDashboardResultsView.summarizeFindingSeverities(structuredFindings);
         const statAssets = documentRef.getElementById('stat-assets');
         const statEndpoints = documentRef.getElementById('stat-endpoints');
@@ -602,9 +608,10 @@ const scanDashboardUIRefresh = {
         if (statHighRisk) statHighRisk.innerText = severitySummary.highRisk;
         if (statCritical) statCritical.innerText = severitySummary.critical;
         if (statHigh) statHigh.innerText = severitySummary.high;
-
         if (statAssets) statAssets.innerText = scanDashboardResultsView.countAssets(results);
         if (statEndpoints) statEndpoints.innerText = scanDashboardResultsView.countEndpoints(results);
+
+        if (!structuredFindings.length) return;
     },
 
     buildDiscoveryMap(results) {
@@ -662,7 +669,7 @@ const scanDashboardUIRefresh = {
         if (!matrixBody || !results.phases?.recon?.open_ports) return;
 
         let html = "";
-        const ports = results.phases.recon.open_ports.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+        const ports = [...results.phases.recon.open_ports].sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
 
         ports.forEach(port => {
             const score = port.priority_score || 0;
@@ -1904,7 +1911,8 @@ class ScanDashboard {
         });
 
         this.socket.on("results_update", (msg) => {
-            if (msg.scan_id == this.scanId) this.updateUI(msg.results);
+            if (!msg || msg.scan_id != this.scanId || !msg.results) return;
+            this.updateUI(msg.results);
         });
 
         scanDashboardSocketEvents.forEach(([eventName, handlerName]) => {
@@ -1912,7 +1920,7 @@ class ScanDashboard {
         });
 
         this.socket.on("graph_updated", (data) => {
-            if (data.scan_id != this.scanId) return;
+            if (!data || data.scan_id != this.scanId) return;
             if (typeof initGraphData === 'function') {
                 initGraphData();
             }
