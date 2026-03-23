@@ -6,32 +6,47 @@ class AccessControlScanner:
         self.options = options
         self.target = target
 
-    def scan_403_bypass(self, port, protocol='http', logger=None):
+    def _candidate_paths(self, candidate_urls=None):
+        paths = ["/admin"]
+        for candidate in candidate_urls or []:
+            if not isinstance(candidate, str):
+                continue
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(candidate)
+                path = parsed.path or "/"
+            except Exception:
+                path = str(candidate or "").strip()
+            if not path.startswith("/") or path == "/":
+                continue
+            if path not in paths:
+                paths.append(path)
+        return paths[:12]
+
+    def scan_403_bypass(self, port, protocol='http', logger=None, candidate_urls=None):
         findings = []
         base_url = f"{protocol}://{self.target}:{port}"
-        protected_path = "/admin" # We assume /admin is protected or doesn't exist, we test behavior
-        
-        target_url = base_url + protected_path
-        
-        if logger: logger(f"🚫 403 Bypass: Fuzzing ACLs on {target_url}...", "INFO")
+        protected_paths = self._candidate_paths(candidate_urls)
+        if logger:
+            logger(f"🚫 403 Bypass: Fuzzing ACLs on {len(protected_paths)} protected-path candidates...", "INFO")
 
-        try:
-            # Baseline
-            r_base = http_client.get(target_url, options=getattr(self, "options", None), timeout=3, allow_redirects=False)
-            if r_base.status_code in [401, 403]:
+        for protected_path in protected_paths:
+            target_url = base_url + protected_path
+            try:
+                # Baseline
+                r_base = http_client.get(target_url, options=getattr(self, "options", None), timeout=3, allow_redirects=False)
+                if r_base.status_code not in [401, 403]:
+                    continue
                 # Attempt bypass techniques
-                # 1. Headers
                 headers_bypass = {
                     "X-Custom-IP-Authorization": "127.0.0.1",
                     "X-Original-URL": protected_path,
                     "X-Rewrite-URL": protected_path,
                     "X-Forwarded-For": "127.0.0.1"
                 }
-                
+
                 for h, v in headers_bypass.items():
                     try:
-                        # Test: Request to ROOT but with Header pointing to ADMIN
-                        # Or Request to ADMIN with IP Spoof
                         r_test = http_client.get(target_url, options=getattr(self, "options", None), headers={h: v}, timeout=3, allow_redirects=False)
                         if r_test.status_code == 200:
                             from scan_engine.helpers.finding_normalizer import FindingNormalizer
@@ -43,15 +58,13 @@ class AccessControlScanner:
                                 tool_source="acl_scanner",
                                 category="access_control",
                                 method="GET",
-                                metadata={"bypass_header": f"{h}: {v}"}
+                                metadata={"bypass_header": f"{h}: {v}", "baseline_status": r_base.status_code}
                             ))
-                            return findings # Return on first success
+                            return findings
                     except Exception:
                         continue
-                    
-                # 2. URL Methods
-                # /%2e/admin, /admin/., /admin?
-                variations = ["/%2e/admin", "/admin/.", "/admin?", "/admin;"]
+
+                variations = [f"/%2e{protected_path}", f"{protected_path}/.", f"{protected_path}?", f"{protected_path};"]
                 for v in variations:
                     url_var = f"{protocol}://{self.target}:{port}{v}"
                     try:
@@ -66,15 +79,15 @@ class AccessControlScanner:
                                  tool_source="acl_scanner",
                                  category="access_control",
                                  method="GET",
-                                 metadata={"variation": v}
+                                 metadata={"variation": v, "baseline_status": r_base.status_code}
                              ))
                     except Exception:
                         continue
 
-        except Exception:
-            pass
+            except Exception:
+                continue
         return findings
 
     # Alias for orchestrator compatibility
-    def scan_acl(self, port, protocol='http', logger=None):
-        return self.scan_403_bypass(port, protocol, logger=logger)
+    def scan_acl(self, port, protocol='http', logger=None, candidate_urls=None):
+        return self.scan_403_bypass(port, protocol, logger=logger, candidate_urls=candidate_urls)

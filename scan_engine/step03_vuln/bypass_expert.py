@@ -43,12 +43,26 @@ class BypassExpertScanner:
             "/{}.wd"             # /admin.wd (random ext)
         ]
 
-    def scan_403_bypass(self, port, protocol='http', logger=None):
+    def _candidate_paths(self, candidate_urls=None):
+        protected_paths = ["/admin", "/api/admin", "/dashboard", "/console"]
+        for candidate in candidate_urls or []:
+            if not isinstance(candidate, str):
+                continue
+            try:
+                parsed = urlparse(candidate)
+                path = parsed.path or "/"
+            except Exception:
+                path = str(candidate or "").strip()
+            if not path.startswith("/") or path == "/":
+                continue
+            if path not in protected_paths:
+                protected_paths.append(path)
+        return protected_paths[:12]
+
+    def scan_403_bypass(self, port, protocol='http', logger=None, candidate_urls=None):
         findings = []
         base_url = f"{protocol}://{self.target}:{port}"
-        
-        # We target specific known protected endpoints if possible, or just /admin as a test case
-        protected_paths = ["/admin", "/api/admin", "/dashboard", "/console"]
+        protected_paths = self._candidate_paths(candidate_urls)
         
         if logger: logger(f"🚫 403 Expert: Testing advanced bypass techniques on {len(protected_paths)} paths...", "INFO")
 

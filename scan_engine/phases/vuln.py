@@ -164,6 +164,53 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         enabled = bool(gate.get("enabled", True))
         reason = str(gate.get("reason") or ("enabled" if enabled else "adaptive_gate"))
         return enabled, reason
+
+    per_port_execution_hints = {}
+    if isinstance(execution_hints, dict):
+        per_port_execution_hints = execution_hints.get("per_port", {}).get(str(port), {}) or {}
+
+    def _stable_url_list(values):
+        seen = set()
+        ordered = []
+        for value in values or []:
+            if not isinstance(value, str):
+                continue
+            normalized = value.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(normalized)
+        return ordered
+
+    def _module_seed_urls(module_name, fallback=None, limit=12):
+        hinted = []
+        if isinstance(per_port_execution_hints.get(module_name), dict):
+            hinted = per_port_execution_hints[module_name].get("seed_priority", []) or []
+        if hinted:
+            return _stable_url_list(hinted)[:limit]
+        return _stable_url_list(fallback or [])[:limit]
+
+    def _module_hint(module_name, key, fallback=None):
+        if isinstance(per_port_execution_hints.get(module_name), dict):
+            value = per_port_execution_hints[module_name].get(key)
+            if value:
+                return value
+        return fallback
+
+    def _derive_mass_assignment_baseline(url):
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        payload = {"id": 1, "name": "redops-test"}
+        for param in sorted(params.keys()):
+            lower = param.lower()
+            if lower in {"id", "user_id", "account_id", "tenant_id"}:
+                payload[param] = 1
+            elif lower in {"name", "email", "username", "title"}:
+                payload[param] = "redops-test"
+            elif lower in {"state", "status"}:
+                payload[param] = "draft"
+        return payload
     
     # --- PHASE 3: INITIAL INTELLIGENCE POOLING ---
     # Gather everything found in Phase 1 & 2
@@ -365,37 +412,45 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             orch.mark_module("graphql_scanner", port, "failed")
 
     # --- EXPERT: JWT Security Audit (Point 1) ---
-    try:
-        _set_cortex_status(f"JWT Security Audit (Port {port})...")
-        jwt_expert = JWTScanner(options=orch.options)
-        # Probe main URL
-        jwt_findings = jwt_expert.probe_endpoint(f"{proto}://{target}:{port}", logger=log)
+    jwt_enabled, jwt_reason = _module_gate("jwt_expert")
+    if not jwt_enabled:
+        orch.mark_module("jwt_expert", port, "skipped", reason=jwt_reason)
+    else:
+        try:
+            _set_cortex_status(f"JWT Security Audit (Port {port})...")
+            jwt_expert = JWTScanner(options=orch.options)
+            jwt_findings = []
+            jwt_probe_urls = _module_seed_urls("jwt", fallback=[f"{proto}://{target}:{port}"], limit=6)
+            for probe_url in jwt_probe_urls:
+                jwt_findings.extend(jwt_expert.probe_endpoint(probe_url, logger=log))
         
-        # Also check collected JS files for JWT leaks
-        js_urls = [u for u in intel_pool if u.endswith('.js')]
-        
-        for js_url in js_urls[:15]: # Limit for performance
-            try:
-                r_js = http_client.get(js_url, options=orch.options, timeout=3)
-                if r_js.status_code == 200:
-                    leaked = jwt_expert.scan_text(r_js.text, js_url)
-                    if leaked: jwt_findings.extend(leaked)
-            except Exception: pass
+            js_urls = [u for u in intel_pool if u.endswith('.js')]
+            for js_url in js_urls[:15]:
+                try:
+                    r_js = http_client.get(js_url, options=orch.options, timeout=3)
+                    if r_js.status_code == 200:
+                        leaked = jwt_expert.scan_text(r_js.text, js_url)
+                        if leaked:
+                            jwt_findings.extend(leaked)
+                except Exception:
+                    pass
 
-        if jwt_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('jwt', []).extend(jwt_findings)))
-            for f in jwt_findings:
-                orch.add_finding(
-                    title=f.get('type', 'JWT Security Issue'),
-                    description=f.get('desc', ''),
-                    severity=f.get('severity', 'medium'),
-                    tool_source="jwt_expert"
-                )
-            orch.save_results(orch.scan_id, results)
-        
-        orch.mark_module("jwt_expert", port, "executed", artifacts=len(jwt_findings))
-    except Exception as e:
-        log(f"JWT Expert Error: {e}", "DEBUG")
+            if jwt_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('jwt', []).extend(jwt_findings)))
+                for f in jwt_findings:
+                    orch.add_finding(
+                        title=f.get('type', 'JWT Security Issue'),
+                        description=f.get('desc', ''),
+                        severity=f.get('severity', 'medium'),
+                        tool_source="jwt_expert",
+                        endpoint=f.get('url') or f.get('endpoint') or f"{proto}://{target}:{port}",
+                    )
+                orch.save_results(orch.scan_id, results)
+
+            orch.mark_module("jwt_expert", port, "executed", artifacts=len(jwt_findings))
+        except Exception as e:
+            log(f"JWT Expert Error: {e}", "DEBUG")
+            orch.mark_module("jwt_expert", port, "failed", reason=str(e))
 
     # --- EXPERT: HTTP Request Smuggling (Point 7) ---
     try:
@@ -472,15 +527,17 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
             miner = ParameterMiner(options=orch.options)
             # Mine on main URL and some discovered endpoints
             miner_findings = []
-            for u in intel_pool[:10]:
+            for u in _module_seed_urls("parameter_miner", fallback=intel_pool, limit=12):
                 miner_findings.extend(miner.mine(u, logger=log))
             if miner_findings:
                 _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('parameters', []).extend(miner_findings)))
                 for f in miner_findings:
                     orch.add_finding(**f)
                 orch.save_results(orch.scan_id, results)
+            orch.mark_module("parameter_miner", port, "executed", artifacts=len(miner_findings))
         except Exception as e:
             log(f"Parameter Miner Error: {e}", "DEBUG")
+            orch.mark_module("parameter_miner", port, "failed", reason=str(e))
 
     # --- EXPERT: API Logic Fuzzing (New) ---
     api_fuzzer_enabled, api_fuzzer_reason = _module_gate("api_fuzzer")
@@ -490,30 +547,44 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
         try:
             _set_cortex_status(f"API Logic Fuzzing (Port {port})...")
             api_fuzzer = APIFuzzer(options=orch.options)
-            api_urls = [u for u in intel_pool if "api" in u.lower() or "v1" in u.lower() or "v2" in u.lower() or "graphql" in u.lower()]
-            for u in api_urls[:10]:
+            api_urls = _module_seed_urls(
+                "api_fuzzer",
+                fallback=[u for u in intel_pool if "api" in u.lower() or "v1" in u.lower() or "v2" in u.lower() or "graphql" in u.lower()],
+                limit=16,
+            )
+            for u in api_urls:
                 fuzz_res = api_fuzzer.fuzz_endpoint(u, logger=log)
                 if fuzz_res:
                     _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('api_logic', []).extend(fuzz_res)))
                     for f in fuzz_res:
                         orch.add_finding(**f)
             orch.save_results(orch.scan_id, results)
+            orch.mark_module("api_fuzzer", port, "executed", artifacts=len(api_urls))
         except Exception as e:
             log(f"API Fuzzer Error: {e}", "DEBUG")
+            orch.mark_module("api_fuzzer", port, "failed", reason=str(e))
 
     # --- V6 WAVE 2: ADVANCED LOGIC & INFRA EXPERTS ---
 
         # 1. OAuth / OpenID Auditor
-    try:
-        _set_cortex_status(f"OAuth/OpenID Security Audit (Port {port})...")
-        oauth_expert = OAuthScanner()
-        oauth_findings = oauth_expert.scan_endpoints(intel_pool, logger=log)
-        if oauth_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('oauth', []).extend(oauth_findings)))
-            for f in oauth_findings:
-                orch.add_finding(**f)
-            orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"OAuth Expert Error: {e}", "DEBUG")
+    oauth_enabled, oauth_reason = _module_gate("oauth_expert")
+    if not oauth_enabled:
+        orch.mark_module("oauth_expert", port, "skipped", reason=oauth_reason)
+    else:
+        try:
+            _set_cortex_status(f"OAuth/OpenID Security Audit (Port {port})...")
+            oauth_expert = OAuthScanner()
+            oauth_urls = _module_seed_urls("oauth", fallback=intel_pool, limit=10)
+            oauth_findings = oauth_expert.scan_endpoints(oauth_urls, logger=log)
+            if oauth_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('oauth', []).extend(oauth_findings)))
+                for f in oauth_findings:
+                    orch.add_finding(**f)
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("oauth_expert", port, "executed", artifacts=len(oauth_findings))
+        except Exception as e:
+            log(f"OAuth Expert Error: {e}", "DEBUG")
+            orch.mark_module("oauth_expert", port, "failed", reason=str(e))
 
         # 2. NoSQL Injection Expert
     try:
@@ -567,28 +638,33 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e: log(f"Upload Expert Error: {e}")
 
     # 5. Logic Expert (Mass Assignment/HPP)
-    try:
-        _set_cortex_status(f"Business Logic Audit (Port {port})...")
-        logic_expert = BusinessLogicScanner()
-        # Test HPP on all endpoints with query params
-        query_urls = [u for u in intel_pool if "?" in u]
-        for u in query_urls[:15]:
-            hpp_res = logic_expert.scan_hpp(u, logger=log)
-            if hpp_res:
-                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('logic_flaws', []).extend(hpp_res)))
-                for f in hpp_res:
-                    orch.add_finding(**f)
-        
-        # Mass Assignment test on API endpoints
-        api_urls = [u for u in intel_pool if "api" in u.lower()]
-        for u in api_urls[:10]:
-            mass_res = logic_expert.scan_mass_assignment(u, json_baseline={"id": 1}, logger=log)
-            if mass_res:
-                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('logic_flaws', []).extend(mass_res)))
-                for f in mass_res:
-                    orch.add_finding(**f)
-        orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"Logic Expert Error: {e}", "DEBUG")
+    business_logic_enabled, business_logic_reason = _module_gate("business_logic")
+    if not business_logic_enabled:
+        orch.mark_module("business_logic", port, "skipped", reason=business_logic_reason)
+    else:
+        try:
+            _set_cortex_status(f"Business Logic Audit (Port {port})...")
+            logic_expert = BusinessLogicScanner()
+            query_urls = _stable_url_list(_module_hint("business_logic", "hpp_urls", fallback=[u for u in intel_pool if "?" in u]))[:16]
+            for u in query_urls:
+                hpp_res = logic_expert.scan_hpp(u, logger=log)
+                if hpp_res:
+                    _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('logic_flaws', []).extend(hpp_res)))
+                    for f in hpp_res:
+                        orch.add_finding(**f)
+
+            api_urls = _stable_url_list(_module_hint("business_logic", "mass_assignment_urls", fallback=[u for u in intel_pool if "api" in u.lower()]))[:16]
+            for u in api_urls:
+                mass_res = logic_expert.scan_mass_assignment(u, json_baseline=_derive_mass_assignment_baseline(u), logger=log)
+                if mass_res:
+                    _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('logic_flaws', []).extend(mass_res)))
+                    for f in mass_res:
+                        orch.add_finding(**f)
+            orch.save_results(orch.scan_id, results)
+            orch.mark_module("business_logic", port, "executed", artifacts=len(query_urls) + len(api_urls))
+        except Exception as e:
+            log(f"Logic Expert Error: {e}", "DEBUG")
+            orch.mark_module("business_logic", port, "failed", reason=str(e))
 
     # 6. Deep SSRF (Cloud Metadata Probing)
     try:
@@ -1004,18 +1080,27 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     log(f"Phase 4: Executing Advanced Vuln Audit (Expert Scanners) on port {port}...", "INFO")
     
     # 1. SSTI Polyglot (Point 4)
-    try:
-        _set_cortex_status(f"SSTI Polyglot Audit (Port {port})...")
-        ssti = SSTIScanner(target)
-        # Use simple heuristics for params for now, or use identified injection points
-        test_params = ["q", "id", "s", "search", "name", "view", "page"]
-        ssti_findings = ssti.scan_endpoint(f"{proto}://{target}:{port}", test_params, logger=log)
-        if ssti_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('ssti', []).extend(ssti_findings)))
-            for f in ssti_findings:
-                orch.add_finding(**normalizer.normalize(f))
-            orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"SSTI Scanner Error: {e}", "DEBUG")
+    ssti_enabled, ssti_reason = _module_gate("ssti")
+    if not ssti_enabled:
+        orch.mark_module("ssti", port, "skipped", reason=ssti_reason)
+    else:
+        try:
+            _set_cortex_status(f"SSTI Polyglot Audit (Port {port})...")
+            ssti = SSTIScanner(target)
+            test_params = _module_hint("ssti", "interesting_params", fallback=["q", "id", "s", "search", "name", "view", "page"]) or ["q", "id", "s", "search", "name", "view", "page"]
+            ssti_targets = _module_seed_urls("ssti", fallback=[f"{proto}://{target}:{port}"], limit=8)
+            ssti_findings = []
+            for ssti_target in ssti_targets:
+                ssti_findings.extend(ssti.scan_endpoint(ssti_target, test_params, logger=log))
+            if ssti_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].setdefault('ssti', []).extend(ssti_findings)))
+                for f in ssti_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("ssti", port, "executed", artifacts=len(ssti_findings))
+        except Exception as e:
+            log(f"SSTI Scanner Error: {e}", "DEBUG")
+            orch.mark_module("ssti", port, "failed", reason=str(e))
 
     # 2. CORS
     try:
@@ -1139,15 +1224,23 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e: log(f"DB Scanner Error: {e}", "DEBUG")
 
     # 4. Business Logic & IDOR Heuristics (LogicAssaultScanner)
-    try:
-        la = LogicAssaultScanner()
-        la_findings = la.scan(target, orch.scan_id, logger=log)
-        if la_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('logic_assault', la_findings)))
-            for f in la_findings:
-                orch.add_finding(**normalizer.normalize(f))
-            orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"Logic Assault Error: {e}", "DEBUG")
+    logic_assault_enabled, logic_assault_reason = _module_gate("logic_assault")
+    if not logic_assault_enabled:
+        orch.mark_module("logic_assault", port, "skipped", reason=logic_assault_reason)
+    else:
+        try:
+            la = LogicAssaultScanner(options=orch.options)
+            la_urls = _module_seed_urls("logic_assault", fallback=intel_pool, limit=18)
+            la_findings = la.scan(target, orch.scan_id, logger=log, urls=la_urls)
+            if la_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('logic_assault', la_findings)))
+                for f in la_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("logic_assault", port, "executed", artifacts=len(la_findings))
+        except Exception as e:
+            log(f"Logic Assault Error: {e}", "DEBUG")
+            orch.mark_module("logic_assault", port, "failed", reason=str(e))
 
     # 4.5. Cloud Metadata Leakage (CloudMetadataScanner)
     try:
@@ -1224,27 +1317,42 @@ def run_vuln_scans(orchestrator, port, proto, fingerprint_data=""):
     except Exception as e: log(f"WAF Bypass Error: {e}", "DEBUG")
 
     # 6. 403 / Auth Bypass (BypassExpertScanner)
-    try:
-        _set_cortex_status(f"403/401 Auth Bypass Audit (Port {port})...")
-        bypass_expert = BypassExpertScanner(target, options=orch.options)
-        bypass_findings = bypass_expert.scan_403_bypass(port, proto, logger=log)
-        if bypass_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('403_bypass', bypass_findings)))
-            for f in bypass_findings:
-                orch.add_finding(**normalizer.normalize(f))
-            orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"403 Bypass Error: {e}", "DEBUG")
+    access_control_enabled, access_control_reason = _module_gate("access_control")
+    if not access_control_enabled:
+        orch.mark_module("bypass_expert", port, "skipped", reason=access_control_reason)
+    else:
+        try:
+            _set_cortex_status(f"403/401 Auth Bypass Audit (Port {port})...")
+            bypass_expert = BypassExpertScanner(target, options=orch.options)
+            protected_urls = _stable_url_list(_module_hint("access_control", "protected_urls", fallback=intel_pool))[:12]
+            bypass_findings = bypass_expert.scan_403_bypass(port, proto, logger=log, candidate_urls=protected_urls)
+            if bypass_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('403_bypass', bypass_findings)))
+                for f in bypass_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("bypass_expert", port, "executed", artifacts=len(bypass_findings))
+        except Exception as e:
+            log(f"403 Bypass Error: {e}", "DEBUG")
+            orch.mark_module("bypass_expert", port, "failed", reason=str(e))
 
     # 8. Access Control (ACL)
-    try:
-        acl = AccessControlScanner(target)
-        acl_findings = acl.scan_acl(port, proto, logger=log)
-        if acl_findings:
-            _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('acl_bypass', acl_findings)))
-            for f in acl_findings:
-                orch.add_finding(**normalizer.normalize(f))
-            orch.save_results(orch.scan_id, results)
-    except Exception as e: log(f"ACL Scanner Error: {e}", "DEBUG")
+    if not access_control_enabled:
+        orch.mark_module("acl_scanner", port, "skipped", reason=access_control_reason)
+    else:
+        try:
+            acl = AccessControlScanner(target, options=orch.options)
+            protected_urls = _stable_url_list(_module_hint("access_control", "protected_urls", fallback=intel_pool))[:12]
+            acl_findings = acl.scan_acl(port, proto, logger=log, candidate_urls=protected_urls)
+            if acl_findings:
+                _ts(lambda: (results['phases'].setdefault('vuln', {}), results['phases']['vuln'].__setitem__('acl_bypass', acl_findings)))
+                for f in acl_findings:
+                    orch.add_finding(**normalizer.normalize(f))
+                orch.save_results(orch.scan_id, results)
+            orch.mark_module("acl_scanner", port, "executed", artifacts=len(acl_findings))
+        except Exception as e:
+            log(f"ACL Scanner Error: {e}", "DEBUG")
+            orch.mark_module("acl_scanner", port, "failed", reason=str(e))
 
     # --- OSINT & DATA MINING (PHASE 6) ---
     try:

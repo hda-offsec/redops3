@@ -36,7 +36,18 @@ class BusinessLogicScanner:
                         "description": f"Successfully injected privileged field '{field}' into object via POST request.\nURL: {url}\nPayload: {payload}",
                         "severity": "critical",
                         "tool_source": "business_logic_expert",
-                        "url": url
+                        "url": url,
+                        "result_state": "validation",
+                        "validation_status": "success",
+                        "metadata": {
+                            "validation": {
+                                "status": "success",
+                                "target": url,
+                                "command": f"curl -ik -X POST '{url}' -H 'Content-Type: application/json' --data '{json.dumps(payload, sort_keys=True)}'",
+                                "artifact": resp.text[:500],
+                            },
+                            "mass_assignment_field": field,
+                        },
                     })
                     if logger: logger(f"CRITICAL: Mass Assignment on {field} at {url}", "CRITICAL")
             except Exception:
@@ -87,7 +98,17 @@ class BusinessLogicScanner:
                         ),
                         "severity": "medium",
                         "tool_source": "business_logic_expert",
-                        "url": new_url
+                        "url": new_url,
+                        "result_state": "validation",
+                        "validation_status": "success",
+                        "metadata": {
+                            "validation": {
+                                "status": "success",
+                                "target": new_url,
+                                "command": f"curl -ik '{new_url}'",
+                                "artifact": resp.text[:500],
+                            }
+                        },
                     })
                 elif reflected:
                     # V10: Reflection without behavior change → INFO
@@ -101,7 +122,9 @@ class BusinessLogicScanner:
                         ),
                         "severity": "info",
                         "tool_source": "business_logic_expert",
-                        "url": new_url
+                        "url": new_url,
+                        "result_state": "observation",
+                        "validation_status": "uncertain",
                     })
             except Exception:
                 pass

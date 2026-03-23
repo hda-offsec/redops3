@@ -28,11 +28,11 @@ class LogicAssaultScanner:
         self.session = get_session(self.options)
         self.session.headers.update({"User-Agent": "RedOps3-LogicAssault/2.0"})
 
-    def scan(self, target, scan_id, logger=None):
+    def scan(self, target, scan_id, logger=None, urls=None):
         if logger: logger(f"Logic Assault: Initiating Advanced Business Logic & JWT Attacks on {target}", "INFO")
         
         findings = []
-        urls = self._get_scan_urls(scan_id)
+        urls = [u for u in (urls or self._get_scan_urls(scan_id)) if isinstance(u, str) and u.startswith('http')]
         if not urls:
             return []
 
@@ -99,7 +99,17 @@ class LogicAssaultScanner:
                              "severity": "critical",
                              "tool_source": "LogicAssault",
                              "endpoint": url,
-                             "repro_command": f"curl -ik -H '{header}: {val}' {url}"
+                             "repro_command": f"curl -ik -H '{header}: {val}' {url}",
+                             "result_state": "validation",
+                             "validation_status": "success",
+                             "metadata": {
+                                 "validation": {
+                                     "status": "success",
+                                     "target": url,
+                                     "command": f"curl -ik -H '{header}: {val}' {url}",
+                                     "artifact": f"Baseline status={base.status_code}; bypass status={resp.status_code}",
+                                 }
+                             },
                          }
                 except Exception: pass
         return None
@@ -126,12 +136,23 @@ class LogicAssaultScanner:
             if modified != url:
                 if self._check_access(modified):
                     found.append({
-                        "title": f"Critical IDOR: Object Access Confirmed",
-                        "description": f"Successfully accessed non-public data at {modified} by manipulating ID.\nPotential Broken Object Level Authorization (BOLA).",
+                        "title": "Validated Object Access Differential",
+                        "description": f"Successfully retrieved alternate object-like data at {modified} by manipulating an identifier.\nThis is a bounded authorization validation and should be reviewed as potential BOLA/IDOR rather than treated as multi-role confirmation.",
                         "severity": "high",
                         "tool_source": "LogicAssault",
                         "endpoint": modified,
-                        "repro_command": f"curl -ik {modified}"
+                        "repro_command": f"curl -ik {modified}",
+                        "result_state": "validation",
+                        "validation_status": "success",
+                        "metadata": {
+                            "validation": {
+                                "status": "success",
+                                "target": modified,
+                                "command": f"curl -ik {modified}",
+                                "artifact": "Alternate object reference produced object-like response with sensitive fields.",
+                            },
+                            "authorization_scope": "single_identity_bounded_probe",
+                        },
                     })
                     break 
         return found
@@ -164,7 +185,9 @@ class LogicAssaultScanner:
                         "severity": "medium",
                         "tool_source": "LogicAssault",
                         "endpoint": polluted_url,
-                        "repro_command": f"curl -ik '{polluted_url}'"
+                        "repro_command": f"curl -ik '{polluted_url}'",
+                        "result_state": "heuristic",
+                        "validation_status": "uncertain",
                     })
             except Exception: pass
         return findings

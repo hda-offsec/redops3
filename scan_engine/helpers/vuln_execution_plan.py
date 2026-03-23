@@ -41,6 +41,8 @@ def derive_vuln_execution_plan(results, port, profile="quick", execution_hints=N
     port_key = str(port)
     quick_mode = str(profile or "").startswith("quick")
     hints = execution_hints if isinstance(execution_hints, dict) else {}
+    per_port_hints = hints.get("per_port", {}) if isinstance(hints.get("per_port"), dict) else {}
+    module_hints = per_port_hints.get(port_key, {}) if isinstance(per_port_hints.get(port_key), dict) else {}
 
     katana = enum_phase.get("katana", {}) if isinstance(enum_phase, dict) else {}
     injection_points = enum_phase.get("injection_points", {}) if isinstance(enum_phase, dict) else {}
@@ -73,6 +75,7 @@ def derive_vuln_execution_plan(results, port, profile="quick", execution_hints=N
     has_api_signal = _contains_marker(candidate_urls, ["/api", "/v1", "/v2", "/v3", "swagger", "openapi", "graphql"])
     has_param_signal = bool(injection_urls) or any("?" in url for url in candidate_urls)
     has_js_signal = any(url.lower().split("?", 1)[0].endswith(".js") for url in candidate_urls)
+    has_execution_driver = bool(module_hints)
 
     def entry(enabled, reason):
         return {"enabled": bool(enabled), "reason": reason}
@@ -95,12 +98,36 @@ def derive_vuln_execution_plan(results, port, profile="quick", execution_hints=N
             "injection_or_query_param_signal" if has_param_signal else "no_parameterized_surface_signal",
         ),
         "parameter_miner": entry(
-            has_any_surface and (has_param_signal or has_api_signal or not quick_mode),
-            "surface_available_for_parameter_mining" if has_any_surface else "no_discovered_surface",
+            has_any_surface and (has_param_signal or has_api_signal or has_execution_driver or not quick_mode),
+            "cortex_targeted_parameter_surface" if has_execution_driver else ("surface_available_for_parameter_mining" if has_any_surface else "no_discovered_surface"),
         ),
         "api_fuzzer": entry(
-            has_api_signal and (has_param_signal or not quick_mode),
-            "api_surface_detected" if has_api_signal else "no_api_surface_signal",
+            bool(module_hints.get("api_fuzzer")) or (has_api_signal and (has_param_signal or not quick_mode)),
+            "cortex_targeted_api_followup" if module_hints.get("api_fuzzer") else ("api_surface_detected" if has_api_signal else "no_api_surface_signal"),
+        ),
+        "business_logic": entry(
+            bool(module_hints.get("business_logic")) or has_api_signal or has_param_signal,
+            "cortex_targeted_logic_followup" if module_hints.get("business_logic") else ("api_or_param_surface_detected" if (has_api_signal or has_param_signal) else "no_logic_surface_signal"),
+        ),
+        "logic_assault": entry(
+            bool(module_hints.get("logic_assault")) or has_api_signal or has_param_signal,
+            "cortex_targeted_object_access_followup" if module_hints.get("logic_assault") else ("api_or_param_surface_detected" if (has_api_signal or has_param_signal) else "no_object_access_signal"),
+        ),
+        "oauth_expert": entry(
+            bool(module_hints.get("oauth")),
+            "cortex_targeted_oauth_followup" if module_hints.get("oauth") else "no_oauth_surface_signal",
+        ),
+        "jwt_expert": entry(
+            bool(module_hints.get("jwt")) or has_api_signal,
+            "cortex_targeted_jwt_followup" if module_hints.get("jwt") else ("api_surface_detected" if has_api_signal else "no_jwt_surface_signal"),
+        ),
+        "access_control": entry(
+            bool(module_hints.get("access_control")) or has_api_signal,
+            "cortex_targeted_authorization_followup" if module_hints.get("access_control") else ("api_surface_detected" if has_api_signal else "no_authorization_surface_signal"),
+        ),
+        "ssti": entry(
+            bool(module_hints.get("ssti")) or has_param_signal,
+            "cortex_targeted_template_followup" if module_hints.get("ssti") else ("injection_or_query_param_signal" if has_param_signal else "no_template_surface_signal"),
         ),
         "signals": {
             "candidate_url_count": len(candidate_urls),
@@ -108,6 +135,7 @@ def derive_vuln_execution_plan(results, port, profile="quick", execution_hints=N
             "has_api_signal": has_api_signal,
             "has_param_signal": has_param_signal,
             "has_js_signal": has_js_signal,
+            "has_execution_driver": has_execution_driver,
             "quick_mode": quick_mode,
         },
     }

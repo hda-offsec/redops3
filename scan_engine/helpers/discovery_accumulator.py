@@ -27,7 +27,11 @@ class DiscoveryAccumulator:
         pool.update(enum.get('api', {}).get('discovered_endpoints', []))
         
         # Arjun / Normalized
-        pool.update(enum.get('normalized', {}).get(str(port), []))
+        normalized = enum.get('normalized', {}).get(str(port), [])
+        if isinstance(normalized, dict):
+            pool.update(normalized.get('endpoints', []))
+        else:
+            pool.update(normalized)
         pool.update(enum.get('targets', {}).get(str(port), []))
         
         # JS Deep Mining
@@ -39,6 +43,16 @@ class DiscoveryAccumulator:
         expansion = enum.get('derived', {}).get('surface_expansion', {}).get('per_port', {}).get(str(port), {})
         if isinstance(expansion, dict):
             pool.update(expansion.get('derived_endpoints', []))
+
+        # Execution hints synthesized from Cortex targeting
+        per_port_hints = enum.get('derived', {}).get('execution_hints', {}).get('per_port', {}).get(str(port), {})
+        if isinstance(per_port_hints, dict):
+            for hint_bucket in per_port_hints.values():
+                if isinstance(hint_bucket, dict):
+                    pool.update(hint_bucket.get('seed_priority', []))
+                    pool.update(hint_bucket.get('protected_urls', []))
+                    pool.update(hint_bucket.get('hpp_urls', []))
+                    pool.update(hint_bucket.get('mass_assignment_urls', []))
 
         # 2. VULN PHASE (Early discovery modules)
         vuln = results.get('phases', {}).get('vuln', {})
@@ -61,6 +75,17 @@ class DiscoveryAccumulator:
                         elif isinstance(item, dict):
                             url = item.get('url') or item.get('endpoint') or item.get('target')
                             if url: pool.add(url)
+
+        surface_mapping = vuln.get('surface_mapping', {}).get(str(port), {})
+        if isinstance(surface_mapping, dict):
+            for items in surface_mapping.get('tree', {}).values():
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if isinstance(item, dict):
+                        path = item.get('path')
+                        if path:
+                            pool.add(path)
 
         # 3. Dirbusting
         dirb = results.get('phases', {}).get('dirbusting', {}).get(str(port), {})
