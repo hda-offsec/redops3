@@ -115,27 +115,40 @@ const scanDashboardFindingsView = {
     },
 
     buildResultCardHtml(finding, display) {
-        let innerHTML = `
+        return `
             <div class="d-flex w-100 justify-content-between mb-2">
                 <span class="badge severity-badge ${display.severity}">${display.severityLabel}</span>
                 <span class="result-text fw-bold text-break">${display.escapedTitle}</span>
             </div>
             <div class="mt-1 small text-muted text-break">Source: ${display.escapedTool}</div>
+            ${this.buildResultCardOptionalSectionsHtml(finding, display)}
         `;
+    },
+
+    buildResultCardOptionalSectionsHtml(finding, display) {
+        let sectionsHtml = '';
 
         if (finding?.description) {
-            innerHTML += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${display.escapedDesc}</div>`;
+            sectionsHtml += `<div class="mt-1 small text-muted text-break overflow-auto" style="max-height: 200px; white-space: pre-wrap;">${display.escapedDesc}</div>`;
         }
 
         if (finding?.screenshot_path) {
-            innerHTML += `
+            sectionsHtml += `
                 <div class="mt-2 w-100">
                     <img src="/static/${display.escapedScreenshotPath}" class="img-fluid rounded border border-secondary shadow-sm screenshot-trigger" style="max-height: 150px; cursor: pointer;" title="Port ${display.escapedTitle}">
                 </div>
             `;
         }
 
-        return innerHTML;
+        return sectionsHtml;
+    },
+
+    buildTableRowStateIndicatorsHtml(display) {
+        return `
+            ${display.primaryCommand ? '<i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>' : ''}
+            ${display.hasProof ? '<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>' : ''}
+            ${display.isValidated ? '<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>' : ''}
+        `;
     },
 
     buildTableRowHtml(display) {
@@ -152,9 +165,7 @@ const scanDashboardFindingsView = {
             <td>
                 <div class="d-flex align-items-center gap-2">
                     <div class="fw-bold text-light text-truncate" title="${display.escapedTitle}">${display.escapedTitle}</div>
-                    ${display.primaryCommand ? '<i class="fas fa-terminal text-warning extra-small" title="Validation Command Available"></i>' : ''}
-                    ${display.hasProof ? '<i class="fas fa-microscope text-info extra-small" title="Technical Evidence Available"></i>' : ''}
-                    ${display.isValidated ? '<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small"><i class="fas fa-check-circle me-1"></i>VALIDATED</span>' : ''}
+                    ${this.buildTableRowStateIndicatorsHtml(display)}
                 </div>
                 <div class="text-muted extra-small text-truncate mt-1 opacity-50" style="max-width: 400px;">
                     ${display.escapedDesc.replace(/<[^>]*>/g, '')}

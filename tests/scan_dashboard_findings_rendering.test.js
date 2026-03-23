@@ -198,6 +198,62 @@ test('findings view helper formats escaped text and labels with the existing fin
     assert.equal(displayText.toolLabel, 'CORE');
 });
 
+test('findings view helper extracts optional result card sections without changing description or screenshot HTML', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+
+    const optionalSections = ScanDashboard.internals.findingsView.buildResultCardOptionalSectionsHtml(
+        {
+            description: 'Body <script>alert(1)</script>',
+            screenshot_path: 'loot/xss-proof.png',
+        },
+        {
+            escapedDesc: 'Body &lt;script&gt;alert(1)&lt;/script&gt;',
+            escapedScreenshotPath: 'loot/xss-proof.png',
+            escapedTitle: 'Stored &lt;XSS&gt;',
+        }
+    );
+
+    assert.match(optionalSections, /Body &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.match(optionalSections, /loot\/xss-proof\.png/);
+    assert.match(optionalSections, /screenshot-trigger/);
+    assert.match(optionalSections, /title="Port Stored &lt;XSS&gt;"/);
+
+    const emptySections = ScanDashboard.internals.findingsView.buildResultCardOptionalSectionsHtml(
+        {},
+        {
+            escapedDesc: 'ignored',
+            escapedScreenshotPath: 'ignored',
+            escapedTitle: 'Ignored',
+        }
+    );
+
+    assert.equal(emptySections, '');
+});
+
+test('findings view helper extracts table state indicators without changing badges or validation affordances', () => {
+    const { ScanDashboard } = loadScanDashboardClass();
+
+    const indicatorsHtml = ScanDashboard.internals.findingsView.buildTableRowStateIndicatorsHtml({
+        primaryCommand: 'curl -isk https://target/graphql',
+        hasProof: true,
+        isValidated: true,
+    });
+
+    assert.match(indicatorsHtml, /fa-terminal text-warning/);
+    assert.match(indicatorsHtml, /Validation Command Available/);
+    assert.match(indicatorsHtml, /fa-microscope text-info/);
+    assert.match(indicatorsHtml, /Technical Evidence Available/);
+    assert.match(indicatorsHtml, /VALIDATED/);
+
+    const emptyIndicatorsHtml = ScanDashboard.internals.findingsView.buildTableRowStateIndicatorsHtml({
+        primaryCommand: '',
+        hasProof: false,
+        isValidated: false,
+    });
+
+    assert.equal(emptyIndicatorsHtml.replace(/\s/g, ''), '');
+});
+
 test('findings view helper keeps the findings table row contract for badges, evidence, validation, and vector rendering', () => {
     const { ScanDashboard } = loadScanDashboardClass();
     const rowHtml = ScanDashboard.internals.findingsView.buildTableRowHtml({
