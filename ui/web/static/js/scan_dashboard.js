@@ -336,6 +336,180 @@ const scanDashboardFindingsFlow = {
     },
 };
 
+const scanDashboardSectionRendering = {
+    humanRendererRegistry: Object.freeze({
+        tls: 'renderTLSHuman',
+        waf: 'renderWAFHuman',
+        headers: 'renderHeadersHuman',
+        whatweb: 'renderTechHuman',
+        arjun: 'renderParamsHuman',
+        params: 'renderParamsHuman',
+        katana: 'renderCrawlerHuman',
+        js_secrets: 'renderSecretsHuman',
+        secrets: 'renderSecretsHuman',
+        cloud: 'renderCloudHuman',
+        dorks: 'renderDorksHuman',
+        origin_ips: 'renderOriginHuman',
+        emails: 'renderEmailsHuman',
+        github: 'renderGithubHuman',
+        records: 'renderDNSRecordsHuman',
+        subdomains: 'renderSubdomainsHuman',
+        api: 'renderApiTreeHuman',
+    }),
+
+    hasRenderableData(data) {
+        if (!data) return false;
+        if (Array.isArray(data)) return data.length > 0;
+        if (typeof data === 'object') return Object.keys(data).length > 0;
+        return true;
+    },
+
+    resolveContainer(documentRef, key) {
+        const existing = documentRef.getElementById(`${key}-results`);
+        if (!existing) return null;
+        return existing.querySelector?.('.result-content') || existing;
+    },
+
+    ensureContainer(documentRef, key, title) {
+        let container = this.resolveContainer(documentRef, key);
+        if (container) return container;
+
+        const deepContainer = documentRef.getElementById('deep-scan-details');
+        if (!deepContainer) return null;
+
+        const placeholder = documentRef.getElementById('deep-scan-placeholder');
+        if (placeholder) placeholder.style.display = 'none';
+
+        const wrapper = documentRef.createElement('div');
+        wrapper.className = 'col-lg-6 mb-4 animate__animated animate__fadeIn';
+        wrapper.innerHTML = `
+            <div class="card h-100 glass-panel border-secondary border-opacity-25">
+                <div class="card-header glass-header d-flex justify-content-between align-items-center">
+                    <span class="text-cyber small fw-bold text-uppercase"><i class="fas fa-microscope me-2 text-primary"></i>${title}</span>
+                    <span class="badge bg-dark border border-secondary text-muted x-small">${key.toUpperCase()}</span>
+                </div>
+                <div class="card-body result-content p-3" id="${key}-results" style="max-height: 400px; overflow-y: auto;"></div>
+            </div>`;
+        deepContainer.appendChild(wrapper);
+        return this.resolveContainer(documentRef, key);
+    },
+
+    renderStructuredFallback(dashboard, data) {
+        let html = '<div class="list-group list-group-flush bg-transparent w-100">';
+        if (Array.isArray(data)) {
+            data.slice(0, 100).forEach(item => {
+                const content = typeof item === 'object' ? JSON.stringify(item) : item;
+                html += `<div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1 font-monospace x-small text-muted text-break">${dashboard.escapeHtml(content)}</div>`;
+            });
+            if (data.length > 100) html += `<div class="p-2 x-small text-center text-muted">+ ${data.length - 100} more...</div>`;
+        } else {
+            Object.entries(data).forEach(([k, v]) => {
+                html += `
+                    <div class="mb-2 w-100">
+                        <div class="x-small text-cyber font-monospace text-uppercase fw-bold">${k}</div>
+                        <pre class="bg-black p-2 rounded border border-secondary border-opacity-10 x-small text-muted mb-0 overflow-auto" style="max-height: 150px;">${dashboard.escapeHtml(typeof v === 'object' ? JSON.stringify(v, null, 2) : v)}</pre>
+                    </div>`;
+            });
+        }
+        html += '</div>';
+        return html;
+    },
+
+    renderPortMappedArrayFallback(dashboard, data) {
+        const keys = Object.keys(data || {});
+        if (!keys.length || !keys.every(k => !isNaN(k) && Array.isArray(data[k]))) {
+            return null;
+        }
+
+        let html = '<div class="row g-2 w-100">';
+        for (const [port, items] of Object.entries(data)) {
+            html += `<div class="col-12 mb-2"><div class="badge bg-cyber x-small mb-1 text-dark">PORT ${port}</div>${this.renderGenericVulnList(dashboard, items)}</div>`;
+        }
+        html += '</div>';
+        return html;
+    },
+
+    renderGenericVulnList(dashboard, data) {
+        if (!Array.isArray(data)) return '';
+        let html = '<div class="list-group list-group-flush bg-transparent w-100">';
+        data.slice(0, 50).forEach(item => {
+            if (!item || typeof item !== 'object') {
+                html += `<div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1 font-monospace x-small text-muted text-break">${dashboard.escapeHtml(item)}</div>`;
+                return;
+            }
+            const title = item.title || item.name || item.id || item.type || 'Discovered Vector';
+            let severity = item.severity || item.risk || 'info';
+            if (typeof severity !== 'string') severity = 'info';
+            const sevClass = ['critical', 'high'].includes(severity.toLowerCase()) ? 'danger' : (['medium'].includes(severity.toLowerCase()) ? 'warning' : 'info');
+            const desc = item.description || item.reason || item.details || '';
+            const tool = item.tool || item.source || item.tool_source || '-';
+
+            html += `
+            <div class="list-group-item bg-black bg-opacity-40 border-secondary border-opacity-25 py-2 mb-2 rounded border border-start border-${sevClass} border-2">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-light fw-bold small text-truncate" style="max-width: 80%;">${dashboard.escapeHtml(title)}</span>
+                    <span class="badge bg-${sevClass} x-small bg-opacity-75">${severity.toUpperCase()}</span>
+                </div>
+                <div class="d-flex gap-2 mb-2">
+                    <span class="badge bg-dark border border-secondary text-muted x-small">${dashboard.escapeHtml(tool)}</span>
+                </div>
+                ${desc ? `<div class="x-small text-muted mb-2 lh-sm overflow-hidden" style="max-height: 60px;">${dashboard.escapeHtml(desc)}</div>` : ''}
+                ${item.url || item.endpoint ? `<div class="x-small text-cyber font-monospace text-truncate w-100 d-block"><i class="fas fa-link me-1 opacity-50"></i><a href="${dashboard.escapeHtml(item.url || item.endpoint)}" target="_blank" class="text-cyber text-decoration-none">${dashboard.escapeHtml(item.url || item.endpoint)}</a></div>` : ''}
+                ${item.match || item.evidence ? `<div class="bg-dark bg-opacity-50 p-1 border border-secondary border-opacity-10 rounded mt-2 x-small text-warning font-monospace text-truncate"><i class="fas fa-search me-1"></i>${dashboard.escapeHtml(item.match || item.evidence)}</div>` : ''}
+                ${item.repro_command ? `<div class="bg-black p-1 border border-secondary border-opacity-25 rounded mt-2 x-small text-muted font-monospace text-truncate"><i class="fas fa-terminal me-1"></i>${dashboard.escapeHtml(item.repro_command)}</div>` : ''}
+            </div>`;
+        });
+        if (data.length > 50) html += `<div class="p-2 x-small text-center text-muted">+ ${data.length - 50} more...</div>`;
+        html += '</div>';
+        return html;
+    },
+
+    renderSectionHuman(dashboard, key, data) {
+        const rendererName = this.humanRendererRegistry[key];
+        if (!rendererName || typeof dashboard[rendererName] !== 'function') {
+            return null;
+        }
+
+        try {
+            return dashboard[rendererName](data);
+        } catch (e) {
+            console.error(`Human renderer failed for ${key}:`, e);
+            return null;
+        }
+    },
+
+    renderJSONSection(documentRef, dashboard, parent, key, title) {
+        if (!parent || !Object.prototype.hasOwnProperty.call(parent, key)) return;
+
+        const data = parent[key];
+        if (!this.hasRenderableData(data)) return;
+
+        const container = this.ensureContainer(documentRef, key, title);
+        if (!container) return;
+
+        const humanHtml = this.renderSectionHuman(dashboard, key, data);
+        if (humanHtml) {
+            container.innerHTML = humanHtml;
+            return;
+        }
+
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
+            container.innerHTML = this.renderGenericVulnList(dashboard, data);
+            return;
+        }
+
+        if (typeof data === 'object' && !Array.isArray(data)) {
+            const portMappedHtml = this.renderPortMappedArrayFallback(dashboard, data);
+            if (portMappedHtml) {
+                container.innerHTML = portMappedHtml;
+                return;
+            }
+        }
+
+        container.innerHTML = this.renderStructuredFallback(dashboard, data);
+    },
+};
+
 const scanDashboardResultsView = {
     getStructuredFindings(results) {
         return Array.isArray(results?.findings) ? results.findings : [];
@@ -2076,162 +2250,15 @@ class ScanDashboard {
 
     // --- HUMAN READABLE RENDERING ENGINE (V6) ---
     renderJSONSection(parent, key, title) {
-        if (!parent || !parent[key]) return;
-
-        const data = parent[key];
-        if (Array.isArray(data) && data.length === 0) return;
-        if (typeof data === 'object' && Object.keys(data).length === 0) return;
-
-        let container = document.getElementById(`${key}-results`);
-
-        if (!container) {
-            let deepContainer = document.getElementById('deep-scan-details');
-            if (!deepContainer) return;
-
-            let placeholder = document.getElementById('deep-scan-placeholder');
-            if (placeholder) placeholder.style.display = 'none';
-
-            const wrapper = document.createElement('div');
-            wrapper.id = `${key}-results`;
-            wrapper.className = 'col-lg-6 mb-4 animate__animated animate__fadeIn';
-            wrapper.innerHTML = `
-                <div class="card h-100 glass-panel border-secondary border-opacity-25">
-                    <div class="card-header glass-header d-flex justify-content-between align-items-center">
-                        <span class="text-cyber small fw-bold text-uppercase"><i class="fas fa-microscope me-2 text-primary"></i>${title}</span>
-                        <span class="badge bg-dark border border-secondary text-muted x-small">${key.toUpperCase()}</span>
-                    </div>
-                    <div class="card-body result-content p-3" style="max-height: 400px; overflow-y: auto;"></div>
-                </div>`;
-            deepContainer.appendChild(wrapper);
-            container = wrapper.querySelector('.result-content');
-        }
-
-        // Try Human-Readable First
-        const humanHtml = this.renderSectionHuman(key, data);
-        if (humanHtml) {
-            container.innerHTML = humanHtml;
-            return;
-        }
-
-        // Smart Fallback: Vulnerability List
-        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
-            container.innerHTML = this.renderGenericVulnList(data);
-            return;
-        }
-
-        // Smart Fallback: Port mapped arrays
-        if (typeof data === 'object' && !Array.isArray(data)) {
-            const keys = Object.keys(data);
-            if (keys.length > 0 && keys.every(k => !isNaN(k) && Array.isArray(data[k]))) {
-                let html = '<div class="row g-2 w-100">';
-                for (const [port, items] of Object.entries(data)) {
-                    html += `<div class="col-12 mb-2"><div class="badge bg-cyber x-small mb-1 text-dark">PORT ${port}</div>${this.renderGenericVulnList(items)}</div>`;
-                }
-                html += '</div>';
-                container.innerHTML = html;
-                return;
-            }
-        }
-
-        // Original Fallback: Structured Key/Value
-        let html = '<div class="list-group list-group-flush bg-transparent w-100">';
-        if (Array.isArray(data)) {
-            data.slice(0, 100).forEach(item => {
-                const content = typeof item === 'object' ? JSON.stringify(item) : item;
-                html += `<div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1 font-monospace x-small text-muted text-break">${this.escapeHtml(content)}</div>`;
-            });
-            if (data.length > 100) html += `<div class="p-2 x-small text-center text-muted">+ ${data.length - 100} more...</div>`;
-        } else {
-            Object.entries(data).forEach(([k, v]) => {
-                html += `
-                    <div class="mb-2 w-100">
-                        <div class="x-small text-cyber font-monospace text-uppercase fw-bold">${k}</div>
-                        <pre class="bg-black p-2 rounded border border-secondary border-opacity-10 x-small text-muted mb-0 overflow-auto" style="max-height: 150px;">${this.escapeHtml(typeof v === 'object' ? JSON.stringify(v, null, 2) : v)}</pre>
-                    </div>`;
-            });
-        }
-        html += '</div>';
-        container.innerHTML = html;
+        return scanDashboardSectionRendering.renderJSONSection(document, this, parent, key, title);
     }
 
     renderGenericVulnList(data) {
-        if (!Array.isArray(data)) return '';
-        let html = '<div class="list-group list-group-flush bg-transparent w-100">';
-        data.slice(0, 50).forEach(item => {
-            if (!item || typeof item !== 'object') {
-                html += `<div class="list-group-item bg-transparent border-secondary border-opacity-10 py-1 font-monospace x-small text-muted text-break">${this.escapeHtml(item)}</div>`;
-                return;
-            }
-            const title = item.title || item.name || item.id || item.type || 'Discovered Vector';
-            let severity = item.severity || item.risk || 'info';
-            if (typeof severity !== 'string') severity = 'info';
-            const sevClass = ['critical', 'high'].includes(severity.toLowerCase()) ? 'danger' : (['medium'].includes(severity.toLowerCase()) ? 'warning' : 'info');
-            const desc = item.description || item.reason || item.details || '';
-            const tool = item.tool || item.source || item.tool_source || '-';
-
-            html += `
-            <div class="list-group-item bg-black bg-opacity-40 border-secondary border-opacity-25 py-2 mb-2 rounded border border-start border-${sevClass} border-2">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="text-light fw-bold small text-truncate" style="max-width: 80%;">${this.escapeHtml(title)}</span>
-                    <span class="badge bg-${sevClass} x-small bg-opacity-75">${severity.toUpperCase()}</span>
-                </div>
-                <div class="d-flex gap-2 mb-2">
-                    <span class="badge bg-dark border border-secondary text-muted x-small">${this.escapeHtml(tool)}</span>
-                </div>
-                ${desc ? `<div class="x-small text-muted mb-2 lh-sm overflow-hidden" style="max-height: 60px;">${this.escapeHtml(desc)}</div>` : ''}
-                ${item.url || item.endpoint ? `<div class="x-small text-cyber font-monospace text-truncate w-100 d-block"><i class="fas fa-link me-1 opacity-50"></i><a href="${this.escapeHtml(item.url || item.endpoint)}" target="_blank" class="text-cyber text-decoration-none">${this.escapeHtml(item.url || item.endpoint)}</a></div>` : ''}
-                ${item.match || item.evidence ? `<div class="bg-dark bg-opacity-50 p-1 border border-secondary border-opacity-10 rounded mt-2 x-small text-warning font-monospace text-truncate"><i class="fas fa-search me-1"></i>${this.escapeHtml(item.match || item.evidence)}</div>` : ''}
-                ${item.repro_command ? `<div class="bg-black p-1 border border-secondary border-opacity-25 rounded mt-2 x-small text-muted font-monospace text-truncate"><i class="fas fa-terminal me-1"></i>${this.escapeHtml(item.repro_command)}</div>` : ''}
-            </div>`;
-        });
-        if (data.length > 50) html += `<div class="p-2 x-small text-center text-muted">+ ${data.length - 50} more...</div>`;
-        html += '</div>';
-        return html;
+        return scanDashboardSectionRendering.renderGenericVulnList(this, data);
     }
 
     renderSectionHuman(key, data) {
-        try {
-            switch (key) {
-                case 'tls':
-                    return this.renderTLSHuman(data);
-                case 'waf':
-                    return this.renderWAFHuman(data);
-                case 'headers':
-                    return this.renderHeadersHuman(data);
-                case 'whatweb':
-                    return this.renderTechHuman(data);
-                case 'arjun':
-                case 'params':
-                    return this.renderParamsHuman(data);
-                case 'katana':
-                    return this.renderCrawlerHuman(data);
-                case 'js_secrets':
-                case 'secrets':
-                    return this.renderSecretsHuman(data);
-                case 'cloud':
-                    return this.renderCloudHuman(data);
-                case 'dorks':
-                    return this.renderDorksHuman(data);
-                case 'origin_ips':
-                    return this.renderOriginHuman(data);
-                case 'emails':
-                    return this.renderEmailsHuman(data);
-                case 'github':
-                    return this.renderGithubHuman(data);
-                case 'records':
-                    return this.renderDNSRecordsHuman(data);
-                case 'subdomains':
-                    return this.renderSubdomainsHuman(data);
-                case 'api':
-                    return this.renderApiTreeHuman(data);
-
-                default:
-                    return null;
-            }
-        } catch (e) {
-            console.error(`Human renderer failed for ${key}:`, e);
-            return null;
-        }
+        return scanDashboardSectionRendering.renderSectionHuman(this, key, data);
     }
 
     renderTLSHuman(data) {
@@ -2723,6 +2750,7 @@ ScanDashboard.internals = {
     logStream: scanDashboardLogStream,
     moduleStatus: scanDashboardModuleStatus,
     pipelineTimeline: scanDashboardPipelineTimeline,
+    sectionRendering: scanDashboardSectionRendering,
     indicators: scanDashboardIndicators,
     progressView: scanDashboardProgressView,
     lootStream: scanDashboardLootStream,
