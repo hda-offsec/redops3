@@ -160,7 +160,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
         f"The operation was initiated on {scan_obj.start_time.strftime('%Y-%m-%d %H:%M:%S')} using the {scan_obj.scan_type} profile. "
         f"A total of {len(findings)} unique findings were recorded across multiple attack surfaces."
     )
-    pdf.multi_cell(0, 6, pdf.safe_text(summary))
+    # Standard width for A4 with 10mm margins is 190mm
+    pdf.multi_cell(190, 6, pdf.safe_text(summary))
     
     # Severity breakdown
     sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -265,9 +266,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 if subs:
                     unique_subs = sorted(list(set(subs)))
                     pdf.set_font("helvetica", "B", 10)
-                    pdf.cell(0, 7, f"Discovered Subdomains ({len(unique_subs)}):", ln=True)
-                    pdf.set_font("helvetica", "", 8)
-                    pdf.multi_cell(0, 5, pdf.safe_text(", ".join(unique_subs)))
+                    pdf.multi_cell(190, 5, pdf.safe_text(", ".join(unique_subs)))
                     pdf.ln(3)
 
         # Cloud
@@ -292,9 +291,7 @@ def generate_scan_report(scan_id, scan_obj, findings):
         if osint.get('emails'):
             unique_emails = sorted(list(set(osint['emails'])))
             pdf.set_font("helvetica", "B", 10)
-            pdf.cell(0, 7, f"Email Addresses ({len(unique_emails)}):", ln=True)
-            pdf.set_font("helvetica", "", 8)
-            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(unique_emails)))
+            pdf.multi_cell(190, 5, pdf.safe_text(", ".join(unique_emails)))
             pdf.ln(3)
 
     # 4.5 Strategic Intelligence (Cortex)
@@ -320,19 +317,23 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 conf = r.get('confidence', 0)
                 driver = r.get('metadata', {}).get('execution_driver', {}) if isinstance(r.get('metadata', {}), dict) else {}
                 pdf.set_font("helvetica", "B", 9)
-                pdf.cell(0, 5, pdf.safe_text(f"- {title} (Signal strength: {conf}%)"), ln=True)
+                pdf.set_x(10)
+                pdf.cell(190, 5, pdf.safe_text(f"- {title} (Signal strength: {conf}%)"), ln=True)
                 pdf.set_font("helvetica", "I", 8)
-                pdf.multi_cell(0, 4, pdf.safe_text(f"  Guided follow-up recommendation: {reason}"))
+                pdf.set_x(15)
+                pdf.multi_cell(180, 4, pdf.safe_text(f"  Guided follow-up recommendation: {reason}"))
                 if driver:
                     modules = ", ".join(driver.get('modules', []) or [])
                     mode = str(driver.get('automation_state') or 'recommendation_only').replace('_', ' ')
                     pdf.set_font("helvetica", "", 8)
+                    pdf.set_x(15)
                     if modules:
-                        pdf.multi_cell(0, 4, pdf.safe_text(f"  Execution mode: {mode} | Targeted modules: {modules}"))
+                        pdf.multi_cell(180, 4, pdf.safe_text(f"  Execution mode: {mode} | Targeted modules: {modules}"))
                     else:
-                        pdf.multi_cell(0, 4, pdf.safe_text(f"  Execution mode: {mode}"))
+                        pdf.multi_cell(180, 4, pdf.safe_text(f"  Execution mode: {mode}"))
                     if driver.get('fallback_reason'):
-                        pdf.multi_cell(0, 4, pdf.safe_text(f"  Automation limit: {driver.get('fallback_reason')}"))
+                        pdf.set_x(15)
+                        pdf.multi_cell(180, 4, pdf.safe_text(f"  Automation limit: {driver.get('fallback_reason')}"))
                 pdf.ln(2)
         
         # Surface Expansion
@@ -351,7 +352,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 pdf.set_font("helvetica", "B", 9)
                 pdf.cell(0, 5, "Heuristic Search Nodes:", ln=True)
                 pdf.set_font("helvetica", "I", 8)
-                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(unique_eps)))
+                pdf.set_x(15)
+                pdf.multi_cell(180, 5, pdf.safe_text(", ".join(unique_eps)))
                 pdf.ln(2)
 
         # Service Intel
@@ -366,7 +368,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
             for item in intel:
                 for t in item.get('tags', []):
                     tags_found.add(f"{t} (Port {item.get('port')})")
-            pdf.multi_cell(0, 5, pdf.safe_text(", ".join(sorted(tags_found))))
+            pdf.set_x(10)
+            pdf.multi_cell(190, 5, pdf.safe_text(", ".join(sorted(tags_found))))
             pdf.ln(5)
 
     # 5. Technology Intelligence
@@ -423,7 +426,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
                      if "WordPress" in summ: is_wp_detected = True
 
         if all_techs:
-             pdf.multi_cell(0, 5, pdf.safe_text(", ".join(all_techs)))
+             pdf.set_x(10)
+             pdf.multi_cell(190, 5, pdf.safe_text(", ".join(all_techs)))
         else:
              pdf.cell(0, 5, "No specific frameworks identified.", ln=True)
         pdf.ln(3)
@@ -487,7 +491,8 @@ def generate_scan_report(scan_id, scan_obj, findings):
                 for u in users:
                     if isinstance(u, dict): user_names.append(u.get('name', 'Unknown'))
                     else: user_names.append(str(u))
-                pdf.multi_cell(0, 5, pdf.safe_text(", ".join(user_names)))
+                pdf.set_x(15)
+                pdf.multi_cell(180, 5, pdf.safe_text(", ".join(user_names)))
             
             pdf.ln(5)
 
@@ -847,7 +852,9 @@ def generate_scan_report(scan_id, scan_obj, findings):
         pdf.chapter_title("11. Operational Mission Notes", color=(100, 100, 100))
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(50, 50, 50)
-        pdf.multi_cell(0, 6, pdf.safe_text(scan_obj.notes))
+        pdf.set_y(pdf.get_y() + 5)
+        pdf.set_x(10)
+        pdf.multi_cell(190, 6, pdf.safe_text(scan_obj.notes))
 
     filename = f"redops_report_{scan_id}_{datetime.now().strftime('%Y%m%d%H%M')}.pdf"
     path = os.path.join(REPORTS_DIR, filename)

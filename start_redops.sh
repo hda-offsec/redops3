@@ -81,7 +81,7 @@ fi
 
 # Pre-compile RedOps Python source code (catch syntax errors early)
 echo "[*] Pre-compiling source files..."
-./venv/bin/python3 -m compileall -q . -x "venv|tests|data" || echo "[!] Some compilation warnings occurred."
+./venv/bin/python3 -m compileall -q . -x "venv|tests|data|\.git" || echo "[!] Some compilation warnings occurred."
 
 
 echo "[+] Starting Celery Worker (Pool: solo)..."

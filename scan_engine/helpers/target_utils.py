@@ -35,7 +35,18 @@ def validate_target(target, allow_internal=True):
     if not target:
         raise ValueError("Target cannot be empty.")
 
-    # Strip protocol if present
+    # 1. Handle CIDR first
+    if "/" in target:
+        try:
+             # Check if it's a valid CIDR network (e.g. 192.168.1.0/24)
+             # strict=False allows host addresses (e.g. 192.168.1.1/24)
+             net = ipaddress.ip_network(target, strict=False)
+             _check_network_safety(net, allow_internal)
+             return True
+        except ValueError:
+             pass # Not a valid CIDR, proceed to hostname/IP validation
+
+    # 2. Extract hostname for resolution
     hostname = target
     if "://" in target:
         try:
@@ -44,6 +55,9 @@ def validate_target(target, allow_internal=True):
                 hostname = parsed.hostname
         except ValueError:
             pass # fallback to string split if parsing fails
+    elif "/" in hostname:
+        # Handle cases like hove.io/admin where no scheme is present
+        hostname = hostname.split("/")[0]
 
     # Handle simple "hostname:port" case if urlparse didn't catch it (because of no scheme)
     if ":" in hostname and not hostname.startswith("["): # Check for port but exclude IPv6 literal
@@ -121,5 +135,19 @@ def _check_ip_safety(ip_obj, allow_internal):
             raise ValueError(f"Target resolves to link-local address: {ip_obj}")
         if ip_obj.is_multicast:
             raise ValueError(f"Target resolves to multicast address: {ip_obj}")
-    if ip_obj.is_unspecified: # 0.0.0.0
-         raise ValueError(f"Target resolves to unspecified address: {ip_obj}")
+
+def _check_network_safety(net_obj, allow_internal):
+    """Checks if the given network is safe for scanning."""
+    if not allow_internal:
+        if net_obj.is_loopback:
+            raise ValueError(f"Target network is loopback: {net_obj}")
+        if net_obj.is_private:
+            raise ValueError(f"Target network is private: {net_obj}")
+        if net_obj.is_reserved:
+            raise ValueError(f"Target network is reserved: {net_obj}")
+        if net_obj.is_link_local:
+            raise ValueError(f"Target network is link-local: {net_obj}")
+        if net_obj.is_multicast:
+            raise ValueError(f"Target network is multicast: {net_obj}")
+    if net_obj.is_unspecified: # 0.0.0.0/x
+         raise ValueError(f"Target network is unspecified: {net_obj}")

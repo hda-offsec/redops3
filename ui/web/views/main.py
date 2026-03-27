@@ -705,10 +705,33 @@ def _normalize_target(value):
     if not value:
         return value
     value = value.strip()
+
+    # 1. Skip normalization for CIDR (e.g. 192.168.1.0/24)
+    if "/" in value:
+        try:
+            import ipaddress
+            ipaddress.ip_network(value, strict=False)
+            return value
+        except ValueError:
+            pass
+
+    # 2. Extract hostname if it's already a full URL
     if value.startswith("http://") or value.startswith("https://"):
         parsed = urlparse(value)
         if parsed.hostname:
             return parsed.hostname
+    
+    # 3. Extract hostname if it's a URL-like string without scheme (e.g. hove.io/admin)
+    if "/" in value:
+        # Prepend a dummy scheme for urlparse to handle it correctly
+        temp_val = "http://" + value
+        try:
+            parsed = urlparse(temp_val)
+            if parsed.hostname:
+                return parsed.hostname
+        except Exception:
+            pass
+
     return value
 
 

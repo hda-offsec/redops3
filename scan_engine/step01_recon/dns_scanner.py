@@ -12,10 +12,10 @@ class DNSScanner:
         try:
             ext = tldextract.extract(target)
             if ext.domain and ext.suffix:
-                return f"{ext.domain}.{ext.suffix}"
+                return f"{ext.domain.lower()}.{ext.suffix.lower()}"
         except Exception:
             pass
-        return target
+        return target.lower()
 
     def check_tools(self):
         return ProcessManager.find_binary_path("dnsrecon") is not None
@@ -165,7 +165,7 @@ class DNSScanner:
             root_domain = self.root_domain
 
             # Filter subdomains against the root domain
-            filtered = [sub for sub in found if sub.endswith(root_domain)]
+            filtered = [sub.lower() for sub in found if sub.lower().endswith(root_domain)]
             results["subdomains"] = filtered
             
             if logger: logger(f"Subfinder finished. Found {len(filtered)} subdomains (root: {root_domain}).", "SUCCESS")

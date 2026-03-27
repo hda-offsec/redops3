@@ -2,9 +2,18 @@ from urllib.parse import urlparse
 
 
 def _as_list(value):
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, str) and item.strip()]
-    return []
+    if not isinstance(value, list):
+        return []
+    extracted = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            extracted.append(item.strip())
+        elif isinstance(item, dict):
+            # Try common keys for URL/Path (as used in DiscoveryAccumulator)
+            url = item.get('url') or item.get('endpoint') or item.get('target') or item.get('path')
+            if url and isinstance(url, str) and url.strip():
+                extracted.append(url.strip())
+    return extracted
 
 
 def _matches_port(url, port):
